@@ -32,7 +32,8 @@ class DiffusionAttnBackend:
             self.impl = "v2"
         else:
             raise RuntimeError("Neither flash-attn v2 nor v3 found.")
-        logger.info(f"Using Flash Attention {self.impl} as Diffusion attention backend.")
+        if torch.distributed.get_rank() == 0:
+            logger.info(f"Using Flash Attention {self.impl} as Diffusion attention backend.")
 
     # ------------- 统一入口 -------------
     def __call__(

@@ -449,9 +449,9 @@ class Generator:
 
         # enable ditango
         if DiffusionBackend.args.infer.diffusion.enable_ditango:
-            from chitu_diffusion.modules.attention.ditango_attn_backend import Ditango_Attention
+            from chitu_diffusion.modules.attention.ditango_attn_backend import DitangoAttention
             for layer_id, block in enumerate(DiffusionBackend.active_model.blocks):
-                block.self_attn.attn_func = Ditango_Attention(
+                block.self_attn.attn_func = DitangoAttention(
                     ulysses_limit=DiffusionBackend.args.infer.diffusion.up_limit,
                     layer_id=layer_id
                 )

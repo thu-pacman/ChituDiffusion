@@ -382,7 +382,7 @@ def initialize_up_groups(up_sizes: List[int], up_limit: int, cfg_size: int, rank
         cp_group_ranks = [list(range(world_size))]
     
     for up_size in up_sizes:
-        if cp_group_size % up_size != 0:
+        if up_size == 0 or cp_group_size % up_size != 0:
             continue
             
         if up_size > up_limit:
@@ -418,7 +418,9 @@ def initialize_diffusion_parallel_groups(
     initialize_world_group(rank, local_rank, world_size)
     initialize_cfg_group(cfg_size, rank, local_rank, world_size)
     initialize_cp_group(cp_size, cfg_size, rank, local_rank, world_size)
-    up_sizes = [up_limit, up_limit // 2] # TODO: More up sizes to support DiTango Support
+
+    max_up_size = up_limit if up_limit <= cp_size else cp_size
+    up_sizes = [max_up_size, max_up_size // 2] # TODO: More up sizes to support DiTango Support
     initialize_up_groups(up_sizes, up_limit, cfg_size, rank, local_rank, world_size)
     
     # Debug logging
