@@ -437,7 +437,7 @@ class Generator:
         
         DiffusionBackend.switch_active_model(flush=True)
 
-        # enable flexcache
+        # Enable flexcache
         if DiffusionBackend.flexcache is not None:
             if task.req.params.flexcache == "teacache":
                 from chitu_diffusion.flex_cache.strategy.teacache import TeaCacheStrategy
@@ -447,16 +447,12 @@ class Generator:
                 DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
                 logger.info("Teacache: Successfully wrapped models!")
 
-        # enable ditango
-        if DiffusionBackend.args.infer.diffusion.enable_ditango:
-            from chitu_diffusion.modules.attention.ditango_attn_backend import DitangoAttention
-            for layer_id, block in enumerate(DiffusionBackend.active_model.blocks):
-                block.self_attn.attn_func = DitangoAttention(
-                    ulysses_limit=DiffusionBackend.args.infer.diffusion.up_limit,
-                    layer_id=layer_id
-                )
-        # logger.info(f"[Pre Denoise] Init {latents.shape=} {timesteps=}")
-
+            elif task.req.params.flexcache == "ditango":
+                from chitu_diffusion.flex_cache.strategy.ditango import DiTangoStrategy
+                # from chitu_diffusion.modules.attention.ditango_attn_backend import DitangoAttention
+                # from chitu_diffusion.modules.attention.ditango_v2_attn_backend import Ditangov2Attention, DiTangoStrategy
+                DiffusionBackend.flexcache.set_strategy(DiTangoStrategy())
+                DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
 
     def _update_task_stage_and_buffer(self, task: DiffusionTask, tokens: torch.Tensor):
 

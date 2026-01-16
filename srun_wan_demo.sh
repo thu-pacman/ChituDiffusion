@@ -26,11 +26,6 @@ export CHITU_DEBUG=1
 # export CUDA_LAUNCH_BLOCKING=1
 
 # Calculate context parallel size (minimum 1)
-# 计算序列并行度
-cp_size=$((num_gpus/2))
-if [ $cp_size -eq 0 ]; then
-    cp_size=1
-fi
 
 # Model configurations
 # 模型配置
@@ -75,12 +70,19 @@ select_model
 basic_params="models=$model models.ckpt_dir=$ckpt_dir"
 
 # 并行参数（根据GPU数自动设置）
-parallel_params="infer.diffusion.cp_size=$cp_size infer.diffusion.up_limit=1"
+enable_cfg=true
+if [ "$enable_cfg" = "true" ]; then
+    cp_size=$((num_gpus / 2))
+else
+    cp_size=$num_gpus
+fi
+parallel_params="infer.diffusion.enable_cfg_parallel=$enable_cfg \
+                infer.diffusion.cp_size=$cp_size \
+                infer.diffusion.up_limit=1"
 
 # 魔法参数！
 magic_params="infer.diffusion.low_mem_level=0 \
-            infer.diffusion.enable_flexcache=false \
-            infer.diffusion.enable_ditango=true"
+            infer.diffusion.enable_flexcache=true"
 
 # Build and execute command
 command="./script/srun_multi_node.sh 1 $num_gpus $script \

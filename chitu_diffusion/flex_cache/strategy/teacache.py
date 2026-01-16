@@ -4,9 +4,9 @@ from typing import Optional, Any, Dict
 import torch.distributed as dist
 import functools
 from logging import getLogger
-from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.task import DiffusionTask
 from chitu_diffusion.backend import DiffusionBackend, CFGType
+from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
 
 logger = getLogger(__name__)
 is_main_process = dist.get_rank() == 0

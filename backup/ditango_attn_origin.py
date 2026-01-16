@@ -1,11 +1,11 @@
 import torch
 from typing import Optional, Tuple
-from chitu_core.distributed.parallel_state import get_cp_group, get_up_group
-
 from logging import getLogger
+
+from chitu_core.distributed.parallel_state import get_cp_group, get_up_group
 from chitu_diffusion.backend import DiffusionBackend
 from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend
-from chitu_diffusion.utils.shared_utils import update_out_and_lse, squeeze_and_transpose
+from chitu_diffusion.utils.shared_utils import update_out_and_lse, squeeze_and_transpose, async_ring_p2p_commit, async_ring_p2p_wait_and_update
 
 
 logger = getLogger(__name__)
@@ -222,41 +222,6 @@ class DitangoAttention:
         if enable and self.layer_id == 0:
             logger.info(message)
     
-    def async_ring_p2p_commit(self, tensors: Tuple[torch.Tensor, ...], src_rank: int, dst_rank: int):
-        """Set up ring communication for sending and receiving tensors asynchronously.
-    
-        Args:
-            tensors: Tuple of tensors to be sent
-            dst_rank: Destination rank to send tensors to
-            src_rank: Source rank to receive tensors from
-            
-        Returns:
-            Tuple[torch.Tensor, ...]: Tuple of tensors to be received after wait
-        """
-        recv_tensors = []
-        
-        for tensor in tensors:
-            send_tensor = tensor
-            recv_size = send_tensor.shape
-            recv_dtype = send_tensor.dtype
-            self.group.p2p_isend(send_tensor, dst=dst_rank)
-            next_tensor = self.group.p2p_irecv(size=recv_size, dtype=recv_dtype, src=src_rank)
-            recv_tensors.append(next_tensor)
-            
-        self.group.p2p_commit()
-        return tuple(recv_tensors)
-    
-    def async_ring_p2p_wait_and_update(self, recv_tensors: Tuple[torch.Tensor, ...]):
-        """Wait for asynchronous communication to complete and return received tensors.
-    
-        Args:
-            recv_tensors: Tuple of tensors returned from async_ring_p2p_commit
-            
-        Returns:
-            Tuple[torch.Tensor, ...]: Tuple of received tensors after communication completes
-        """
-        self.group.p2p_wait()
-        return recv_tensors
             
     def get_ring_and_ulysses_steps(self, curr_cp_stride, next_cp_stride):
         ring_steps, ulysses_size, ring_steps_to_update = None, None, None
@@ -364,7 +329,8 @@ class DitangoAttention:
             recv_rank = target_block_id * curr_cp_stride + inner_block_rank
             send_rank = send_block_id * curr_cp_stride + inner_block_rank
 
-            kv_transform_data_pack = self.async_ring_p2p_commit(
+            kv_transform_data_pack = async_ring_p2p_commit(
+                self.group,
                 data_pack,
                 src_rank=recv_rank,
                 dst_rank=send_rank
@@ -392,9 +358,9 @@ class DitangoAttention:
                 )
             out, lse = update_out_and_lse(out, lse, block_out, block_lse)
             if use_varlen:
-                k, v, cu_seqlens_k = self.async_ring_p2p_wait_and_update(kv_transform_data_pack)
+                k, v, cu_seqlens_k = async_ring_p2p_wait_and_update(self.group, kv_transform_data_pack)
             else:        
-                k, v = self.async_ring_p2p_wait_and_update(kv_transform_data_pack)
+                k, v = async_ring_p2p_wait_and_update(self.group, kv_transform_data_pack)
             data_pack = kv_transform_data_pack
         else:
             out, lse = self.reuse_cached_chunks(
@@ -429,7 +395,8 @@ class DitangoAttention:
                 data_pack = (k, v)
 
             if ring_step + 1 != ring_steps:
-                nxt_data_pack = self.async_ring_p2p_commit(
+                nxt_data_pack = async_ring_p2p_commit(
+                    self.group,
                     data_pack,
                     src_rank=ring_prev_rank,
                     dst_rank=ring_next_rank,
@@ -453,9 +420,9 @@ class DitangoAttention:
             
             if ring_step + 1 != ring_steps:
                 if use_varlen:
-                    k, v, cu_seqlens_k = self.async_ring_p2p_wait_and_update(nxt_data_pack)
+                    k, v, cu_seqlens_k = async_ring_p2p_wait_and_update(self.group, nxt_data_pack)
                 else:
-                    k, v = self.async_ring_p2p_wait_and_update(nxt_data_pack)
+                    k, v = async_ring_p2p_wait_and_update(self.group, nxt_data_pack)
             
             if (ring_step + 1) % ring_steps_to_update == 0:  # 已经到了更新的时候，按照block size决定
                 fresh_lse = squeeze_and_transpose(fresh_lse)
