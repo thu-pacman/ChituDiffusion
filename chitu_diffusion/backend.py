@@ -480,8 +480,8 @@ class DiffusionBackend:
 
     @staticmethod
     def _init_attention_backend(args):
-        # TODO: sage attention and sparge attention
-        attn = DiffusionAttnBackend()
+        attn_type = args.infer.attn_type
+        attn = DiffusionAttnBackend(attn_type)
         DiffusionBackend.attn = attn
 
         if args.infer.diffusion.cp_size > 1:

@@ -17,23 +17,58 @@ try:
 except ModuleNotFoundError:
     FLASH_ATTN_2_AVAILABLE = False
 
+try:
+    import sageattention
+    from sageattention import sageattn,sageattn_varlen
+    SAGE_ATTENTION_AVAILABLE = True
+except ModuleNotFoundError:
+    SAGE_ATTENTION_AVAILABLE = False
+
+try:
+    import spas_sage_attn
+    from spas_sage_attn import spas_sage2_attn_meansim_topk_cuda
+    SPAS_SAGE_ATTN_AVAILABLE = True
+except ModuleNotFoundError:
+    SPAS_SAGE_ATTN_AVAILABLE = False
 
 logger = getLogger(__name__)
 class DiffusionAttnBackend:
     """
-    统一 flash-attn v2/v3 的调用入口。
-    优先用 v3，v3 不存在再降级到 v2。
+    Unified backend for different attention implementations.
+    Priority order:
+    1. User specified attention type (if available)
+    2. Fallback to Flash Attention v3/v2 as default
+    
+    Supported types:
+    - flash: Flash Attention (v3/v2)
+    - sage: SAGE Attention
+    - sparse: Sparse SAGE Attention
     """
 
-    def __init__(self) -> None:
-        if FLASH_ATTN_3_AVAILABLE:
-            self.impl = "v3"
-        elif FLASH_ATTN_2_AVAILABLE:
-            self.impl = "v2"
-        else:
-            raise RuntimeError("Neither flash-attn v2 nor v3 found.")
-        if torch.distributed.get_rank() == 0:
-            logger.info(f"Using Flash Attention {self.impl} as Diffusion attention backend.")
+    def __init__(self, attn_type: str = "auto") -> None:
+        self.impl = None
+        
+        # Try user specified attention type first
+        if attn_type in ["sparge", "auto"] and SPAS_SAGE_ATTN_AVAILABLE:
+            self.impl = "sparge"
+            self.topk = 0.5  # Sparsity ratio
+        elif attn_type in ["sage", "auto"] and SAGE_ATTENTION_AVAILABLE:
+            self.impl = "sage"
+        
+        # Fallback to Flash Attention if user specified type is unavailable
+        # or flash attention is explicitly requested
+        if self.impl is None:
+            if FLASH_ATTN_3_AVAILABLE:
+                self.impl = "flash_v3"
+            elif FLASH_ATTN_2_AVAILABLE:
+                self.impl = "flash_v2"
+            else:
+                raise RuntimeError(
+                    "No attention implementation available. "
+                    "Please install Flash Attention, SAGE Attention, or Sparse SAGE Attention."
+                )
+        
+        logger.info(f"Using {self.impl} attention backend")
 
     # ------------- 统一入口 -------------
     def __call__(
@@ -61,7 +96,28 @@ class DiffusionAttnBackend:
         """
         use_varlen = cu_seqlens_q is not None
 
-        if self.impl == "v3":
+        if self.impl == "spas_sage":
+            return self._fwd_sparge(
+                q, k, v,
+                cu_seqlens_q, cu_seqlens_k,
+                max_seqlen_q, max_seqlen_k,
+                dropout_p, softmax_scale,
+                causal, window_size,
+                deterministic, return_attn_probs,
+                use_varlen,
+            )
+        elif self.impl == "sage":
+            return self._fwd_sage(
+                q, k, v,
+                cu_seqlens_q, cu_seqlens_k,
+                max_seqlen_q, max_seqlen_k,
+                dropout_p, softmax_scale,
+                causal, window_size,
+                deterministic, return_attn_probs,
+                use_varlen,
+            )
+
+        elif self.impl == "v3":
             return self._fwd_v3(
                 q, k, v,
                 cu_seqlens_q, cu_seqlens_k,
@@ -96,6 +152,57 @@ class DiffusionAttnBackend:
     ):
         # FIXME: support FA3
         pass
+    
+    def _fwd_sparge(
+        self,
+        q, k, v,
+        cu_seqlens_q, cu_seqlens_k,
+        max_seqlen_q, max_seqlen_k,
+        dropout_p, softmax_scale,
+        causal, window_size,
+        deterministic,
+        return_attn_probs,
+        use_varlen: bool,
+    ):
+        if use_varlen:
+            raise NotImplementedError("SPAS SAGE Attention does not support variable length sequences yet.")
+        
+        else:
+            if return_attn_probs:
+                logger.warning("[Not implemented] Sparge Attention varlen does not support 'return_attn_probs', which may cause error in context parallelism.")
+
+            out = spas_sage2_attn_meansim_topk_cuda(q, k, v, topk=self.topk, is_causal=causal,tensor_layout="NHD")
+       
+            
+        return out, None, None
+    
+    def _fwd_sage(
+        self,
+        q, k, v,
+        cu_seqlens_q, cu_seqlens_k,
+        max_seqlen_q, max_seqlen_k,
+        dropout_p, softmax_scale,
+        causal, window_size,
+        deterministic,
+        return_attn_probs,
+        use_varlen: bool,
+    ):
+        if use_varlen:
+            if return_attn_probs:
+                logger.warning("[Not implemented] Sage Attention varlen does not support 'return_attn_probs', which may cause error in context parallelism.")
+            out = sageattn_varlen(q, k, v, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, is_causal=causal,tensor_layout="NHD")
+            lse = None
+        
+        else:
+            if return_attn_probs:
+                out, lse = sageattn(q, k, v, is_causal=causal,tensor_layout="NHD", return_lse=return_attn_probs)
+            else:
+                out = sageattn(q, k, v, is_causal=causal,tensor_layout="NHD", return_lse=return_attn_probs)
+                lse = None
+
+       
+            
+        return out, lse, None
 
     # ------------- v2 分支 -------------
     def _fwd_v2(

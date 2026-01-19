@@ -1,0 +1,112 @@
+[project]
+name = "chitu-diffusion"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "chitu",
+    "diffusers",
+    # "cmake>=4.2.1",
+    # "cython>=3.2.3",
+    # "ninja>=1.13.0",
+    # "packaging>=25.0",
+    # "py-cpuinfo>=9.0.0",
+    # "pybind11>=3.0.1",
+    # "setuptools>=77.0.3",
+    # "wheel>=0.45.1",
+    "blobfile",
+    "einops==0.8.1",
+    "faker",
+    "fastapi",
+    "fire",
+    "ftfy==6.3.1",
+    "hydra-core==1.3.2",
+    "imageio==2.37.2",
+    "imageio-ffmpeg==0.6.0",
+    "msgpack",
+    "numpy==2.4.0",
+    "plum-dispatch",
+    "prometheus-client>=0.19.0",
+    "psutil==7.1.3",
+    "pyzmq>=27.0.0",
+    "regex==2025.11.3",
+    "safetensors==0.7.0",
+    "scipy==1.16.3",
+    "tiktoken>=0.7.0",
+    "torch==2.9.1",
+    "torchvision",
+    "tqdm==4.67.1",
+    "transformers[torch]>=4.49.0,<4.57.0",
+    "typing-extensions",
+    "uvicorn[standard]",
+    "netifaces",
+    "flash_attn",
+
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchvision = { index = "pytorch-cu126" }
+chitu = { workspace = true }
+sageattention = { workspace = true }
+spas_sage_attn = { workspace = true }
+
+
+
+[tool.uv.extra-build-dependencies]
+flash_attn = ["torch==2.9.1"]
+
+
+[tool.uv.extra-build-variables]
+# flash_attn = { FLASH_ATTN_CUDA_ARCHS = "80",FLASH_ATTENTION_FORCE_BUILD = "TRUE" }
+## Set "TORCH_CUDA_ARCH_LIST" according to your GPU architecture (e.g. Ampere: 8.0 / Hopper: 9.0)
+sageattention = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
+spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
+
+
+
+[tool.uv]
+config-settings = { editable_mode = "compat" }
+no-build-isolation-package = ["sageattention", "spas_sage_attn"]
+# reinstall-package = ["spas_sage_attn"]
+# [dependency-groups]
+# dev = [
+#     "torch==2.9.1",
+#     "flash_attn",
+# ]
+[project.optional-dependencies]
+sage = ["sageattention"]
+sparge = ["spas_sage_attn"]
+[tool.uv.workspace]
+members = [
+    "chitu_core",
+    "third_party/sparge_attn",
+    "third_party/sage_attn",
+]
+

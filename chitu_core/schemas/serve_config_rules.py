@@ -46,9 +46,11 @@ class ServeConfigRules(Callback):
             "triton",
             "npu",
             "ref",
-        }:
+            "sage",
+            "sparge"
+            }:
             self._exit_with_error(
-                f"attn_type must be one of [auto, flash_attn, flash_mla, flash_infer, triton, npu, ref], got {attn_type}"
+                f"attn_type must be one of [auto, flash_attn, flash_mla, flash_infer, triton, npu, ref, sage, sparge], got {attn_type}"
             )
 
         model_name = config.models.name

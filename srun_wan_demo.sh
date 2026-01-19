@@ -81,7 +81,8 @@ parallel_params="infer.diffusion.enable_cfg_parallel=$enable_cfg \
                 infer.diffusion.up_limit=1"
 
 # 魔法参数！
-magic_params="infer.diffusion.low_mem_level=0 \
+magic_params="infer.attn_type='flash_attn' \
+            infer.diffusion.low_mem_level=0 \
             infer.diffusion.enable_flexcache=true"
 
 # Build and execute command

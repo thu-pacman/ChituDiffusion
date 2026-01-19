@@ -437,22 +437,30 @@ class Generator:
         
         DiffusionBackend.switch_active_model(flush=True)
 
-        # Enable flexcache
-        if DiffusionBackend.flexcache is not None:
-            if task.req.params.flexcache == "teacache":
-                from chitu_diffusion.flex_cache.strategy.teacache import TeaCacheStrategy
-                cache_strategy = TeaCacheStrategy(task=task)
-                DiffusionBackend.flexcache.set_strategy(cache_strategy)
-                # wrap model
-                DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
-                logger.info("Teacache: Successfully wrapped models!")
+        # enable flexcache
+        if task.req.params.flexcache == "teacache":
+            from chitu_diffusion.flex_cache.strategy.teacache import TeaCacheStrategy
+            cache_strategy = TeaCacheStrategy(task=task)
+            DiffusionBackend.flexcache.set_strategy(cache_strategy)
+            # wrap model
+            DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
+            logger.info("Teacache: Successfully wrapped models!")
 
-            elif task.req.params.flexcache == "ditango":
-                from chitu_diffusion.flex_cache.strategy.ditango import DiTangoStrategy
-                # from chitu_diffusion.modules.attention.ditango_attn_backend import DitangoAttention
-                # from chitu_diffusion.modules.attention.ditango_v2_attn_backend import Ditangov2Attention, DiTangoStrategy
-                DiffusionBackend.flexcache.set_strategy(DiTangoStrategy())
-                DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
+        # logger.info(f"[Pre Denoise] Init {latents.shape=} {timesteps=}")
+        elif task.req.params.flexcache == "PAB":
+            from chitu_diffusion.flex_cache.strategy.PAB import PABStrategy
+            cache_strategy = PABStrategy(task=task)
+            DiffusionBackend.flexcache.set_strategy(cache_strategy)
+            # wrap model
+            DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
+            logger.info("PAB: Successfully wrapped models!")
+            
+        elif task.req.params.flexcache == "ditango":
+            from chitu_diffusion.flex_cache.strategy.ditango import DiTangoStrategy
+            # from chitu_diffusion.modules.attention.ditango_attn_backend import DitangoAttention
+            # from chitu_diffusion.modules.attention.ditango_v2_attn_backend import Ditangov2Attention, DiTangoStrategy
+            DiffusionBackend.flexcache.set_strategy(DiTangoStrategy())
+            DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
 
     def _update_task_stage_and_buffer(self, task: DiffusionTask, tokens: torch.Tensor):
 

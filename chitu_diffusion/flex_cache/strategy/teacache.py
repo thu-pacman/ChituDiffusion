@@ -93,12 +93,14 @@ class TeaCacheStrategy(FlexCacheStrategy):
         # 自动选择coefficients
         if self.use_ref_steps:
             if '1.3B' in model_name:
+                self.teacache_thresh=0.2
                 self.coefficients = [
                     -5.21862437e+04, 9.23041404e+03, -5.28275948e+02, 
                     1.36987616e+01, -4.99875664e-02
                 ]
             elif '14B' in model_name:
                 if 't2v' in model_name or 't2i' in model_name:
+                    self.teacache_thresh=0.08
                     self.coefficients = [
                         -3.03318725e+05, 4.90537029e+04, -2.65530556e+03, 
                         5.87365115e+01, -3.15583525e-01

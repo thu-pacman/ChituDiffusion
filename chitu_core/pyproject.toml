@@ -1,0 +1,20 @@
+[project]
+name = "chitu"
+version = "0.5.0"
+description = "Chitu core module"
+requires-python = ">=3.10"
+dependencies = ["torch"]
+
+[build-system]
+requires = [
+    "torch",
+    "setuptools>=77.0.3",
+    "wheel",
+    "cmake",
+    "ninja",
+    "cython",
+    "packaging",
+    "pybind11",
+    "py-cpuinfo",
+]
+build-backend = "setuptools.build_meta"

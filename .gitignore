@@ -38,6 +38,8 @@ MANIFEST
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
+build.log
+uv.lock
 
 # Unit test / coverage reports
 htmlcov/
@@ -104,3 +106,4 @@ log/*
 # Diffusion
 *.mp4
 output/*
+srun_wan_demo.sh

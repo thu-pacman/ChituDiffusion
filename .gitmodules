@@ -1,0 +1,6 @@
+[submodule "third_party/sage_attn"]
+	path = third_party/sage_attn
+	url = https://github.com/shch-y/SageAttention.git
+[submodule "third_party/sparge_attn"]
+	path = third_party/sparge_attn
+	url = https://github.com/shch-y/SpargeAttn.git

@@ -23,6 +23,47 @@ pip install -e .
 
 > Flash Attention is recommended to be installed via wheel: https://github.com/Dao-AILab/flash-attention/releases/tag/v2.7.1.post2 
 
+### Using uv to setup environment
+Recommend use `uv` to setup the environment for a smoother experience.
+#### Clone the repo and sparge/sage attn submodules
+```bash
+git clone git@github.com:chen-yy20/SmartDiffusion.git
+git submodule update --init --recursive
+```
+
+#### Install `uv` 
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+doc : https://docs.astral.sh/uv/getting-started/installation/
+
+#### Specify build recipes
+change the `[tool.uv.extra-build-variables]` item in `pyproject.toml`:
+- Specify `TORCH_CUDA_ARCH_LIST` to compile kernels only for the required computational architectures.
+- flash_attn defaults to pulling binary packages from the GitHub source repository, if you encounter network/symbol_link issues, you can uncomment the following to compile from source (32-core, 256GB memory, about 10 minutes).
+
+```toml
+[tool.uv.extra-build-variables]
+# flash_attn = { FLASH_ATTN_CUDA_ARCHS = "80",FLASH_ATTENTION_FORCE_BUILD = "TRUE" }
+## Set "TORCH_CUDA_ARCH_LIST" according to your GPU architecture (e.g. Ampere: 8.0 / Hopper: 9.0)
+sageattention = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
+spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
+```
+
+#### One-click dependency installation
+
+```bash
+# 1. only install flash_attn
+uv sync -v 2>&1 | tee uv_sync.log
+
+# 2. install sparge attn and sage attn for quantized attention speedup.
+# compile time is ~10min for 32core, 256GB memory
+uv sync -v --all-extras 2>&1 | tee build.log 
+```
+
+
+
+
 ## Model Checkpoint
 > Supported model-ids:
 > * Wan-AI/Wan2.1-T2V-1.3B
@@ -42,7 +83,23 @@ Single-card/Distributed launch: `bash srun_wan_demo.sh <num_gpus>`
 
 ---
 
-# Magic Parameters Explained
+# Magic Parameters!!!
+
+## `infer.attn_type`
+
+**Select your diffusion backend**: This parameter controls your attention backend. Diffusion attention is usually 3D-full attention with long context, resulting in high compute overcome due to $O(n^2)$ complexity. We provide smarter attention implementation to reduce attention overhead.
+
+### Attention Type Description
+
+| attn-type | Description | Performance |
+|-------|-------------|-------|
+| **flash_attn** | Default attention implementation. High-performance full attention kernel without accuracy loss. | To be tested. |
+| [**sage**](https://github.com/thu-ml/SageAttention)|(NIPS25 spotlight) Train-free quantized attention implementation. | To be tested. |
+| [**sparge**](https://github.com/thu-ml/SpargeAttn) |  (ICML25)Train-free sparse attention based on sage-attention.  | To be tested. |
+| **auto** | Automatically choosing best attention backend. | - |
+
+---
+
 
 ## `infer.diffusion.low_mem_level`
 
@@ -61,19 +118,28 @@ Single-card/Distributed launch: `bash srun_wan_demo.sh <num_gpus>`
 
 By properly setting `infer.diffusion.low_mem_level`, you can flexibly adjust the model loading strategy according to the available GPU memory, ensuring efficient operation of the model with limited resources.
 
-## `infer.diffusion.enable_flexcache` [Trial]
+## `infer.diffusion.enable_flexcache`
 
 **Enable FlexCache**: The Diffusion backend initializes the FlexCache Manager, which uniformly supports lossy acceleration algorithms based on Feature Reuse.
 
 ### Parameter Description
 Set in the launch script: `infer.diffusion.enable_flexcache=true` and set the corresponding user parameters.
 
-Currently supports [Teacache](https://github.com/ali-vilab/TeaCache). You can set `flexcache` in `DiffusionUserParams` as follows:
+Currently supports:
+
+| Method | cache_type | Performance |
+|-------|-------------| ---------|
+| `teacache` |[Teacache](https://github.com/ali-vilab/TeaCache)(CVPR24-spotlight) | to be tested. |
+| `PAB` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/)(ICLR25) | to be tested. |
+---
+
+
+You can set `flexcache` in `DiffusionUserParams` as follows:
 ```
 DiffusionUserParams(
     role="Alex",
     prompt="A cat walking on grass.",
     ...
-    flexcache='teacache',
+    flexcache='<cache_type>',
 )
 ```
