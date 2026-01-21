@@ -86,7 +86,7 @@ magic_params="infer.attn_type='flash_attn' \
             infer.diffusion.enable_flexcache=true"
 
 # Build and execute command
-command="./script/srun_multi_node.sh 1 $num_gpus $script \
+command="./script/srun_direct.sh 1 $num_gpus $script \
     $basic_params \
     $parallel_params \
     $magic_params"
