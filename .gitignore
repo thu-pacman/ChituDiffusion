@@ -96,7 +96,6 @@ outputs/*
 test/outputs/*
 dumps/*
 log/*
-logs/*
 
 # Vim
 .*.swp
@@ -105,6 +104,8 @@ logs/*
 .DS_Store
 
 # Diffusion
+*.csv
 *.mp4
 output/*
+logs/*
 srun_wan_demo.sh

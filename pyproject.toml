@@ -42,6 +42,7 @@ dependencies = [
     "uvicorn[standard]",
     "netifaces",
     "flash_attn",
+    "pandas"
 
 ]
 

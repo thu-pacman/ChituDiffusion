@@ -32,6 +32,7 @@ from chitu_diffusion.modules.samplers.fm_solvers import (
 from chitu_diffusion.modules.samplers.fm_solvers_unipc import FlowUniPCMultistepScheduler
 from chitu_diffusion.utils.wan_utils import cache_video
 from chitu_diffusion.utils.shared_utils import SequencePadder
+from chitu_diffusion.bench.timer import Timer
 
 
 logger = getLogger(__name__)
@@ -247,7 +248,7 @@ class Generator:
 
         return out
         
-            
+    @Timer.get_timer("TextEncode")
     def text_encode_step(self, task: DiffusionTask) -> torch.Tensor:
         # payload 是本次task需要处理的数据的抽象
         if self.cfg_size == 1:
@@ -276,6 +277,7 @@ class Generator:
     def vae_encode_step(self, task: DiffusionTask):
         pass
     
+    @Timer.get_timer("denoise")
     @amp.autocast(device_type="cuda", dtype=torch.bfloat16)
     @torch.no_grad()
     def denoise_step(self, task: DiffusionTask):
@@ -341,7 +343,7 @@ class Generator:
         return sampled_latents
 
         
-    
+    @Timer.get_timer("VaeDecode")
     def vae_decode_step(self, task: DiffusionTask):
         target_decode_device = 0 # TODO: Flexible vae device
         if torch.distributed.get_rank() == target_decode_device:
@@ -349,17 +351,29 @@ class Generator:
             logger.info(f"Step {task.buffer.current_step}: Enter VAE Decode Stage!")
             with device_scope(DiffusionBackend.vae.model):
                 video = DiffusionBackend.vae.decode(payload)[0]
-            self._save_image(task, video)
             return video
         return None
+    
+    def _post_vae_decode(self, task: DiffusionTask):
+        target_decode_device = 0 # TODO: Flexible vae device
+        if torch.distributed.get_rank() == target_decode_device:
+            # save_video
+            self._save_image(task)
+            # save_time_stats
+            output_dir = task.req.params.save_dir
+            Timer.print_statistics()
+            Timer.save_statistics(f"{output_dir}/time_stat_{task.task_id}.csv")
+            # TODO: video quality
 
 
     # TODO: CPU/GPU overlap
-    def _save_image(self, task: DiffusionTask, video: torch.Tensor):
+    def _save_image(self, task: DiffusionTask):
         os.makedirs(task.req.params.save_dir, exist_ok=True)
         save_name = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "") \
                     + f"_{task.task_id}.mp4"
         save_path = os.path.join(task.req.params.save_dir, save_name)
+
+        video = task.buffer.generated_image
         logger.info(f"Saving video: {video.shape=} {video.dtype=}")
         cache_video(
             tensor=video[None],
@@ -369,7 +383,7 @@ class Generator:
             normalize=True,
             value_range=(-1, 1))
         logger.info(f"[Succeed] Task {task.task_id} video saved to {save_path}")
-        
+
     def _pre_denoising(self, task: DiffusionTask):
         """
         Before denoising loop, prepare latents, timesteps and solver for one task.
@@ -462,6 +476,8 @@ class Generator:
             DiffusionBackend.flexcache.set_strategy(DiTangoStrategy())
             DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
 
+
+
     def _update_task_stage_and_buffer(self, task: DiffusionTask, tokens: torch.Tensor):
 
         is_main_process = dist.get_rank() == 0
@@ -547,6 +563,7 @@ class Generator:
         # 处理VAE Decode阶段（最终阶段）
         elif task.task_type == DiffusionTaskType.VAEDecode:               
             task.buffer.generated_image = tokens  # 保存最终生成的图像
+            self._post_vae_decode(task)
             if is_main_process:
                 logger.debug(f"Task {task.task_id} completed all stages")
             task.status = DiffusionTaskStatus.Completed
