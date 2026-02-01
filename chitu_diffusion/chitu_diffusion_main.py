@@ -225,5 +225,20 @@ def chitu_terminate():
         terminated_task = DiffusionTask.create_terminate_signal("0x")
         DiffusionBackend.generator.step(terminated_task)
 
+def chitu_run_eval():
+
+    args = get_global_args()
+    if not args.eval.enable_vbench:
+        return
+
+    from chitu_diffusion.eval.eval_manager import EvalManager
+    from chitu_diffusion.eval.strategy.Vbench import VbenchStrategy
+    manager = EvalManager()
+    strategy = VbenchStrategy()
+    manager.set_strategy(strategy)
+    return manager.run(args=args)
+    
+
+
 def chitu_is_terminated():
     return DiffusionBackend.state == BackendState.Terminated

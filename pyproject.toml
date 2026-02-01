@@ -74,6 +74,7 @@ torchvision = { index = "pytorch-cu128" }
 chitu = { workspace = true }
 sageattention = { workspace = true }
 spas_sage_attn = { workspace = true }
+vbench = { workspace = true }
 
 
 
@@ -101,10 +102,12 @@ config-settings = { editable_mode = "compat" }
 [project.optional-dependencies]
 sage = ["sageattention"]
 sparge = ["spas_sage_attn"]
+vbench = ["vbench"]
 [tool.uv.workspace]
 members = [
     "chitu_core",
     "third_party/sparge_attn",
     "third_party/sage_attn",
+    "third_party/vbench",
 ]
 

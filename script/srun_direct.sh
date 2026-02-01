@@ -33,8 +33,12 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 echo "Running with $NODES nodes, $NUM_GPUS GPUs per node"
 echo "MASTER_PORT: $MASTER_PORT"
 
+# 若从 login 或过期 salloc 运行，清除旧 SLURM 变量，让 srun 申请新分配，避免 "Invalid job id"
+unset SLURM_JOB_ID SLURM_STEP_ID SLURM_NTASKS SLURM_NTASKS_PER_NODE 2>/dev/null || true
+
 # 使用 wrapper 脚本
-srun --job-name $JOB_NAME \
+srun -p a01 \
+     --job-name $JOB_NAME \
      --nodes $NODES \
      --ntasks-per-node $NUM_GPUS \
      --cpus-per-task $CPUS_PER_GPU \
