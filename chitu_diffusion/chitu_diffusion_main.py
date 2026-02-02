@@ -226,17 +226,19 @@ def chitu_terminate():
         DiffusionBackend.generator.step(terminated_task)
 
 def chitu_run_eval():
-
-    args = get_global_args()
-    if not args.eval.enable_vbench:
-        return
-
     from chitu_diffusion.eval.eval_manager import EvalManager
-    from chitu_diffusion.eval.strategy.Vbench import VbenchStrategy
     manager = EvalManager()
-    strategy = VbenchStrategy()
+    args = get_global_args()
+
+    if args.eval.eval_type == None:
+        return
+    elif args.eval.eval_type=='vbench':
+        from chitu_diffusion.eval.strategy.Vbench import VbenchStrategy
+        strategy = VbenchStrategy()
+    else:
+        raise ValueError(f"Unsupported eval type: {args.eval.eval_type}")
     manager.set_strategy(strategy)
-    return manager.run(args=args)
+    manager.run(args=args)
     
 
 

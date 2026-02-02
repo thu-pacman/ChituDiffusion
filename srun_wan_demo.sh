@@ -76,7 +76,7 @@ basic_params="models=$model models.ckpt_dir=$ckpt_dir"
 
 # 并行参数（根据GPU数自动设置）
 parallel_params="infer.diffusion.cp_size=$cp_size infer.diffusion.up_limit=8"
-eval_params="eval.enable_vbench=true"
+eval_params="eval.eval_type=vbench"
 # 魔法参数！
 magic_params="
             infer.attn_type='sparge' \

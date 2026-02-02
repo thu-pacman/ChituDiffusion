@@ -72,7 +72,7 @@ class InferConfig:
 
 @dataclass
 class EvalConfig:
-    enable_vbench: bool = False
+    eval_type: Optional[str] = None
 
 
 @dataclass

@@ -169,16 +169,20 @@ DiffusionUserParams(
 )
 ```
 
-## `eval.enable_vbench`
+## `eval.eval_type`
 
 **Enable VBench custom-mode evaluation** after generation.
 
-### Behavior (when `eval.enable_vbench=true`)
-
-- **Videos**: Uses **all generated videos** from the current run’s completed tasks in the task pool (msgs). 
-- **Dimensions**: Runs **all custom-mode dimensions** by default:
-  - `subject_consistency`, `background_consistency`, `motion_smoothness`, `dynamic_degree`, `aesthetic_quality`, `imaging_quality`
-- **Output**: Writes `*_full_info.json` and `*_eval_results.json` under `./vbench_out/` (or the configured output dir).
-
 ### Parameter Description
-Set in the launch script: `eval.enable_vbench=true` and set the corresponding user parameters.
+Set in the launch script: `eval.eval_type=vbench` to enable VBench custom-mode evaluation.
+
+Currently supports:
+- `vbench` - VBench custom-mode evaluation
+
+When enabled, the system will:
+- Evaluate all generated videos from the current run's completed tasks
+- Evaluate all custom-mode dimensions by default:
+- Write results to `*_full_info.json` and `*_eval_results.json` under `./vbench_out/` 
+
+
+**Note**: If `eval.eval_type` is not set or set to `null`, evaluation will be automatically skipped.
