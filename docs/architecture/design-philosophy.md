@@ -1,5 +1,5 @@
 # Why Smart-Diffusion?
-[中文版](./whySmart_zh.md)
+[中文版](../whySmart_zh.md)
 
 ## Workload Characteristics of Diffusion
 
