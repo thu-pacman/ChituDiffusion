@@ -1,0 +1,115 @@
+site_name: Smart-Diffusion Documentation
+site_description: High-Performance Diffusion Model Inference Framework
+site_author: PACMAN Team, Tsinghua University & QingCheng.ai
+site_url: https://chen-yy20.github.io/SmartDiffusion/
+
+repo_name: chen-yy20/SmartDiffusion
+repo_url: https://github.com/chen-yy20/SmartDiffusion
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Roboto
+    code: Roboto Mono
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            merge_init_into_class: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quick-start.md
+    - Configuration: getting-started/configuration.md
+  - User Guide:
+    - Basic Usage: user-guide/basic-usage.md
+    - Advanced Features: user-guide/advanced-features.md
+    - Performance Tuning: user-guide/performance-tuning.md
+    - Multi-GPU Setup: user-guide/multi-gpu.md
+  - Architecture:
+    - Overview: architecture/overview.md
+    - Design Philosophy: architecture/design-philosophy.md
+    - Parallelism: architecture/parallelism.md
+    - Attention Backends: architecture/attention-backends.md
+  - API Reference:
+    - Core API: api/core.md
+    - Backend: api/backend.md
+    - Generator: api/generator.md
+    - Task Management: api/task.md
+    - Scheduler: api/scheduler.md
+  - Advanced Topics:
+    - Low Memory Mode: advanced/low-memory.md
+    - FlexCache: advanced/flexcache.md
+    - Custom Models: advanced/custom-models.md
+    - Evaluation: advanced/evaluation.md
+  - Contributing:
+    - Developer Guide: contributing/developer-guide.md
+    - Code Style: contributing/code-style.md
+    - Testing: contributing/testing.md
+  - FAQ: faq.md
+  - Changelog: changelog.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/chen-yy20/SmartDiffusion
+  version:
+    provider: mike
+
+copyright: Copyright &copy; 2025 PACMAN Team, Tsinghua University & QingCheng.ai
