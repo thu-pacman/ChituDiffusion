@@ -45,6 +45,50 @@ theme:
 
 plugins:
   - search
+  - i18n:
+      docs_structure: suffix
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: zh
+          name: 中文
+          build: true
+          nav_translations:
+            Home: 首页
+            Getting Started: 入门指南
+            Installation: 安装
+            Quick Start: 快速开始
+            Configuration: 配置
+            User Guide: 用户指南
+            Basic Usage: 基本用法
+            Advanced Features: 高级功能
+            Performance Tuning: 性能调优
+            Multi-GPU Setup: 多GPU设置
+            Architecture: 架构
+            Overview: 概览
+            Design Philosophy: 设计理念
+            Parallelism: 并行化
+            Attention Backends: 注意力后端
+            API Reference: API参考
+            Core API: 核心API
+            Backend: 后端
+            Generator: 生成器
+            Task Management: 任务管理
+            Scheduler: 调度器
+            Advanced Topics: 高级主题
+            Low Memory Mode: 低内存模式
+            FlexCache: 灵活缓存
+            Custom Models: 自定义模型
+            Evaluation: 评估
+            Contributing: 贡献
+            Developer Guide: 开发者指南
+            Code Style: 代码风格
+            Testing: 测试
+            Why Smart-Diffusion: 为什么选择Smart-Diffusion
+            FAQ: 常见问题
+            Changelog: 更新日志
   - mkdocstrings:
       handlers:
         python:
@@ -64,6 +108,9 @@ markdown_extensions:
   - pymdownx.details
   - pymdownx.tabbed:
       alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - admonition
   - tables
   - attr_list
@@ -102,6 +149,7 @@ nav:
     - Developer Guide: contributing/developer-guide.md
     - Code Style: contributing/code-style.md
     - Testing: contributing/testing.md
+  - Why Smart-Diffusion: whySmart.md
   - FAQ: faq.md
   - Changelog: changelog.md
 

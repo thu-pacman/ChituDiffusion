@@ -7,8 +7,8 @@ FlexCache is a feature caching system that accelerates diffusion generation by r
 During diffusion denoising, features change slowly between adjacent steps. FlexCache exploits this temporal similarity to skip redundant computations.
 
 **Benefits**:
-- 30-50% speedup
-- Minimal quality loss (<1% perceptual difference)
+- Speedup testing in progress
+- Minimal quality loss expected
 - No additional VRAM required
 
 ## Strategies
@@ -32,8 +32,8 @@ params = DiffusionUserParams(
 ```
 
 **Performance**:
-- Speedup: 1.3-1.5x
-- Quality impact: Minimal
+- Speedup: Performance testing in progress
+- Quality impact: Minimal expected
 - Best for: Standard generation
 
 ### PAB (Pyramid Attention Broadcast)
@@ -54,8 +54,8 @@ params = DiffusionUserParams(
 ```
 
 **Performance**:
-- Speedup: 1.4-1.6x
-- Quality impact: Very minimal
+- Speedup: Performance testing in progress
+- Quality impact: Minimal expected
 - Best for: High-quality generation
 
 ## Usage
@@ -104,13 +104,13 @@ for strategy in strategies:
 
 ## Performance Comparison
 
-Measured on NVIDIA A100, Wan2.1-14B, 480x848, 81 frames, 50 steps:
+Performance benchmarking in progress for different caching strategies.
 
 | Strategy | Time | Speedup | Quality Score |
 |----------|------|---------|---------------|
-| None | 105s | 1.0x | 82.5 |
-| TeaCache | 72s | 1.46x | 82.1 |
-| PAB | 68s | 1.54x | 82.3 |
+| None | Baseline | 1.0x | Baseline |
+| TeaCache | To be tested | To be tested | To be tested |
+| PAB | To be tested | To be tested | To be tested |
 
 ## Implementation Details
 

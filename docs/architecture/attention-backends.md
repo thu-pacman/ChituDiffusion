@@ -11,8 +11,8 @@ Attention is the most computationally intensive operation in diffusion models, a
 ### FlashAttention
 
 **Type**: Default, FP16/BF16  
-**Performance**: 1x (baseline)  
-**Memory**: 1x (baseline)  
+**Performance**: Baseline  
+**Memory**: Baseline  
 **Accuracy**: Full precision
 
 FlashAttention is the default backend, providing accurate and efficient attention computation.
@@ -34,17 +34,17 @@ args.infer.attn_type = "flash_attn"
 ### SageAttention
 
 **Type**: Quantized (INT8)  
-**Performance**: ~2x faster  
-**Memory**: ~0.5x (50% reduction)  
-**Accuracy**: Minimal loss (<1% perceptual difference)
+**Performance**: Testing in progress  
+**Memory**: Memory reduction expected  
+**Accuracy**: Minimal loss expected
 
 SageAttention uses INT8 quantization for faster computation and lower memory usage.
 
 #### Features
-- 2x speedup over FlashAttention
-- 50% memory reduction
+- Performance benchmarking in progress
+- Memory reduction testing in progress
 - Dynamic quantization per layer
-- Minimal quality loss
+- Quality assessment ongoing
 
 #### Configuration
 ```python
@@ -63,15 +63,15 @@ args.infer.attn_type = "sage"
 ### SpargeAttention
 
 **Type**: Sparse + Quantized (INT8)  
-**Performance**: ~3x faster  
-**Memory**: ~0.3x (70% reduction)  
-**Accuracy**: Slight loss (1-3% perceptual difference)
+**Performance**: Testing in progress  
+**Memory**: Memory reduction expected  
+**Accuracy**: Quality assessment ongoing
 
 SpargeAttention combines sparsity and quantization for maximum performance.
 
 #### Features
-- 3x speedup over FlashAttention
-- 70% memory reduction
+- Performance benchmarking in progress
+- Memory reduction testing in progress
 - Learned sparsity patterns
 - Adaptive attention masking
 
@@ -110,31 +110,33 @@ args.infer.attn_type = "auto"
 
 ### Speed Benchmark
 
-Tested on NVIDIA A100 (80GB), Wan2.1-14B, 480x848 resolution, 81 frames:
+Performance benchmarking in progress on various hardware configurations.
 
 | Backend | Time per Step | Total Time | Speedup |
 |---------|--------------|------------|---------|
-| FlashAttention | 2.1s | 105s | 1.0x |
-| SageAttention | 1.1s | 55s | 1.9x |
-| SpargeAttention | 0.7s | 35s | 3.0x |
+| FlashAttention | Baseline | Baseline | 1.0x |
+| SageAttention | To be tested | To be tested | To be tested |
+| SpargeAttention | To be tested | To be tested | To be tested |
 
 ### Memory Benchmark
 
+Memory usage benchmarking in progress.
+
 | Backend | Peak VRAM | Reduction |
 |---------|-----------|-----------|
-| FlashAttention | 42GB | baseline |
-| SageAttention | 24GB | 43% |
-| SpargeAttention | 16GB | 62% |
+| FlashAttention | Baseline | baseline |
+| SageAttention | To be tested | To be tested |
+| SpargeAttention | To be tested | To be tested |
 
 ### Quality Comparison
 
-Measured using VBench metrics on 100 prompts:
+Quality metrics testing in progress using VBench benchmark suite.
 
 | Backend | Quality Score | Subject | Motion | Aesthetic |
 |---------|--------------|---------|--------|-----------|
-| FlashAttention | 82.5 | 95.2 | 83.4 | 78.9 |
-| SageAttention | 82.1 | 94.8 | 83.0 | 78.5 |
-| SpargeAttention | 80.8 | 93.5 | 81.7 | 76.9 |
+| FlashAttention | Baseline | Baseline | Baseline | Baseline |
+| SageAttention | To be tested | To be tested | To be tested | To be tested |
+| SpargeAttention | To be tested | To be tested | To be tested | To be tested |
 
 ## Implementation Details
 
@@ -180,10 +182,7 @@ dequantized = quantized.to(float16) * scale
 - Sets other blocks to zero
 
 #### Dynamic Sparsity
-Sparsity ratio adapts per layer:
-- Early layers: 20-30% sparsity
-- Middle layers: 40-60% sparsity
-- Late layers: 20-30% sparsity
+Sparsity ratio adapts per layer based on learned patterns. Exact ratios are being optimized and will be documented.
 
 ## Context Parallelism Support
 

@@ -94,8 +94,8 @@ infer.attn_type=<type>
 
 Options:
 - `flash_attn` - Default FlashAttention (accurate, fast)
-- `sage` - SageAttention (quantized, ~2x faster)
-- `sparge` - SpargeAttention (sparse, ~3x faster)
+- `sage` - SageAttention (quantized, performance testing in progress)
+- `sparge` - SpargeAttention (sparse, performance testing in progress)
 - `auto` - Automatically select best available
 
 ### Memory Management

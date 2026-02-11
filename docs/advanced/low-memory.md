@@ -12,7 +12,7 @@ Smart-Diffusion implements four memory levels (0-3):
 
 ### Level 0: Default (No Optimization)
 
-**VRAM**: Highest (~40-80GB for 14B model)  
+**VRAM**: Baseline (highest)  
 **Speed**: Fastest  
 **Configuration**: Default
 
@@ -22,7 +22,7 @@ All components stay on GPU:
 - VAE decoder
 - All activations
 
-**Use Case**: When you have abundant VRAM (80GB+ GPUs)
+**Use Case**: When you have abundant VRAM
 
 ```bash
 python test_generate.py infer.diffusion.low_mem_level=0
@@ -30,8 +30,8 @@ python test_generate.py infer.diffusion.low_mem_level=0
 
 ### Level 1: VAE Tiling
 
-**VRAM**: ~30-60GB  
-**Speed**: ~5% slower  
+**VRAM**: Memory reduction expected  
+**Speed**: Performance testing in progress  
 **Optimization**: VAE processes video in tiles
 
 **What Changes**:
@@ -39,7 +39,7 @@ python test_generate.py infer.diffusion.low_mem_level=0
 - Reduces peak memory during decoding
 - Minimal quality impact
 
-**Use Case**: Slightly constrained VRAM (40GB+ GPUs)
+**Use Case**: Slightly constrained VRAM
 
 ```bash
 python test_generate.py infer.diffusion.low_mem_level=1
@@ -47,8 +47,8 @@ python test_generate.py infer.diffusion.low_mem_level=1
 
 ### Level 2: CPU Offloading (Text Encoder)
 
-**VRAM**: ~20-40GB  
-**Speed**: ~15% slower  
+**VRAM**: Memory reduction expected  
+**Speed**: Performance testing in progress  
 **Optimization**: T5 encoder on CPU
 
 **What Changes**:
@@ -56,7 +56,7 @@ python test_generate.py infer.diffusion.low_mem_level=1
 - Embeddings transferred to GPU after encoding
 - One-time cost at start
 
-**Use Case**: Limited VRAM (24-40GB)
+**Use Case**: Limited VRAM
 
 ```bash
 python test_generate.py infer.diffusion.low_mem_level=2
@@ -64,8 +64,8 @@ python test_generate.py infer.diffusion.low_mem_level=2
 
 ### Level 3: Aggressive Offloading
 
-**VRAM**: ~15-25GB  
-**Speed**: ~40% slower  
+**VRAM**: Maximum memory reduction  
+**Speed**: Performance testing in progress  
 **Optimization**: DiT models on CPU, moved to GPU per-layer
 
 **What Changes**:
@@ -73,7 +73,7 @@ python test_generate.py infer.diffusion.low_mem_level=2
 - Layers moved to GPU one at a time
 - Significant CPU-GPU transfer overhead
 
-**Use Case**: Very limited VRAM (<24GB)
+**Use Case**: Very limited VRAM
 
 ```bash
 python test_generate.py infer.diffusion.low_mem_level=3
@@ -81,12 +81,14 @@ python test_generate.py infer.diffusion.low_mem_level=3
 
 ## Memory Comparison
 
+Memory and performance benchmarking in progress for all optimization levels.
+
 | Level | VRAM (14B) | Speed | Components on GPU |
 |-------|------------|-------|-------------------|
-| 0 | 40-80GB | 1.0x | All |
-| 1 | 30-60GB | 0.95x | All (VAE tiled) |
-| 2 | 20-40GB | 0.85x | DiT + VAE |
-| 3 | 15-25GB | 0.60x | Active layer only |
+| 0 | Baseline | 1.0x | All |
+| 1 | To be tested | To be tested | All (VAE tiled) |
+| 2 | To be tested | To be tested | DiT + VAE |
+| 3 | To be tested | To be tested | Active layer only |
 
 ## Configuration
 
@@ -220,8 +222,8 @@ python test_generate.py \
     infer.attn_type=sage
 ```
 
-**VRAM**: ~15-30GB  
-**Speed**: ~0.8x compared to baseline
+**VRAM**: Performance testing in progress  
+**Speed**: Performance testing in progress
 
 ### Low Memory + FlexCache
 
@@ -232,8 +234,8 @@ python test_generate.py \
     infer.diffusion.low_mem_level=2
 ```
 
-**VRAM**: ~20-40GB  
-**Speed**: ~0.9x compared to baseline
+**VRAM**: Performance testing in progress  
+**Speed**: Performance testing in progress
 
 ```python
 params = DiffusionUserParams(
@@ -252,8 +254,8 @@ torchrun --nproc_per_node=2 test_generate.py \
     infer.diffusion.cp_size=2
 ```
 
-**VRAM per GPU**: ~10-20GB  
-**Speed**: ~1.7x (2 GPUs)
+**VRAM per GPU**: Performance testing in progress  
+**Speed**: Performance testing in progress
 
 ## Monitoring Memory Usage
 
@@ -381,14 +383,16 @@ torch.cuda.reset_peak_memory_stats()
 
 ## Hardware Recommendations
 
+Performance benchmarking in progress. Hardware recommendations will be provided once comprehensive testing is completed.
+
 ### By VRAM Size
 
 | VRAM | Recommended Level | Max Resolution |
 |------|------------------|----------------|
-| 16GB | Level 3 + Sage | 480x848, 49 frames |
-| 24GB | Level 2 | 480x848, 81 frames |
-| 40GB | Level 1 | 720x1280, 81 frames |
-| 80GB | Level 0 | 720x1280, 121 frames |
+| 16GB | Level 3 + Sage | To be tested |
+| 24GB | Level 2 | To be tested |
+| 40GB | Level 1 | To be tested |
+| 80GB | Level 0 | To be tested |
 
 ### By Use Case
 

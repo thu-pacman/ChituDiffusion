@@ -168,20 +168,24 @@ final = uncond_pred + scale * (cond_pred - uncond_pred)
 
 ### Context Parallelism Scaling
 
+Scaling efficiency benchmarking in progress.
+
 | CP Size | Speedup | Efficiency |
 |---------|---------|-----------|
 | 1 | 1.0x | 100% |
-| 2 | 1.9x | 95% |
-| 4 | 3.6x | 90% |
-| 8 | 6.8x | 85% |
+| 2 | To be tested | To be tested |
+| 4 | To be tested | To be tested |
+| 8 | To be tested | To be tested |
 
-*Efficiency decreases due to communication overhead*
+*Efficiency characteristics will be documented after comprehensive testing*
 
 ### CFG Parallelism Speedup
 
-- 2 GPUs: ~1.95x speedup
-- Communication cost: ~2-3% overhead
-- Almost perfect scaling for CFG workloads
+CFG parallelism performance testing in progress.
+
+- 2 GPUs: Performance to be tested
+- Communication overhead to be benchmarked
+- Scaling characteristics will be documented
 
 ## Distributed Setup
 

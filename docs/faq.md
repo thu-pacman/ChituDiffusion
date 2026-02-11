@@ -65,7 +65,7 @@ python test_generate.py infer.diffusion.low_mem_level=2
 
 **A**: Several strategies:
 
-1. **Use SageAttention**: `infer.attn_type=sage` (~2x faster)
+1. **Use SageAttention**: `infer.attn_type=sage` (performance testing in progress)
 2. **Reduce inference steps**: `num_inference_steps=30` (was 50)
 3. **Enable FlexCache**: `flexcache='teacache'`
 4. **Lower resolution**: `height=480, width=848`
@@ -75,8 +75,8 @@ python test_generate.py infer.diffusion.low_mem_level=2
 
 **A**:
 - **flash_attn**: Default, accurate, good performance
-- **sage**: Quantized (INT8), ~2x faster, minimal quality loss
-- **sparge**: Sparse + quantized, ~3x faster, slight quality loss
+- **sage**: Quantized (INT8), performance testing in progress
+- **sparge**: Sparse + quantized, performance testing in progress
 - **auto**: Automatically select best available
 
 ### Q: Why is the first generation slow?
