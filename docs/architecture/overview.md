@@ -286,9 +286,9 @@ Smart-Diffusion supports multiple attention implementations:
 
 | Backend | Precision | Speed | Memory |
 |---------|-----------|-------|--------|
-| FlashAttention | FP16/BF16 | 1x | 1x |
-| SageAttention | INT8 | ~2x | 0.5x |
-| SpargeAttention | INT8 + Sparse | ~3x | 0.3x |
+| FlashAttention | FP16/BF16 | Baseline | Baseline |
+| SageAttention | INT8 | To be tested | To be tested |
+| SpargeAttention | INT8 + Sparse | To be tested | To be tested |
 
 ### Attention Flow with CP
 

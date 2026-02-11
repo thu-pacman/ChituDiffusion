@@ -10,7 +10,7 @@ Optimize Smart-Diffusion for maximum performance.
 infer.attn_type=sage
 ```
 
-**Speedup:** ~2x
+**Speedup:** Performance testing in progress
 **Quality loss:** Minimal
 
 ### 2. Enable FlexCache
@@ -22,7 +22,7 @@ user_params = DiffusionUserParams(
 )
 ```
 
-**Speedup:** 30-40%
+**Speedup:** Performance testing in progress
 **Quality loss:** Minimal
 
 ### 3. Reduce Inference Steps
@@ -31,7 +31,7 @@ user_params = DiffusionUserParams(
 num_inference_steps=30  # Instead of 50
 ```
 
-**Speedup:** 40%
+**Speedup:** Performance testing in progress
 **Quality loss:** Slight
 
 ## GPU Utilization
@@ -42,7 +42,7 @@ num_inference_steps=30  # Instead of 50
 nvidia-smi dmon -s u
 ```
 
-**Target:** >80% GPU utilization
+**Target:** GPU utilization benchmarks in progress
 
 **If low:**
 1. Increase batch size (future feature)
@@ -85,30 +85,36 @@ print(f"Generation took {elapsed:.2f} seconds")
 
 ### Expected Performance
 
+Performance benchmarking is in progress. Results will be published once comprehensive testing is completed across different hardware configurations.
+
 | Model | Resolution | Frames | Steps | A100 (40GB) | H100 (80GB) |
 |-------|------------|--------|-------|-------------|-------------|
-| 1.3B | 480x848 | 81 | 50 | ~120s | ~60s |
-| 14B | 480x848 | 81 | 50 | ~240s | ~120s |
-| 14B | 720x1280 | 121 | 50 | ~600s | ~300s |
+| 1.3B | 480x848 | 81 | 50 | To be tested | To be tested |
+| 14B | 480x848 | 81 | 50 | To be tested | To be tested |
+| 14B | 720x1280 | 121 | 50 | To be tested | To be tested |
 
-*With SageAttention: ~50% faster*
+*Performance improvements with optimizations will be benchmarked*
 
 ## Multi-GPU Scaling
 
 ### Context Parallelism Efficiency
 
+Multi-GPU scaling benchmarks in progress.
+
 | GPUs | Speedup | Efficiency |
 |------|---------|------------|
 | 1 | 1.0x | 100% |
-| 2 | 1.9x | 95% |
-| 4 | 3.6x | 90% |
-| 8 | 6.8x | 85% |
+| 2 | To be tested | To be tested |
+| 4 | To be tested | To be tested |
+| 8 | To be tested | To be tested |
 
 ### CFG Parallelism
 
+CFG parallelism performance testing in progress.
+
 | GPUs | Speedup |
 |------|---------|
-| 2 | 2.0x |
+| 2 | To be tested |
 
 ## Profiling
 
