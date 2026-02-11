@@ -39,6 +39,7 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 build.log
+resolve.log
 uv.lock
 
 # Unit test / coverage reports
@@ -107,4 +108,5 @@ logs/*
 # Diffusion
 *.mp4
 output/*
-srun_wan_demo.sh
+vbench_out/*
+*.sh

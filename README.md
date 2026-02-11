@@ -168,3 +168,21 @@ DiffusionUserParams(
     flexcache='<cache_type>',
 )
 ```
+
+## `eval.eval_type`
+
+**Enable VBench custom-mode evaluation** after generation.
+
+### Parameter Description
+Set in the launch script: `eval.eval_type=vbench` to enable VBench custom-mode evaluation.
+
+Currently supports:
+- `vbench` - VBench custom-mode evaluation
+
+When enabled, the system will:
+- Evaluate all generated videos from the current run's completed tasks
+- Evaluate all custom-mode dimensions by default:
+- Write results to `*_full_info.json` and `*_eval_results.json` under `./vbench_out/` 
+
+
+**Note**: If `eval.eval_type` is not set or set to `null`, evaluation will be automatically skipped.

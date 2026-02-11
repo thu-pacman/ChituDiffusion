@@ -225,5 +225,22 @@ def chitu_terminate():
         terminated_task = DiffusionTask.create_terminate_signal("0x")
         DiffusionBackend.generator.step(terminated_task)
 
+def chitu_run_eval():
+    from chitu_diffusion.eval.eval_manager import EvalManager
+    manager = EvalManager()
+    args = get_global_args()
+
+    if args.eval.eval_type == None:
+        return
+    elif args.eval.eval_type=='vbench':
+        from chitu_diffusion.eval.strategy.Vbench import VbenchStrategy
+        strategy = VbenchStrategy()
+    else:
+        raise ValueError(f"Unsupported eval type: {args.eval.eval_type}")
+    manager.set_strategy(strategy)
+    manager.run(args=args)
+    
+
+
 def chitu_is_terminated():
     return DiffusionBackend.state == BackendState.Terminated

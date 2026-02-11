@@ -71,6 +71,11 @@ class InferConfig:
 
 
 @dataclass
+class EvalConfig:
+    eval_type: Optional[str] = None
+
+
+@dataclass
 class RequestConfig:
     prompt_tokens_len: int = MISSING
     max_new_tokens: int = MISSING
@@ -276,6 +281,7 @@ class ServeConfig:
     models: Any = MISSING
     benchmark: Any = MISSING
     infer: InferConfig = field(default_factory=InferConfig)
+    eval: EvalConfig = field(default_factory=EvalConfig)
     request: RequestConfig = field(default_factory=RequestConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     dp_config: DpConfig = field(default_factory=DpConfig)
