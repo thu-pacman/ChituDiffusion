@@ -1,0 +1,110 @@
+# 更新日志
+
+Smart-Diffusion 的所有重要更改都将记录在此文件中。
+
+格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)，
+此项目遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
+
+## [未发布]
+
+### 新增
+- 为核心模块添加了全面的英文文档字符串
+  - `chitu_core/device_type.py` - 设备检测函数
+  - `chitu_core/global_vars.py` - 配置管理
+  - `chitu_diffusion/backend.py` - 后端和模型管理
+  - `chitu_diffusion/chitu_diffusion_main.py` - 主初始化和执行
+- 增强的 README.md，包括：
+  - 改进的结构和格式
+  - 全面的功能描述
+  - 详细的安装说明，支持 uv
+  - 使用示例和配置指南
+  - 贡献指南和路线图
+- 使用 MkDocs Material 的完整文档网站
+  - 安装指南
+  - 快速入门教程
+  - 架构概览
+  - 常见问题部分
+  - 配置指南
+- 用于自动文档部署的 GitHub Actions 工作流
+- 支持文档搜索和代码高亮
+- 中文文档和语言切换功能
+
+### 更改
+- 重组文档结构，划分清晰的部分
+- 改进整个代码库的代码文档标准
+- 修复文档中的图标渲染问题
+- 将性能测试数据更新为"待测试"状态
+
+## [0.1.0] - 2025-01-XX
+
+### 新增
+- Smart-Diffusion 初始发布
+- 支持 Wan-T2V 系列模型（1.3B、14B、A14B）
+- 多种注意力后端支持：
+  - FlashAttention（默认）
+  - SageAttention（量化）
+  - SpargeAttention（稀疏）
+- 内存优化功能：
+  - 带模型卸载的低内存模式
+  - VAE 分块支持
+  - 多级内存管理（0-3）
+- 用于特征重用的 FlexCache 系统：
+  - TeaCache 策略
+  - 金字塔注意力广播（PAB）策略
+- 并行支持：
+  - 上下文并行（CP）
+  - 分类器自由引导（CFG）并行
+- 评估支持：
+  - VBench 自定义模式评估
+- 配置系统：
+  - 基于 Hydra 的配置
+  - 三层参数系统（模型/用户/系统）
+- 任务管理：
+  - 任务池和调度器
+  - 用于分布式执行的请求序列化
+- 分布式训练支持：
+  - NCCL 后端
+  - 多 GPU 和多节点支持
+
+### 已知问题
+- 数据并行尚未实现
+- 有限的模型支持（仅 Wan-T2V）
+- 某些领域的文档不完整
+
+## 未来路线图
+
+### 计划功能
+- [ ] 更多扩散模型支持
+  - [ ] Stable Diffusion 3
+  - [ ] Flux
+  - [ ] CogVideoX
+- [ ] 额外的并行策略
+  - [ ] 用于批处理的数据并行
+  - [ ] 混合并行组合
+- [ ] 更多加速算法
+  - [ ] 额外的缓存策略
+  - [ ] 量化改进
+- [ ] 生产功能
+  - [ ] HTTP API 服务器
+  - [ ] 批处理和请求排队
+  - [ ] 监控和指标
+- [ ] 更好的算子实现
+  - [ ] 自定义 CUDA 内核
+  - [ ] Triton 实现
+- [ ] 全面的基准测试
+  - [ ] 性能比较
+  - [ ] 质量指标
+
+### 文档改进
+- [ ] 所有模块的完整 API 参考
+- [ ] 更多使用示例
+- [ ] 视频教程
+- [ ] 社区贡献指南
+
+## 贡献
+
+有关如何为 Smart-Diffusion 做出贡献，请参阅 [贡献指南](contributing/developer-guide.md)。
+
+---
+
+有关详细的提交历史，请参阅 [GitHub 提交](https://github.com/chen-yy20/SmartDiffusion/commits/main)。
