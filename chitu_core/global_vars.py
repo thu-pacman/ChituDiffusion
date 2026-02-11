@@ -53,6 +53,25 @@ def set_global_variables(global_args=None, debug=False):
 
 
 def expand_layers(spec):
+    """
+    Expand layer specifications into a sorted list of layer indices.
+    
+    Supports both individual layer indices and range specifications.
+    Examples:
+        - [0, 5, 10] -> [0, 5, 10]
+        - ["0-5", 10] -> [0, 1, 2, 3, 4, 5, 10]
+        - ["0-2", "5-7"] -> [0, 1, 2, 5, 6, 7]
+    
+    Args:
+        spec (list): List of integers or strings specifying layers.
+                    String format: "start-end" (inclusive range).
+    
+    Returns:
+        list: Sorted list of unique layer indices.
+        
+    Raises:
+        ValueError: If an item in spec is not a valid integer or range string.
+    """
     layers = set()
     for item in spec:
         if isinstance(item, int):
@@ -67,6 +86,20 @@ def expand_layers(spec):
 
 
 def set_quant_variables(global_args=None):
+    """
+    Configure quantization rules based on the model name.
+    
+    This function parses the quantization configuration from global_args and
+    sets up quantization rules for the specified model. It matches the model
+    name against patterns in the configuration and expands layer specifications.
+    
+    Args:
+        global_args: Global configuration object containing model and quantization settings.
+                    If None, the function returns without making changes.
+    
+    Note:
+        Modifies the models.quant_config attribute in-place with expanded rules.
+    """
     if global_args is None:
         return
 
@@ -109,6 +142,20 @@ def set_quant_variables(global_args=None):
 
 
 def set_backend_variables(global_args=None):
+    """
+    Configure backend implementation rules based on the model name.
+    
+    This function parses the backend configuration from global_args and
+    sets up backend rules for the specified model. It matches the model
+    name against patterns in the configuration and expands layer specifications.
+    
+    Args:
+        global_args: Global configuration object containing model and backend settings.
+                    If None, the function returns without making changes.
+    
+    Note:
+        Modifies the models.backend_config attribute in-place with expanded rules.
+    """
     if global_args is None:
         return
 
@@ -190,6 +237,18 @@ def _set_tensorboard_writer(args):
 
 @lru_cache(maxsize=1)
 def get_global_args():
+    """
+    Retrieve and cache the global arguments configuration.
+    
+    This function returns the global configuration object with models converted
+    to StaticConfig instances for efficient access.
+    
+    Returns:
+        ServeConfig or StaticConfig: The cached global configuration object.
+        
+    Raises:
+        AssertionError: If global args have not been initialized.
+    """
     _ensure_var_is_initialized(_GLOBAL_ARGS, "global args")
     cfg: ServeConfig = OmegaConf.to_object(_GLOBAL_ARGS)
 
@@ -203,6 +262,17 @@ def get_global_args():
 
 
 def set_global_args(args, need_ensure=True):
+    """
+    Set the global arguments configuration.
+    
+    Args:
+        args: The configuration object to set as global args.
+        need_ensure (bool): If True, ensures global args are not already initialized.
+                           Defaults to True.
+    
+    Raises:
+        AssertionError: If need_ensure is True and global args are already initialized.
+    """
     global _GLOBAL_ARGS
     if need_ensure == True:
         _ensure_var_is_not_initialized(_GLOBAL_ARGS, "global args")
@@ -241,7 +311,16 @@ def _ensure_var_is_not_initialized(var, name):
 
 
 class _Timer:
-    """Timer."""
+    """
+    Timer for measuring elapsed time of operations.
+    
+    Attributes:
+        name_ (str): Name of this timer.
+        elapsed_ (float): Accumulated elapsed time in seconds.
+        started_ (bool): Whether the timer is currently running.
+        start_time (float): Timestamp when timer was last started.
+        cnt (int): Count of times this timer has been stopped.
+    """
 
     def __init__(self, name):
         self.name_ = name

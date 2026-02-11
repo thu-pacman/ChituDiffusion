@@ -44,16 +44,62 @@ if TYPE_CHECKING:
 logger = getLogger(__name__)
 
 class BackendState(Enum):
+    """
+    Enumeration of possible backend lifecycle states.
+    
+    Attributes:
+        Running: Backend is actively processing tasks.
+        Terminating: All tasks are done, rank 0 should signal others to terminate.
+        Terminated: Backend has been fully terminated.
+    """
     Running = 1
     Terminating = 2  # All tasks done, but rank 0 should tell others to terminate
     Terminated = 3
 
 class CFGType(Enum):
+    """
+    Enumeration of Classifier-Free Guidance (CFG) types.
+    
+    Attributes:
+        POS: Process only positive (conditioned) prompts.
+        NEG: Process only negative (unconditioned) prompts.
+        BOTH: Process both positive and negative prompts.
+    """
     POS = "pos"
     NEG = "neg"
     BOTH = "both"
     
 class DiffusionBackend:
+    """
+    Main diffusion model inference backend.
+    
+    This class manages the lifecycle of diffusion models, including loading,
+    parallelism setup, and inference execution. It provides a centralized
+    interface for model components (text encoder, VAE, DiT models) and
+    handles distributed training configurations.
+    
+    Class Attributes:
+        model_pool (list): Pool of DiT models (for low memory mode, offloaded to CPU).
+        formatter: Text formatting utility.
+        args: Global configuration arguments.
+        cache_type (str): Type of cache management.
+        is_main_rank (bool): Whether this is the main process rank.
+        use_gloo (bool): Whether to use Gloo backend for communication.
+        group_gloo: Gloo communication group.
+        scheduler (DiffusionScheduler): Task scheduler instance.
+        state (BackendState): Current backend state.
+        indexer_cache_manager: Cache manager for indexing.
+        do_cfg (bool): Whether to use Classifier-Free Guidance.
+        cfg_type (CFGType): Type of CFG to use.
+        generator (Generator): Generation executor instance.
+        text_encoder: Text encoder model (e.g., T5).
+        active_model: Currently active DiT model on GPU.
+        active_model_id (int): Index of the active model.
+        vae: VAE decoder model.
+        boundary: Noise boundary values for multi-stage models.
+        guidance_scale: CFG guidance scale values.
+        flexcache (FlexCacheManager): Feature reuse cache manager.
+    """
     # init once
     model_pool = [] # In low memory mode, DiT models are offloaded to CPU in model pool
     formatter = None
@@ -90,9 +136,20 @@ class DiffusionBackend:
     @staticmethod
     def check_and_convert_config(args):
         """
-        Yaml config can only represent lists, but some places need tuples.
-        This method aims to convert all lists in args to tuples recursively.
-        Variables in KEEPLIST will be kept as List.
+        Convert configuration lists to tuples recursively.
+        
+        YAML configs can only represent lists, but some places need tuples.
+        This method converts all lists in args to tuples recursively, except
+        for variables in KEEPLIST which must remain as lists.
+        
+        Args:
+            args: Configuration object to convert.
+            
+        Returns:
+            Configuration object with lists converted to tuples.
+            
+        Raises:
+            AssertionError: If boundary and guidance_scale lengths are inconsistent.
         """ 
         # check validation
         assert len(args.sampler.boundary) == len(args.sampler.guidance_scale) - 1
@@ -271,6 +328,13 @@ class DiffusionBackend:
 
     @staticmethod
     def memory_used(msg: str = "Memory Usage"):
+        """
+        Log current GPU and CPU memory usage.
+        
+        Args:
+            msg (str): Description message for the memory log. Will be truncated
+                      or padded to 20 characters for consistent formatting.
+        """
         # 固定 msg 的输出长度为 20 个字符，超出部分用 ... 代替
         msg = (msg[:17] + '...') if len(msg) > 20 else msg.ljust(20)
         logger.info(
@@ -279,6 +343,20 @@ class DiffusionBackend:
 
     @staticmethod
     def switch_active_model(flush: bool):
+        """
+        Switch the active DiT model on GPU.
+        
+        In low memory mode (level >= 3), this function offloads the current
+        active model to CPU and loads the next model to GPU. It also updates
+        the corresponding guidance scale and boundary configurations.
+        
+        Args:
+            flush (bool): If True, start from the first model (noise model).
+                         If False, advance to the next model in sequence.
+                         
+        Raises:
+            IndexError: If the computed model index is out of range.
+        """
         # 先将当前活跃模型offload到CPU
         low_mem_level = getattr(DiffusionBackend.args.infer.diffusion, "low_mem_level", 0)
 
@@ -484,6 +562,19 @@ class DiffusionBackend:
 
     @staticmethod
     def _init_attention_backend(args):
+        """
+        Initialize the attention backend implementation.
+        
+        Sets up the attention mechanism based on the configured attention type
+        (e.g., flash_attn, sage, sparge) and wraps it with context parallelism
+        if CP size > 1.
+        
+        Args:
+            args: Global configuration containing attention settings.
+            
+        Returns:
+            DiffusionAttnBackend or DiffusionAttention_with_CP: Initialized attention backend.
+        """
         attn_type = args.infer.attn_type
         attn = DiffusionAttnBackend(attn_type)
 
@@ -495,6 +586,18 @@ class DiffusionBackend:
     
     @staticmethod
     def _get_rope_implementation(args):
+        """
+        Get the appropriate RoPE (Rotary Position Embedding) implementation.
+        
+        If context parallelism size > 1, returns a context-parallel aware RoPE
+        implementation. Otherwise returns None to use the default implementation.
+        
+        Args:
+            args: Global configuration containing context parallelism settings.
+            
+        Returns:
+            callable or None: RoPE implementation function, or None for default.
+        """
         if args.infer.diffusion.cp_size > 1:
             from chitu_diffusion.utils.wan_utils import rope_apply_with_cp
             return partial(rope_apply_with_cp, cp_size=get_cp_group().group_size, cp_rank=get_cp_group().rank_in_group)
