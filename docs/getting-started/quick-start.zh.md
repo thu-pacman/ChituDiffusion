@@ -6,10 +6,10 @@
 
 开始之前，请确保您已经：
 
-1. [安装了 Smart-Diffusion](installation.zh.md)
+1. [安装了 Smart-Diffusion](installation.md)
 2. 下载了模型检查点（参见[模型下载](#模型下载)）
 
-## 模型下载
+## 模型下载 {#模型下载}
 
 Smart-Diffusion 目前支持 Wan-T2V 系列模型：
 
