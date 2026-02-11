@@ -241,7 +241,7 @@ print(prof.key_averages().table(sort_by="cuda_time_total"))
 
 ## 另请参阅
 
-- [安装指南](../getting-started/installation.md)
-- [快速入门](../getting-started/quick-start.md)
+- [安装指南](../getting-started/installation.zh.md)
+- [快速入门](../getting-started/quick-start.zh.md)
 - [性能调优](../user-guide/performance-tuning.md)
 - [多 GPU 设置](../user-guide/multi-gpu.md)

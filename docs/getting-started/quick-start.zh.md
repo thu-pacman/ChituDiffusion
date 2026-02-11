@@ -6,7 +6,7 @@
 
 开始之前，请确保您已经：
 
-1. [安装了 Smart-Diffusion](installation.md)
+1. [安装了 Smart-Diffusion](installation.zh.md)
 2. 下载了模型检查点（参见[模型下载](#模型下载)）
 
 ## 模型下载
@@ -298,6 +298,6 @@ torchrun --nproc_per_node=4 test_generate.py \
 
 如果您遇到问题：
 
-1. 查看 [常见问题](../faq.md)
+1. 查看 [常见问题](../faq.zh.md)
 2. 在 [GitHub Issues](https://github.com/chen-yy20/SmartDiffusion/issues) 上搜索
 3. 加入 [讨论](https://github.com/chen-yy20/SmartDiffusion/discussions)

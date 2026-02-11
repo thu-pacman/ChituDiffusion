@@ -183,7 +183,7 @@ CUDA: True
 
 安装完成后：
 
-1. [运行快速入门示例](quick-start.md)
+1. [运行快速入门示例](quick-start.zh.md)
 2. [配置您的设置](configuration.md)
 3. [探索用户指南](../user-guide/basic-usage.md)
 
@@ -213,6 +213,6 @@ uv sync  # 或 pip install -e . --upgrade
 
 如果您遇到问题：
 
-1. 检查 [常见问题](../faq.md)
+1. 检查 [常见问题](../faq.zh.md)
 2. 在 [GitHub Issues](https://github.com/chen-yy20/SmartDiffusion/issues) 上搜索
 3. 加入 [讨论](https://github.com/chen-yy20/SmartDiffusion/discussions)
