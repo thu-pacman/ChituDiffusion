@@ -202,7 +202,7 @@ python test_generate.py
 
 ### 问：可以添加自定义模型吗？
 
-**答**：是的！请参阅 [自定义模型指南](../advanced/custom-models.md) 获取详细说明。
+**答**：是的！请参阅 [自定义模型指南](advanced/custom-models.md) 获取详细说明。
 
 ### 问：如何进行性能分析？
 
@@ -230,7 +230,7 @@ print(prof.key_averages().table(sort_by="cuda_time_total"))
 4. 添加测试
 5. 提交拉取请求
 
-请参阅 [开发者指南](../contributing/developer-guide.md) 了解详情。
+请参阅 [开发者指南](contributing/developer-guide.md) 了解详情。
 
 ### 问：如何报告错误？
 
@@ -241,7 +241,7 @@ print(prof.key_averages().table(sort_by="cuda_time_total"))
 
 ## 另请参阅
 
-- [安装指南](../getting-started/installation.zh.md)
-- [快速入门](../getting-started/quick-start.zh.md)
-- [性能调优](../user-guide/performance-tuning.md)
-- [多 GPU 设置](../user-guide/multi-gpu.md)
+- [安装指南](getting-started/installation.md)
+- [快速入门](getting-started/quick-start.md)
+- [性能调优](user-guide/performance-tuning.md)
+- [多 GPU 设置](user-guide/multi-gpu.md)
