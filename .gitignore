@@ -110,3 +110,6 @@ logs/*
 output/*
 vbench_out/*
 *.sh
+
+# MkDocs
+site/
