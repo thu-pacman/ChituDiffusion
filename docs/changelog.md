@@ -100,7 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Contributing
 
-See [Contributing Guide](docs/contributing/developer-guide.md) for how to contribute to Smart-Diffusion.
+See [Contributing Guide](contributing/developer-guide.md) for how to contribute to Smart-Diffusion.
 
 ---
 
