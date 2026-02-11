@@ -15,12 +15,16 @@
         <link rel="canonical" href="https://chen-yy20.github.io/SmartDiffusion/faq/">
       
       
-        <link rel="prev" href="../contributing/testing/">
+        <link rel="prev" href="../whySmart/">
       
       
         <link rel="next" href="../changelog/">
       
       
+        
+          <link rel="alternate" href="./" hreflang="en">
+        
+          <link rel="alternate" href="../zh/faq/" hreflang="zh">
         
       
       
@@ -158,6 +162,32 @@
     
       <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
     
+    
+      <div class="md-header__option">
+  <div class="md-select">
+    
+    <button class="md-header__button md-icon" aria-label="Select language">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"/></svg>
+    </button>
+    <div class="md-select__inner">
+      <ul class="md-select__list">
+        
+          <li class="md-select__item">
+            <a href="./" hreflang="en" class="md-select__link">
+              English
+            </a>
+          </li>
+        
+          <li class="md-select__item">
+            <a href="../zh/faq/" hreflang="zh" class="md-select__link">
+              中文
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</div>
     
     
       
@@ -359,6 +389,25 @@
         </a>
       </li>
     
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../whySmart/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Why Smart-Diffusion
+
+      </a>
+    </li>
   
 
       
@@ -1486,6 +1535,33 @@
           </ul>
         </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../whySmart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Smart-Diffusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2743,7 +2819,7 @@
 <h3 id="q-how-can-i-speed-up-generation">Q: How can I speed up generation?<a class="headerlink" href="#q-how-can-i-speed-up-generation" title="Permanent link">&para;</a></h3>
 <p><strong>A</strong>: Several strategies:</p>
 <ol>
-<li><strong>Use SageAttention</strong>: <code>infer.attn_type=sage</code> (~2x faster)</li>
+<li><strong>Use SageAttention</strong>: <code>infer.attn_type=sage</code> (performance testing in progress)</li>
 <li><strong>Reduce inference steps</strong>: <code>num_inference_steps=30</code> (was 50)</li>
 <li><strong>Enable FlexCache</strong>: <code>flexcache='teacache'</code></li>
 <li><strong>Lower resolution</strong>: <code>height=480, width=848</code></li>
@@ -2752,8 +2828,8 @@
 <h3 id="q-whats-the-difference-between-attention-backends">Q: What's the difference between attention backends?<a class="headerlink" href="#q-whats-the-difference-between-attention-backends" title="Permanent link">&para;</a></h3>
 <p><strong>A</strong>:
 - <strong>flash_attn</strong>: Default, accurate, good performance
-- <strong>sage</strong>: Quantized (INT8), ~2x faster, minimal quality loss
-- <strong>sparge</strong>: Sparse + quantized, ~3x faster, slight quality loss
+- <strong>sage</strong>: Quantized (INT8), performance testing in progress
+- <strong>sparge</strong>: Sparse + quantized, performance testing in progress
 - <strong>auto</strong>: Automatically select best available</p>
 <h3 id="q-why-is-the-first-generation-slow">Q: Why is the first generation slow?<a class="headerlink" href="#q-why-is-the-first-generation-slow" title="Permanent link">&para;</a></h3>
 <p><strong>A</strong>: The first generation includes:

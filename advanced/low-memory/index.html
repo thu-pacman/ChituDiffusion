@@ -22,6 +22,10 @@
       
       
         
+          <link rel="alternate" href="./" hreflang="en">
+        
+          <link rel="alternate" href="../../zh/advanced/low-memory/" hreflang="zh">
+        
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -158,6 +162,32 @@
     
       <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
     
+    
+      <div class="md-header__option">
+  <div class="md-select">
+    
+    <button class="md-header__button md-icon" aria-label="Select language">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"/></svg>
+    </button>
+    <div class="md-select__inner">
+      <ul class="md-select__list">
+        
+          <li class="md-select__item">
+            <a href="./" hreflang="en" class="md-select__link">
+              English
+            </a>
+          </li>
+        
+          <li class="md-select__item">
+            <a href="../../zh/advanced/low-memory/" hreflang="zh" class="md-select__link">
+              中文
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</div>
     
     
       
@@ -361,6 +391,25 @@
         </a>
       </li>
     
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../whySmart/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Why Smart-Diffusion
+
+      </a>
+    </li>
   
 
       
@@ -2063,6 +2112,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../../whySmart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Smart-Diffusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../faq/" class="md-nav__link">
         
   
@@ -2679,7 +2755,7 @@
 <h2 id="memory-levels">Memory Levels<a class="headerlink" href="#memory-levels" title="Permanent link">&para;</a></h2>
 <p>Smart-Diffusion implements four memory levels (0-3):</p>
 <h3 id="level-0-default-no-optimization">Level 0: Default (No Optimization)<a class="headerlink" href="#level-0-default-no-optimization" title="Permanent link">&para;</a></h3>
-<p><strong>VRAM</strong>: Highest (~40-80GB for 14B model)<br />
+<p><strong>VRAM</strong>: Baseline (highest)<br />
 <strong>Speed</strong>: Fastest<br />
 <strong>Configuration</strong>: Default</p>
 <p>All components stay on GPU:
@@ -2687,43 +2763,44 @@
 - DiT models
 - VAE decoder
 - All activations</p>
-<p><strong>Use Case</strong>: When you have abundant VRAM (80GB+ GPUs)</p>
+<p><strong>Use Case</strong>: When you have abundant VRAM</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span>infer.diffusion.low_mem_level<span class="o">=</span><span class="m">0</span>
 </code></pre></div>
 <h3 id="level-1-vae-tiling">Level 1: VAE Tiling<a class="headerlink" href="#level-1-vae-tiling" title="Permanent link">&para;</a></h3>
-<p><strong>VRAM</strong>: ~30-60GB<br />
-<strong>Speed</strong>: ~5% slower<br />
+<p><strong>VRAM</strong>: Memory reduction expected<br />
+<strong>Speed</strong>: Performance testing in progress<br />
 <strong>Optimization</strong>: VAE processes video in tiles</p>
 <p><strong>What Changes</strong>:
 - VAE decoder operates on tiles instead of full video
 - Reduces peak memory during decoding
 - Minimal quality impact</p>
-<p><strong>Use Case</strong>: Slightly constrained VRAM (40GB+ GPUs)</p>
+<p><strong>Use Case</strong>: Slightly constrained VRAM</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span>infer.diffusion.low_mem_level<span class="o">=</span><span class="m">1</span>
 </code></pre></div>
 <h3 id="level-2-cpu-offloading-text-encoder">Level 2: CPU Offloading (Text Encoder)<a class="headerlink" href="#level-2-cpu-offloading-text-encoder" title="Permanent link">&para;</a></h3>
-<p><strong>VRAM</strong>: ~20-40GB<br />
-<strong>Speed</strong>: ~15% slower<br />
+<p><strong>VRAM</strong>: Memory reduction expected<br />
+<strong>Speed</strong>: Performance testing in progress<br />
 <strong>Optimization</strong>: T5 encoder on CPU</p>
 <p><strong>What Changes</strong>:
 - Text encoder moved to CPU
 - Embeddings transferred to GPU after encoding
 - One-time cost at start</p>
-<p><strong>Use Case</strong>: Limited VRAM (24-40GB)</p>
+<p><strong>Use Case</strong>: Limited VRAM</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span>infer.diffusion.low_mem_level<span class="o">=</span><span class="m">2</span>
 </code></pre></div>
 <h3 id="level-3-aggressive-offloading">Level 3: Aggressive Offloading<a class="headerlink" href="#level-3-aggressive-offloading" title="Permanent link">&para;</a></h3>
-<p><strong>VRAM</strong>: ~15-25GB<br />
-<strong>Speed</strong>: ~40% slower<br />
+<p><strong>VRAM</strong>: Maximum memory reduction<br />
+<strong>Speed</strong>: Performance testing in progress<br />
 <strong>Optimization</strong>: DiT models on CPU, moved to GPU per-layer</p>
 <p><strong>What Changes</strong>:
 - DiT model parameters on CPU
 - Layers moved to GPU one at a time
 - Significant CPU-GPU transfer overhead</p>
-<p><strong>Use Case</strong>: Very limited VRAM (&lt;24GB)</p>
+<p><strong>Use Case</strong>: Very limited VRAM</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span>infer.diffusion.low_mem_level<span class="o">=</span><span class="m">3</span>
 </code></pre></div>
 <h2 id="memory-comparison">Memory Comparison<a class="headerlink" href="#memory-comparison" title="Permanent link">&para;</a></h2>
+<p>Memory and performance benchmarking in progress for all optimization levels.</p>
 <table>
 <thead>
 <tr>
@@ -2736,26 +2813,26 @@
 <tbody>
 <tr>
 <td>0</td>
-<td>40-80GB</td>
+<td>Baseline</td>
 <td>1.0x</td>
 <td>All</td>
 </tr>
 <tr>
 <td>1</td>
-<td>30-60GB</td>
-<td>0.95x</td>
+<td>To be tested</td>
+<td>To be tested</td>
 <td>All (VAE tiled)</td>
 </tr>
 <tr>
 <td>2</td>
-<td>20-40GB</td>
-<td>0.85x</td>
+<td>To be tested</td>
+<td>To be tested</td>
 <td>DiT + VAE</td>
 </tr>
 <tr>
 <td>3</td>
-<td>15-25GB</td>
-<td>0.60x</td>
+<td>To be tested</td>
+<td>To be tested</td>
 <td>Active layer only</td>
 </tr>
 </tbody>
@@ -2849,15 +2926,15 @@
 <a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">    </span>infer.diffusion.low_mem_level<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">    </span>infer.attn_type<span class="o">=</span>sage
 </code></pre></div>
-<p><strong>VRAM</strong>: ~15-30GB<br />
-<strong>Speed</strong>: ~0.8x compared to baseline</p>
+<p><strong>VRAM</strong>: Performance testing in progress<br />
+<strong>Speed</strong>: Performance testing in progress</p>
 <h3 id="low-memory-flexcache">Low Memory + FlexCache<a class="headerlink" href="#low-memory-flexcache" title="Permanent link">&para;</a></h3>
 <p>Enable caching to offset speed loss:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">    </span>infer.diffusion.low_mem_level<span class="o">=</span><span class="m">2</span>
 </code></pre></div>
-<p><strong>VRAM</strong>: ~20-40GB<br />
-<strong>Speed</strong>: ~0.9x compared to baseline</p>
+<p><strong>VRAM</strong>: Performance testing in progress<br />
+<strong>Speed</strong>: Performance testing in progress</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">params</span> <span class="o">=</span> <span class="n">DiffusionUserParams</span><span class="p">(</span>
 <a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;A cat&quot;</span><span class="p">,</span>
 <a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>    <span class="n">flexcache</span><span class="o">=</span><span class="s2">&quot;teacache&quot;</span>
@@ -2869,8 +2946,8 @@
 <a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">    </span>infer.diffusion.low_mem_level<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">    </span>infer.diffusion.cp_size<span class="o">=</span><span class="m">2</span>
 </code></pre></div>
-<p><strong>VRAM per GPU</strong>: ~10-20GB<br />
-<strong>Speed</strong>: ~1.7x (2 GPUs)</p>
+<p><strong>VRAM per GPU</strong>: Performance testing in progress<br />
+<strong>Speed</strong>: Performance testing in progress</p>
 <h2 id="monitoring-memory-usage">Monitoring Memory Usage<a class="headerlink" href="#monitoring-memory-usage" title="Permanent link">&para;</a></h2>
 <h3 id="real-time-monitoring">Real-Time Monitoring<a class="headerlink" href="#real-time-monitoring" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># In another terminal</span>
@@ -2960,6 +3037,7 @@
 <a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">reset_peak_memory_stats</span><span class="p">()</span>
 </code></pre></div></p>
 <h2 id="hardware-recommendations">Hardware Recommendations<a class="headerlink" href="#hardware-recommendations" title="Permanent link">&para;</a></h2>
+<p>Performance benchmarking in progress. Hardware recommendations will be provided once comprehensive testing is completed.</p>
 <h3 id="by-vram-size">By VRAM Size<a class="headerlink" href="#by-vram-size" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -2973,22 +3051,22 @@
 <tr>
 <td>16GB</td>
 <td>Level 3 + Sage</td>
-<td>480x848, 49 frames</td>
+<td>To be tested</td>
 </tr>
 <tr>
 <td>24GB</td>
 <td>Level 2</td>
-<td>480x848, 81 frames</td>
+<td>To be tested</td>
 </tr>
 <tr>
 <td>40GB</td>
 <td>Level 1</td>
-<td>720x1280, 81 frames</td>
+<td>To be tested</td>
 </tr>
 <tr>
 <td>80GB</td>
 <td>Level 0</td>
-<td>720x1280, 121 frames</td>
+<td>To be tested</td>
 </tr>
 </tbody>
 </table>

@@ -22,6 +22,10 @@
       
       
         
+          <link rel="alternate" href="./" hreflang="en">
+        
+          <link rel="alternate" href="../../zh/architecture/attention-backends/" hreflang="zh">
+        
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -158,6 +162,32 @@
     
       <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
     
+    
+      <div class="md-header__option">
+  <div class="md-select">
+    
+    <button class="md-header__button md-icon" aria-label="Select language">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"/></svg>
+    </button>
+    <div class="md-select__inner">
+      <ul class="md-select__list">
+        
+          <li class="md-select__item">
+            <a href="./" hreflang="en" class="md-select__link">
+              English
+            </a>
+          </li>
+        
+          <li class="md-select__item">
+            <a href="../../zh/architecture/attention-backends/" hreflang="zh" class="md-select__link">
+              中文
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</div>
     
     
       
@@ -361,6 +391,25 @@
         </a>
       </li>
     
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../whySmart/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Why Smart-Diffusion
+
+      </a>
+    </li>
   
 
       
@@ -2253,6 +2302,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../../whySmart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Smart-Diffusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../faq/" class="md-nav__link">
         
   
@@ -3059,8 +3135,8 @@
 <h2 id="available-backends">Available Backends<a class="headerlink" href="#available-backends" title="Permanent link">&para;</a></h2>
 <h3 id="flashattention">FlashAttention<a class="headerlink" href="#flashattention" title="Permanent link">&para;</a></h3>
 <p><strong>Type</strong>: Default, FP16/BF16<br />
-<strong>Performance</strong>: 1x (baseline)<br />
-<strong>Memory</strong>: 1x (baseline)<br />
+<strong>Performance</strong>: Baseline<br />
+<strong>Memory</strong>: Baseline<br />
 <strong>Accuracy</strong>: Full precision</p>
 <p>FlashAttention is the default backend, providing accurate and efficient attention computation.</p>
 <h4 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h4>
@@ -3079,16 +3155,16 @@
 </ul>
 <h3 id="sageattention">SageAttention<a class="headerlink" href="#sageattention" title="Permanent link">&para;</a></h3>
 <p><strong>Type</strong>: Quantized (INT8)<br />
-<strong>Performance</strong>: ~2x faster<br />
-<strong>Memory</strong>: ~0.5x (50% reduction)<br />
-<strong>Accuracy</strong>: Minimal loss (&lt;1% perceptual difference)</p>
+<strong>Performance</strong>: Testing in progress<br />
+<strong>Memory</strong>: Memory reduction expected<br />
+<strong>Accuracy</strong>: Minimal loss expected</p>
 <p>SageAttention uses INT8 quantization for faster computation and lower memory usage.</p>
 <h4 id="features_1">Features<a class="headerlink" href="#features_1" title="Permanent link">&para;</a></h4>
 <ul>
-<li>2x speedup over FlashAttention</li>
-<li>50% memory reduction</li>
+<li>Performance benchmarking in progress</li>
+<li>Memory reduction testing in progress</li>
 <li>Dynamic quantization per layer</li>
-<li>Minimal quality loss</li>
+<li>Quality assessment ongoing</li>
 </ul>
 <h4 id="configuration_1">Configuration<a class="headerlink" href="#configuration_1" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">args</span><span class="o">.</span><span class="n">infer</span><span class="o">.</span><span class="n">attn_type</span> <span class="o">=</span> <span class="s2">&quot;sage&quot;</span>
@@ -3106,14 +3182,14 @@
 </ul>
 <h3 id="spargeattention">SpargeAttention<a class="headerlink" href="#spargeattention" title="Permanent link">&para;</a></h3>
 <p><strong>Type</strong>: Sparse + Quantized (INT8)<br />
-<strong>Performance</strong>: ~3x faster<br />
-<strong>Memory</strong>: ~0.3x (70% reduction)<br />
-<strong>Accuracy</strong>: Slight loss (1-3% perceptual difference)</p>
+<strong>Performance</strong>: Testing in progress<br />
+<strong>Memory</strong>: Memory reduction expected<br />
+<strong>Accuracy</strong>: Quality assessment ongoing</p>
 <p>SpargeAttention combines sparsity and quantization for maximum performance.</p>
 <h4 id="features_2">Features<a class="headerlink" href="#features_2" title="Permanent link">&para;</a></h4>
 <ul>
-<li>3x speedup over FlashAttention</li>
-<li>70% memory reduction</li>
+<li>Performance benchmarking in progress</li>
+<li>Memory reduction testing in progress</li>
 <li>Learned sparsity patterns</li>
 <li>Adaptive attention masking</li>
 </ul>
@@ -3146,7 +3222,7 @@
 </ol>
 <h2 id="performance-comparison">Performance Comparison<a class="headerlink" href="#performance-comparison" title="Permanent link">&para;</a></h2>
 <h3 id="speed-benchmark">Speed Benchmark<a class="headerlink" href="#speed-benchmark" title="Permanent link">&para;</a></h3>
-<p>Tested on NVIDIA A100 (80GB), Wan2.1-14B, 480x848 resolution, 81 frames:</p>
+<p>Performance benchmarking in progress on various hardware configurations.</p>
 <table>
 <thead>
 <tr>
@@ -3159,25 +3235,26 @@
 <tbody>
 <tr>
 <td>FlashAttention</td>
-<td>2.1s</td>
-<td>105s</td>
+<td>Baseline</td>
+<td>Baseline</td>
 <td>1.0x</td>
 </tr>
 <tr>
 <td>SageAttention</td>
-<td>1.1s</td>
-<td>55s</td>
-<td>1.9x</td>
+<td>To be tested</td>
+<td>To be tested</td>
+<td>To be tested</td>
 </tr>
 <tr>
 <td>SpargeAttention</td>
-<td>0.7s</td>
-<td>35s</td>
-<td>3.0x</td>
+<td>To be tested</td>
+<td>To be tested</td>
+<td>To be tested</td>
 </tr>
 </tbody>
 </table>
 <h3 id="memory-benchmark">Memory Benchmark<a class="headerlink" href="#memory-benchmark" title="Permanent link">&para;</a></h3>
+<p>Memory usage benchmarking in progress.</p>
 <table>
 <thead>
 <tr>
@@ -3189,23 +3266,23 @@
 <tbody>
 <tr>
 <td>FlashAttention</td>
-<td>42GB</td>
+<td>Baseline</td>
 <td>baseline</td>
 </tr>
 <tr>
 <td>SageAttention</td>
-<td>24GB</td>
-<td>43%</td>
+<td>To be tested</td>
+<td>To be tested</td>
 </tr>
 <tr>
 <td>SpargeAttention</td>
-<td>16GB</td>
-<td>62%</td>
+<td>To be tested</td>
+<td>To be tested</td>
 </tr>
 </tbody>
 </table>
 <h3 id="quality-comparison">Quality Comparison<a class="headerlink" href="#quality-comparison" title="Permanent link">&para;</a></h3>
-<p>Measured using VBench metrics on 100 prompts:</p>
+<p>Quality metrics testing in progress using VBench benchmark suite.</p>
 <table>
 <thead>
 <tr>
@@ -3219,24 +3296,24 @@
 <tbody>
 <tr>
 <td>FlashAttention</td>
-<td>82.5</td>
-<td>95.2</td>
-<td>83.4</td>
-<td>78.9</td>
+<td>Baseline</td>
+<td>Baseline</td>
+<td>Baseline</td>
+<td>Baseline</td>
 </tr>
 <tr>
 <td>SageAttention</td>
-<td>82.1</td>
-<td>94.8</td>
-<td>83.0</td>
-<td>78.5</td>
+<td>To be tested</td>
+<td>To be tested</td>
+<td>To be tested</td>
+<td>To be tested</td>
 </tr>
 <tr>
 <td>SpargeAttention</td>
-<td>80.8</td>
-<td>93.5</td>
-<td>81.7</td>
-<td>76.9</td>
+<td>To be tested</td>
+<td>To be tested</td>
+<td>To be tested</td>
+<td>To be tested</td>
 </tr>
 </tbody>
 </table>
@@ -3274,10 +3351,7 @@
 <li>Sets other blocks to zero</li>
 </ul>
 <h4 id="dynamic-sparsity">Dynamic Sparsity<a class="headerlink" href="#dynamic-sparsity" title="Permanent link">&para;</a></h4>
-<p>Sparsity ratio adapts per layer:
-- Early layers: 20-30% sparsity
-- Middle layers: 40-60% sparsity
-- Late layers: 20-30% sparsity</p>
+<p>Sparsity ratio adapts per layer based on learned patterns. Exact ratios are being optimized and will be documented.</p>
 <h2 id="context-parallelism-support">Context Parallelism Support<a class="headerlink" href="#context-parallelism-support" title="Permanent link">&para;</a></h2>
 <p>All backends support context parallelism with different communication patterns:</p>
 <h3 id="flashattention-cp">FlashAttention + CP<a class="headerlink" href="#flashattention-cp" title="Permanent link">&para;</a></h3>

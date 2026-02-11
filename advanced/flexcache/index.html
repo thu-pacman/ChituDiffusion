@@ -22,6 +22,10 @@
       
       
         
+          <link rel="alternate" href="./" hreflang="en">
+        
+          <link rel="alternate" href="../../zh/advanced/flexcache/" hreflang="zh">
+        
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -158,6 +162,32 @@
     
       <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
     
+    
+      <div class="md-header__option">
+  <div class="md-select">
+    
+    <button class="md-header__button md-icon" aria-label="Select language">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"/></svg>
+    </button>
+    <div class="md-select__inner">
+      <ul class="md-select__list">
+        
+          <li class="md-select__item">
+            <a href="./" hreflang="en" class="md-select__link">
+              English
+            </a>
+          </li>
+        
+          <li class="md-select__item">
+            <a href="../../zh/advanced/flexcache/" hreflang="zh" class="md-select__link">
+              中文
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</div>
     
     
       
@@ -361,6 +391,25 @@
         </a>
       </li>
     
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../whySmart/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Why Smart-Diffusion
+
+      </a>
+    </li>
   
 
       
@@ -1797,6 +1846,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../../whySmart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Smart-Diffusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../faq/" class="md-nav__link">
         
   
@@ -2145,8 +2221,8 @@
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
 <p>During diffusion denoising, features change slowly between adjacent steps. FlexCache exploits this temporal similarity to skip redundant computations.</p>
 <p><strong>Benefits</strong>:
-- 30-50% speedup
-- Minimal quality loss (&lt;1% perceptual difference)
+- Speedup testing in progress
+- Minimal quality loss expected
 - No additional VRAM required</p>
 <h2 id="strategies">Strategies<a class="headerlink" href="#strategies" title="Permanent link">&para;</a></h2>
 <h3 id="teacache">TeaCache<a class="headerlink" href="#teacache" title="Permanent link">&para;</a></h3>
@@ -2163,8 +2239,8 @@
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="p">)</span>
 </code></pre></div></p>
 <p><strong>Performance</strong>:
-- Speedup: 1.3-1.5x
-- Quality impact: Minimal
+- Speedup: Performance testing in progress
+- Quality impact: Minimal expected
 - Best for: Standard generation</p>
 <h3 id="pab-pyramid-attention-broadcast">PAB (Pyramid Attention Broadcast)<a class="headerlink" href="#pab-pyramid-attention-broadcast" title="Permanent link">&para;</a></h3>
 <p><strong>Principle</strong>: Broadcast high-level features to lower layers</p>
@@ -2179,8 +2255,8 @@
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">)</span>
 </code></pre></div></p>
 <p><strong>Performance</strong>:
-- Speedup: 1.4-1.6x
-- Quality impact: Very minimal
+- Speedup: Performance testing in progress
+- Quality impact: Minimal expected
 - Best for: High-quality generation</p>
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
 <h3 id="basic-usage">Basic Usage<a class="headerlink" href="#basic-usage" title="Permanent link">&para;</a></h3>
@@ -2217,7 +2293,7 @@
 <a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">strategy</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">elapsed</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="performance-comparison">Performance Comparison<a class="headerlink" href="#performance-comparison" title="Permanent link">&para;</a></h2>
-<p>Measured on NVIDIA A100, Wan2.1-14B, 480x848, 81 frames, 50 steps:</p>
+<p>Performance benchmarking in progress for different caching strategies.</p>
 <table>
 <thead>
 <tr>
@@ -2230,21 +2306,21 @@
 <tbody>
 <tr>
 <td>None</td>
-<td>105s</td>
+<td>Baseline</td>
 <td>1.0x</td>
-<td>82.5</td>
+<td>Baseline</td>
 </tr>
 <tr>
 <td>TeaCache</td>
-<td>72s</td>
-<td>1.46x</td>
-<td>82.1</td>
+<td>To be tested</td>
+<td>To be tested</td>
+<td>To be tested</td>
 </tr>
 <tr>
 <td>PAB</td>
-<td>68s</td>
-<td>1.54x</td>
-<td>82.3</td>
+<td>To be tested</td>
+<td>To be tested</td>
+<td>To be tested</td>
 </tr>
 </tbody>
 </table>
