@@ -29,7 +29,7 @@
     
     
       
-        <title>为什么需要 Smart-Diffusion？ - Smart-Diffusion Documentation</title>
+        <title>为什么选择 Smart-Diffusion？ - Smart-Diffusion Documentation</title>
       
     
     
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              为什么需要 Smart-Diffusion？
+              为什么选择 Smart-Diffusion？
             
           </span>
         </div>
@@ -1644,7 +1644,7 @@
   <a href="#diffusion" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Diffusion 任务的负载画像
+        Diffusion 推理的特点
       
     </span>
   </a>
@@ -1655,19 +1655,19 @@
   <a href="#smart-diffusion_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Smart-Diffusion 的设计哲学
+        Smart-Diffusion 的设计理念
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Smart-Diffusion 的设计哲学">
+    <nav class="md-nav" aria-label="Smart-Diffusion 的设计理念">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        三驾马车：并行 × 算子 × 算法
+        三个优化方向：并行、算子、算法
       
     </span>
   </a>
@@ -1678,7 +1678,7 @@
   <a href="#_2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        面向「多用户 × 多任务」的服务框架
+        面向多用户、多任务的服务框架
       
     </span>
   </a>
@@ -1704,17 +1704,6 @@
         
           <li class="md-nav__item">
   <a href="#_4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        参数设计
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#_5" class="md-nav__link">
     <span class="md-ellipsis">
       
         目录结构
@@ -1749,30 +1738,29 @@
   
 
 
-<h1 id="smart-diffusion">为什么需要 Smart-Diffusion？<a class="headerlink" href="#smart-diffusion" title="Permanent link">&para;</a></h1>
-<p><a href="../whySmart/">English Editon</a></p>
-<h2 id="diffusion">Diffusion 任务的负载画像<a class="headerlink" href="#diffusion" title="Permanent link">&para;</a></h2>
-<p>Diffusion 推理是「全程高密度计算」的典型代表：</p>
+<h1 id="smart-diffusion">为什么选择 Smart-Diffusion？<a class="headerlink" href="#smart-diffusion" title="Permanent link">&para;</a></h1>
+<p><a href="../whySmart/">English Edition</a></p>
+<h2 id="diffusion">Diffusion 推理的特点<a class="headerlink" href="#diffusion" title="Permanent link">&para;</a></h2>
+<p>Diffusion 推理是计算密集型任务，有以下几个特点：</p>
 <ol>
-<li>逐样本执行：Batch 无法带来 GPU 利用率提升，单样本流式处理就已经足够。  </li>
-<li>激活序列超长，模型反而“小”：序列并行（Context Parallelism）成为最经济、最易扩展的切分维度。  </li>
-<li>在长序列场景下，Full Attention 占端到端延迟 80 % 以上：算子级优化主要针对attention。  </li>
-<li>相邻去噪步的激活变化微弱：Feature Cache 这一“有损但简单”的 trick 就能带来立竿见影的加速。</li>
+<li><strong>逐样本处理</strong>：Batch 对 GPU 利用率提升不大，单样本流式处理就够用了。  </li>
+<li><strong>长序列小模型</strong>：激活序列很长但模型参数量相对较小，所以序列并行（Context Parallelism）是最经济的并行方式。  </li>
+<li><strong>Attention 是瓶颈</strong>：长序列场景下，Full Attention 占了 80% 以上的延迟，优化重点就是 Attention。  </li>
+<li><strong>激活值变化小</strong>：相邻去噪步之间的激活值变化不大，用 Feature Cache 这种简单方法就能明显加速。</li>
 </ol>
-<h2 id="smart-diffusion_1">Smart-Diffusion 的设计哲学<a class="headerlink" href="#smart-diffusion_1" title="Permanent link">&para;</a></h2>
-<h3 id="_1">三驾马车：并行 × 算子 × 算法<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h3>
-<p>三条路线可独立落地，但灵活 Co-Design 才能榨干硬件的最后一滴油。<br />
-（技术细节将在后续章节持续更新，欢迎 PR 一起填坑。）</p>
-<h3 id="_2">面向「多用户 × 多任务」的服务框架<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
-<p>我们交付的是<strong>可常驻、可热升级、可横向扩展</strong>的 Diffusion 服务，而非写死脚本 + 冷启动。<br />
-核心是把 Diffusion Pipeline 拆成可编排的 Stage，并用统一调度器统筹：</p>
+<h2 id="smart-diffusion_1">Smart-Diffusion 的设计理念<a class="headerlink" href="#smart-diffusion_1" title="Permanent link">&para;</a></h2>
+<h3 id="_1">三个优化方向：并行、算子、算法<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h3>
+<p>这三个方向可以单独优化，但配合起来效果最好。<br />
+（具体技术细节会陆续更新，欢迎提 PR 一起完善。）</p>
+<h3 id="_2">面向多用户、多任务的服务框架<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
+<p>我们提供的是<strong>常驻运行、支持热升级、可横向扩展</strong>的 Diffusion 服务，不是每次都要冷启动的脚本。<br />
+核心思路是把 Diffusion Pipeline 拆成多个可编排的阶段，用统一的调度器来管理：</p>
 <ul>
-<li>让用户自己决定「质量-效率」天平：步数、CFG、Cache 比例一键可调。  </li>
-<li>让系统资源始终饱和：算力打满只是及格线，显存、带宽、CPU 也要“物尽其用”。</li>
+<li>让用户自己调节质量和效率的平衡：推理步数、CFG、Cache 比例都可以在运行时调整。  </li>
+<li>让系统资源充分利用：不只是计算资源，显存、带宽、CPU 都要用起来。</li>
 </ul>
 <h2 id="_3">开发指南<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
-<p>感谢加入 Smart-Diffusion 开源生态！为了让大家 Review 代码时少掉几根头发，请先把开发的三观对齐：</p>
-<h3 id="_4">参数设计<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
+<p>感谢你参与 Smart-Diffusion 开源项目！为了让代码审查更顺利，请先了解一下参数分类：</p>
 <table>
 <thead>
 <tr>
@@ -1788,32 +1776,32 @@
 <td>模型参数</td>
 <td>静态</td>
 <td><code>chitu_core/config/models/&lt;model&gt;.yaml</code></td>
-<td>无人可改</td>
-<td>与权重强绑定，动一行就翻车</td>
+<td>不能改</td>
+<td>跟权重绑定，改了就会出问题</td>
 </tr>
 <tr>
 <td>用户参数</td>
-<td>动态（per-request）</td>
+<td>动态（每次请求）</td>
 <td><code>DiffusionUserParams</code></td>
-<td>终端用户</td>
-<td>暴露「必要且足够」的旋钮，拒绝大排档式刷屏</td>
+<td>用户</td>
+<td>只暴露必要的参数，别搞太复杂</td>
 </tr>
 <tr>
 <td>系统参数</td>
 <td>半动态（启动时）</td>
 <td><code>chitu launch args</code></td>
 <td>运维/调度器</td>
-<td>初始化后禁止热插拔，防止分布式状态爆炸</td>
+<td>启动后不能改，避免分布式状态混乱</td>
 </tr>
 </tbody>
 </table>
 <p>记住：<br />
-“灵活性” 与 “易用性” 永远在天平两端——多一个暴露参数，就多一份文档、一份测试、一份用户心智负担。  </p>
-<h3 id="_5">目录结构<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h3>
-<p><code>/chitu_core</code> 中是Chitu原生提供的代码。对<code>ServeConfig</code>和<code>ParallelState</code>非必要不修改。
-<code>/chitu_diffusion</code> 则是我们仿照Chitu逻辑搭建的diffusion框架，可以修改，但应该保持基本的结构。
-* <code>chitu_diffusion_main.py</code>: 系统初始化、启动、关闭等主要参数
-* <code>backend.py</code> 基于系统参数搭建的后端，储存模型，调度任务。</p>
+每多一个参数就多一份文档、测试和使用负担。灵活性不等于参数越多越好。</p>
+<h3 id="_4">目录结构<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
+<p><code>/chitu_core</code> 是 Chitu 原生代码。<code>ServeConfig</code> 和 <code>ParallelState</code> 非必要不修改。
+<code>/chitu_diffusion</code> 是我们基于 Chitu 逻辑搭建的 diffusion 框架，可以修改，但要保持基本结构。
+* <code>chitu_diffusion_main.py</code>：系统初始化、启动、关闭等主要参数
+* <code>backend.py</code>：基于系统参数搭建的后端，储存模型，调度任务。</p>
 
 
 

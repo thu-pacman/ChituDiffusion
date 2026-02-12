@@ -1606,10 +1606,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#workload-characteristics-of-diffusion" class="md-nav__link">
+  <a href="#characteristics-of-diffusion-inference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Workload Characteristics of Diffusion
+        Characteristics of Diffusion Inference
       
     </span>
   </a>
@@ -1617,22 +1617,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#design-philosophy-of-smart-diffusion" class="md-nav__link">
+  <a href="#smart-diffusion-design-philosophy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Design Philosophy of Smart-Diffusion
+        Smart-Diffusion Design Philosophy
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Design Philosophy of Smart-Diffusion">
+    <nav class="md-nav" aria-label="Smart-Diffusion Design Philosophy">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#three-pillars-parallelism-kernels-algorithms" class="md-nav__link">
+  <a href="#three-optimization-directions-parallelism-kernels-algorithms" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Three Pillars: Parallelism × Kernels × Algorithms
+        Three Optimization Directions: Parallelism × Kernels × Algorithms
       
     </span>
   </a>
@@ -1663,6 +1663,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Developer Guide">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1755,10 +1772,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#workload-characteristics-of-diffusion" class="md-nav__link">
+  <a href="#characteristics-of-diffusion-inference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Workload Characteristics of Diffusion
+        Characteristics of Diffusion Inference
       
     </span>
   </a>
@@ -1766,22 +1783,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#design-philosophy-of-smart-diffusion" class="md-nav__link">
+  <a href="#smart-diffusion-design-philosophy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Design Philosophy of Smart-Diffusion
+        Smart-Diffusion Design Philosophy
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Design Philosophy of Smart-Diffusion">
+    <nav class="md-nav" aria-label="Smart-Diffusion Design Philosophy">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#three-pillars-parallelism-kernels-algorithms" class="md-nav__link">
+  <a href="#three-optimization-directions-parallelism-kernels-algorithms" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Three Pillars: Parallelism × Kernels × Algorithms
+        Three Optimization Directions: Parallelism × Kernels × Algorithms
       
     </span>
   </a>
@@ -1813,6 +1830,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Developer Guide">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1837,32 +1871,32 @@
 
 <h1 id="why-smart-diffusion">Why Smart-Diffusion?<a class="headerlink" href="#why-smart-diffusion" title="Permanent link">&para;</a></h1>
 <p><a href="../whySmart_zh/">中文版</a></p>
-<h2 id="workload-characteristics-of-diffusion">Workload Characteristics of Diffusion<a class="headerlink" href="#workload-characteristics-of-diffusion" title="Permanent link">&para;</a></h2>
-<p>Diffusion inference is a <em>full-stack compute-bound</em> task:</p>
+<h2 id="characteristics-of-diffusion-inference">Characteristics of Diffusion Inference<a class="headerlink" href="#characteristics-of-diffusion-inference" title="Permanent link">&para;</a></h2>
+<p>Diffusion inference is compute-intensive with these key characteristics:</p>
 <ol>
-<li>Sample-by-sample execution: Batching hardly improves GPU utilization; pure streaming is mandatory.  </li>
-<li>Long activation sequences, yet <em>relatively small</em> models: Sequence Parallelism becomes the most economical and scalable dimension.  </li>
-<li>In long-sequence regimes, Full Attention accounts for ~80 % of end-to-end latency: operator-level efforts must target Attention first.  </li>
-<li>Activations change mildly between denoising steps: a simple, <em>lossy</em> Feature Cache yields instant speed-ups.</li>
+<li><strong>Sample-by-sample execution</strong>: Batching provides minimal GPU utilization improvement; single-sample streaming is sufficient.  </li>
+<li><strong>Long sequences, small models</strong>: With very long activation sequences but relatively small model parameters, Context Parallelism is the most cost-effective parallelization strategy.  </li>
+<li><strong>Attention is the bottleneck</strong>: In long-sequence scenarios, Full Attention accounts for over 80% of end-to-end latency, making it the primary optimization target.  </li>
+<li><strong>Small activation changes</strong>: Activations change minimally between denoising steps, so simple Feature Cache methods can provide significant speedups.</li>
 </ol>
-<h2 id="design-philosophy-of-smart-diffusion">Design Philosophy of Smart-Diffusion<a class="headerlink" href="#design-philosophy-of-smart-diffusion" title="Permanent link">&para;</a></h2>
-<h3 id="three-pillars-parallelism-kernels-algorithms">Three Pillars: Parallelism × Kernels × Algorithms<a class="headerlink" href="#three-pillars-parallelism-kernels-algorithms" title="Permanent link">&para;</a></h3>
-<p>Each can be pursued independently, but <em>co-design</em> extracts the last drop of performance.<br />
-(Technical deep-dives will be released incrementally—PRs welcome!)</p>
+<h2 id="smart-diffusion-design-philosophy">Smart-Diffusion Design Philosophy<a class="headerlink" href="#smart-diffusion-design-philosophy" title="Permanent link">&para;</a></h2>
+<h3 id="three-optimization-directions-parallelism-kernels-algorithms">Three Optimization Directions: Parallelism × Kernels × Algorithms<a class="headerlink" href="#three-optimization-directions-parallelism-kernels-algorithms" title="Permanent link">&para;</a></h3>
+<p>Each direction can be optimized independently, but combining them yields the best results.<br />
+(Technical details will be updated progressively—PRs are welcome!)</p>
 <h3 id="service-framework-for-multi-user-multi-task-workloads">Service Framework for Multi-User, Multi-Task Workloads<a class="headerlink" href="#service-framework-for-multi-user-multi-task-workloads" title="Permanent link">&para;</a></h3>
-<p>We ship a <strong>long-running, hot-upgradable, horizontally-scalable</strong> Diffusion service—not a frozen script that cold-starts every time.<br />
-Key idea: decompose the Diffusion pipeline into composable stages and orchestrate them with a unified scheduler:</p>
+<p>We provide a <strong>long-running, hot-upgradable, horizontally-scalable</strong> Diffusion service, not a cold-start script.<br />
+The core idea is to decompose the Diffusion pipeline into composable stages orchestrated by a unified scheduler:</p>
 <ul>
-<li>Let users tune their own quality-efficiency trade-off: steps, CFG, cache ratio—all at runtime.  </li>
-<li>Keep <em>all</em> resources saturated: FLOPs are only the first bottleneck; memory, bandwidth and CPU must be fully utilized as well.</li>
+<li>Let users tune their quality-efficiency tradeoff: inference steps, CFG, cache ratio—all adjustable at runtime.  </li>
+<li>Keep all resources fully utilized: not just compute, but also memory, bandwidth, and CPU.</li>
 </ul>
 <h2 id="developer-guide">Developer Guide<a class="headerlink" href="#developer-guide" title="Permanent link">&para;</a></h2>
-<p>Thanks for joining the Smart-Diffusion open-source community! To keep code review painless, please align on the “parameter taxonomy” first:</p>
+<p>Thanks for contributing to Smart-Diffusion! To make code review easier, please understand our parameter taxonomy:</p>
 <table>
 <thead>
 <tr>
 <th>Category</th>
-<th>Life-Cycle</th>
+<th>Lifecycle</th>
 <th>Location</th>
 <th>Who Can Change</th>
 <th>Best Practice</th>
@@ -1874,26 +1908,31 @@ Key idea: decompose the Diffusion pipeline into composable stages and orchestrat
 <td>Static</td>
 <td><code>chitu_core/config/models/&lt;model&gt;.yaml</code></td>
 <td>Nobody</td>
-<td>Tied to weights; any change is UB</td>
+<td>Tied to weights; changes will break things</td>
 </tr>
 <tr>
 <td>User params</td>
 <td>Dynamic (per-request)</td>
 <td><code>DiffusionUserParams</code></td>
 <td>End user</td>
-<td>Expose <em>necessary &amp; sufficient</em> knobs; avoid parameter spam</td>
+<td>Expose only necessary parameters; keep it simple</td>
 </tr>
 <tr>
 <td>System params</td>
 <td>Semi-dynamic (init-time)</td>
 <td><code>chitu launch args</code></td>
 <td>Ops/Scheduler</td>
-<td>No hot-edit after init; prevents distributed state explosion</td>
+<td>No changes after init; prevents distributed state issues</td>
 </tr>
 </tbody>
 </table>
 <p>Remember:<br />
-Every extra knob costs <em>documentation + tests + user mental model</em>. Flexibility ≠ surface area.</p>
+Every extra parameter adds documentation, testing, and user complexity. Flexibility ≠ more parameters.</p>
+<h3 id="directory-structure">Directory Structure<a class="headerlink" href="#directory-structure" title="Permanent link">&para;</a></h3>
+<p><code>/chitu_core</code> contains Chitu's native code. Avoid modifying <code>ServeConfig</code> and <code>ParallelState</code> unless necessary.
+<code>/chitu_diffusion</code> is our diffusion framework built on Chitu's architecture. It can be modified but should maintain the basic structure.
+* <code>chitu_diffusion_main.py</code>: Main parameters for system initialization, startup, and shutdown
+* <code>backend.py</code>: Backend built on system parameters, stores models and schedules tasks.</p>
 
 
 
