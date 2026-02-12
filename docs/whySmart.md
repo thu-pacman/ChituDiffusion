@@ -1,37 +1,44 @@
 # Why Smart-Diffusion?
 [中文版](./whySmart_zh.md)
 
-## Workload Characteristics of Diffusion
+## Characteristics of Diffusion Inference
 
-Diffusion inference is a *full-stack compute-bound* task:
+Diffusion inference is compute-intensive with these key characteristics:
 
-1. Sample-by-sample execution: Batching hardly improves GPU utilization; pure streaming is mandatory.  
-2. Long activation sequences, yet *relatively small* models: Sequence Parallelism becomes the most economical and scalable dimension.  
-3. In long-sequence regimes, Full Attention accounts for ~80 % of end-to-end latency: operator-level efforts must target Attention first.  
-4. Activations change mildly between denoising steps: a simple, *lossy* Feature Cache yields instant speed-ups.
+1. **Sample-by-sample execution**: Batching provides minimal GPU utilization improvement; single-sample streaming is sufficient.  
+2. **Long sequences, small models**: With very long activation sequences but relatively small model parameters, Context Parallelism is the most cost-effective parallelization strategy.  
+3. **Attention is the bottleneck**: In long-sequence scenarios, Full Attention accounts for over 80% of end-to-end latency, making it the primary optimization target.  
+4. **Small activation changes**: Activations change minimally between denoising steps, so simple Feature Cache methods can provide significant speedups.
 
-## Design Philosophy of Smart-Diffusion
+## Smart-Diffusion Design Philosophy
 
-### Three Pillars: Parallelism × Kernels × Algorithms  
-Each can be pursued independently, but *co-design* extracts the last drop of performance.  
-(Technical deep-dives will be released incrementally—PRs welcome!)
+### Three Optimization Directions: Parallelism × Kernels × Algorithms  
+Each direction can be optimized independently, but combining them yields the best results.  
+(Technical details will be updated progressively—PRs are welcome!)
 
 ### Service Framework for Multi-User, Multi-Task Workloads  
-We ship a **long-running, hot-upgradable, horizontally-scalable** Diffusion service—not a frozen script that cold-starts every time.  
-Key idea: decompose the Diffusion pipeline into composable stages and orchestrate them with a unified scheduler:
+We provide a **long-running, hot-upgradable, horizontally-scalable** Diffusion service, not a cold-start script.  
+The core idea is to decompose the Diffusion pipeline into composable stages orchestrated by a unified scheduler:
 
-- Let users tune their own quality-efficiency trade-off: steps, CFG, cache ratio—all at runtime.  
-- Keep *all* resources saturated: FLOPs are only the first bottleneck; memory, bandwidth and CPU must be fully utilized as well.
+- Let users tune their quality-efficiency tradeoff: inference steps, CFG, cache ratio—all adjustable at runtime.  
+- Keep all resources fully utilized: not just compute, but also memory, bandwidth, and CPU.
 
 ## Developer Guide
 
-Thanks for joining the Smart-Diffusion open-source community! To keep code review painless, please align on the “parameter taxonomy” first:
+Thanks for contributing to Smart-Diffusion! To make code review easier, please understand our parameter taxonomy:
 
-| Category | Life-Cycle | Location | Who Can Change | Best Practice |
+| Category | Lifecycle | Location | Who Can Change | Best Practice |
 |---|---|---|---|---|
-| Model params | Static | `chitu_core/config/models/<model>.yaml` | Nobody | Tied to weights; any change is UB |
-| User params | Dynamic (per-request) | `DiffusionUserParams` | End user | Expose *necessary & sufficient* knobs; avoid parameter spam |
-| System params | Semi-dynamic (init-time) | `chitu launch args` | Ops/Scheduler | No hot-edit after init; prevents distributed state explosion |
+| Model params | Static | `chitu_core/config/models/<model>.yaml` | Nobody | Tied to weights; changes will break things |
+| User params | Dynamic (per-request) | `DiffusionUserParams` | End user | Expose only necessary parameters; keep it simple |
+| System params | Semi-dynamic (init-time) | `chitu launch args` | Ops/Scheduler | No changes after init; prevents distributed state issues |
 
 Remember:  
-Every extra knob costs *documentation + tests + user mental model*. Flexibility ≠ surface area.
+Every extra parameter adds documentation, testing, and user complexity. Flexibility ≠ more parameters.
+
+### Directory Structure
+
+`/chitu_core` contains Chitu's native code. Avoid modifying `ServeConfig` and `ParallelState` unless necessary.
+`/chitu_diffusion` is our diffusion framework built on Chitu's architecture. It can be modified but should maintain the basic structure.
+* `chitu_diffusion_main.py`: Main parameters for system initialization, startup, and shutdown
+* `backend.py`: Backend built on system parameters, stores models and schedules tasks.
