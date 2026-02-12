@@ -32,7 +32,7 @@ from chitu_diffusion.modules.samplers.fm_solvers import (
 from chitu_diffusion.modules.samplers.fm_solvers_unipc import FlowUniPCMultistepScheduler
 from chitu_diffusion.utils.wan_utils import cache_video
 from chitu_diffusion.utils.shared_utils import SequencePadder
-from chitu_diffusion.bench.timer import Timer
+from chitu_diffusion.bench import Timer, MagLogger
 
 
 logger = getLogger(__name__)
@@ -363,6 +363,8 @@ class Generator:
             output_dir = task.req.params.save_dir
             Timer.print_statistics()
             Timer.save_statistics(f"{output_dir}/time_stat_{task.task_id}.csv")
+            # Magnitiude experiments
+            # MagLogger.save_to_csv(save_dir=f"./experiments/{task.task_id}")
             # TODO: video quality
 
 

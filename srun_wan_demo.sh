@@ -14,7 +14,7 @@ fi
 # Initialize variables
 # 初始化变量
 num_gpus=$1
-script="./test/test_generate.py"
+script="./test/test_ditango.py"
 
 # Show PYTHONPATH for debugging
 # 显示PYTHONPATH用于调试
@@ -70,7 +70,7 @@ select_model
 basic_params="models=$model models.ckpt_dir=$ckpt_dir"
 
 # 并行参数（根据GPU数自动设置）
-enable_cfg=true
+enable_cfg=false
 if [ "$enable_cfg" = "true" ]; then
     cp_size=$((num_gpus / 2))
 else
@@ -91,9 +91,11 @@ command="./script/srun_direct.sh 1 $num_gpus $script \
     $parallel_params \
     $magic_params"
 
-# Print command for debugging
-echo "Executing command: $command"
-echo "执行命令：$command"
+# Setup logging
+DATE=$(date +%Y%m%d_%H%M)
+PROFILE_DIR="./logs/"
+mkdir -p $PROFILE_DIR
+LOG_FILE="${PROFILE_DIR}/${DATE}.log"
 
 # Execute command
-eval $command
+eval $command 2>&1 | tee $LOG_FILE

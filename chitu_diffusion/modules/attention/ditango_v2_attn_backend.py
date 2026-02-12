@@ -7,7 +7,6 @@ import random
 
 from chitu_core.distributed.parallel_state import get_cp_group, get_up_group
 from chitu_diffusion.backend import DiffusionBackend
-from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend
 from chitu_diffusion.utils.shared_utils import (update_out_and_lse, 
                                                 transpose_and_unsqueeze,
                                                 squeeze_and_transpose, 
@@ -54,7 +53,7 @@ class AttentionState:
 
 class Ditangov2Attention:
     def __init__(self, layer_id: int):
-        self.attn_backend = DiffusionAttnBackend()
+        self.attn_backend = DiffusionBackend.attn
         self.group = get_cp_group()
         self.group_rank = self.group.rank_list
         self.cp_size = self.group.group_size
@@ -62,15 +61,9 @@ class Ditangov2Attention:
         self.rank_in_cp = self.group.rank_in_group
         self.layer_id = layer_id
         self.intra_group_size = 2 # gpus per node
+        
         assert self.cp_size <= self.intra_group_size or self.group.group_size % self.intra_group_size == 0
         self.ulysses_size = min(DiffusionBackend.args.infer.diffusion.up_limit, self.cp_size, self.intra_group_size)
-
-        self.curr_importance_level = 3
-
-        self.state_buffer: Dict[str, Optional[AttentionState]] = {
-            "intra": None,
-            "inter": None,
-        }
 
         if self.global_rank == 0:
             logger.info(f"L{layer_id} | Using Ditango Attn v2.")
@@ -271,8 +264,9 @@ class Ditangov2Attention:
         """
         is_varlen = self._is_varlen_mode(cu_seqlens_k, cu_seqlens_q, max_seqlen_k, max_seqlen_q)
         seq_dim, head_dim = (0, 1) if is_varlen else (1, 2)
+        curr_importance_level = self.get_importance()
+        ditango = DiffusionBackend.flexcache.strategy
 
-        self.curr_importance_level = self.get_importance()
         # logger.info(f"T{get_timestep()}L{self.layer_id} | Importance: {self.curr_importance_level}")
 
         # 创建kwargs字典
@@ -299,31 +293,35 @@ class Ditangov2Attention:
         self._print_layer0(f"After ulysses_a2a | {q.shape=} {k.shape=} {v.shape=}")
 
 
-        if self.curr_importance_level == 3: # global attn
+        if curr_importance_level == 3: # global attn
             local_state, intra_group_state, inter_group_state = self._global_attn(
                 q, k, v, 
                 is_varlen,
                 **attn_kwargs,
             )
-            self.state_buffer["intra"] = intra_group_state
-            self.state_buffer["inter"] = inter_group_state
+            ditango.store(
+                self.layer_id,
+                intra_group_state,
+                inter_group_state
+            )
 
-        elif self.curr_importance_level == 2: # intra-group attn
+        elif curr_importance_level == 2: # intra-group attn
             local_state, intra_group_state = self._intra_group_attn(
                 q, k, v,
                 is_varlen,
                 **attn_kwargs
             )
-            self.state_buffer["intra"] = intra_group_state
-            inter_group_state = self.state_buffer["inter"]
+            _, inter_group_state = ditango.reuse(self.layer_id)
+            ditango.store(self.layer_id, 
+                          intra_group_state, 
+                          None)
 
-        elif self.curr_importance_level == 1: # local attn
+        elif curr_importance_level == 1: # local attn
             local_state = self._local_attn(
                 q, k, v,
                 **attn_kwargs
             )
-            intra_group_state = self.state_buffer["intra"]
-            inter_group_state = self.state_buffer["inter"]
+            intra_group_state, inter_group_state = ditango.reuse(self.layer_id)
 
         self._print_layer0(f"T{get_timestep()} | {local_state=} {intra_group_state=} {inter_group_state=}")
         
@@ -347,10 +345,14 @@ class Ditangov2Attention:
         2: Group (usually single node)
         3: Global
         """
-        return 3
-        # if get_timestep() == 0:
+        importance = DiffusionBackend.flexcache.strategy.current_step_importance
+        if self.global_rank == 0 and self.layer_id == 0:
+            logger.info(f"T{get_timestep()} | {importance=}")
+        return importance
+        # if get_timestep() % 2 == 0:
         #     return 3
         # else:
+        #     return 3
         #     if self.global_rank == 0:
         #         curr_importance_level = random.choice([1,2,3])
         #         importance_tensor = torch.tensor(curr_importance_level, device='cuda')

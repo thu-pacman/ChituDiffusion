@@ -1,4 +1,5 @@
 import torch
+from datetime import datetime
 import torch.nn.functional as F
 from typing import List, Dict, Tuple, Optional
 from chitu_core.distributed.comm_group import CommGroup
@@ -131,3 +132,6 @@ def async_ring_p2p_wait_and_update(group: CommGroup, recv_tensors: Tuple[torch.T
     """
     group.p2p_wait()
     return recv_tensors
+
+def get_timestamp():
+    return datetime.now().strftime('%Y-%m-%d_%H-%M-%S')

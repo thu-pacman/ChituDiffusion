@@ -40,7 +40,7 @@ class FlexCacheStrategy(ABC):
         pass
     
     @abstractmethod 
-    def reuse(self, cached_feature: torch.Tensor, **kwargs) -> torch.Tensor:
+    def reuse(self, **kwargs) ->Any:
         """
         复用缓存特征的具体策略。
         
@@ -70,7 +70,7 @@ class FlexCacheStrategy(ABC):
         pass
     
     @abstractmethod
-    def store(self, fresh_feature: torch.Tensor, **kwargs) -> None:
+    def store(self, **kwargs) -> None:
         """
         将特征存入缓存的预处理逻辑。
         

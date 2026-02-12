@@ -109,3 +109,4 @@ log/*
 output/*
 logs/*
 srun_wan_demo.sh
+experiments/
