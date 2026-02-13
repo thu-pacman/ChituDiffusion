@@ -30,8 +30,8 @@ export CHITU_DEBUG=1
 # Model configurations
 # 模型配置
 declare -A MODEL_CONFIGS=(
-    ["Wan2.1-T2V-1.3B"]="/home/zhongrx/cyy/Wan2.1/Wan2.1-T2V-1.3B"
-    ["Wan2.1-T2V-14B"]="/home/zhongrx/cyy/Wan2.1/Wan2.1-T2V-14B"
+    ["Wan2.1-T2V-1.3B"]="/home/fit/zhaijdcyy/WORK/models/Wan2.1-T2V-1.3B"
+    ["Wan2.1-T2V-14B"]="/home/fit/zhaijdcyy/WORK/models/Wan2.1-T2V-14B"
     ["Wan2.2-T2V-A14B"]="/home/zhongrx/cyy/model/Wan22-t2v-a14b"
     # Add more models here
     # 在此处添加更多模型
@@ -80,7 +80,9 @@ parallel_params="infer.diffusion.enable_cfg_parallel=$enable_cfg \
                 infer.diffusion.cp_size=$cp_size \
                 infer.diffusion.up_limit=1"
 
-# 魔法参数！
+eval_params="eval.eval_type=vbench"
+
+
 magic_params="infer.attn_type='flash_attn' \
             infer.diffusion.low_mem_level=0 \
             infer.diffusion.enable_flexcache=true"
@@ -89,7 +91,8 @@ magic_params="infer.attn_type='flash_attn' \
 command="./script/srun_direct.sh 1 $num_gpus $script \
     $basic_params \
     $parallel_params \
-    $magic_params"
+    $magic_params \
+    $eval_params"
 
 # Setup logging
 DATE=$(date +%Y%m%d_%H%M)

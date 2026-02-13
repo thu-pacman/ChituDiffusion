@@ -39,6 +39,7 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 build.log
+resolve.log
 uv.lock
 
 # Unit test / coverage reports
@@ -96,6 +97,8 @@ outputs/*
 test/outputs/*
 dumps/*
 log/*
+logs/*
+*.log
 
 # Vim
 .*.swp
@@ -107,6 +110,10 @@ log/*
 *.csv
 *.mp4
 output/*
-logs/*
 srun_wan_demo.sh
 experiments/
+vbench_out/*
+*.sh
+
+# MkDocs
+site/

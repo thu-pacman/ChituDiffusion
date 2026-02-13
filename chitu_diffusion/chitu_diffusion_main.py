@@ -48,6 +48,18 @@ from logging import getLogger
 import logging
 
 def init_logger(logging_level=logging.INFO):
+    """
+    Initialize the Chitu logging system.
+    
+    Sets up logging handlers and configures the base logger for the chitu_diffusion module.
+    If root logger has handlers, they are copied to avoid duplicate logging.
+    
+    Args:
+        logging_level: Logging level to set (default: logging.INFO).
+        
+    Returns:
+        Logger: Configured logger instance for chitu_diffusion.
+    """
     setup_chitu_logging()
 
     base_name = __name__.split(".")[0]
@@ -67,20 +79,44 @@ def init_logger(logging_level=logging.INFO):
 
 
 def init_cache_static():
+    """
+    Initialize CUDA cache statistics.
+    
+    Clears the CUDA cache and resets peak memory statistics for tracking
+    memory usage during inference.
+    """
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(0)
 
 
 def warmup_diffusion_engine(args):
+    """
+    Warm up the diffusion engine (placeholder).
+    
+    TODO: Implement warmup logic if needed for performance optimization.
+    
+    Args:
+        args: Global configuration arguments.
+    """
     # TODO: Why we need warmup and how?
     pass
 
 
 def check_checkpoint_path(args):
-    '''
-    Check path: VAE, Text Encoder, Transformers
-    '''
+    """
+    Validate that the checkpoint directory is provided.
+    
+    Checks if the checkpoint directory exists in the configuration and
+    raises an error with helpful information if missing.
+    
+    Args:
+        args: Global configuration containing models.ckpt_dir.
+        
+    Raises:
+        ValueError: If checkpoint directory is not provided, with guidance
+                   on how to set it and where to download the model.
+    """
 
     if args.models.ckpt_dir is None:
         raise ValueError(
@@ -89,11 +125,24 @@ def check_checkpoint_path(args):
 
 
 def chitu_init(args, logging_level=None):
-    '''
-    1. Init logger 
-    2. Set parameters and environment variables
-    3. Load models from checkpoint
-    '''
+    """
+    Initialize the Chitu diffusion system.
+    
+    This is the main initialization function that:
+    1. Sets up logging
+    2. Configures environment variables and parameters
+    3. Initializes distributed training
+    4. Validates and loads model checkpoints
+    5. Sets up the backend, scheduler, and generator
+    
+    Args:
+        args: Configuration object containing all system parameters.
+        logging_level: Optional logging level override. If None, uses DEBUG
+                      in debug mode, INFO otherwise.
+    
+    Note:
+        This function must be called before any inference operations.
+    """
 
     debug = os.getenv("CHITU_DEBUG", "0") == "1"
 
@@ -193,6 +242,18 @@ def chitu_init(args, logging_level=None):
 
 @torch.inference_mode()
 def chitu_run_main_rank():
+    """
+    Execute one inference step on the main rank (rank 0).
+    
+    This function:
+    1. Schedules the next task using the scheduler
+    2. Processes the scheduled task through the generator
+    3. Handles task completion
+    
+    Note:
+        This should only be called on rank 0. Other ranks should call
+        chitu_generate() which delegates to the generator directly.
+    """
     task_ids = DiffusionBackend.scheduler.schedule()
     # logger.info(f"[Scheduler] scheduled task_ids={task_ids}")
     
@@ -210,6 +271,16 @@ def chitu_run_main_rank():
 
 @torch.inference_mode()
 def chitu_generate():
+    """
+    Execute one generation step across all ranks.
+    
+    This is the main generation function that should be called in a loop.
+    Rank 0 schedules and processes tasks, while other ranks participate
+    in distributed computation.
+    
+    Note:
+        Must be called on all ranks in a synchronized manner for distributed inference.
+    """
     rank = torch.distributed.get_rank()
     if rank != 0:
         DiffusionBackend.generator.step(None) 
@@ -217,13 +288,55 @@ def chitu_generate():
     chitu_run_main_rank()
 
 def chitu_start():
+    """
+    Mark the backend as running and ready to process tasks.
+    """
     DiffusionBackend.state = BackendState.Running
 
 def chitu_terminate():
+    """
+    Gracefully terminate the Chitu backend.
+    
+    Signals all ranks to stop processing by setting the backend state to
+    Terminated and sending a termination signal through the generator.
+    """
     if torch.distributed.get_rank() == 0:
         DiffusionBackend.state = BackendState.Terminated
         terminated_task = DiffusionTask.create_terminate_signal("0x")
         DiffusionBackend.generator.step(terminated_task)
 
+def chitu_run_eval():
+    """
+    Run evaluation on generated videos.
+    
+    Sets up the evaluation manager and runs the configured evaluation strategy
+    (e.g., VBench) on all completed tasks. Evaluation is skipped if eval_type
+    is not set.
+    
+    Raises:
+        ValueError: If an unsupported eval_type is specified.
+    """
+    from chitu_diffusion.eval.eval_manager import EvalManager
+    manager = EvalManager()
+    args = get_global_args()
+
+    if args.eval.eval_type == None:
+        return
+    elif args.eval.eval_type=='vbench':
+        from chitu_diffusion.eval.strategy.Vbench import VbenchStrategy
+        strategy = VbenchStrategy()
+    else:
+        raise ValueError(f"Unsupported eval type: {args.eval.eval_type}")
+    manager.set_strategy(strategy)
+    manager.run(args=args)
+    
+
+
 def chitu_is_terminated():
+    """
+    Check if the Chitu backend has been terminated.
+    
+    Returns:
+        bool: True if the backend is in Terminated state, False otherwise.
+    """
     return DiffusionBackend.state == BackendState.Terminated

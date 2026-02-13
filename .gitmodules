@@ -4,3 +4,6 @@
 [submodule "third_party/sparge_attn"]
 	path = third_party/sparge_attn
 	url = https://github.com/shch-y/SpargeAttn.git
+[submodule "third_party/vbench"]
+	path = third_party/vbench
+	url = https://github.com/guzlq/VBench.git

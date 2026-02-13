@@ -7,14 +7,6 @@ requires-python = ">=3.12"
 dependencies = [
     "chitu",
     "diffusers",
-    # "cmake>=4.2.1",
-    # "cython>=3.2.3",
-    # "ninja>=1.13.0",
-    # "packaging>=25.0",
-    # "py-cpuinfo>=9.0.0",
-    # "pybind11>=3.0.1",
-    # "setuptools>=77.0.3",
-    # "wheel>=0.45.1",
     "blobfile",
     "einops==0.8.1",
     "faker",
@@ -62,6 +54,12 @@ url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+
+[[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
@@ -72,29 +70,30 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu126" }
-torchvision = { index = "pytorch-cu126" }
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
 chitu = { workspace = true }
 sageattention = { workspace = true }
 spas_sage_attn = { workspace = true }
+vbench = { workspace = true }
 
 
 
 [tool.uv.extra-build-dependencies]
 flash_attn = ["torch==2.9.1"]
-
+sageattention = ["torch==2.9.1"]
+spas_sage_attn = ["torch==2.9.1"]
 
 [tool.uv.extra-build-variables]
-# flash_attn = { FLASH_ATTN_CUDA_ARCHS = "80",FLASH_ATTENTION_FORCE_BUILD = "TRUE" }
-## Set "TORCH_CUDA_ARCH_LIST" according to your GPU architecture (e.g. Ampere: 8.0 / Hopper: 9.0)
-sageattention = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
-spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
+# flash_attn     = { FLASH_ATTENTION_FORCE_BUILD = "TRUE", MAX_JOBS="8", FLASH_ATTN_CUDA_ARCHS = "90" }
+sageattention  = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "8.0;9.0"}
+spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "8.0;9.0"}
 
 
 
 [tool.uv]
 config-settings = { editable_mode = "compat" }
-no-build-isolation-package = ["sageattention", "spas_sage_attn"]
+# no-build-isolation-package = ["sageattention", "spas_sage_attn"]
 # reinstall-package = ["spas_sage_attn"]
 # [dependency-groups]
 # dev = [
@@ -104,10 +103,12 @@ no-build-isolation-package = ["sageattention", "spas_sage_attn"]
 [project.optional-dependencies]
 sage = ["sageattention"]
 sparge = ["spas_sage_attn"]
+vbench = ["vbench"]
 [tool.uv.workspace]
 members = [
     "chitu_core",
     "third_party/sparge_attn",
     "third_party/sage_attn",
+    "third_party/vbench",
 ]
 

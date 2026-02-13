@@ -13,6 +13,7 @@ from chitu_diffusion.chitu_diffusion_main import (
     warmup_diffusion_engine,
     chitu_start,
     chitu_terminate,
+    chitu_run_eval,
     chitu_is_terminated
 )
 
@@ -98,6 +99,7 @@ def run_normal(args, timers):
         timers.log()
         
     chitu_terminate()
+    chitu_run_eval()
 
 
 @hydra.main(
