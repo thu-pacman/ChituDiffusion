@@ -98,6 +98,7 @@ test/outputs/*
 dumps/*
 log/*
 logs/*
+*.log
 
 # Vim
 .*.swp
