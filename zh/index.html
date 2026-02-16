@@ -1954,7 +1954,7 @@
 <li><strong>🔧 灵活架构</strong>：多种注意力后端支持</li>
 <li><strong>💾 内存效率</strong>：具有智能模型卸载的低内存模式</li>
 <li><strong>📊 智能缓存</strong>：用于加速的特征重用算法</li>
-<li><strong>🎯 简洁 API</strong>：易于使用的接口，支持每个请求的配置</li>
+<li><strong>🎯 简洁 API</strong>：易于使用的接口，支持基于请求的配置</li>
 </ul>
 <h2 id="_1">快速链接<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
 <div class="grid cards">
@@ -2001,31 +2001,31 @@
 <li><strong>灵活配置</strong>：可调节的内存级别 (0-3)</li>
 </ul>
 <h3 id="_5">特征重用<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h3>
-<p>通过智能缓存加速生成：</p>
+<p>通过特征缓存复用加速生成：</p>
 <ul>
-<li><strong>TeaCache</strong>：时间自适应缓存 (CVPR24)</li>
-<li><strong>PAB</strong>：金字塔注意力广播 (ICLR25)</li>
+<li><strong>TeaCache</strong> (CVPR24)</li>
+<li><strong>PAB</strong> (ICLR25)</li>
 </ul>
 <h2 id="_6">支持的模型<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
 <p>当前支持：</p>
 <ul>
-<li>Wan-AI/Wan2.1-T2V-1.3B (13亿参数)</li>
-<li>Wan-AI/Wan2.1-T2V-14B (140亿参数)</li>
-<li>Wan-AI/Wan2.2-T2V-A14B (140亿参数，两阶段)</li>
+<li>Wan-AI/Wan2.1-T2V-1.3B</li>
+<li>Wan-AI/Wan2.1-T2V-14B</li>
+<li>Wan-AI/Wan2.2-T2V-A14B</li>
 </ul>
 <p>更多模型即将推出！</p>
 <h2 id="_7">架构概览<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>graph TD
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    A[用户请求] --&gt; B[任务池]
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    B --&gt; C[调度器]
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    C --&gt; D[生成器]
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    D --&gt; E[文本编码器]
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    D --&gt; F[DiT 模型]
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    D --&gt; G[VAE 解码器]
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    E --&gt; H[潜在张量]
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    F --&gt; H
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    H --&gt; G
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    G --&gt; I[输出视频]
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>graph TD
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    A[UserRequest] --&gt; B[TaskPool]
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    B --&gt; C[Scheduler]
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    C --&gt; |Task| G[Generator]
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    G --&gt; VE[VAE Encoder]
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    G --&gt; TE[TextEncoder]
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    TE --&gt;|Latents| DiT[DiT Loop]
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    VE --&gt;|Latents| DiT[DiT Loop]
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    DiT --&gt; VD[VAE Decoder]
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    VD --&gt; V[Output]
 </code></pre></div>
 <p>Smart-Diffusion 采用模块化架构：</p>
 <ol>
@@ -2045,7 +2045,7 @@
 <li><strong>讨论</strong>：<a href="https://github.com/chen-yy20/SmartDiffusion/discussions">提问和分享想法</a></li>
 </ul>
 <h2 id="_9">下一步<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
-<p>准备开始了吗？</p>
+<p>准备好开始了吗？</p>
 <ol>
 <li><a href="getting-started/installation/">安装 Smart-Diffusion</a></li>
 <li><a href="getting-started/quick-start/">运行您的第一个生成</a></li>
