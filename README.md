@@ -268,7 +268,7 @@ Enable feature reuse acceleration with `infer.diffusion.enable_flexcache=true`:
 
 | Method | cache_type | Description |
 |--------|------------|-------------|
-| `teacache` | [TeaCache](https://github.com/ali-vilab/TeaCache) | CVPR24 spotlight. Temporal adaptive cache |
+| `teacache` | [TeaCache](https://github.com/ali-vilab/TeaCache) | CVPR24 spotlight. Time embedding tells. |
 | `PAB` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/) | ICLR25. Pyramid attention broadcasting |
 
 **Example:**
@@ -318,7 +318,7 @@ Please see our [Developer Guide](./docs/whySmart.md#developer-guide) for paramet
 
 ## Roadmap
 
-- [ ] More diffusion model support (SD3, Flux, CogVideoX, etc.)
+- [ ] More diffusion model support (Flux2, Longcat-Video, FireRed etc.)
 - [ ] More acceleration algorithms
 - [ ] More parallelism strategies
 - [ ] Better operator implementations
@@ -345,11 +345,14 @@ If you use Smart-Diffusion in your research, please cite:
 ## Acknowledgments
 
 - [Chitu](https://github.com/thu-pacman/chitu) - Base inference framework
+- [xDiT](https://github.com/xdit-project/xDiT) - Scalable Inference Engine for Diffusion Transformers
+- [SGLang-Diffusion](https://github.com/sgl-project/sglang/tree/main/python/sglang/multimodal_gen) - Image/Video Generation Framework
 - [SageAttention](https://github.com/thu-ml/SageAttention) - Quantized attention implementation
-- [SpargeAttention](https://github.com/thu-ml/SpargeAttn) - Sparse attention implementation
+- [SpargeAttention](https://github.com/thu-ml/SpargeAttn) - Sparse+Sage attention implementation
 - [FlashAttention](https://github.com/Dao-AILab/flash-attention) - Efficient attention implementation
 - [TeaCache](https://github.com/ali-vilab/TeaCache) - Feature cache strategy
 - [PyramidAttentionBroadcast](https://oahzxl.github.io/PAB/) - PAB algorithm
+
 
 ---
 
