@@ -111,5 +111,9 @@ logs/*
 output/*
 vbench_out/*
 
+# Old/deprecated scripts (use scripts/ directory instead)
+*.sh.old
+script.old/
+
 # MkDocs
 site/

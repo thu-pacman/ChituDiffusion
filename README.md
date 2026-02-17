@@ -197,20 +197,44 @@ print(f"Video saved to: {task.buffer.save_path}")
 
 ### Launch Scripts
 
+> **New**: SmartDiffusion now has a unified launch system! See [scripts/README.md](scripts/README.md) and [MIGRATION.md](MIGRATION.md) for details.
+
 **Single GPU:**
 ```bash
 python test_generate.py models.ckpt_dir=/path/to/checkpoint
 ```
 
-**Multi-GPU (Data Parallel):**
+**Local Multi-GPU with Unified Launcher:**
 ```bash
-bash run_local_single.sh  # Uses torchrun
+# Run with 2 GPUs (default)
+./scripts/launch.sh local -g 2
+
+# Run with 4 GPUs and FlexCache
+./scripts/launch.sh local -g 4 --flexcache
+
+# Run with specific model
+./scripts/launch.sh local -g 2 -m Wan2.1-T2V-14B
 ```
 
-**Distributed (SLURM):**
+**Cluster Execution (SLURM):**
 ```bash
-bash srun_wan_demo.sh <num_gpus>
+# Single node with 8 GPUs
+./scripts/launch.sh cluster -g 8
+
+# Multi-node with 2 nodes, 8 GPUs each
+./scripts/launch.sh cluster -n 2 -g 8 --multi-node
 ```
+
+**Legacy Scripts (Deprecated):**
+```bash
+# These still work but show deprecation warnings
+bash run_local_single.sh  # → Use: ./scripts/launch.sh local -g 1
+bash srun_wan_demo.sh <num_gpus>  # → Use: ./scripts/launch.sh cluster -g <num_gpus>
+```
+
+For more launch options and examples, see:
+- [scripts/README.md](scripts/README.md) - Complete launch system documentation
+- [MIGRATION.md](MIGRATION.md) - Migration guide from old scripts
 
 ### Advanced Configuration
 

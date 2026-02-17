@@ -69,14 +69,46 @@ uv sync -v --all-extras 2>&1 | tee build.log
 
 # 运行演示
 
+> **新功能**: SmartDiffusion 现在有统一的启动系统！详见 [scripts/README.md](scripts/README.md) 和 [MIGRATION.md](MIGRATION.md)。
+
 **模型架构参数**（层数、注意力头数等）是静态的，设置在`chitu/config/models/<diffusion-model>.yaml`中。
 
 **用户参数**（生成步骤、形状等）是动态的。`Chitu`提供了`DiffusionUserParams`，可以在每次请求时设置它们。
 
 **系统参数**（并行性、算子、加速算法等）在`Chitu`的启动参数中设置。
 
-测试脚本：`chitu/diffusion/test_generate.py`
-单卡/分布式启动：`bash srun_wan_demo.sh <num_gpus>`
+测试脚本：`test/test_generate.py`
+
+**本地多GPU启动（统一启动器）：**
+```bash
+# 使用2个GPU（默认）
+./scripts/launch.sh local -g 2
+
+# 使用4个GPU并启用FlexCache
+./scripts/launch.sh local -g 4 --flexcache
+
+# 使用指定模型
+./scripts/launch.sh local -g 2 -m Wan2.1-T2V-14B
+```
+
+**集群启动（SLURM）：**
+```bash
+# 单节点8个GPU
+./scripts/launch.sh cluster -g 8
+
+# 多节点，2个节点，每节点8个GPU
+./scripts/launch.sh cluster -n 2 -g 8 --multi-node
+```
+
+**旧版脚本（已弃用）：**
+```bash
+# 这些脚本仍然可用，但会显示弃用警告
+bash srun_wan_demo.sh <num_gpus>  # → 改用: ./scripts/launch.sh cluster -g <num_gpus>
+```
+
+更多启动选项和示例，请参见：
+- [scripts/README.md](scripts/README.md) - 完整的启动系统文档
+- [MIGRATION.md](MIGRATION.md) - 从旧脚本迁移指南
 
 ---
 
