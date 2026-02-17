@@ -5,6 +5,7 @@
 # Options:
 #   -n, --nodes <num>       Number of nodes (default: 1)
 #   -g, --gpus <num>        Number of GPUs per node (default: 2)
+#   -p, --partition <name>  SLURM partition name (default: a01)
 #   -m, --model <name>      Model name (default: interactive selection)
 #   -s, --script <path>     Python script to run (default: ./test/test_generate.py)
 #   --multi-node            Use multi-node launcher (srun_multi_node.sh)
@@ -26,6 +27,7 @@ source "$SCRIPT_DIR/../utils/config.sh"
 # Default values
 num_nodes=1
 num_gpus=2
+partition="a01"
 script="$DEFAULT_TEST_SCRIPT"
 model_name=""
 use_multi_node=false
@@ -43,6 +45,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -g|--gpus)
             num_gpus="$2"
+            shift 2
+            ;;
+        -p|--partition)
+            partition="$2"
             shift 2
             ;;
         -m|--model)
@@ -74,6 +80,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  -n, --nodes <num>       Number of nodes (default: 1)"
             echo "  -g, --gpus <num>        Number of GPUs per node (default: 2)"
+            echo "  -p, --partition <name>  SLURM partition name (default: a01)"
             echo "  -m, --model <name>      Model name (default: interactive selection)"
             echo "  -s, --script <path>     Python script to run (default: ./test/test_generate.py)"
             echo "  --multi-node            Use multi-node launcher"
@@ -141,6 +148,7 @@ print_separator
 print_info "Cluster Configuration"
 echo "Nodes: $num_nodes"
 echo "GPUs per node: $num_gpus"
+echo "Partition: $partition"
 echo "Model: $model"
 echo "Checkpoint Dir: $ckpt_dir"
 echo "Script: $script"
@@ -155,6 +163,9 @@ else
     srun_launcher="$SCRIPT_DIR/srun_direct.sh"
     print_info "Using direct launcher"
 fi
+
+# Export partition for srun scripts to use
+export SLURM_PARTITION="$partition"
 
 # Build and execute command
 command="$srun_launcher $num_nodes $num_gpus $script \

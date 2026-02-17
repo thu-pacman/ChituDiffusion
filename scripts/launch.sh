@@ -57,6 +57,7 @@ LOCAL MODE OPTIONS:
 CLUSTER MODE OPTIONS:
   -n, --nodes <num>       Number of nodes (default: 1)
   -g, --gpus <num>        Number of GPUs per node (default: 2)
+  -p, --partition <name>  SLURM partition name (default: a01)
   -m, --model <name>      Model name (default: interactive selection)
   -s, --script <path>     Python script to run (default: ./test/test_generate.py)
   --multi-node            Use multi-node launcher
@@ -80,6 +81,9 @@ EXAMPLES:
 
   # Run on cluster with 2 nodes
   $0 cluster -n 2 -g 8 --multi-node
+
+  # Run with custom partition
+  $0 cluster -g 8 -p gpu_partition
 
   # Run with custom attention backend
   $0 cluster -g 8 --attn-type sparge

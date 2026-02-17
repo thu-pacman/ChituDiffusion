@@ -37,11 +37,14 @@ SmartDiffusion now has a unified entry point for all execution modes!
 # Multi-node: 2 nodes with 8 GPUs each
 ./scripts/launch.sh cluster -n 2 -g 8 --multi-node
 
+# With custom partition
+./scripts/launch.sh cluster -g 8 -p gpu_partition
+
 # With sparse quantized attention
 ./scripts/launch.sh cluster -g 8 --attn-type sparge
 
 # All features combined
-./scripts/launch.sh cluster -n 2 -g 8 --multi-node --flexcache --low-mem --attn-type sparge
+./scripts/launch.sh cluster -n 2 -g 8 -p custom_partition --multi-node --flexcache --low-mem --attn-type sparge
 ```
 
 ### Get Help
@@ -64,6 +67,7 @@ SmartDiffusion now has a unified entry point for all execution modes!
 | `-g, --gpus <num>` | Number of GPUs | `-g 4` |
 | `-m, --model <name>` | Model name | `-m Wan2.1-T2V-14B` |
 | `-n, --nodes <num>` | Number of nodes (cluster) | `-n 2` |
+| `-p, --partition <name>` | SLURM partition (cluster) | `-p gpu_partition` |
 | `-s, --script <path>` | Python script to run | `-s ./custom_test.py` |
 | `--flexcache` | Enable FlexCache (TeaCache) | `--flexcache` |
 | `--low-mem` | Enable low memory mode | `--low-mem` |

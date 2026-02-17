@@ -28,6 +28,7 @@ Or use the unified launcher:
 
 - `-n, --nodes <num>`: Number of nodes (default: 1)
 - `-g, --gpus <num>`: Number of GPUs per node (default: 2)
+- `-p, --partition <name>`: SLURM partition name (default: a01)
 - `-m, --model <name>`: Model name (default: interactive selection)
 - `-s, --script <path>`: Python script to run (default: ./test/test_generate.py)
 - `--multi-node`: Use multi-node launcher (required for multi-node execution)
@@ -48,31 +49,39 @@ Or use the unified launcher:
 # With specific model
 ./scripts/cluster/run_cluster.sh -g 8 -m Wan2.1-T2V-14B
 
+# With custom partition
+./scripts/cluster/run_cluster.sh -g 8 -p gpu_partition
+
 # With sparge attention backend
 ./scripts/cluster/run_cluster.sh -g 8 --attn-type sparge
 
 # With all features
-./scripts/cluster/run_cluster.sh -n 2 -g 8 --multi-node --flexcache --low-mem --attn-type sparge
+./scripts/cluster/run_cluster.sh -n 2 -g 8 -p custom_partition --multi-node --flexcache --low-mem --attn-type sparge
 ```
 
 ## SLURM Configuration
 
-The scripts use the following SLURM defaults (can be modified in the scripts):
+The scripts use the following SLURM defaults (can be modified):
 
-- **Partition**: `-p a01` (edit in `srun_direct.sh` or `srun_multi_node.sh`)
+- **Partition**: Default is `a01`, but can be changed with `-p` option
 - **Job Name**: `$USER-chitu`
 - **CPUs per GPU**: 24
 - **Memory per GPU**: 242144 MB (~236 GB)
 
 ### Modifying SLURM Parameters
 
-Edit the scripts to change default SLURM settings:
+To change the partition, use the `-p` option:
+
+```bash
+./scripts/cluster/run_cluster.sh -g 8 -p your_partition
+```
+
+To change other SLURM settings, edit the scripts directly:
 
 ```bash
 # In srun_direct.sh or srun_multi_node.sh
 CPUS_PER_GPU=24           # Change CPU allocation
 MEM_PER_GPU=242144        # Change memory allocation
-PARTITION=a01             # Change partition
 ```
 
 ## How It Works

@@ -51,6 +51,9 @@ scripts/
 # Run on 2 nodes with 8 GPUs per node (multi-node)
 ./scripts/launch.sh cluster -n 2 -g 8 --multi-node
 
+# Run with custom partition
+./scripts/launch.sh cluster -g 8 -p gpu_partition
+
 # Run with specific attention backend
 ./scripts/launch.sh cluster -g 8 --attn-type sparge
 
@@ -107,6 +110,7 @@ export MASTER_PORT="29500"
 ### Cluster-Specific Options
 
 - `-n, --nodes <num>`: Number of nodes
+- `-p, --partition <name>`: SLURM partition name (default: a01)
 - `--multi-node`: Use multi-node launcher (required for multi-node execution)
 
 ## Migration from Old Scripts

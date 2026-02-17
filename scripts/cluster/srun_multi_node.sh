@@ -24,6 +24,7 @@ NTASKS_PER_NODE=1
 NUM_GPUS=$2
 CPUS_PER_GPU=24
 MEM_PER_GPU=242144
+PARTITION=${SLURM_PARTITION:-a01}  # Use environment variable or default to a01
 
 # 计算总的CPU和内存
 if [ -z "${NUM_CPUS}" ]; then
@@ -56,7 +57,7 @@ if [[ "$3" != "--node" ]]; then
         TORCHRUN_ARGS=("${SRUN_AND_TORCHRUN_ARGS[@]:$DELIMITER_POS+1}")
     fi
     
-    PARAMS="--job-name $JOB_NAME --nodes $NODES --ntasks-per-node $NTASKS_PER_NODE --cpus-per-task $NUM_CPUS --mem $NUM_MEMS --gres=gpu:$NUM_GPUS ${SRUN_ARGS[@]}"
+    PARAMS="--job-name $JOB_NAME -p $PARTITION --nodes $NODES --ntasks-per-node $NTASKS_PER_NODE --cpus-per-task $NUM_CPUS --mem $NUM_MEMS --gres=gpu:$NUM_GPUS ${SRUN_ARGS[@]}"
     exec srun $PARAMS $THIS_SCRIPT $1 $2 --node "${TORCHRUN_ARGS[@]}"
 fi
 

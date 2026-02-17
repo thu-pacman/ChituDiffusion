@@ -15,6 +15,7 @@ SCRIPT_ARGS=("${@:4}")
 JOB_NAME=$USER-chitu
 CPUS_PER_GPU=24
 MEM_PER_GPU=242144
+PARTITION=${SLURM_PARTITION:-a01}  # Use environment variable or default to a01
 
 # 计算资源
 NUM_CPUS=$((NUM_GPUS * CPUS_PER_GPU))
@@ -31,13 +32,14 @@ export NCCL_GRAPH_REGISTER=0
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 echo "Running with $NODES nodes, $NUM_GPUS GPUs per node"
+echo "Partition: $PARTITION"
 echo "MASTER_PORT: $MASTER_PORT"
 
 # 若从 login 或过期 salloc 运行，清除旧 SLURM 变量，让 srun 申请新分配，避免 "Invalid job id"
 unset SLURM_JOB_ID SLURM_STEP_ID SLURM_NTASKS SLURM_NTASKS_PER_NODE 2>/dev/null || true
 
 # 使用 wrapper 脚本
-srun -p a01 \
+srun -p $PARTITION \
      --job-name $JOB_NAME \
      --nodes $NODES \
      --ntasks-per-node $NUM_GPUS \
