@@ -312,6 +312,7 @@ def destroy_parallel_groups():
 # CFG and Context Parallelism support for diffusion models
 _CP_GROUP: Optional[CommGroup] = None
 _CFG_GROUP: Optional[CommGroup] = None
+_FPP_GROUP: Optional[CommGroup] = None
 _UP_GROUP_DICT: Optional[Dict[int, CommGroup]] = None
 
 def get_cp_group() -> CommGroup:
@@ -319,6 +320,9 @@ def get_cp_group() -> CommGroup:
 
 def get_cfg_group() -> CommGroup:
     return get_global_var("_CFG_GROUP")
+
+def get_fpp_group() -> CommGroup:
+    return get_global_var("_FPP_GROUP")
 
 def get_up_group(size: int) -> CommGroup:
     global _UP_GROUP_DICT
@@ -355,11 +359,29 @@ def initialize_cp_group(cp_size: int, cfg_size: int, rank: int, local_rank: int,
             list(range(0, half_size)),           # First half
             list(range(half_size, world_size))   # Second half
         ]
+    elif cp_size == 1:
+        # No CP parallelism
+        rank_list = [ [idx] for idx in range(world_size) ] 
     else:
         # No CFG parallelism - all ranks in single group
         rank_list = [list(range(world_size))]
-    
+
     _CP_GROUP = CommGroup(rank_list, rank, local_rank)
+
+def initialize_fpp_group(fpp_size:int, rank:int, local_rank:int, world_size:int):
+    global _FPP_GROUP
+    assert _FPP_GROUP is None
+    
+    if fpp_size <= 1:
+        # No FPP parallelism
+        _FPP_GROUP = CommGroup([[idx] for idx in range(world_size)], rank, local_rank)
+    else:
+        # FPP parallelism
+        assert world_size % fpp_size == 0, "World size must be divisible by FPP size"
+        rank_list = []
+        for i in range(0, world_size, fpp_size):
+            rank_list.append(list(range(i, i + fpp_size)))
+        _FPP_GROUP = CommGroup(rank_list, rank, local_rank)
 
 def initialize_up_groups(up_sizes: List[int], up_limit: int, cfg_size: int, rank: int, local_rank: int, world_size: int):
     global _UP_GROUP_DICT
@@ -401,6 +423,7 @@ def initialize_up_groups(up_sizes: List[int], up_limit: int, cfg_size: int, rank
 def initialize_diffusion_parallel_groups(
     cfg_size: int,
     cp_size: int,
+    fpp_size: int,
     up_limit: int = 8,
 ):
     global _PARALLEL_GROUPS_INITIALIZED
@@ -418,6 +441,8 @@ def initialize_diffusion_parallel_groups(
     initialize_world_group(rank, local_rank, world_size)
     initialize_cfg_group(cfg_size, rank, local_rank, world_size)
     initialize_cp_group(cp_size, cfg_size, rank, local_rank, world_size)
+    initialize_fpp_group(fpp_size, rank=rank, local_rank=local_rank, world_size=world_size) 
+
     max_up_size = min(up_limit, cp_size)
     up_sizes = [max_up_size] # TODO: More up sizes to support DiTango Support
     initialize_up_groups(up_sizes, up_limit, cfg_size, rank, local_rank, world_size)
@@ -426,5 +451,6 @@ def initialize_diffusion_parallel_groups(
     if rank == 0:
         logger.info(f"CFG groups initialized: {get_cfg_group().rank_list}")
         logger.info(f"CP groups initialized: {get_cp_group().rank_list}")
+        logger.info(f"FPP groups initialized: {get_fpp_group().rank_list}")
         for size, up_group in _UP_GROUP_DICT.items():
             logger.info(f"UP group size {size}: {up_group.rank_list}")

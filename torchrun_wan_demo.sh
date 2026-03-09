@@ -8,7 +8,7 @@
 # Initialize variables
 # 初始化变量
 num_gpus=${1:-2}
-script="./chitu/diffusion/test_generate.py"
+script="./test/test_generate.py"
 
 # Show PYTHONPATH for debugging
 # 显示PYTHONPATH用于调试
@@ -29,7 +29,7 @@ fi
 # Model configurations
 # 模型配置
 declare -A MODEL_CONFIGS=(
-    ["Wan2.1-T2V-1.3B"]="/home/zlq/diffusion/Wan2.1-main/Wan2.1-T2V-1.3B"
+    ["Wan2.1-T2V-1.3B"]="/home/dataset/Wan2.1-T2V-1.3B"
     # Add more models here
     # 在此处添加更多模型
 )
@@ -70,7 +70,7 @@ export NCCL_GRAPH_REGISTER=0
 # Get absolute paths
 # 获取绝对路径
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR" && pwd)"
 
 # Print configuration summary
 # 打印配置摘要
@@ -101,16 +101,19 @@ cd "$PROJECT_ROOT"
 
 # Check if test file exists
 # 检查测试文件是否存在
-if [ ! -f "./chitu/diffusion/test_generate.py" ]; then
-    echo "ERROR: Cannot find test_generate.py at $PROJECT_ROOT/chitu/diffusion/test_generate.py"
+if [ ! -f "./test/test_generate.py" ]; then
+    echo "ERROR: Cannot find test_generate.py at $PROJECT_ROOT/test/test_generate.py"
     exit 1
 fi
 
 # Parameter configurations
 # 参数配置
 basic_params="models=$model models.ckpt_dir=$ckpt_dir"
-parallel_params="infer.diffusion.cp_size=$cp_size infer.diffusion.up_limit=2"
-cache_params="cache.enabled=true cache.teacache_thresh=0.08"
+parallel_params="infer.diffusion.fpp_size=$num_gpus infer.diffusion.cp_size=1 infer.diffusion.up_limit=8"
+eval_params="eval.eval_type=vbench"
+# 魔法参数！
+magic_params="
+            "
 
 # Build and execute command
 # 构建并执行命令
@@ -122,7 +125,9 @@ command="torchrun \
     $script \
     $basic_params \
     $parallel_params \
-    $cache_params"
+    $magic_params \
+    $eval_params"
+
 
 # Print command for debugging
 # 打印命令用于调试

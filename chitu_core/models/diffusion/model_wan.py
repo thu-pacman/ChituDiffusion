@@ -1,4 +1,5 @@
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
+import itertools
 import math
 from logging import getLogger
 import torch
@@ -8,6 +9,8 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 
 from chitu_core.models.registry import ModelType, register_model, log_init_params
+from chitu_core.distributed.partition import compute_layer_dist_in_pp
+from chitu_core.distributed.parallel_state import get_fpp_group  
 from chitu_diffusion.model_default import WanModelDefaults
 from chitu_diffusion.modules.attention.wan_attention import flash_attention
 
@@ -461,8 +464,28 @@ class WanModel(ModelMixin, ConfigMixin):
         if model_type == 'i2v' or model_type == 'flf2v':
             self.img_emb = MLPProj(1280, self.dim, flf_pos_emb=model_type == 'flf2v')
 
+        self.fpp_size = get_fpp_group().group_size
         # initialize weights
         self.init_weights()
+    
+    # 这个函数会在模型初始化后被调用，用于根据当前的pp_rank调整模型层的分布    
+    def wrap_layers_for_fpp(self):
+        self.pp_rank = get_fpp_group().rank_in_group
+        self.fpp_group = get_fpp_group()
+        self.counter = 0
+
+        print(f"Initializing layers for pp_rank {self.pp_rank} / fpp_size {self.fpp_size}")
+
+        num_layers_of_each_rank = compute_layer_dist_in_pp(
+            self.num_layers, self.fpp_size
+        )
+        first_layer_id_of_each_rank = list(
+            itertools.accumulate([0] + num_layers_of_each_rank)
+        )
+        self.local_begin_layer_id = first_layer_id_of_each_rank[self.pp_rank]
+        self.local_end_layer_id = first_layer_id_of_each_rank[self.pp_rank + 1]
+
+        self.blocks = self.blocks[self.local_begin_layer_id:self.local_end_layer_id]
 
     @property
     def freqs(self):
@@ -483,6 +506,12 @@ class WanModel(ModelMixin, ConfigMixin):
             
         return self._freqs
 
+    def log(self, msg):
+        # 分布式调试用
+        # 封装日志函数，统一加时间戳+rank+flush
+        import time
+        print(f"[{time.strftime('%H:%M:%S.%f')}] Rank {self.pp_rank}: {msg}", flush=True)
+
     def _single_input_preprocess(self, x, t, context, y):
         x = [x]
         t = t.unsqueeze(0)
@@ -491,6 +520,37 @@ class WanModel(ModelMixin, ConfigMixin):
             y = [y]
         return x, t, context, y
     
+    def model_compute_sync_pipeline(self, tokens, **kwargs):
+        x = tokens
+
+        if self.pp_rank > 0:
+            # self.log(f"Waiting to receive tokens from rank {self.pp_rank - 1},tag {self.counter}")
+            x = self.fpp_group.p2p_irecv(x.shape, x.dtype, src=self.pp_rank - 1)
+            self.fpp_group.p2p_commit()
+            self.fpp_group.p2p_wait()
+            self.log(f"Received tokens from rank {self.pp_rank - 1}")
+
+        self.log(f"x before model_compute: {x}")
+        
+        # import pdb; pdb.set_trace()
+        x = self.model_compute(x, **kwargs)
+        self.log(f"x after model_compute: {x}")
+
+        if self.pp_rank < self.fpp_size - 1:
+            self.fpp_group.p2p_isend(x, dst=self.pp_rank + 1)
+            self.fpp_group.p2p_commit()
+            self.fpp_group.p2p_wait()
+
+        self.counter += 1
+
+        if self.pp_rank == self.fpp_size - 1:
+            torch.distributed.send(x, dst=0)
+            print(f"Rank {self.pp_rank}: Sent tokens to rank 0")
+        if self.pp_rank == 0:
+            torch.distributed.recv(x, src=self.fpp_size - 1)
+            print(f"Rank {self.pp_rank}: Received tokens from rank {self.fpp_size - 1}")
+
+        return x 
 
     def model_compute(self, tokens, **kwargs):
         """
@@ -575,8 +635,12 @@ class WanModel(ModelMixin, ConfigMixin):
             context=context,
             context_lens=context_lens
         )
-
-        x = self.model_compute(tokens, **kwargs)
+        
+        if self.fpp_size > 1:
+            tokens = tokens.to(dtype=torch.float32)  # ensure tokens are in float32 for pipeline communication
+            x = self.model_compute_sync_pipeline(tokens, **kwargs)
+        else:
+            x = self.model_compute(tokens, **kwargs)
 
         # head processing
         x = self.head(x, e)

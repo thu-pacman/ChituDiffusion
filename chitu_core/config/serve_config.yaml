@@ -47,6 +47,7 @@ infer:
   schedule_overlap: auto # True, False or auto
   diffusion:
     cp_size: 1
+    fpp_size: 1
     up_limit: 8
     low_mem_level: 0
     enable_flexcache: False

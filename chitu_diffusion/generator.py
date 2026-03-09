@@ -267,10 +267,10 @@ class Generator:
 
         logger.info(f"[text_encode_step] task_id={task.task_id}, txt={payload}")
         
-        with device_scope(DiffusionBackend.text_encoder.model):        
-            out = DiffusionBackend.text_encoder(payload, torch.cuda.current_device())
-            
-        logger.info(f"[text_encode_step] context shape: {out.shape}")
+        # with device_scope(DiffusionBackend.text_encoder.model):        
+        out = DiffusionBackend.text_encoder(payload, torch.cuda.current_device())
+        
+        logger.info(f"rank:{self.rank} [text_encode_step] context shape: {out.shape}")
         return out
     
     def vae_encode_step(self, task: DiffusionTask):
@@ -283,7 +283,7 @@ class Generator:
 
         latent_model_input = task.buffer.latents
         timestep = task.buffer.timesteps[task.buffer.current_step]
-
+        print(f"RANK:{self.rank}, Denoise step {task.buffer.current_step}/{len(task.buffer.timesteps)}, timestep: {timestep}, latents shape: {latent_model_input.shape}")
         if DiffusionBackend.guidance_scale > 0: # Wan的cfg是做两次
             if self.cfg_size == 2:
                 if get_cfg_group().rank_in_group == 0:

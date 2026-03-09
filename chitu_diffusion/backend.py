@@ -438,24 +438,27 @@ class DiffusionBackend:
         # FIXME: a better cfg worldsize decision
         DiffusionBackend.do_cfg = all(x > 0 for x in args.models.sampler.guidance_scale)
         #cfg_size = 2 if (world_size >= 2 and  DiffusionBackend.do_cfg) else 1
+        fine_grained_parallel_size = args.infer.diffusion.fpp_size
+
         if hasattr(args.infer.diffusion, 'cfg_size') and args.infer.diffusion.cfg_size is not None:
             cfg_size = args.infer.diffusion.cfg_size
             logger.info(f"Using explicitly configured cfg_size={cfg_size}")
-        else:#默认行为:如果有CFG且有多GPU，自动启用CFG并行
-            cfg_size = 2 if (world_size >= 2 and DiffusionBackend.do_cfg) else 1
+        else:#默认行为:如果有CFG且有多GPU且没有开启流水线并行，自动启用CFG并行
+            cfg_size = 2 if (world_size >= 2 and DiffusionBackend.do_cfg and fine_grained_parallel_size == 1) else 1
             logger.info(f"Auto-determined cfg size={cfg_size} (world size-{world_size}, do_cfg={DiffusionBackend.do_cfg})")
         up_limit = args.infer.diffusion.up_limit
         context_parallel_size = args.infer.diffusion.cp_size
 
         assert (
             world_size
-            == non_expert_data_parallel_size * cfg_size * context_parallel_size
+            == non_expert_data_parallel_size * cfg_size * context_parallel_size * fine_grained_parallel_size
         ), f"World size not match: {world_size} != {non_expert_data_parallel_size} * {cfg_size} * {context_parallel_size}"
-
+        print (f"Initialized distributed with world size {world_size}, cfg size {cfg_size}, context parallel size {context_parallel_size}, fine-grained parallel size {fine_grained_parallel_size}")
         initialize_diffusion_parallel_groups(
             cfg_size= cfg_size,
             up_limit=up_limit,
             cp_size=context_parallel_size,
+            fpp_size=fine_grained_parallel_size,
         )
 
     @staticmethod
@@ -679,7 +682,11 @@ class DiffusionBackend:
         else:
             # 如果跳过加载，也需要将 meta 模型转为实际模型（随机初始化）
             model.to_empty(device=target_device)
-
+        
+        # 如果启用流水并行，在这里进行模型分层，需要model支持分层接口
+        # 如果在meta init时就完成分层，性能上最好，但load的时候需要对层idx做区分，尚未实现
+        if args.infer.diffusion.fpp_size > 1:
+            model.wrap_layers_for_fpp()
         model.eval().requires_grad_(False)
         return model
 
