@@ -905,21 +905,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#using-torchrun" class="md-nav__link">
+  <a href="#unified-launcher" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Using torchrun
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#using-provided-scripts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Using Provided Scripts
+        Unified Launcher
       
     </span>
   </a>
@@ -1909,21 +1898,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#using-torchrun" class="md-nav__link">
+  <a href="#unified-launcher" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Using torchrun
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#using-provided-scripts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Using Provided Scripts
+        Unified Launcher
       
     </span>
   </a>
@@ -2103,55 +2081,49 @@
 <li>GPUs on same node or connected via high-speed interconnect</li>
 </ul>
 <h2 id="single-node-multiple-gpus">Single Node, Multiple GPUs<a class="headerlink" href="#single-node-multiple-gpus" title="Permanent link">&para;</a></h2>
-<h3 id="using-torchrun">Using torchrun<a class="headerlink" href="#using-torchrun" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>test_generate.py<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span>models.ckpt_dir<span class="o">=</span>/path/to/checkpoint<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span>infer.diffusion.cp_size<span class="o">=</span><span class="m">2</span>
+<h3 id="unified-launcher">Unified Launcher<a class="headerlink" href="#unified-launcher" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>bash<span class="w"> </span>run.sh<span class="w"> </span>system_config.yaml<span class="w"> </span>--num-nodes<span class="w"> </span><span class="m">1</span><span class="w"> </span>--gpus-per-node<span class="w"> </span><span class="m">4</span><span class="w"> </span>--cfp<span class="w"> </span><span class="m">2</span>
 </code></pre></div>
-<h3 id="using-provided-scripts">Using Provided Scripts<a class="headerlink" href="#using-provided-scripts" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bash<span class="w"> </span>run_local_single.sh
-</code></pre></div>
-<p>Edit script to configure GPU count.</p>
 <h2 id="multi-node-setup">Multi-Node Setup<a class="headerlink" href="#multi-node-setup" title="Permanent link">&para;</a></h2>
 <h3 id="using-slurm">Using SLURM<a class="headerlink" href="#using-slurm" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>bash<span class="w"> </span>srun_wan_demo.sh<span class="w"> </span><span class="m">8</span><span class="w">  </span><span class="c1"># 8 GPUs total</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bash<span class="w"> </span>run.sh<span class="w"> </span>system_config.yaml<span class="w"> </span>--num-nodes<span class="w"> </span><span class="m">2</span><span class="w"> </span>--gpus-per-node<span class="w"> </span><span class="m">4</span><span class="w"> </span>--cfp<span class="w"> </span><span class="m">2</span><span class="w">  </span><span class="c1"># 8 GPUs total</span>
 </code></pre></div>
 <h3 id="manual-configuration">Manual Configuration<a class="headerlink" href="#manual-configuration" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Node 0</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MASTER_ADDR</span><span class="o">=</span>node0
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MASTER_PORT</span><span class="o">=</span><span class="m">29500</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">WORLD_SIZE</span><span class="o">=</span><span class="m">8</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nb">export</span><span class="w"> </span><span class="nv">RANK</span><span class="o">=</span><span class="m">0</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LOCAL_RANK</span><span class="o">=</span><span class="m">0</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span>...
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="c1"># Node 1</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="nb">export</span><span class="w"> </span><span class="nv">RANK</span><span class="o">=</span><span class="m">4</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LOCAL_RANK</span><span class="o">=</span><span class="m">0</span>
-<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span>...
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Node 0</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MASTER_ADDR</span><span class="o">=</span>node0
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MASTER_PORT</span><span class="o">=</span><span class="m">29500</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">WORLD_SIZE</span><span class="o">=</span><span class="m">8</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nb">export</span><span class="w"> </span><span class="nv">RANK</span><span class="o">=</span><span class="m">0</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LOCAL_RANK</span><span class="o">=</span><span class="m">0</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span>...
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="c1"># Node 1</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="nb">export</span><span class="w"> </span><span class="nv">RANK</span><span class="o">=</span><span class="m">4</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LOCAL_RANK</span><span class="o">=</span><span class="m">0</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span>...
 </code></pre></div>
 <h2 id="parallelism-strategies">Parallelism Strategies<a class="headerlink" href="#parallelism-strategies" title="Permanent link">&para;</a></h2>
 <h3 id="context-parallelism">Context Parallelism<a class="headerlink" href="#context-parallelism" title="Permanent link">&para;</a></h3>
 <p>Split frames across GPUs:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>infer.diffusion.cp_size<span class="o">=</span><span class="m">4</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>infer.diffusion.cp_size<span class="o">=</span><span class="m">4</span>
 </code></pre></div>
 <h3 id="cfg-parallelism">CFG Parallelism<a class="headerlink" href="#cfg-parallelism" title="Permanent link">&para;</a></h3>
 <p>Automatic with 2+ GPUs when CFG enabled.</p>
 <h3 id="combined">Combined<a class="headerlink" href="#combined" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># 4 GPUs: 2 CFG × 2 CP</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>infer.diffusion.cfg_size<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>infer.diffusion.cp_size<span class="o">=</span><span class="m">2</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># 4 GPUs: 2 CFG × 2 CP</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>infer.diffusion.cfg_size<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>infer.diffusion.cp_size<span class="o">=</span><span class="m">2</span>
 </code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="nccl-timeout">NCCL Timeout<a class="headerlink" href="#nccl-timeout" title="Permanent link">&para;</a></h3>
 <p>Increase timeout:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">NCCL_TIMEOUT</span><span class="o">=</span><span class="m">1800</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">NCCL_TIMEOUT</span><span class="o">=</span><span class="m">1800</span>
 </code></pre></div>
 <h3 id="network-issues">Network Issues<a class="headerlink" href="#network-issues" title="Permanent link">&para;</a></h3>
 <p>Check connectivity:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>nvidia-smi<span class="w"> </span>topo<span class="w"> </span>-m
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>nvidia-smi<span class="w"> </span>topo<span class="w"> </span>-m
 </code></pre></div>
 <h2 id="see-also">See Also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>

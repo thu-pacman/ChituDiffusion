@@ -2407,17 +2407,13 @@
 </code></pre></div>
 <h3 id="step-2-run-the-script">Step 2: Run the Script<a class="headerlink" href="#step-2-run-the-script" title="Permanent link">&para;</a></h3>
 <p><strong>Single GPU:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span>models.ckpt_dir<span class="o">=</span>/path/to/checkpoint
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bash<span class="w"> </span>run.sh<span class="w"> </span>system_config.yaml<span class="w"> </span>--num-nodes<span class="w"> </span><span class="m">1</span><span class="w"> </span>--gpus-per-node<span class="w"> </span><span class="m">1</span><span class="w"> </span>--cfp<span class="w"> </span><span class="m">1</span>
 </code></pre></div>
-<p><strong>Multi-GPU with torchrun:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">2</span><span class="w"> </span>test_generate.py<span class="w"> </span>models.ckpt_dir<span class="o">=</span>/path/to/checkpoint
+<p><strong>Multi-GPU (Single Node):</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>bash<span class="w"> </span>run.sh<span class="w"> </span>system_config.yaml<span class="w"> </span>--num-nodes<span class="w"> </span><span class="m">1</span><span class="w"> </span>--gpus-per-node<span class="w"> </span><span class="m">2</span><span class="w"> </span>--cfp<span class="w"> </span><span class="m">2</span>
 </code></pre></div>
-<p><strong>Using provided launch scripts:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Single node</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>bash<span class="w"> </span>run_local_single.sh
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># SLURM cluster</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>bash<span class="w"> </span>srun_wan_demo.sh<span class="w"> </span><span class="m">4</span><span class="w">  </span><span class="c1"># 4 GPUs</span>
+<p><strong>Multi-Node SLURM:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>bash<span class="w"> </span>run.sh<span class="w"> </span>system_config.yaml<span class="w"> </span>--num-nodes<span class="w"> </span><span class="m">2</span><span class="w"> </span>--gpus-per-node<span class="w"> </span><span class="m">2</span><span class="w"> </span>--cfp<span class="w"> </span><span class="m">2</span><span class="w">  </span><span class="c1"># 4 GPUs</span>
 </code></pre></div>
 <h3 id="step-3-view-the-output">Step 3: View the Output<a class="headerlink" href="#step-3-view-the-output" title="Permanent link">&para;</a></h3>
 <p>The generated video will be saved to:
