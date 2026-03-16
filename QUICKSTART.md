@@ -1,81 +1,129 @@
 # SmartDiffusion Quick Start Guide
 
-## New Unified Launch System
+## 3 Ways to Launch SmartDiffusion
 
-SmartDiffusion now has a unified entry point for all execution modes!
+SmartDiffusion supports 3 execution modes:
 
-## Quick Commands
+### 1. Python Mode - Single GPU
 
-### Local Execution (Single Node with torchrun)
-
-```bash
-# Basic usage with 2 GPUs
-./scripts/launch.sh local -g 2
-
-# With specific model (no interactive selection)
-./scripts/launch.sh local -g 2 -m Wan2.1-T2V-14B
-
-# Enable FlexCache acceleration
-./scripts/launch.sh local -g 4 --flexcache
-
-# Enable low memory mode
-./scripts/launch.sh local -g 2 --low-mem
-
-# CFG parallel mode
-./scripts/launch.sh local -g 4 --cfg-parallel
-
-# All features combined
-./scripts/launch.sh local -g 4 -m Wan2.1-T2V-14B --flexcache --low-mem
-```
-
-### Cluster Execution (SLURM with srun)
+For quick testing on a single GPU:
 
 ```bash
-# Single node with 8 GPUs
-./scripts/launch.sh cluster -g 8
-
-# Multi-node: 2 nodes with 8 GPUs each
-./scripts/launch.sh cluster -n 2 -g 8 --multi-node
-
-# With custom partition
-./scripts/launch.sh cluster -g 8 -p gpu_partition
-
-# With sparse quantized attention
-./scripts/launch.sh cluster -g 8 --attn-type sparge
-
-# All features combined
-./scripts/launch.sh cluster -n 2 -g 8 -p custom_partition --multi-node --flexcache --low-mem --attn-type sparge
+./scripts/launch.sh python
+./scripts/launch.sh python -m Wan2.1-T2V-1.3B --flexcache
 ```
 
-### Get Help
+### 2. Torchrun Mode - Multi-GPU (Single Node)
+
+For development and production on 2-8 GPUs:
 
 ```bash
-# Main help
-./scripts/launch.sh help
-
-# Local mode help
-./scripts/local/run_local.sh --help
-
-# Cluster mode help
-./scripts/cluster/run_cluster.sh --help
+./scripts/launch.sh torchrun -g 2
+./scripts/launch.sh torchrun -g 4 --flexcache --low-mem
+./scripts/launch.sh torchrun -g 8 --cfg-parallel
 ```
 
-## Common Options
+### 3. Srun Mode - Cluster (Multi-Node)
+
+For SLURM cluster execution:
+
+```bash
+./scripts/launch.sh srun -g 8 -p a01
+./scripts/launch.sh srun -n 2 -g 8 -p gpu_partition --multi-node
+./scripts/launch.sh srun -g 8 --attn-type sparge
+```
+
+## Quick Reference
+
+### Execution Mode Selection
+
+| Scenario | Mode | Example |
+|----------|------|---------|
+| Quick test, 1 GPU | `python` | `./scripts/launch.sh python` |
+| Dev/prod, 2-8 GPUs | `torchrun` | `./scripts/launch.sh torchrun -g 4` |
+| Cluster, multi-node | `srun` | `./scripts/launch.sh srun -n 2 -g 8 --multi-node` |
+
+### Common Options
 
 | Option | Description | Example |
 |--------|-------------|---------|
-| `-g, --gpus <num>` | Number of GPUs | `-g 4` |
 | `-m, --model <name>` | Model name | `-m Wan2.1-T2V-14B` |
-| `-n, --nodes <num>` | Number of nodes (cluster) | `-n 2` |
-| `-p, --partition <name>` | SLURM partition (cluster) | `-p gpu_partition` |
 | `-s, --script <path>` | Python script to run | `-s ./custom_test.py` |
 | `--flexcache` | Enable FlexCache (TeaCache) | `--flexcache` |
 | `--low-mem` | Enable low memory mode | `--low-mem` |
-| `--cfg-parallel` | Enable CFG parallel (local) | `--cfg-parallel` |
-| `--attn-type <type>` | Attention backend (cluster) | `--attn-type sparge` |
-| `--multi-node` | Multi-node mode (cluster) | `--multi-node` |
 
-## Attention Types
+### Mode-Specific Options
+
+**Python mode:** (single GPU)
+- No additional GPU options needed
+
+**Torchrun mode:** (multi-GPU)
+- `-g, --gpus <num>`: Number of GPUs
+- `-c, --cp-size <num>`: Context parallel size
+- `--cfg-parallel`: Enable CFG parallel
+
+**Srun mode:** (cluster)
+- `-n, --nodes <num>`: Number of nodes
+- `-g, --gpus <num>`: GPUs per node
+- `-p, --partition <name>`: SLURM partition
+- `--multi-node`: Multi-node flag
+- `--attn-type <type>`: Attention backend
+
+## Detailed Examples
+
+### Python Mode Examples
+
+```bash
+# Basic single GPU
+./scripts/launch.sh python
+
+# With specific model
+./scripts/launch.sh python -m Wan2.1-T2V-1.3B
+
+# With FlexCache and low memory
+./scripts/launch.sh python --flexcache --low-mem
+
+# Custom script
+./scripts/launch.sh python -s ./test/my_test.py
+```
+
+### Torchrun Mode Examples
+
+```bash
+# 2 GPUs, default settings
+./scripts/launch.sh torchrun -g 2
+
+# 4 GPUs with FlexCache
+./scripts/launch.sh torchrun -g 4 --flexcache
+
+# 8 GPUs with CFG parallel
+./scripts/launch.sh torchrun -g 8 --cfg-parallel
+
+# With specific model and low memory
+./scripts/launch.sh torchrun -g 4 -m Wan2.1-T2V-14B --low-mem
+
+# Custom context parallel size
+./scripts/launch.sh torchrun -g 4 -c 2
+```
+
+### Srun Mode Examples
+
+```bash
+# Single node, 8 GPUs
+./scripts/launch.sh srun -g 8 -p a01
+
+# Multi-node: 2 nodes × 8 GPUs
+./scripts/launch.sh srun -n 2 -g 8 -p gpu_partition --multi-node
+
+# With sparse attention
+./scripts/launch.sh srun -g 8 --attn-type sparge
+
+# With all features
+./scripts/launch.sh srun -n 2 -g 8 -p custom_partition \
+  --multi-node --flexcache --low-mem --attn-type sage
+```
+
+## Attention Types (Srun Mode Only)
 
 | Type | Description |
 |------|-------------|
@@ -89,6 +137,7 @@ SmartDiffusion now has a unified entry point for all execution modes!
 ### Set Model Paths
 
 Edit `scripts/utils/config.sh`:
+
 ```bash
 declare -A DEFAULT_MODEL_CONFIGS=(
     ["Wan2.1-T2V-1.3B"]="/path/to/model"
@@ -100,53 +149,41 @@ declare -A DEFAULT_MODEL_CONFIGS=(
 ### Environment Variables
 
 ```bash
-# Set model without interactive selection
-export MODEL_NAME="Wan2.1-T2V-14B"
+export MODEL_NAME=Wan2.1-T2V-14B
+export SLURM_PARTITION=gpu_partition
+./scripts/launch.sh torchrun -g 4
+```
 
-# Distributed training settings
-export MASTER_ADDR="127.0.0.1"
-export MASTER_PORT="29500"
+## Getting Help
+
+```bash
+# Main help
+./scripts/launch.sh help
+
+# Mode-specific help
+./scripts/python/run_python.sh --help
+./scripts/local/run_local.sh --help
+./scripts/cluster/run_cluster.sh --help
 ```
 
 ## Migration from Old Scripts
 
 | Old Command | New Command |
 |-------------|-------------|
-| `./run_local_cfg.sh 2` | `./scripts/launch.sh local -g 2 --cfg-parallel` |
-| `./run_local_single.sh 1` | `./scripts/launch.sh local -g 1` |
-| `./torchrun_wan_demo.sh 2` | `./scripts/launch.sh local -g 2` |
-| `./srun_wan_demo.sh 8` | `./scripts/launch.sh cluster -g 8` |
+| `./run_local_single.sh 1` | `./scripts/launch.sh python` |
+| `./run_local_cfg.sh 2` | `./scripts/launch.sh torchrun -g 2` |
+| `./run_local_cp.sh 4` | `./scripts/launch.sh torchrun -g 4` |
+| `./srun_wan_demo.sh 8` | `./scripts/launch.sh srun -g 8 -p a01` |
 
-## Troubleshooting
+Old mode names still work (with deprecation warning):
+- `local` → use `torchrun` instead
+- `cluster` → use `srun` instead
 
-### "Model path does not exist"
-→ Update model paths in `scripts/utils/config.sh`
+## Full Documentation
 
-### "Permission denied"
-→ Run: `chmod +x scripts/**/*.sh`
-
-### SLURM partition not found
-→ Edit partition in `scripts/cluster/srun_*.sh` (default: `a01`)
-
-### Out of memory
-→ Use `--low-mem` flag
-
-## Documentation
-
-- Complete guide: `scripts/README.md`
-- Local execution: `scripts/local/README.md`
-- Cluster execution: `scripts/cluster/README.md`
-- Migration guide: `MIGRATION.md`
-- Full documentation: `README.md`
-
-## Support
-
-For issues or questions:
-1. Check the relevant README in `scripts/`
-2. Review the migration guide: `MIGRATION.md`
-3. Verify configuration in `scripts/utils/config.sh`
-4. Open an issue on GitHub
-
----
-
-**Pro Tip**: Start simple with `./scripts/launch.sh local -g 2` and add options as needed!
+See `scripts/README.md` for complete documentation including:
+- Detailed usage guide
+- System parameters configuration
+- SLURM configuration
+- Troubleshooting
+- Advanced usage

@@ -6,22 +6,25 @@
 # Usage: ./launch.sh <mode> [options]
 #
 # Modes:
-#   local     - Run locally with torchrun (single or multi-GPU on single node)
-#   cluster   - Run on cluster with srun (single or multi-node)
+#   python    - Single-card execution with plain Python
+#   torchrun  - Multi-card execution with torchrun (single node)
+#   srun      - Cluster execution with srun (single or multi-node)
+#   local     - Alias for torchrun (backward compatibility)
+#   cluster   - Alias for srun (backward compatibility)
 #   help      - Show detailed help
 #
 # Examples:
-#   # Run locally with 2 GPUs
-#   ./launch.sh local -g 2
+#   # Run on single GPU with Python
+#   ./launch.sh python
 #
-#   # Run locally with specific model and FlexCache
-#   ./launch.sh local -g 4 -m Wan2.1-T2V-14B --flexcache
+#   # Run with 2 GPUs using torchrun
+#   ./launch.sh torchrun -g 2
 #
-#   # Run on cluster with 2 nodes, 8 GPUs per node
-#   ./launch.sh cluster -n 2 -g 8 --multi-node
+#   # Run on cluster with 8 GPUs
+#   ./launch.sh srun -g 8
 #
 #   # Run with custom script
-#   ./launch.sh local -g 2 -s ./test/custom_test.py
+#   ./launch.sh torchrun -g 2 -s ./test/custom_test.py
 
 set -e
 
@@ -40,11 +43,21 @@ SmartDiffusion Unified Launcher
 Usage: $0 <mode> [options]
 
 MODES:
-  local     Run locally with torchrun (single or multi-GPU on single node)
-  cluster   Run on cluster with srun (single or multi-node)
+  python    Single-card execution with plain Python
+  torchrun  Multi-card execution with torchrun (single node)
+  srun      Cluster execution with srun (single or multi-node)
+  local     Alias for torchrun (backward compatibility)
+  cluster   Alias for srun (backward compatibility)
   help      Show this help message
 
-LOCAL MODE OPTIONS:
+PYTHON MODE OPTIONS (Single-Card):
+  -m, --model <name>      Model name (default: interactive selection)
+  -s, --script <path>     Python script to run (default: ./test/test_generate.py)
+  --flexcache             Enable FlexCache acceleration
+  --low-mem               Enable low memory mode
+  -h, --help              Show detailed help
+
+TORCHRUN MODE OPTIONS (Multi-Card):
   -g, --gpus <num>        Number of GPUs to use (default: 2)
   -m, --model <name>      Model name (default: interactive selection)
   -c, --cp-size <num>     Context parallel size (default: auto-calculated)
@@ -54,7 +67,7 @@ LOCAL MODE OPTIONS:
   --low-mem               Enable low memory mode
   -h, --help              Show detailed help
 
-CLUSTER MODE OPTIONS:
+SRUN MODE OPTIONS (Cluster):
   -n, --nodes <num>       Number of nodes (default: 1)
   -g, --gpus <num>        Number of GPUs per node (default: 2)
   -p, --partition <name>  SLURM partition name (default: a01)
@@ -67,26 +80,29 @@ CLUSTER MODE OPTIONS:
   -h, --help              Show detailed help
 
 EXAMPLES:
-  # Run locally with 2 GPUs
-  $0 local -g 2
+  # Run on single GPU with Python
+  $0 python
 
-  # Run locally with 4 GPUs and FlexCache
-  $0 local -g 4 --flexcache
+  # Run on single GPU with specific model
+  $0 python -m Wan2.1-T2V-1.3B
 
-  # Run locally with specific model
-  $0 local -g 2 -m Wan2.1-T2V-14B
+  # Run with 2 GPUs using torchrun
+  $0 torchrun -g 2
+
+  # Run with 4 GPUs and FlexCache
+  $0 torchrun -g 4 --flexcache
 
   # Run on cluster with single node
-  $0 cluster -g 8
+  $0 srun -g 8
 
   # Run on cluster with 2 nodes
-  $0 cluster -n 2 -g 8 --multi-node
+  $0 srun -n 2 -g 8 --multi-node
 
   # Run with custom partition
-  $0 cluster -g 8 -p gpu_partition
+  $0 srun -g 8 -p gpu_partition
 
   # Run with custom attention backend
-  $0 cluster -g 8 --attn-type sparge
+  $0 srun -g 8 --attn-type sparge
 
 CONFIGURATION:
   Model paths and other configurations can be set in:
@@ -115,12 +131,22 @@ shift
 
 # Handle mode
 case $mode in
-    local)
-        print_info "Running in LOCAL mode with torchrun"
+    python)
+        print_info "Running in PYTHON mode (single-card)"
+        exec "$SCRIPT_DIR/python/run_python.sh" "$@"
+        ;;
+    torchrun|local)
+        if [ "$mode" = "local" ]; then
+            print_warning "Note: 'local' mode is deprecated, use 'torchrun' instead"
+        fi
+        print_info "Running in TORCHRUN mode (multi-card)"
         exec "$SCRIPT_DIR/local/run_local.sh" "$@"
         ;;
-    cluster)
-        print_info "Running in CLUSTER mode with srun"
+    srun|cluster)
+        if [ "$mode" = "cluster" ]; then
+            print_warning "Note: 'cluster' mode is deprecated, use 'srun' instead"
+        fi
+        print_info "Running in SRUN mode (cluster)"
         exec "$SCRIPT_DIR/cluster/run_cluster.sh" "$@"
         ;;
     help|-h|--help)
