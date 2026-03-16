@@ -1,0 +1,37 @@
+launch:
+  num_nodes: 1
+  gpus_per_node: 4
+  python_script: test/test_generate.py
+  log_dir: logs
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    job_name: chitu-diffusion
+
+runtime:
+  chitu_debug: true
+  cuda_launch_blocking: false
+
+model:
+  name: Wan2.1-T2V-1.3B
+  ckpt_dir: /home/zhongrx/cyy/Wan2.1/Wan2.1-T2V-1.3B
+
+parallel:
+  # cfg-parallel factor: only 1 or 2.
+  cfp: 2
+
+infer:
+  attn_type: flash_attn
+  low_mem_level: 0
+  enable_flexcache: true
+  up_limit: 1
+
+eval:
+  eval_type: none
+
+# Extra hydra overrides appended to the launch command.
+# Example:
+# overrides:
+#   - infer.max_reqs=4
+#   - infer.memory_utilization=0.95
+overrides: []

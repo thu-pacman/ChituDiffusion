@@ -5,6 +5,14 @@ Smart-Diffusion 的所有重要更改都将记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)，
 此项目遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.1.2] - 2026-03-16
+
+### 更改
+- 启动入口统一为仅使用 `run.sh`
+- 启动/系统参数统一由 `system_config.yaml` 管理
+- 用显式的 `cfp -> infer.diffusion.cfg_size` 替代旧的 CFG 并行开关
+- 文档启动示例统一为 `bash run.sh system_config.yaml ...`
+
 ## [0.1.1] - 2026-02-16 除夕
 
 ### 新增

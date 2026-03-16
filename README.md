@@ -197,19 +197,19 @@ print(f"Video saved to: {task.buffer.save_path}")
 
 ### Launch Scripts
 
-**Single GPU:**
+Only `srun` launch is supported.
+
+1. Edit `system_config.yaml` to configure model path, system params, and `cfp`.
+2. Run the unified launcher:
+
 ```bash
-python test_generate.py models.ckpt_dir=/path/to/checkpoint
+bash run.sh system_config.yaml
 ```
 
-**Multi-GPU (Data Parallel):**
-```bash
-bash run_local_single.sh  # Uses torchrun
-```
+Optional runtime overrides:
 
-**Distributed (SLURM):**
 ```bash
-bash srun_wan_demo.sh <num_gpus>
+bash run.sh system_config.yaml --num-nodes 2 --gpus-per-node 8 --cfp 2
 ```
 
 ### Advanced Configuration
@@ -218,7 +218,7 @@ Configuration is split into three levels:
 
 1. **Model Parameters** (Static): Defined in `chitu_core/config/models/<model>.yaml`
 2. **User Parameters** (Dynamic): Set per-request via `DiffusionUserParams`
-3. **System Parameters** (Semi-static): Set via launch arguments
+3. **System Parameters** (Semi-static): Set in `system_config.yaml`
 
 **Example: Using different attention backend**
 ```bash

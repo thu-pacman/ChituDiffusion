@@ -110,7 +110,6 @@ logs/*
 *.mp4
 output/*
 vbench_out/*
-*.sh
 
 # MkDocs
 site/

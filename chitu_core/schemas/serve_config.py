@@ -62,11 +62,11 @@ class InferConfig:
 
     @dataclass
     class DiffusionConfig:
+        cfg_size: int = MISSING
         cp_size: int = MISSING
         up_limit: int = MISSING
         low_mem_level: int = MISSING # In low gpu memory mode, models will be offloaded to cpu and only loaded in needed stage. 
         enable_flexcache: bool = MISSING
-        enable_cfg_parallel: bool = MISSING
 
     diffusion: DiffusionConfig = MISSING
 
