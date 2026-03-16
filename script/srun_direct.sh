@@ -37,7 +37,7 @@ echo "MASTER_PORT: $MASTER_PORT"
 unset SLURM_JOB_ID SLURM_STEP_ID SLURM_NTASKS SLURM_NTASKS_PER_NODE 2>/dev/null || true
 
 # 使用 wrapper 脚本
-srun -p a01 \
+srun -p debug \
      --job-name $JOB_NAME \
      --nodes $NODES \
      --ntasks-per-node $NUM_GPUS \

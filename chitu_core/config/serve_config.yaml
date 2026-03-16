@@ -50,6 +50,7 @@ infer:
     up_limit: 8
     low_mem_level: 0
     enable_flexcache: False
+    enable_cfg_parallel: True
 
 eval:
   eval_type: null # one of: vbench, null

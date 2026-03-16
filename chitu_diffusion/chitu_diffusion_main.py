@@ -320,13 +320,12 @@ def chitu_run_eval():
     manager = EvalManager()
     args = get_global_args()
 
-    if args.eval.eval_type == None:
-        return
-    elif args.eval.eval_type=='vbench':
+    if args.eval.eval_type=='vbench':
         from chitu_diffusion.eval.strategy.Vbench import VbenchStrategy
         strategy = VbenchStrategy()
     else:
-        raise ValueError(f"Unsupported eval type: {args.eval.eval_type}")
+        # logger.warning(f"Unsupported eval type: {args.eval.eval_type}")
+        return
     manager.set_strategy(strategy)
     manager.run(args=args)
     
