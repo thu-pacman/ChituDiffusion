@@ -75,8 +75,18 @@ uv sync -v --all-extras 2>&1 | tee build.log
 
 **系统参数**（并行性、算子、加速算法等）在`Chitu`的启动参数中设置。
 
-测试脚本：`chitu/diffusion/test_generate.py`
-单卡/分布式启动：`bash srun_wan_demo.sh <num_gpus>`
+测试脚本：`test/test_generate.py`
+统一启动方式（仅支持 srun）：
+
+```bash
+bash run.sh system_config.yaml
+```
+
+可选覆盖参数（单卡/单机多卡/多机多卡）：
+
+```bash
+bash run.sh system_config.yaml --num-nodes 2 --gpus-per-node 8 --cfp 2
+```
 
 ---
 

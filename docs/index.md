@@ -89,16 +89,15 @@ More models coming soon!
 
 ```mermaid
 graph TD
-    A[User Request] --> B[Task Pool]
+    A[UserRequest] --> B[TaskPool]
     B --> C[Scheduler]
-    C --> D[Generator]
-    D --> E[Text Encoder]
-    D --> F[DiT Model]
-    D --> G[VAE Decoder]
-    E --> H[Latent Tensors]
-    F --> H
-    H --> G
-    G --> I[Output Video]
+    C --> |Task| G[Generator]
+    G --> VE[VAE Encoder]
+    G --> TE[TextEncoder]
+    TE -->|Latents| DiT[DiT Loop]
+    VE -->|Latents| DiT[DiT Loop]
+    DiT --> VD[VAE Decoder]
+    VD --> V[Output]
 ```
 
 Smart-Diffusion follows a modular architecture:

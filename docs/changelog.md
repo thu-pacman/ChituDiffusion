@@ -5,14 +5,18 @@ All notable changes to Smart-Diffusion will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.2] - 2026-03-16
+
+### Changed
+- Unified launch entry to `run.sh` only
+- Moved startup/system parameter control to `system_config.yaml`
+- Replaced CFG parallel toggle with explicit `cfp -> infer.diffusion.cfg_size` flow
+- Updated documentation to use `bash run.sh system_config.yaml ...` examples
+
+## [0.1.1] - 2026-02-16 Chuxi
 
 ### Added
 - Comprehensive English docstrings for core modules
-  - `chitu_core/device_type.py` - Device detection functions
-  - `chitu_core/global_vars.py` - Configuration management
-  - `chitu_diffusion/backend.py` - Backend and model management
-  - `chitu_diffusion/chitu_diffusion_main.py` - Main initialization and execution
 - Enhanced README.md with:
   - Improved structure and formatting
   - Comprehensive feature descriptions
@@ -32,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reorganized documentation structure with clear sections
 - Improved code documentation standards across the codebase
 
-## [0.1.0] - 2025-01-XX
+## [0.1.0] - 2026-01-27
 
 ### Added
 - Initial release of Smart-Diffusion
@@ -59,9 +63,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Task management:
   - Task pool and scheduler
   - Request serialization for distributed execution
-- Distributed training support:
-  - NCCL backend
-  - Multi-GPU and multi-node support
 
 ### Known Issues
 - Data parallelism not yet implemented
@@ -71,12 +72,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Future Roadmap
 
 ### Planned Features
-- [ ] More diffusion model support
-  - [ ] Stable Diffusion 3
-  - [ ] Flux
-  - [ ] CogVideoX
-- [ ] Additional parallelism strategies
-  - [ ] Data parallelism for batch processing
+- [ ] Models
+  - [ ] Flux-2
+  - [ ] FireRed-Image-edit
+  - [ ] Longcat
+- [ ] AutoVideoParallel
+  - [ ] DiTango
   - [ ] Hybrid parallelism combinations
 - [ ] More acceleration algorithms
   - [ ] Additional cache strategies

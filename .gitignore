@@ -113,7 +113,6 @@ output/*
 srun_wan_demo.sh
 experiments/
 vbench_out/*
-*.sh
 
 # MkDocs
 site/

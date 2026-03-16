@@ -5,14 +5,19 @@ Smart-Diffusion 的所有重要更改都将记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)，
 此项目遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
-## [未发布]
+## [0.1.2] - 2026-03-16
+
+### 更改
+- 启动入口统一为仅使用 `run.sh`
+- 启动/系统参数统一由 `system_config.yaml` 管理
+- 用显式的 `cfp -> infer.diffusion.cfg_size` 替代旧的 CFG 并行开关
+- 文档启动示例统一为 `bash run.sh system_config.yaml ...`
+
+## [0.1.1] - 2026-02-16 除夕
 
 ### 新增
+- VBench 测评支持
 - 为核心模块添加了全面的英文文档字符串
-  - `chitu_core/device_type.py` - 设备检测函数
-  - `chitu_core/global_vars.py` - 配置管理
-  - `chitu_diffusion/backend.py` - 后端和模型管理
-  - `chitu_diffusion/chitu_diffusion_main.py` - 主初始化和执行
 - 增强的 README.md，包括：
   - 改进的结构和格式
   - 全面的功能描述
@@ -35,7 +40,7 @@ Smart-Diffusion 的所有重要更改都将记录在此文件中。
 - 修复文档中的图标渲染问题
 - 将性能测试数据更新为"待测试"状态
 
-## [0.1.0] - 2025-01-XX
+## [0.1.0] - 2026-01-27
 
 ### 新增
 - Smart-Diffusion 初始发布
@@ -62,9 +67,6 @@ Smart-Diffusion 的所有重要更改都将记录在此文件中。
 - 任务管理：
   - 任务池和调度器
   - 用于分布式执行的请求序列化
-- 分布式训练支持：
-  - NCCL 后端
-  - 多 GPU 和多节点支持
 
 ### 已知问题
 - 数据并行尚未实现
@@ -74,15 +76,15 @@ Smart-Diffusion 的所有重要更改都将记录在此文件中。
 ## 未来路线图
 
 ### 计划功能
-- [ ] 更多扩散模型支持
-  - [ ] Stable Diffusion 3
-  - [ ] Flux
-  - [ ] CogVideoX
-- [ ] 额外的并行策略
-  - [ ] 用于批处理的数据并行
+- [ ] Models
+  - [ ] Flux-2
+  - [ ] FireRed-Image-edit
+  - [ ] Longcat
+- [ ] AutoVideoParallel
+  - [ ] DiTango
   - [ ] 混合并行组合
-- [ ] 更多加速算法
-  - [ ] 额外的缓存策略
+- [ ] FlexCache
+  - [ ] 统一的缓存策略
   - [ ] 量化改进
 - [ ] 生产功能
   - [ ] HTTP API 服务器

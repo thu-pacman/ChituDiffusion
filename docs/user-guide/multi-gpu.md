@@ -10,28 +10,18 @@ Configure Smart-Diffusion for multi-GPU execution.
 
 ## Single Node, Multiple GPUs
 
-### Using torchrun
+### Unified Launcher
 
 ```bash
-torchrun --nproc_per_node=4 test_generate.py \
-    models.ckpt_dir=/path/to/checkpoint \
-    infer.diffusion.cp_size=2
+bash run.sh system_config.yaml --num-nodes 1 --gpus-per-node 4 --cfp 2
 ```
-
-### Using Provided Scripts
-
-```bash
-bash run_local_single.sh
-```
-
-Edit script to configure GPU count.
 
 ## Multi-Node Setup
 
 ### Using SLURM
 
 ```bash
-bash srun_wan_demo.sh 8  # 8 GPUs total
+bash run.sh system_config.yaml --num-nodes 2 --gpus-per-node 4 --cfp 2  # 8 GPUs total
 ```
 
 ### Manual Configuration

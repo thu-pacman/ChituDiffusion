@@ -197,19 +197,19 @@ print(f"Video saved to: {task.buffer.save_path}")
 
 ### Launch Scripts
 
-**Single GPU:**
+Only `srun` launch is supported.
+
+1. Edit `system_config.yaml` to configure model path, system params, and `cfp`.
+2. Run the unified launcher:
+
 ```bash
-python test_generate.py models.ckpt_dir=/path/to/checkpoint
+bash run.sh system_config.yaml
 ```
 
-**Multi-GPU (Data Parallel):**
-```bash
-bash run_local_single.sh  # Uses torchrun
-```
+Optional runtime overrides:
 
-**Distributed (SLURM):**
 ```bash
-bash srun_wan_demo.sh <num_gpus>
+bash run.sh system_config.yaml --num-nodes 2 --gpus-per-node 8 --cfp 2
 ```
 
 ### Advanced Configuration
@@ -218,7 +218,7 @@ Configuration is split into three levels:
 
 1. **Model Parameters** (Static): Defined in `chitu_core/config/models/<model>.yaml`
 2. **User Parameters** (Dynamic): Set per-request via `DiffusionUserParams`
-3. **System Parameters** (Semi-static): Set via launch arguments
+3. **System Parameters** (Semi-static): Set in `system_config.yaml`
 
 **Example: Using different attention backend**
 ```bash
@@ -268,7 +268,7 @@ Enable feature reuse acceleration with `infer.diffusion.enable_flexcache=true`:
 
 | Method | cache_type | Description |
 |--------|------------|-------------|
-| `teacache` | [TeaCache](https://github.com/ali-vilab/TeaCache) | CVPR24 spotlight. Temporal adaptive cache |
+| `teacache` | [TeaCache](https://github.com/ali-vilab/TeaCache) | CVPR24 spotlight. Time embedding tells. |
 | `PAB` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/) | ICLR25. Pyramid attention broadcasting |
 
 **Example:**
@@ -318,7 +318,7 @@ Please see our [Developer Guide](./docs/whySmart.md#developer-guide) for paramet
 
 ## Roadmap
 
-- [ ] More diffusion model support (SD3, Flux, CogVideoX, etc.)
+- [ ] More diffusion model support (Flux2, Longcat-Video, FireRed etc.)
 - [ ] More acceleration algorithms
 - [ ] More parallelism strategies
 - [ ] Better operator implementations
@@ -345,11 +345,14 @@ If you use Smart-Diffusion in your research, please cite:
 ## Acknowledgments
 
 - [Chitu](https://github.com/thu-pacman/chitu) - Base inference framework
+- [xDiT](https://github.com/xdit-project/xDiT) - Scalable Inference Engine for Diffusion Transformers
+- [SGLang-Diffusion](https://github.com/sgl-project/sglang/tree/main/python/sglang/multimodal_gen) - Image/Video Generation Framework
 - [SageAttention](https://github.com/thu-ml/SageAttention) - Quantized attention implementation
-- [SpargeAttention](https://github.com/thu-ml/SpargeAttn) - Sparse attention implementation
+- [SpargeAttention](https://github.com/thu-ml/SpargeAttn) - Sparse+Sage attention implementation
 - [FlashAttention](https://github.com/Dao-AILab/flash-attention) - Efficient attention implementation
 - [TeaCache](https://github.com/ali-vilab/TeaCache) - Feature cache strategy
 - [PyramidAttentionBroadcast](https://oahzxl.github.io/PAB/) - PAB algorithm
+
 
 ---
 

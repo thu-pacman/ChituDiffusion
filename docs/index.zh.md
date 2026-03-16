@@ -10,7 +10,7 @@ Smart-Diffusion 基于 [Chitu](https://github.com/thu-pacman/chitu) 构建，Chi
 - **🔧 灵活架构**：多种注意力后端支持
 - **💾 内存效率**：具有智能模型卸载的低内存模式
 - **📊 智能缓存**：用于加速的特征重用算法
-- **🎯 简洁 API**：易于使用的接口，支持每个请求的配置
+- **🎯 简洁 API**：易于使用的接口，支持基于请求的配置
 
 ## 快速链接
 
@@ -70,18 +70,18 @@ Smart-Diffusion 通过以下方式实现卓越性能：
 
 ### 特征重用
 
-通过智能缓存加速生成：
+通过特征缓存复用加速生成：
 
-- **TeaCache**：时间自适应缓存 (CVPR24)
-- **PAB**：金字塔注意力广播 (ICLR25)
+- **TeaCache** (CVPR24)
+- **PAB** (ICLR25)
 
 ## 支持的模型
 
 当前支持：
 
-- Wan-AI/Wan2.1-T2V-1.3B (13亿参数)
-- Wan-AI/Wan2.1-T2V-14B (140亿参数)
-- Wan-AI/Wan2.2-T2V-A14B (140亿参数，两阶段)
+- Wan-AI/Wan2.1-T2V-1.3B
+- Wan-AI/Wan2.1-T2V-14B
+- Wan-AI/Wan2.2-T2V-A14B
 
 更多模型即将推出！
 
@@ -89,16 +89,16 @@ Smart-Diffusion 通过以下方式实现卓越性能：
 
 ```mermaid
 graph TD
-    A[用户请求] --> B[任务池]
-    B --> C[调度器]
-    C --> D[生成器]
-    D --> E[文本编码器]
-    D --> F[DiT 模型]
-    D --> G[VAE 解码器]
-    E --> H[潜在张量]
-    F --> H
-    H --> G
-    G --> I[输出视频]
+graph TD
+    A[UserRequest] --> B[TaskPool]
+    B --> C[Scheduler]
+    C --> |Task| G[Generator]
+    G --> VE[VAE Encoder]
+    G --> TE[TextEncoder]
+    TE -->|Latents| DiT[DiT Loop]
+    VE -->|Latents| DiT[DiT Loop]
+    DiT --> VD[VAE Decoder]
+    VD --> V[Output]
 ```
 
 Smart-Diffusion 采用模块化架构：
@@ -121,7 +121,7 @@ Smart-Diffusion 采用模块化架构：
 
 ## 下一步
 
-准备开始了吗？
+准备好开始了吗？
 
 1. [安装 Smart-Diffusion](getting-started/installation.zh.md)
 2. [运行您的第一个生成](getting-started/quick-start.zh.md)

@@ -73,23 +73,19 @@ print(f"✅ Video saved to: {task.buffer.save_path}")
 **Single GPU:**
 
 ```bash
-python test_generate.py models.ckpt_dir=/path/to/checkpoint
+bash run.sh system_config.yaml --num-nodes 1 --gpus-per-node 1 --cfp 1
 ```
 
-**Multi-GPU with torchrun:**
+**Multi-GPU (Single Node):**
 
 ```bash
-torchrun --nproc_per_node=2 test_generate.py models.ckpt_dir=/path/to/checkpoint
+bash run.sh system_config.yaml --num-nodes 1 --gpus-per-node 2 --cfp 2
 ```
 
-**Using provided launch scripts:**
+**Multi-Node SLURM:**
 
 ```bash
-# Single node
-bash run_local_single.sh
-
-# SLURM cluster
-bash srun_wan_demo.sh 4  # 4 GPUs
+bash run.sh system_config.yaml --num-nodes 2 --gpus-per-node 2 --cfp 2  # 4 GPUs
 ```
 
 ### Step 3: View the Output

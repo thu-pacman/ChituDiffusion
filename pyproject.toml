@@ -70,8 +70,8 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu128" }
-torchvision = { index = "pytorch-cu128" }
+torch = { index = "pytorch-cu126" }
+torchvision = { index = "pytorch-cu126" }
 chitu = { workspace = true }
 sageattention = { workspace = true }
 spas_sage_attn = { workspace = true }
