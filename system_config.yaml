@@ -1,7 +1,7 @@
 launch:
   num_nodes: 1
   gpus_per_node: 4
-  python_script: test/test_generate.py
+  python_script: test/test_ditango.py
   log_dir: logs
   srun:
     partition: debug

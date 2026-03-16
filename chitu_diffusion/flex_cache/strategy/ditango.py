@@ -169,7 +169,7 @@ class Ditangov2Attention:
         self.intra_group_size = min(self.cp_size, 4) # gpus per node
 
         # ============= strategy ===============
-        self.enable_cfg_parallel = DiffusionBackend.args.infer.diffusion.enable_cfg_parallel
+        self.enable_cfg_parallel = DiffusionBackend.args.infer.diffusion.cfg_size > 1
         self.prev_local_attn_output_mean = None
         self.importance = 3
         self.diff_mean = None

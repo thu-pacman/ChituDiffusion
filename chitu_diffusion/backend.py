@@ -438,7 +438,7 @@ class DiffusionBackend:
 
         # FIXME: a better cfg worldsize decision
         DiffusionBackend.do_cfg = all(x > 0 for x in args.models.sampler.guidance_scale)
-        cfg_size = 2 if (world_size >= 2 and  DiffusionBackend.do_cfg and args.infer.diffusion.enable_cfg_parallel) else 1
+        cfg_size = 2 if (world_size >= 2 and  DiffusionBackend.do_cfg and args.infer.diffusion.cfg_size > 1) else 1
 
         up_limit = args.infer.diffusion.up_limit
         context_parallel_size = args.infer.diffusion.cp_size
