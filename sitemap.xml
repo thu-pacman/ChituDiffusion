@@ -2,392 +2,392 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/changelog/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/changelog/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/changelog/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/faq/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/faq/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/faq/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/whySmart/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/whySmart/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/whySmart/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/whySmart_zh/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/whySmart_zh/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/whySmart_zh/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/advanced/custom-models/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/advanced/custom-models/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/advanced/custom-models/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/advanced/evaluation/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/advanced/evaluation/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/advanced/evaluation/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/advanced/flexcache/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/advanced/flexcache/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/advanced/flexcache/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/advanced/low-memory/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/advanced/low-memory/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/advanced/low-memory/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/api/backend/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/api/backend/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/api/backend/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/api/core/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/api/core/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/api/core/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/api/generator/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/api/generator/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/api/generator/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/api/scheduler/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/api/scheduler/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/api/scheduler/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/api/task/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/api/task/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/api/task/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/architecture/attention-backends/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/architecture/attention-backends/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/architecture/attention-backends/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/architecture/design-philosophy/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/architecture/design-philosophy/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/architecture/design-philosophy/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/architecture/overview/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/architecture/overview/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/architecture/overview/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/architecture/parallelism/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/architecture/parallelism/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/architecture/parallelism/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/contributing/code-style/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/contributing/code-style/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/contributing/code-style/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/contributing/developer-guide/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/contributing/developer-guide/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/contributing/developer-guide/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/contributing/testing/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/contributing/testing/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/contributing/testing/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/getting-started/configuration/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/getting-started/configuration/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/getting-started/configuration/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/getting-started/installation/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/getting-started/installation/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/getting-started/installation/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/getting-started/quick-start/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/getting-started/quick-start/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/getting-started/quick-start/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/user-guide/advanced-features/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/user-guide/advanced-features/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/advanced-features/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/user-guide/basic-usage/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/user-guide/basic-usage/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/basic-usage/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/user-guide/multi-gpu/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/user-guide/multi-gpu/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/multi-gpu/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/user-guide/performance-tuning/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/user-guide/performance-tuning/"/>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/performance-tuning/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/changelog/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/changelog/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/changelog/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/faq/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/faq/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/faq/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/whySmart/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/whySmart/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/whySmart/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/whySmart_zh/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/whySmart_zh/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/whySmart_zh/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/advanced/custom-models/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/advanced/custom-models/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/advanced/custom-models/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/advanced/evaluation/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/advanced/evaluation/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/advanced/evaluation/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/advanced/flexcache/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/advanced/flexcache/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/advanced/flexcache/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/advanced/low-memory/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/advanced/low-memory/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/advanced/low-memory/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/api/backend/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/api/backend/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/api/backend/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/api/core/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/api/core/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/api/core/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/api/generator/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/api/generator/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/api/generator/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/api/scheduler/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/api/scheduler/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/api/scheduler/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/api/task/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/api/task/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/api/task/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/architecture/attention-backends/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/architecture/attention-backends/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/architecture/attention-backends/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/architecture/design-philosophy/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/architecture/design-philosophy/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/architecture/design-philosophy/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/architecture/overview/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/architecture/overview/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/architecture/overview/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/architecture/parallelism/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/architecture/parallelism/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/architecture/parallelism/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/contributing/code-style/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/contributing/code-style/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/contributing/code-style/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/contributing/developer-guide/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/contributing/developer-guide/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/contributing/developer-guide/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/contributing/testing/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/contributing/testing/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/contributing/testing/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/getting-started/configuration/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/getting-started/configuration/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/getting-started/configuration/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/getting-started/installation/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/getting-started/installation/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/getting-started/installation/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/getting-started/quick-start/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/getting-started/quick-start/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/getting-started/quick-start/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/advanced-features/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/advanced-features/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/user-guide/advanced-features/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/basic-usage/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/basic-usage/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/user-guide/basic-usage/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/multi-gpu/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/multi-gpu/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/user-guide/multi-gpu/"/>
     </url>
     <url>
         <loc>https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/performance-tuning/</loc>
-        <lastmod>2026-02-16</lastmod>
+        <lastmod>2026-03-16</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh" href="https://chen-yy20.github.io/SmartDiffusion/zh/user-guide/performance-tuning/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://chen-yy20.github.io/SmartDiffusion/user-guide/performance-tuning/"/>
