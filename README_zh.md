@@ -148,3 +148,28 @@ DiffusionUserParams(
     flexcache='<cache_type>',
 )
 ```
+
+## `eval`
+
+**启用自动评测**：支持多种评测策略组合执行。
+
+在 `system_config.yaml` 或 Hydra 覆盖中配置：
+
+```yaml
+eval:
+    eval_type: [vbench, fid, psnr]
+    reference_path: /path/to/reference_videos
+```
+
+可选项：
+- `vbench`
+- `fid`（需要 `reference_path`）
+- `fvd`（需要 `reference_path`）
+- `psnr`（需要 `reference_path`）
+- `ssim`（需要 `reference_path`）
+- `lpips`（需要 `reference_path`）
+
+说明：
+- `eval_type: []` 或 `null` 表示关闭评测。
+- 当 `reference_path` 缺失/无效时，依赖参考视频的指标会被跳过并打印 warning，不会阻断其他策略。
+- 结果输出：`vbench` 写入 `./vbench_out/`；其余指标写入 `./eval_out/`。

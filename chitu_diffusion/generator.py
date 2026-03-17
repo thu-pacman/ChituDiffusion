@@ -3,8 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import json
 import sys
 import math
+import time
 import torch
 import torch.distributed as dist
 from typing import Optional, List, Tuple
@@ -16,6 +18,7 @@ from tqdm import tqdm
 
 from logging import getLogger
 from chitu_core.global_vars import get_global_args, get_slot_handle, get_timers
+from chitu_core.logging_utils import log_stage, log_progress, log_result, log_perf, should_log_info_on_rank
 from chitu_diffusion.backend import BackendState, CFGType, DiffusionBackend
 from chitu_diffusion.task import DiffusionTask, DiffusionTaskType, DiffusionTaskPool, DiffusionTaskStatus
 from chitu_core.distributed.parallel_state import (
@@ -33,6 +36,7 @@ from chitu_diffusion.modules.samplers.fm_solvers_unipc import FlowUniPCMultistep
 from chitu_diffusion.utils.wan_utils import cache_video
 from chitu_diffusion.utils.shared_utils import SequencePadder
 from chitu_diffusion.bench import Timer, MagLogger
+from chitu_diffusion.utils.output_naming import build_video_name_from_task
 
 
 logger = getLogger(__name__)
@@ -69,7 +73,7 @@ class DiffusionTaskDispatcher():
 
         self.main_rank = 0
         self.is_main_rank = self.group.is_first_rank
-        logger.info("init diffusion task dispatcher.")
+        logger.debug("init diffusion task dispatcher")
 
 
     def dispatch_metadata(self, task: Optional[DiffusionTask] = None) -> tuple[DiffusionTaskType, DiffusionTask]:
@@ -84,7 +88,7 @@ class DiffusionTaskDispatcher():
                                     device="cpu" if DiffusionBackend.use_gloo else self.local_rank)
             
             # 第一阶段：广播任务大小
-            logger.info(f"Rank {self.rank}: Broadcasting task size {task_size.item()}")
+            logger.debug(f"Rank {self.rank}: Broadcasting task size {task_size.item()}")
             dist.broadcast(
                 tensor=task_size,
                 src=self.main_rank,
@@ -102,13 +106,13 @@ class DiffusionTaskDispatcher():
             )
             
             # 第二阶段：根据接收到的大小创建空buffer
-            logger.info(f"Rank {self.rank}: Received task size {task_size.item()}, creating buffer")
+            logger.debug(f"Rank {self.rank}: Received task size {task_size.item()}, creating buffer")
             task_tensor = DiffusionTask.create_empty_serialization(
                 size=task_size.item(),  # 注意这里要用 .item() 获取标量值
                 device="cpu" if DiffusionBackend.use_gloo else self.local_rank
             )
         
-        logger.info(f"Rank {self.rank} | {task_tensor.shape=} {task_size[0]=} {task_tensor.dtype=} {task_tensor.device=}, ready to broadcast.")
+        logger.debug(f"Rank {self.rank} | {task_tensor.shape=} {task_size[0]=} {task_tensor.dtype=} {task_tensor.device=}, ready to broadcast.")
         
         # 第二阶段：广播实际的任务数据
         dist.broadcast(
@@ -121,7 +125,7 @@ class DiffusionTaskDispatcher():
             task = DiffusionTask.deserialize(task_tensor)
             task_type = task.task_type
         
-        logger.info(f"Rank {self.rank}: {task=}")
+        logger.debug(f"Rank {self.rank}: {task=}")
         return task_type, task
 
     def send_payload(self, *args, **kwargs):
@@ -209,6 +213,39 @@ class Generator:
 
         # Ensure FIFO
         self.current_task = None # 通过这个储存当前任务的中间状态
+        self._last_logged_stage = {}
+        self.denoise_progress_interval = max(1, int(os.getenv("CHITU_PROGRESS_INTERVAL", "5")))
+        self.enable_stage_perf = bool(getattr(args.output, "enable_timer_dump", False))
+        self._stage_start_time = {}
+
+    def _emit_stage_start_if_needed(self, task: DiffusionTask):
+        stage = task.task_type.name
+        if self._last_logged_stage.get(task.task_id) == stage:
+            return
+
+        if self.enable_stage_perf:
+            self._stage_start_time[(task.task_id, stage)] = time.perf_counter()
+
+        if stage == "Denoise":
+            total = task.req.params.num_inference_steps
+            log_stage(
+                logger,
+                stage_name=stage,
+                event="START",
+                task_id=task.task_id,
+                extra=f"step={0:>3}/{total:<3} pct={0.0:>5.1f}%",
+            )
+        else:
+            log_stage(logger, stage_name=stage, event="START", task_id=task.task_id)
+        self._last_logged_stage[task.task_id] = stage
+
+    def _emit_stage_end(self, stage: DiffusionTaskType, task_id: str):
+        log_stage(logger, stage_name=stage.name, event="END", task_id=task_id)
+        if self.enable_stage_perf:
+            start = self._stage_start_time.pop((task_id, stage.name), None)
+            if start is not None:
+                elapsed_ms = (time.perf_counter() - start) * 1000.0
+                log_perf(logger, task_id=task_id, stage_name=stage.name, elapsed_ms=elapsed_ms)
 
 
     def step(self, task: Optional[DiffusionTask]) -> torch.Tensor:
@@ -226,6 +263,8 @@ class Generator:
         assert self.current_task.task_id == task.task_id # 确保任务逐个完成，避免产生太多中间状态
         
         task.status = DiffusionTaskStatus.Running
+
+        self._emit_stage_start_if_needed(task)
 
         if task_type == DiffusionTaskType.Terminate:
             DiffusionBackend.state = BackendState.Terminated
@@ -266,12 +305,12 @@ class Generator:
                 payload = task.req.get_n_prompt()
                 DiffusionBackend.cfg_type = CFGType.NEG
 
-        logger.info(f"[text_encode_step] task_id={task.task_id}, txt={payload}")
+        logger.debug(f"[text_encode_step] task_id={task.task_id}, prompt_len={len(payload)}")
         
         with device_scope(DiffusionBackend.text_encoder.model):        
             out = DiffusionBackend.text_encoder(payload, torch.cuda.current_device())
             
-        logger.info(f"[text_encode_step] context shape: {out.shape}")
+        logger.debug(f"[text_encode_step] context shape: {out.shape}")
         return out
     
     def vae_encode_step(self, task: DiffusionTask):
@@ -336,10 +375,6 @@ class Generator:
             generator=task.buffer.seed_g
         )[0].squeeze(0)
 
-        # logger.info(f"[Denoise Step] {task.buffer.current_step}/"
-        #             f"{task.req.params.num_inference_steps} "
-        #             f"timestep: {timestep} latents shape: {sampled_latents.shape}, {sampled_latents.dtype=}")
-
         return sampled_latents
 
         
@@ -348,7 +383,7 @@ class Generator:
         target_decode_device = 0 # TODO: Flexible vae device
         if torch.distributed.get_rank() == target_decode_device:
             payload = [task.buffer.latents]
-            logger.info(f"Step {task.buffer.current_step}: Enter VAE Decode Stage!")
+            logger.debug(f"task_id={task.task_id} entering VAE decode at step={task.buffer.current_step}")
             with device_scope(DiffusionBackend.vae.model):
                 video = DiffusionBackend.vae.decode(payload)[0]
             return video
@@ -371,12 +406,9 @@ class Generator:
     # TODO: CPU/GPU overlap
     def _save_image(self, task: DiffusionTask):
         os.makedirs(task.req.params.save_dir, exist_ok=True)
-        save_name = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "") \
-                    + f"_{task.task_id}.mp4"
+        save_name = build_video_name_from_task(task)
         save_path = os.path.join(task.req.params.save_dir, save_name)
-
-        video = task.buffer.generated_image
-        logger.info(f"Saving video: {video.shape=} {video.dtype=}")
+        logger.debug(f"Saving video tensor: shape={video.shape} dtype={video.dtype}")
         cache_video(
             tensor=video[None],
             save_file=save_path,
@@ -384,8 +416,52 @@ class Generator:
             nrow=1,
             normalize=True,
             value_range=(-1, 1))
-        logger.info(f"[Succeed] Task {task.task_id} video saved to {save_path}")
 
+        sidecar_path = os.path.splitext(save_path)[0] + ".json"
+        metadata = {
+            "filename": os.path.basename(save_path),
+            "prompt": task.req.get_prompt(),
+            "seed": getattr(task.req.params, "seed", None),
+            "step": getattr(task.req.params, "num_inference_steps", None),
+            "task_id": task.task_id,
+        }
+        with open(sidecar_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+        log_result(logger, task_id=task.task_id, message=f"video_saved={save_path}")
+
+    def _clear_flexcache_strategy(self):
+        """Safely remove current flexcache strategy wrappers from active model."""
+        manager = DiffusionBackend.flexcache
+        if manager is None:
+            return
+
+        model = DiffusionBackend.active_model
+        strategy = manager.strategy
+
+        if model is not None and strategy is not None:
+            try:
+                strategy.unwrap_module(model)
+            except Exception as e:
+                logger.warning(f"Failed to unwrap flexcache strategy cleanly: {e}")
+
+        # Defensive cleanup in case wrapper metadata remains unexpectedly.
+        if model is not None and hasattr(model, '_original_forward'):
+            model.model_compute = model._original_forward
+            delattr(model, '_original_forward')
+
+        if model is not None and hasattr(model, 'blocks'):
+            for block in model.blocks:
+                if hasattr(block.self_attn, '_original_forward'):
+                    block.self_attn.forward = block.self_attn._original_forward
+                    delattr(block.self_attn, '_original_forward')
+                if hasattr(block.cross_attn, '_original_forward'):
+                    block.cross_attn.forward = block.cross_attn._original_forward
+                    delattr(block.cross_attn, '_original_forward')
+
+        manager.strategy = None
+        manager.cache.clear()
+        
     def _pre_denoising(self, task: DiffusionTask):
         """
         Before denoising loop, prepare latents, timesteps and solver for one task.
@@ -453,32 +529,41 @@ class Generator:
         
         DiffusionBackend.switch_active_model(flush=True)
 
-        # enable flexcache
-        if task.req.params.flexcache == "teacache":
+        # Configure flexcache strategy for this task.
+        requested_strategy = (task.req.params.flexcache or "").strip()
+        requested_strategy_lower = requested_strategy.lower()
+
+        if requested_strategy_lower in {"", "none", "off", "disable", "disabled"}:
+            if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
+                self._clear_flexcache_strategy()
+                logger.info("Flexcache disabled for current task; cleared previous strategy wrappers.")
+            return
+
+        if DiffusionBackend.flexcache is None:
+            logger.warning(
+                f"Flexcache strategy '{requested_strategy}' is requested, "
+                "but infer.diffusion.enable_flexcache is False. Strategy will be ignored."
+            )
+            return
+
+        # Always clear any previous strategy before (re)applying current task strategy.
+        if DiffusionBackend.flexcache.strategy is not None:
+            self._clear_flexcache_strategy()
+
+        if requested_strategy_lower == "teacache":
             from chitu_diffusion.flex_cache.strategy.teacache import TeaCacheStrategy
             cache_strategy = TeaCacheStrategy(task=task)
             DiffusionBackend.flexcache.set_strategy(cache_strategy)
-            # wrap model
             DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
             logger.info("Teacache: Successfully wrapped models!")
-
-        # logger.info(f"[Pre Denoise] Init {latents.shape=} {timesteps=}")
-        elif task.req.params.flexcache == "PAB":
+        elif requested_strategy_lower == "pab":
             from chitu_diffusion.flex_cache.strategy.PAB import PABStrategy
             cache_strategy = PABStrategy(task=task)
             DiffusionBackend.flexcache.set_strategy(cache_strategy)
-            # wrap model
             DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
             logger.info("PAB: Successfully wrapped models!")
-            
-        elif task.req.params.flexcache == "ditango":
-            from chitu_diffusion.flex_cache.strategy.ditango import DiTangoStrategy
-            # from chitu_diffusion.modules.attention.ditango_attn_backend import DitangoAttention
-            # from chitu_diffusion.modules.attention.ditango_v2_attn_backend import Ditangov2Attention, DiTangoStrategy
-            DiffusionBackend.flexcache.set_strategy(DiTangoStrategy())
-            DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
-
-
+        else:
+            logger.warning(f"Unknown flexcache strategy '{requested_strategy}'. Flexcache is disabled for this task.")
 
     def _update_task_stage_and_buffer(self, task: DiffusionTask, tokens: torch.Tensor):
 
@@ -490,9 +575,6 @@ class Generator:
         elif is_main_process:
             logger.warning(f"Task {task.task_id} - Status: {task.status}")
         
-        if is_main_process:
-            logger.info(f"[Task] ============ current stage: {task.task_type} ===============")
-
         # 处理Text Encode阶段
         if task.task_type == DiffusionTaskType.TextEncode:                
             if self.cfg_size == 1:
@@ -514,6 +596,7 @@ class Generator:
                     task.buffer.negative_embeddings = tokens
                 
             # Text Encode完成，转换到下一阶段
+            self._emit_stage_end(DiffusionTaskType.TextEncode, task.task_id)
             if has_img:
                 task.task_type = DiffusionTaskType.VAEEncode 
             else:
@@ -533,6 +616,7 @@ class Generator:
             task.buffer.latents = tokens  # 保存编码后的latents
             
             # 转换到Denoise阶段
+            self._emit_stage_end(DiffusionTaskType.VAEEncode, task.task_id)
             task.task_type = DiffusionTaskType.Denoise
             
             if is_main_process:
@@ -544,11 +628,25 @@ class Generator:
             # 更新当前去噪后的latents
             task.buffer.latents = tokens
             task.buffer.current_step += 1
+            current_step = task.buffer.current_step
+            total_steps = task.req.params.num_inference_steps
+            timestep = task.buffer.timesteps[current_step - 1] if task.buffer.timesteps is not None else None
+
+            log_progress(
+                logger,
+                stage_name=DiffusionTaskType.Denoise.name,
+                task_id=task.task_id,
+                step=current_step,
+                total=total_steps,
+                interval=self.denoise_progress_interval,
+                timestep=timestep,
+            )
             
 
             # 检查是否完成所有denoise步骤
             if task.buffer.current_step >= task.req.params.num_inference_steps:
                 # 所有denoise步骤完成，转换到VAE Decode
+                self._emit_stage_end(DiffusionTaskType.Denoise, task.task_id)
                 task.task_type = DiffusionTaskType.VAEDecode
                 if is_main_process:
                     logger.debug(f"Task {task.task_id} completed denoising, transitioned to {task.task_type}")
@@ -565,11 +663,18 @@ class Generator:
         # 处理VAE Decode阶段（最终阶段）
         elif task.task_type == DiffusionTaskType.VAEDecode:               
             task.buffer.generated_image = tokens  # 保存最终生成的图像
-            self._post_vae_decode(task)
+            self._emit_stage_end(DiffusionTaskType.VAEDecode, task.task_id)
             if is_main_process:
                 logger.debug(f"Task {task.task_id} completed all stages")
             task.status = DiffusionTaskStatus.Completed
             self.current_task = None
+            self._last_logged_stage.pop(task.task_id, None)
+            if self.enable_stage_perf:
+                stale_keys = [
+                    key for key in self._stage_start_time.keys() if key[0] == task.task_id
+                ]
+                for key in stale_keys:
+                    self._stage_start_time.pop(key, None)
             return False  # 完成所有阶段，不需要继续调度
         
         # 未知阶段

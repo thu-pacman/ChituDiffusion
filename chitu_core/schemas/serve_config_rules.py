@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from hydra.experimental.callback import Callback
-from omegaconf import DictConfig
+from omegaconf import DictConfig, ListConfig
 import sys
 from logging import getLogger
 
@@ -92,3 +92,43 @@ class ServeConfigRules(Callback):
             self._exit_with_error(
                 f"bind_thread_to_cpu must be one of [physical_core, logical_core], got {bind_thread_to_cpu}"
             )
+
+        allowed_eval_types = {"vbench", "fid", "fvd", "psnr", "ssim", "lpips"}
+        raw_eval_type = config.eval.eval_type
+        if raw_eval_type is None:
+            normalized_eval_types = []
+        elif isinstance(raw_eval_type, str):
+            value = raw_eval_type.strip().lower()
+            if value in {"", "none", "null"}:
+                normalized_eval_types = []
+            else:
+                normalized_eval_types = [value]
+        elif isinstance(raw_eval_type, (list, tuple, ListConfig)):
+            normalized_eval_types = []
+            for item in raw_eval_type:
+                value = str(item).strip().lower()
+                if value in {"", "none", "null"}:
+                    continue
+                normalized_eval_types.append(value)
+        else:
+            self._exit_with_error(
+                f"eval.eval_type must be string/list/null, got {type(raw_eval_type).__name__}"
+            )
+
+        invalid_eval_types = [
+            item for item in normalized_eval_types if item not in allowed_eval_types
+        ]
+        if invalid_eval_types:
+            self._exit_with_error(
+                f"eval.eval_type contains invalid items {invalid_eval_types}, allowed: {sorted(allowed_eval_types)}"
+            )
+
+        output_root_dir = str(config.output.root_dir).strip()
+        if not output_root_dir:
+            self._exit_with_error("output.root_dir must be a non-empty path")
+
+        if not isinstance(config.output.enable_timer_dump, bool):
+            self._exit_with_error("output.enable_timer_dump must be bool")
+
+        if not isinstance(config.output.enable_run_log, bool):
+            self._exit_with_error("output.enable_run_log must be bool")

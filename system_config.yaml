@@ -27,7 +27,13 @@ infer:
   up_limit: 1
 
 eval:
-  eval_type: none
+  eval_type: [psnr,ssim,lpips,vbench]
+  reference_path: /home/zhongrx/cyy/SmartDiffusion/outputs/a_cat_walking_on_grass_20260316_192520_wan2_1_t2v_1_3b
+
+output:
+  root_dir: outputs
+  enable_run_log: true
+  enable_timer_dump: true
 
 # Extra hydra overrides appended to the launch command.
 # Example:

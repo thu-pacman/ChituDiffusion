@@ -8,9 +8,15 @@ from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.task import DiffusionTask
 from chitu_diffusion.backend import DiffusionBackend, CFGType
 from chitu_core.distributed.parallel_state import get_cp_group
+from chitu_core.logging_utils import should_log_info_on_rank
 
 logger = getLogger(__name__)
-is_main_process = dist.get_rank() == 0
+
+
+def _is_main_process() -> bool:
+    if dist.is_available() and dist.is_initialized():
+        return dist.get_rank() == 0
+    return True
 
 
 class PABStrategy(FlexCacheStrategy):
@@ -49,9 +55,11 @@ class PABStrategy(FlexCacheStrategy):
         global_rank = dist.get_rank()
         
        
-        print(f"[PAB Init] Global Rank {global_rank}: cp_size={cp_size}, cp_rank={cp_rank}, "
-              f"rank_list={cp_group.rank_list}")
-        logger.info(f"[PAB Init] Global Rank {global_rank}: cp_size={cp_size}, cp_rank={cp_rank}")
+        if should_log_info_on_rank():
+            logger.info(
+                f"[PAB Init] global_rank={global_rank} cp_size={cp_size} "
+                f"cp_rank={cp_rank} rank_list={cp_group.rank_list}"
+            )
         
         # 步数管理
         self.num_steps = task.req.params.num_inference_steps
@@ -98,9 +106,10 @@ class PABStrategy(FlexCacheStrategy):
             self.skip_cross_range = 3
         
         model_name = DiffusionBackend.args.models.name
-        logger.info(f"[PAB setup] model={model_name}, "
-                   f"warmup_steps={self.warmup_steps}, cooldown_steps={self.cooldown_steps}, "
-                   f"skip_self_range={self.skip_self_range}, skip_cross_range={self.skip_cross_range}")
+        if should_log_info_on_rank():
+            logger.info(f"[PAB setup] model={model_name}, "
+                        f"warmup_steps={self.warmup_steps}, cooldown_steps={self.cooldown_steps}, "
+                        f"skip_self_range={self.skip_self_range}, skip_cross_range={self.skip_cross_range}")
         
         
     def get_reuse_key(self, range) -> Optional[str]:

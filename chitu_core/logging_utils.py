@@ -31,6 +31,106 @@ _FORMAT = (
 _DATE_FORMAT = "%m-%d %H:%M:%S"
 
 
+class StageColor:
+    RESET = "\033[0m"
+    CYAN = "\033[36m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    GREEN = "\033[32m"
+
+
+_STAGE_COLOR_MAP = {
+    "TextEncode": StageColor.CYAN,
+    "VAEEncode": StageColor.YELLOW,
+    "Denoise": StageColor.BLUE,
+    "VAEDecode": StageColor.GREEN,
+}
+
+
+def _get_bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on", "y"}
+
+
+def should_log_info_on_rank() -> bool:
+    if not _get_bool_env("CHITU_LOG_RANK0_ONLY", True):
+        return True
+    if IS_DIST and dist.is_initialized():
+        return dist.get_rank() == 0
+    return True
+
+
+def should_emit_progress(step: int, total: int, interval: int) -> bool:
+    if total <= 0:
+        return False
+    safe_interval = max(1, interval)
+    return step == total or step == 1 or (step % safe_interval == 0)
+
+
+def colorize_stage(stage_name: str) -> str:
+    if not _get_bool_env("CHITU_ENABLE_STAGE_COLOR", True):
+        return stage_name
+    color = _STAGE_COLOR_MAP.get(stage_name, "")
+    if not color:
+        return stage_name
+    return f"{color}{stage_name}{StageColor.RESET}"
+
+
+def _task_prefix(tag: str, task_id: str) -> str:
+    return f"[{tag:<8}] task_id={task_id} |"
+
+
+def log_stage(
+    logger: logging.Logger,
+    stage_name: str,
+    event: str,
+    task_id: str,
+    extra: str = "",
+) -> None:
+    if not should_log_info_on_rank():
+        return
+    colored_stage = colorize_stage(stage_name)
+    suffix = f" {extra}" if extra else ""
+    logger.info(f"{_task_prefix('STAGE', task_id)} event={event:<5} stage={colored_stage}{suffix}")
+
+
+def log_progress(
+    logger: logging.Logger,
+    stage_name: str,
+    task_id: str,
+    step: int,
+    total: int,
+    interval: int,
+    timestep: Any = None,
+) -> None:
+    if not should_log_info_on_rank():
+        return
+    if not should_emit_progress(step=step, total=total, interval=interval):
+        return
+    percent = (step / total) * 100.0 if total > 0 else 0.0
+    detail = f" timestep={timestep}" if timestep is not None else ""
+    logger.info(
+        f"{_task_prefix('PROGRESS', task_id)} stage={colorize_stage(stage_name)} "
+        f"step={step:>3}/{total:<3} pct={percent:>5.1f}%{detail}"
+    )
+
+
+def log_result(logger: logging.Logger, task_id: str, message: str) -> None:
+    if not should_log_info_on_rank():
+        return
+    logger.info(f"{_task_prefix('RESULT', task_id)} {message}")
+
+
+def log_perf(logger: logging.Logger, task_id: str, stage_name: str, elapsed_ms: float) -> None:
+    if not should_log_info_on_rank():
+        return
+    logger.info(
+        f"{_task_prefix('PERF', task_id)} stage={stage_name:<9} elapsed={elapsed_ms:.2f}ms"
+    )
+
+
 class ChituFormatter(logging.Formatter):
 
     def __init__(self, fmt=None, datefmt=None, style="%"):
