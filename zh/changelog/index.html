@@ -2036,6 +2036,9 @@
 <li>启动/系统参数统一由 <code>system_config.yaml</code> 管理</li>
 <li>用显式的 <code>cfp -&gt; infer.diffusion.cfg_size</code> 替代旧的 CFG 并行开关</li>
 <li>文档启动示例统一为 <code>bash run.sh system_config.yaml ...</code></li>
+<li>评测配置扩展为多选 <code>eval.eval_type=[...]</code></li>
+<li>新增评测策略：<code>fid</code>、<code>fvd</code>、<code>psnr</code>、<code>ssim</code>、<code>lpips</code>（保留 <code>vbench</code>）</li>
+<li>新增 <code>eval.reference_path</code>，参考型指标在路径缺失时按策略跳过并告警</li>
 </ul>
 <h2 id="011-2026-02-16">[0.1.1] - 2026-02-16 除夕<a class="headerlink" href="#011-2026-02-16" title="Permanent link">&para;</a></h2>
 <h3 id="_3">新增<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>

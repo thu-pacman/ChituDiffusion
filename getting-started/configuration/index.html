@@ -2390,12 +2390,19 @@
 <a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="p">)</span>
 </code></pre></div></p>
 <h3 id="evaluation">Evaluation<a class="headerlink" href="#evaluation" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Enable automatic evaluation</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>eval.eval_type<span class="o">=</span>&lt;type&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Enable automatic evaluation (multi-select)</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>eval.eval_type<span class="o">=[</span>vbench,fid,psnr<span class="o">]</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>eval.reference_path<span class="o">=</span>/path/to/reference_videos
 </code></pre></div>
 <p>Options:
-- <code>null</code> - No evaluation (default)
-- <code>vbench</code> - VBench custom-mode evaluation</p>
+- <code>[]</code>/<code>null</code> - No evaluation (default)
+- <code>vbench</code> - VBench custom-mode evaluation
+- <code>fid</code> - Frechet Inception Distance (needs <code>eval.reference_path</code>)
+- <code>fvd</code> - Frechet Video Distance (needs <code>eval.reference_path</code>)
+- <code>psnr</code> - Peak Signal-to-Noise Ratio (needs <code>eval.reference_path</code>)
+- <code>ssim</code> - Structural Similarity (needs <code>eval.reference_path</code>)
+- <code>lpips</code> - Perceptual similarity LPIPS (needs <code>eval.reference_path</code>)</p>
+<p>If <code>eval.reference_path</code> is missing or invalid, reference-based metrics are skipped with warning while other selected metrics continue.</p>
 <h3 id="other-settings">Other Settings<a class="headerlink" href="#other-settings" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Random seed</span>
 <a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>infer.seed<span class="o">=</span><span class="m">42</span>

@@ -2034,6 +2034,9 @@ and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semant
 <li>Moved startup/system parameter control to <code>system_config.yaml</code></li>
 <li>Replaced CFG parallel toggle with explicit <code>cfp -&gt; infer.diffusion.cfg_size</code> flow</li>
 <li>Updated documentation to use <code>bash run.sh system_config.yaml ...</code> examples</li>
+<li>Extended eval strategy support to multi-select <code>eval.eval_type=[...]</code></li>
+<li>Added eval strategies: <code>fid</code>, <code>fvd</code>, <code>psnr</code>, <code>ssim</code>, <code>lpips</code> (in addition to <code>vbench</code>)</li>
+<li>Added <code>eval.reference_path</code> for reference-based metrics, with skip-on-missing behavior</li>
 </ul>
 <h2 id="011-2026-02-16-chuxi">[0.1.1] - 2026-02-16 Chuxi<a class="headerlink" href="#011-2026-02-16-chuxi" title="Permanent link">&para;</a></h2>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
