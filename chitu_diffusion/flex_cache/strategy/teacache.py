@@ -7,9 +7,15 @@ from logging import getLogger
 from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.task import DiffusionTask
 from chitu_diffusion.backend import DiffusionBackend, CFGType
+from chitu_core.logging_utils import should_log_info_on_rank
 
 logger = getLogger(__name__)
-is_main_process = dist.get_rank() == 0
+
+
+def _is_main_process() -> bool:
+    if dist.is_available() and dist.is_initialized():
+        return dist.get_rank() == 0
+    return True
 
 
 class TeaCacheStrategy(FlexCacheStrategy):
@@ -161,9 +167,10 @@ class TeaCacheStrategy(FlexCacheStrategy):
             self.warmup_steps = 1
             self.cooldown_steps = self.num_steps - 2
         
-        logger.info(f"[TeaCache setup] model={model_name}, "
-                   f"use_ref_steps={self.use_ref_steps}, thresh={self.teacache_thresh}, "
-                   f"warmup_steps={self.warmup_steps}, cooldown_steps={self.cooldown_steps}")
+        if should_log_info_on_rank():
+            logger.info(f"[TeaCache setup] model={model_name}, "
+                        f"use_ref_steps={self.use_ref_steps}, thresh={self.teacache_thresh}, "
+                        f"warmup_steps={self.warmup_steps}, cooldown_steps={self.cooldown_steps}")
         
     def get_reuse_key(self, e0: torch.Tensor = None, 
                       **kwargs) -> Optional[str]:
@@ -222,8 +229,8 @@ class TeaCacheStrategy(FlexCacheStrategy):
         # 更新累积距离
         new_accumulated = accumulated_distance + scaled_distance
         
-        if is_main_process:
-            logger.info(f"T{current_step} | acc/thresh = {new_accumulated:.3f} / {self.teacache_thresh}")
+        if _is_main_process():
+            logger.debug(f"[TeaCache] step={current_step} acc/thresh={new_accumulated:.3f}/{self.teacache_thresh}")
 
         # 判断是否可以复用
         if new_accumulated < self.teacache_thresh: # 若是，返回key并更新误差
@@ -317,8 +324,8 @@ class TeaCacheStrategy(FlexCacheStrategy):
             
             if reuse_key is not None and reuse_key in DiffusionBackend.flexcache.cache:
                 cached_residual = DiffusionBackend.flexcache.cache[reuse_key]
-                if is_main_process:
-                    logger.info(f"Get {cached_residual.shape=} from {reuse_key} ans skip this step.")
+                if _is_main_process():
+                    logger.debug(f"[TeaCache] reuse key={reuse_key} residual_shape={cached_residual.shape}")
                 x_with_residual = self.reuse(
                     cached_feature=cached_residual,
                     x=x,
@@ -342,7 +349,8 @@ class TeaCacheStrategy(FlexCacheStrategy):
             return output
         
         module.model_compute = model_compute_with_teacache
-        logger.info(f"Module {module.__class__.__name__} wrapped with TeaCache strategy")
+        if should_log_info_on_rank():
+            logger.info(f"Module {module.__class__.__name__} wrapped with TeaCache strategy")
     
     def unwrap_module(self, module: torch.nn.Module) -> None:
         """
@@ -354,7 +362,8 @@ class TeaCacheStrategy(FlexCacheStrategy):
         if hasattr(module, '_original_forward'):
             module.model_compute = module._original_forward
             delattr(module, '_original_forward')
-            logger.info(f"Module {module.__class__.__name__} unwrapped")
+            if should_log_info_on_rank():
+                logger.info(f"Module {module.__class__.__name__} unwrapped")
     
     def reset_state(self):
         """重置所有内部状态"""

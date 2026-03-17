@@ -32,8 +32,8 @@ eval:
 
 output:
   root_dir: outputs
-  enable_run_log: false
-  enable_timer_dump: false
+  enable_run_log: true
+  enable_timer_dump: true
 
 # Extra hydra overrides appended to the launch command.
 # Example:
