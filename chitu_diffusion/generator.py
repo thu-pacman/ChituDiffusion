@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import json
 import sys
 import math
 import torch
@@ -32,6 +33,7 @@ from chitu_diffusion.modules.samplers.fm_solvers import (
 from chitu_diffusion.modules.samplers.fm_solvers_unipc import FlowUniPCMultistepScheduler
 from chitu_diffusion.utils.wan_utils import cache_video
 from chitu_diffusion.utils.shared_utils import SequencePadder
+from chitu_diffusion.utils.output_naming import build_video_name_from_task
 
 
 logger = getLogger(__name__)
@@ -357,8 +359,7 @@ class Generator:
     # TODO: CPU/GPU overlap
     def _save_image(self, task: DiffusionTask, video: torch.Tensor):
         os.makedirs(task.req.params.save_dir, exist_ok=True)
-        save_name = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "") \
-                    + f"_{task.task_id}.mp4"
+        save_name = build_video_name_from_task(task)
         save_path = os.path.join(task.req.params.save_dir, save_name)
         logger.info(f"Saving video: {video.shape=} {video.dtype=}")
         cache_video(
@@ -368,7 +369,51 @@ class Generator:
             nrow=1,
             normalize=True,
             value_range=(-1, 1))
+
+        sidecar_path = os.path.splitext(save_path)[0] + ".json"
+        metadata = {
+            "filename": os.path.basename(save_path),
+            "prompt": task.req.get_prompt(),
+            "seed": getattr(task.req.params, "seed", None),
+            "step": getattr(task.req.params, "num_inference_steps", None),
+            "task_id": task.task_id,
+        }
+        with open(sidecar_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+
         logger.info(f"[Succeed] Task {task.task_id} video saved to {save_path}")
+
+    def _clear_flexcache_strategy(self):
+        """Safely remove current flexcache strategy wrappers from active model."""
+        manager = DiffusionBackend.flexcache
+        if manager is None:
+            return
+
+        model = DiffusionBackend.active_model
+        strategy = manager.strategy
+
+        if model is not None and strategy is not None:
+            try:
+                strategy.unwrap_module(model)
+            except Exception as e:
+                logger.warning(f"Failed to unwrap flexcache strategy cleanly: {e}")
+
+        # Defensive cleanup in case wrapper metadata remains unexpectedly.
+        if model is not None and hasattr(model, '_original_forward'):
+            model.model_compute = model._original_forward
+            delattr(model, '_original_forward')
+
+        if model is not None and hasattr(model, 'blocks'):
+            for block in model.blocks:
+                if hasattr(block.self_attn, '_original_forward'):
+                    block.self_attn.forward = block.self_attn._original_forward
+                    delattr(block.self_attn, '_original_forward')
+                if hasattr(block.cross_attn, '_original_forward'):
+                    block.cross_attn.forward = block.cross_attn._original_forward
+                    delattr(block.cross_attn, '_original_forward')
+
+        manager.strategy = None
+        manager.cache.clear()
         
     def _pre_denoising(self, task: DiffusionTask):
         """
@@ -437,23 +482,41 @@ class Generator:
         
         DiffusionBackend.switch_active_model(flush=True)
 
-        # enable flexcache
-        if task.req.params.flexcache == "teacache":
+        # Configure flexcache strategy for this task.
+        requested_strategy = (task.req.params.flexcache or "").strip()
+        requested_strategy_lower = requested_strategy.lower()
+
+        if requested_strategy_lower in {"", "none", "off", "disable", "disabled"}:
+            if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
+                self._clear_flexcache_strategy()
+                logger.info("Flexcache disabled for current task; cleared previous strategy wrappers.")
+            return
+
+        if DiffusionBackend.flexcache is None:
+            logger.warning(
+                f"Flexcache strategy '{requested_strategy}' is requested, "
+                "but infer.diffusion.enable_flexcache is False. Strategy will be ignored."
+            )
+            return
+
+        # Always clear any previous strategy before (re)applying current task strategy.
+        if DiffusionBackend.flexcache.strategy is not None:
+            self._clear_flexcache_strategy()
+
+        if requested_strategy_lower == "teacache":
             from chitu_diffusion.flex_cache.strategy.teacache import TeaCacheStrategy
             cache_strategy = TeaCacheStrategy(task=task)
             DiffusionBackend.flexcache.set_strategy(cache_strategy)
-            # wrap model
             DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
             logger.info("Teacache: Successfully wrapped models!")
-
-        # logger.info(f"[Pre Denoise] Init {latents.shape=} {timesteps=}")
-        if task.req.params.flexcache == "PAB":
+        elif requested_strategy_lower == "pab":
             from chitu_diffusion.flex_cache.strategy.PAB import PABStrategy
             cache_strategy = PABStrategy(task=task)
             DiffusionBackend.flexcache.set_strategy(cache_strategy)
-            # wrap model
             DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
             logger.info("PAB: Successfully wrapped models!")
+        else:
+            logger.warning(f"Unknown flexcache strategy '{requested_strategy}'. Flexcache is disabled for this task.")
 
     def _update_task_stage_and_buffer(self, task: DiffusionTask, tokens: torch.Tensor):
 

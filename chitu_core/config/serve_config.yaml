@@ -53,7 +53,13 @@ infer:
     enable_flexcache: False
 
 eval:
-  eval_type: null # one of: vbench, null
+  eval_type: [] # list items in: vbench, fid, fvd, psnr, ssim, lpips
+  reference_path: null # required by fid/fvd/psnr/ssim/lpips
+
+output:
+  root_dir: outputs
+  enable_run_log: true
+  enable_timer_dump: false
 
 request: # for testing in single_req_test.py, NOT affecting the real serving
   prompt_tokens_len: -1 # use for performance testing, -1 means use real requests.

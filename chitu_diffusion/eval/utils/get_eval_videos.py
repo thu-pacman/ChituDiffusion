@@ -3,6 +3,7 @@ from pathlib import Path
 from logging import getLogger
 from typing import Dict, Tuple
 from chitu_diffusion.task import DiffusionTaskPool, DiffusionTaskStatus
+from chitu_diffusion.utils.output_naming import build_video_name_from_task
 logger = getLogger(__name__)
 
 
@@ -32,9 +33,8 @@ def collect_videos_and_prompts(args) -> Tuple[Dict[str, str], str]:
 
     for task in completed_tasks:
         prompt = task.req.get_prompt()
-        task_id = task.task_id
         save_dir = str(Path(task.req.params.save_dir).resolve())
-        save_name = prompt[:20].replace(" ", "_").replace(".", "") + f"_{task_id}.mp4"
+        save_name = build_video_name_from_task(task)
         video_path = os.path.join(save_dir, save_name)
 
         if not os.path.exists(video_path):

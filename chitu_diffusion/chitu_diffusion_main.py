@@ -307,27 +307,24 @@ def chitu_terminate():
 
 def chitu_run_eval():
     """
-    Run evaluation on generated videos.
-    
-    Sets up the evaluation manager and runs the configured evaluation strategy
-    (e.g., VBench) on all completed tasks. Evaluation is skipped if eval_type
-    is not set.
-    
-    Raises:
-        ValueError: If an unsupported eval_type is specified.
+    Run one or multiple evaluation strategies on generated videos.
+
+    The eval list is read from args.eval.eval_type. Empty/null means disabled.
+    Unknown strategies and reference-dependent strategies without reference_path
+    are skipped with warning.
     """
     from chitu_diffusion.eval.eval_manager import EvalManager
+
     manager = EvalManager()
     args = get_global_args()
 
-    if args.eval.eval_type=='vbench':
-        from chitu_diffusion.eval.strategy.Vbench import VbenchStrategy
-        strategy = VbenchStrategy()
-    else:
-        # logger.warning(f"Unsupported eval type: {args.eval.eval_type}")
+    eval_types = manager.normalize_eval_types(getattr(args.eval, "eval_type", None))
+    if not eval_types:
         return
-    manager.set_strategy(strategy)
-    manager.run(args=args)
+
+    current_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+    eval_output_dir = os.path.join(current_output_dir, "eval") if current_output_dir else None
+    manager.run(args=args, eval_types=eval_types, output_dir=eval_output_dir)
     
 
 

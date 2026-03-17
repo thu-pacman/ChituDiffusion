@@ -102,8 +102,35 @@ values = {
     "ATTN_TYPE": str(get("infer.attn_type", "flash_attn")),
     "LOW_MEM_LEVEL": int(get("infer.low_mem_level", 0)),
     "ENABLE_FLEXCACHE": bool(get("infer.enable_flexcache", False)),
-    "EVAL_TYPE": str(get("eval.eval_type", "none")),
+    "EVAL_REFERENCE_PATH": get("eval.reference_path", None),
+    "OUTPUT_ROOT_DIR": str(get("output.root_dir", "outputs")),
+    "OUTPUT_ENABLE_RUN_LOG": bool(get("output.enable_run_log", True)),
+    "OUTPUT_ENABLE_TIMER_DUMP": bool(get("output.enable_timer_dump", False)),
 }
+
+raw_eval_type = get("eval.eval_type", [])
+if raw_eval_type is None:
+    eval_type_override = "[]"
+elif isinstance(raw_eval_type, str):
+    v = raw_eval_type.strip().lower()
+    if v in {"", "none", "null"}:
+        eval_type_override = "[]"
+    elif "," in v:
+        eval_type_override = "[" + ",".join(
+            item.strip() for item in v.split(",") if item.strip()
+        ) + "]"
+    else:
+        eval_type_override = f"[{v}]"
+elif isinstance(raw_eval_type, (list, tuple)):
+    eval_items = []
+    for item in raw_eval_type:
+        s = str(item).strip().lower()
+        if not s or s in {"none", "null"}:
+            continue
+        eval_items.append(s)
+    eval_type_override = "[" + ",".join(eval_items) + "]"
+else:
+    raise ValueError("eval.eval_type must be string/list/null")
 
 extra_overrides = get("overrides", [])
 if not isinstance(extra_overrides, list):
@@ -112,9 +139,13 @@ if not isinstance(extra_overrides, list):
 for key, value in values.items():
     if isinstance(value, bool):
         out = "true" if value else "false"
+    elif value is None:
+        out = "null"
     else:
         out = str(value)
     print(f"{key}={shlex.quote(out)}")
+
+print(f"EVAL_TYPE_OVERRIDE={shlex.quote(eval_type_override)}")
 
 print("EXTRA_OVERRIDES=" + shlex.quote(" ".join(str(x) for x in extra_overrides)))
 PY
@@ -194,7 +225,11 @@ BASE_OVERRIDES=(
     "infer.attn_type=$ATTN_TYPE"
     "infer.diffusion.low_mem_level=$LOW_MEM_LEVEL"
     "infer.diffusion.enable_flexcache=$ENABLE_FLEXCACHE"
-    "eval.eval_type=$EVAL_TYPE"
+    "eval.eval_type=$EVAL_TYPE_OVERRIDE"
+    "eval.reference_path=$EVAL_REFERENCE_PATH"
+    "output.root_dir=$OUTPUT_ROOT_DIR"
+    "output.enable_run_log=$OUTPUT_ENABLE_RUN_LOG"
+    "output.enable_timer_dump=$OUTPUT_ENABLE_TIMER_DUMP"
 )
 
 if [ -n "${EXTRA_OVERRIDES:-}" ]; then

@@ -157,13 +157,21 @@ DiffusionUserParams(
 ### Evaluation
 
 ```bash
-# Enable automatic evaluation
-eval.eval_type=<type>
+# Enable automatic evaluation (multi-select)
+eval.eval_type=[vbench,fid,psnr]
+eval.reference_path=/path/to/reference_videos
 ```
 
 Options:
-- `null` - No evaluation (default)
+- `[]`/`null` - No evaluation (default)
 - `vbench` - VBench custom-mode evaluation
+- `fid` - Frechet Inception Distance (needs `eval.reference_path`)
+- `fvd` - Frechet Video Distance (needs `eval.reference_path`)
+- `psnr` - Peak Signal-to-Noise Ratio (needs `eval.reference_path`)
+- `ssim` - Structural Similarity (needs `eval.reference_path`)
+- `lpips` - Perceptual similarity LPIPS (needs `eval.reference_path`)
+
+If `eval.reference_path` is missing or invalid, reference-based metrics are skipped with warning while other selected metrics continue.
 
 ### Other Settings
 

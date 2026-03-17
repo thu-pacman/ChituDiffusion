@@ -12,6 +12,9 @@ Smart-Diffusion 的所有重要更改都将记录在此文件中。
 - 启动/系统参数统一由 `system_config.yaml` 管理
 - 用显式的 `cfp -> infer.diffusion.cfg_size` 替代旧的 CFG 并行开关
 - 文档启动示例统一为 `bash run.sh system_config.yaml ...`
+- 评测配置扩展为多选 `eval.eval_type=[...]`
+- 新增评测策略：`fid`、`fvd`、`psnr`、`ssim`、`lpips`（保留 `vbench`）
+- 新增 `eval.reference_path`，参考型指标在路径缺失时按策略跳过并告警
 
 ## [0.1.1] - 2026-02-16 除夕
 

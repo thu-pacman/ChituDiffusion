@@ -282,16 +282,24 @@ user_params = DiffusionUserParams(
 
 ### Evaluation
 
-Enable automatic evaluation with `eval.eval_type`:
+Enable automatic evaluation with `eval.eval_type` (multi-select):
 
 ```bash
-python test_generate.py eval.eval_type=vbench
+python test_generate.py eval.eval_type=[vbench,fid,psnr] eval.reference_path=/path/to/reference_videos
 ```
 
 Supported evaluation methods:
 - `vbench`: VBench custom-mode evaluation
+- `fid`: Frechet Inception Distance (requires `reference_path`)
+- `fvd`: Frechet Video Distance (requires `reference_path`)
+- `psnr`: Peak Signal-to-Noise Ratio (requires `reference_path`)
+- `ssim`: Structural Similarity Index (requires `reference_path`)
+- `lpips`: Learned Perceptual Image Patch Similarity (requires `reference_path`)
 
-Results are saved to `./vbench_out/` directory.
+Behavior notes:
+- `eval.eval_type=[]` or `null` disables evaluation.
+- Metrics requiring references are skipped with warning if `eval.reference_path` is missing or invalid.
+- Results are saved under `./vbench_out/` (`vbench`) and `./eval_out/` (other metrics).
 
 ## Documentation
 

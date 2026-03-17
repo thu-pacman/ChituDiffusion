@@ -153,7 +153,16 @@ def dist_run(strategy, args, **kwargs):
         payload = obj[0]
 
 
-    n = len(payload["video_prompt"])
+    if payload is None:
+        if rank == 0:
+            logger.warning("Eval payload is empty, skip.")
+        barrier_world()
+        return None
+
+    n = payload.get("num_eval_items")
+    if n is None:
+        video_prompt = payload.get("video_prompt", {})
+        n = len(video_prompt)
     if not n or n <= 0:
         if rank == 0:
             logger.warning("No eval items, skip.")
@@ -171,7 +180,7 @@ def dist_run(strategy, args, **kwargs):
     if rank >= eval_world_size:
         logger.info(f"[Rank {rank}] Skip eval (eval_world_size={eval_world_size}).")
         logger.info(f"eval: {payload}")
-        return
+        return None
 
     if eval_group is not None:
         set_group(eval_group)
@@ -179,6 +188,7 @@ def dist_run(strategy, args, **kwargs):
         clear_group()  
 
     try:
-        strategy.evaluate(name=payload["name"])          
+        result = strategy.evaluate(payload=payload, args=args, **kwargs)
+        return result
     finally:
         clear_group()

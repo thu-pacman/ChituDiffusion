@@ -19,6 +19,23 @@ from datetime import datetime
 logger = getLogger(__name__)
 
 
+def _ensure_numpy_sctypes_compat() -> None:
+    """
+    Compatibility shim for old deps (e.g. imgaug) that still access np.sctypes.
+    NumPy 2.0 removed this attribute.
+    """
+    if hasattr(np, "sctypes"):
+        return
+
+    np.sctypes = {
+        "int": [np.int8, np.int16, np.int32, np.int64],
+        "uint": [np.uint8, np.uint16, np.uint32, np.uint64],
+        "float": [np.float16, np.float32, np.float64],
+        "complex": [np.complex64, np.complex128],
+        "others": [np.bool_, np.object_, np.str_, np.bytes_],
+    }
+
+
 class VbenchStrategy(EvalStrategy):
     def __init__(
         self,
@@ -57,6 +74,7 @@ class VbenchStrategy(EvalStrategy):
             "video_prompt": video_prompt,          # key: filename(with suffix), value: prompt
             "dimension_list": self.dimension_list, # 让所有rank一致
             "output_path": self.output_path,       # rank0写json/写结果要用
+            "num_eval_items": len(video_prompt),
             }  
             for video_name, prompt in video_prompt.items():
                 video_path = (base / video_name).resolve()
@@ -81,6 +99,7 @@ class VbenchStrategy(EvalStrategy):
         *args, 
         **kwargs):
 
+        _ensure_numpy_sctypes_compat()
 
         with _vbench_fp32_guard(), torch.autocast(device_type="cuda", enabled=False):
             submodules_dict = init_submodules(self.dimension_list, local=local, read_frame=read_frame)
