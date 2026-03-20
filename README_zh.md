@@ -53,12 +53,24 @@ spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS=
 #### 一键安装依赖
 
 ```bash
-# 1. 只安装flash_attn
+# 1. 必装（[project.dependencies] 基础依赖）
 uv sync -v 2>&1 | tee uv_sync.log
 
-# 2. 安装sparge attn和sage attn以加速量化注意力。
-# 编译时间约为10分钟（32核，256GB内存）
-uv sync -v --all-extras 2>&1 | tee build.log 
+# 2. 按需安装（[project.optional-dependencies] 可选依赖）
+# 安装 SageAttention
+uv sync -v --extra sage 2>&1 | tee build_sage.log
+
+# 安装 SpargeAttention
+uv sync -v --extra sparge 2>&1 | tee build_sparge.log
+
+# 安装 VBench 评测工具
+uv sync -v --extra vbench 2>&1 | tee build_vbench.log
+
+# 安装评测指标依赖（FID/FVD/PSNR/SSIM/LPIPS）
+uv sync -v --extra eval 2>&1 | tee build_eval.log
+
+# 扩展一键安装（sage + sparge + vbench + eval）
+uv sync -v --all-extras 2>&1 | tee build_full.log
 ```
 
 ## 模型检查点
