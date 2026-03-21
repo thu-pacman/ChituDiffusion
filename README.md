@@ -66,7 +66,18 @@ We recommend using `uv` for a smoother installation experience.
 ```bash
 git clone git@github.com:chen-yy20/SmartDiffusion.git
 cd SmartDiffusion
-git submodule update --init --recursive
+```
+
+#### 1.1 Clone the submodules
+Option 1: Clone all submodules (sage-attn, sparge-attn and vbench)
+```bash
+git submodule update --init --recursive 
+```
+Option 2: Clone only a specific submodule. For example, to clone only the sage/sparge_attn submodule:
+
+```bash
+git submodule update --init third_party/sage_attn
+git submodule update --init third_party/sparge_attn
 ```
 
 #### 2. Install uv
@@ -120,12 +131,24 @@ spas_sage_attn = {
 #### 4. Install dependencies
 
 ```bash
-# Basic installation (FlashAttention only)
+# Required installation (base dependencies in [project.dependencies]) | 30mins
 uv sync -v 2>&1 | tee uv_sync.log
 
-# Full installation with quantized attention (SageAttention + SpargeAttention)
-# Build time: ~10 minutes on 32-core, 256GB memory
-uv sync -v --all-extras 2>&1 | tee build.log
+# Optional extras from [project.optional-dependencies]
+# SageAttention
+uv sync -v --extra sage 2>&1 | tee build_sage.log
+
+# SpargeAttention
+uv sync -v --extra sparge 2>&1 | tee build_sparge.log
+
+# VBench evaluation toolkit
+uv sync -v --extra vbench 2>&1 | tee build_vbench.log
+
+# Evaluation metrics (FID/FVD/PSNR/SSIM/LPIPS)
+uv sync -v --extra eval 2>&1 | tee build_eval.log
+
+# One-command extension install (sage + sparge + vbench + eval)
+uv sync -v --all-extras 2>&1 | tee build_full.log
 ```
 
 ### Manual Installation
