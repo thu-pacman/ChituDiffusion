@@ -1,7 +1,7 @@
 launch:
   num_nodes: 1
   gpus_per_node: 4
-  python_script: test/test_ditango.py
+  python_script: test/test_flexcache.py
   log_dir: logs
   srun:
     partition: debug
@@ -18,7 +18,7 @@ model:
 
 parallel:
   # cfg-parallel factor: only 1 or 2.
-  cfp: 2
+  cfp: 1
 
 infer:
   attn_type: flash_attn
@@ -27,7 +27,7 @@ infer:
   up_limit: 1
 
 eval:
-  eval_type: [psnr,ssim,lpips,vbench]
+  eval_type: [psnr,ssim,lpips]
   reference_path: /home/zhongrx/cyy/SmartDiffusion/outputs/a_cat_walking_on_grass_20260316_192520_wan2_1_t2v_1_3b
 
 output:

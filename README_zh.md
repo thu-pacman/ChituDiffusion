@@ -136,10 +136,29 @@ bash run.sh system_config.yaml --num-nodes 2 --gpus-per-node 8 --cfp 2
 | 方法 | cache_type | 性能 |
 |-------|-------------| ---------|
 | `teacache` |[Teacache](https://github.com/ali-vilab/TeaCache)(CVPR24-spotlight ) | 待测试。 |
-| `PAB` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/)(ICLR25 ) | 待测试。 |
+| `pab` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/)(ICLR25 ) | 待测试。 |
+| `ditango` | DiTango (ASE分组复用) | 待测试。 |
 ---
 
-你可以在`DiffusionUserParams`中设置`flexcache`，如下所示：
+推荐使用统一参数接口：
+
+```python
+from chitu_diffusion.task import DiffusionUserParams, FlexCacheParams
+
+DiffusionUserParams(
+    role="Alex",
+    prompt="A cat walking on grass",
+    flexcache_params=FlexCacheParams(
+        strategy="teacache",  # teacache / pab / ditango
+        cache_ratio=0.4,       # 0质量优先, 1速度优先
+        warmup=5,
+        cooldown=5,
+    ),
+)
+```
+
+兼容旧写法：
+
 ```
 DiffusionUserParams(
     role="Alex",

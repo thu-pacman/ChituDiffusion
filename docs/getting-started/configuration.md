@@ -49,7 +49,13 @@ DiffusionUserParams(
     # Advanced
     seed=None,                       # Random seed (None = random)
     save_path=None,                  # Output path (None = auto)
-    flexcache=None,                  # Cache strategy ('teacache', 'PAB')
+    flexcache=None,                  # Legacy cache strategy field
+    flexcache_params=FlexCacheParams(
+        strategy="teacache",        # 'teacache' / 'pab' / 'ditango'
+        cache_ratio=0.4,             # 0 quality-first, 1 speed-first
+        warmup=5,                    # First 5 steps full compute
+        cooldown=5,                  # Last 5 steps full compute
+    ),
 )
 ```
 
@@ -148,9 +154,25 @@ infer.diffusion.enable_flexcache=true
 
 Then set cache type in user parameters:
 ```python
+from chitu_diffusion.task import DiffusionUserParams, FlexCacheParams
+
 DiffusionUserParams(
     prompt="...",
-    flexcache='teacache'  # or 'PAB'
+    flexcache_params=FlexCacheParams(
+        strategy='teacache',
+        cache_ratio=0.4,
+        warmup=5,
+        cooldown=5,
+    )
+)
+```
+
+Legacy style is still supported:
+
+```python
+DiffusionUserParams(
+    prompt="...",
+    flexcache='teacache'
 )
 ```
 

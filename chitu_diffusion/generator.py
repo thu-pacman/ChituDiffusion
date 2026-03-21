@@ -9,7 +9,7 @@ import math
 import time
 import torch
 import torch.distributed as dist
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 from functools import partial
 from contextlib import contextmanager
 import numpy as np
@@ -20,7 +20,7 @@ from logging import getLogger
 from chitu_core.global_vars import get_global_args, get_slot_handle, get_timers
 from chitu_core.logging_utils import log_stage, log_progress, log_result, log_perf, should_log_info_on_rank
 from chitu_diffusion.backend import BackendState, CFGType, DiffusionBackend
-from chitu_diffusion.task import DiffusionTask, DiffusionTaskType, DiffusionTaskPool, DiffusionTaskStatus
+from chitu_diffusion.task import DiffusionTask, DiffusionTaskType, DiffusionTaskPool, DiffusionTaskStatus, FlexCacheParams
 from chitu_core.distributed.parallel_state import (
     get_cfg_group,
     get_cp_group,
@@ -267,6 +267,7 @@ class Generator:
         self._emit_stage_start_if_needed(task)
 
         if task_type == DiffusionTaskType.Terminate:
+            self._clear_flexcache_strategy()
             DiffusionBackend.state = BackendState.Terminated
             task.status = DiffusionTaskStatus.Completed
             return None
@@ -389,22 +390,23 @@ class Generator:
             return video
         return None
     
-    def _post_vae_decode(self, task: DiffusionTask):
+    def _post_vae_decode(self, task: DiffusionTask, video: Optional[torch.Tensor]):
         target_decode_device = 0 # TODO: Flexible vae device
         if torch.distributed.get_rank() == target_decode_device:
             # save_video
-            self._save_image(task)
+            if video is None:
+                logger.warning(f"task_id={task.task_id} VAE decode returned None; skip saving video")
+                return
+            self._save_image(task, video)
             # save_time_stats
             output_dir = task.req.params.save_dir
             Timer.print_statistics()
             Timer.save_statistics(f"{output_dir}/time_stat_{task.task_id}.csv")
             # Magnitiude experiments
             # MagLogger.save_to_csv(save_dir=f"./experiments/{task.task_id}")
-            # TODO: video quality
-
 
     # TODO: CPU/GPU overlap
-    def _save_image(self, task: DiffusionTask):
+    def _save_image(self, task: DiffusionTask, video: torch.Tensor):
         os.makedirs(task.req.params.save_dir, exist_ok=True)
         save_name = build_video_name_from_task(task)
         save_path = os.path.join(task.req.params.save_dir, save_name)
@@ -461,6 +463,93 @@ class Generator:
 
         manager.strategy = None
         manager.cache.clear()
+
+    @staticmethod
+    def _teacache_threshold_from_ratio(cache_ratio: float, model_name: str) -> float:
+        # 0 -> quality first (smaller thresh), 1 -> speed first (larger thresh)
+        model_name = (model_name or "").lower()
+        if "14b" in model_name:
+            min_thresh, max_thresh = 0.04, 0.20
+        else:
+            min_thresh, max_thresh = 0.08, 0.35
+        return min_thresh + cache_ratio * (max_thresh - min_thresh)
+
+    @staticmethod
+    def _pab_skip_self_from_ratio(cache_ratio: float) -> int:
+        # 0 -> quality first (recompute frequently), 1 -> speed first (reuse aggressively)
+        return int(round(cache_ratio * 10))
+
+    @staticmethod
+    def _ditango_ase_from_ratio(cache_ratio: float) -> float:
+        # 0 -> quality first (low threshold), 1 -> speed first (high threshold)
+        min_thresh, max_thresh = 0.01, 0.08
+        return min_thresh + cache_ratio * (max_thresh - min_thresh)
+
+    def _resolve_flexcache_spec(self, task: DiffusionTask) -> Optional[FlexCacheParams]:
+        spec = task.req.params.resolve_flexcache_params()
+        if spec is None:
+            return None
+
+        total_steps = int(task.req.params.num_inference_steps)
+        if spec.warmup + spec.cooldown >= total_steps:
+            raise ValueError(
+                "Invalid flexcache warmup/cooldown: "
+                f"warmup({spec.warmup}) + cooldown({spec.cooldown}) must be < num_inference_steps({total_steps})."
+            )
+        return spec
+
+    def _build_flexcache_strategy(self, task: DiffusionTask, spec: FlexCacheParams):
+        strategy = spec.strategy
+        cache_ratio = spec.cache_ratio
+        warmup_steps = spec.warmup
+        cooldown_steps = spec.cooldown
+
+        if strategy == "teacache":
+            from chitu_diffusion.flex_cache.strategy.teacache import TeaCacheStrategy
+
+            model_name = DiffusionBackend.args.models.name
+            teacache_thresh = self._teacache_threshold_from_ratio(cache_ratio, model_name)
+            return TeaCacheStrategy(
+                task=task,
+                teacache_thresh=teacache_thresh,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+            )
+
+        if strategy == "pab":
+            from chitu_diffusion.flex_cache.strategy.PAB import PABStrategy
+
+            skip_self_range = self._pab_skip_self_from_ratio(cache_ratio)
+            skip_cross_range = int(round(skip_self_range * 5 / 3))
+            return PABStrategy(
+                task=task,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+                skip_self_range=skip_self_range,
+                skip_cross_range=skip_cross_range,
+            )
+
+        if strategy == "ditango":
+            from chitu_diffusion.flex_cache.strategy.ditango import DiTangoV3Strategy
+
+            ase_threshold = self._ditango_ase_from_ratio(cache_ratio)
+            return DiTangoV3Strategy(
+                task=task,
+                ase_threshold=ase_threshold,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+            )
+
+        raise ValueError(f"Unknown flexcache strategy '{strategy}'.")
+
+    @staticmethod
+    def _flexcache_strategy_name(strategy: str) -> str:
+        names = {
+            "teacache": "TeaCache",
+            "pab": "PAB",
+            "ditango": "DiTango",
+        }
+        return names.get(strategy, strategy)
         
     def _pre_denoising(self, task: DiffusionTask):
         """
@@ -530,10 +619,9 @@ class Generator:
         DiffusionBackend.switch_active_model(flush=True)
 
         # Configure flexcache strategy for this task.
-        requested_strategy = (task.req.params.flexcache or "").strip()
-        requested_strategy_lower = requested_strategy.lower()
+        spec = self._resolve_flexcache_spec(task)
 
-        if requested_strategy_lower in {"", "none", "off", "disable", "disabled"}:
+        if spec is None:
             if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
                 self._clear_flexcache_strategy()
                 logger.info("Flexcache disabled for current task; cleared previous strategy wrappers.")
@@ -541,7 +629,7 @@ class Generator:
 
         if DiffusionBackend.flexcache is None:
             logger.warning(
-                f"Flexcache strategy '{requested_strategy}' is requested, "
+                f"Flexcache strategy '{spec.strategy}' is requested, "
                 "but infer.diffusion.enable_flexcache is False. Strategy will be ignored."
             )
             return
@@ -550,20 +638,27 @@ class Generator:
         if DiffusionBackend.flexcache.strategy is not None:
             self._clear_flexcache_strategy()
 
-        if requested_strategy_lower == "teacache":
-            from chitu_diffusion.flex_cache.strategy.teacache import TeaCacheStrategy
-            cache_strategy = TeaCacheStrategy(task=task)
-            DiffusionBackend.flexcache.set_strategy(cache_strategy)
-            DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
-            logger.info("Teacache: Successfully wrapped models!")
-        elif requested_strategy_lower == "pab":
-            from chitu_diffusion.flex_cache.strategy.PAB import PABStrategy
-            cache_strategy = PABStrategy(task=task)
-            DiffusionBackend.flexcache.set_strategy(cache_strategy)
-            DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
-            logger.info("PAB: Successfully wrapped models!")
-        else:
-            logger.warning(f"Unknown flexcache strategy '{requested_strategy}'. Flexcache is disabled for this task.")
+        cache_strategy = self._build_flexcache_strategy(task, spec)
+        DiffusionBackend.flexcache.set_strategy(cache_strategy)
+        DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
+
+        resolved_log: Dict[str, Any] = {
+            "strategy": spec.strategy,
+            "cache_ratio": spec.cache_ratio,
+            "warmup": spec.warmup,
+            "cooldown": spec.cooldown,
+        }
+        if spec.strategy == "teacache":
+            resolved_log["teacache_thresh"] = cache_strategy.teacache_thresh
+        elif spec.strategy == "pab":
+            resolved_log["skip_self_range"] = cache_strategy.skip_self_range
+            resolved_log["skip_cross_range"] = cache_strategy.skip_cross_range
+        elif spec.strategy == "ditango":
+            resolved_log["ase_threshold"] = cache_strategy.ase_threshold
+
+        logger.info(
+            f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
+        )
 
     def _update_task_stage_and_buffer(self, task: DiffusionTask, tokens: torch.Tensor):
 
@@ -663,7 +758,9 @@ class Generator:
         # 处理VAE Decode阶段（最终阶段）
         elif task.task_type == DiffusionTaskType.VAEDecode:               
             task.buffer.generated_image = tokens  # 保存最终生成的图像
+            self._post_vae_decode(task, tokens)
             self._emit_stage_end(DiffusionTaskType.VAEDecode, task.task_id)
+            self._clear_flexcache_strategy()
             if is_main_process:
                 logger.debug(f"Task {task.task_id} completed all stages")
             task.status = DiffusionTaskStatus.Completed

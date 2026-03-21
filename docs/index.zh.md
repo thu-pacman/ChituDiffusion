@@ -125,8 +125,8 @@ Smart-Diffusion 采用模块化架构：
 
 1. [安装 Smart-Diffusion](getting-started/installation.zh.md)
 2. [运行您的第一个生成](getting-started/quick-start.zh.md)
-3. [探索高级功能](user-guide/advanced-features.md)
-4. [阅读设计理念](architecture/design-philosophy.md)
+3. [探索高级功能](user-guide/advanced-features.zh.md)
+4. [阅读配置指南](getting-started/configuration.zh.md)
 
 ---
 

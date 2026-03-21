@@ -6,6 +6,32 @@ Explore Smart-Diffusion's advanced capabilities for optimal performance.
 
 FlexCache enables feature reuse across denoising steps, providing significant speedup with minimal quality loss.
 
+### Unified Parameters
+
+Use the dedicated FlexCache parameter group:
+
+- `strategy`: `teacache`, `pab`, `ditango`
+- `cache_ratio`: `0` to `1` quality-efficiency tradeoff (`0` quality-first, `1` speed-first)
+- `warmup`: first N steps always full compute
+- `cooldown`: last N steps always full compute
+
+Recommended API:
+
+```python
+from chitu_diffusion.task import DiffusionUserParams, FlexCacheParams
+
+user_params = DiffusionUserParams(
+    prompt="A cat walking on grass",
+    num_inference_steps=50,
+    flexcache_params=FlexCacheParams(
+        strategy="teacache",
+        cache_ratio=0.4,
+        warmup=5,
+        cooldown=5,
+    ),
+)
+```
+
 ### TeaCache
 
 Temporal adaptive caching strategy from CVPR24.
@@ -41,6 +67,24 @@ user_params = DiffusionUserParams(
 - Computes attention at coarse scales
 - Broadcasts to finer scales
 - Typically provides 40-50% speedup
+
+### DiTango
+
+ASE-guided grouped compute/reuse strategy.
+
+**Usage:**
+
+```python
+user_params = DiffusionUserParams(
+    prompt="A cat walking on grass",
+    flexcache='ditango'
+)
+```
+
+**How it works:**
+- Estimates group-level reuse confidence from ASE
+- Recomputes groups when confidence is insufficient
+- Uses periodic anchor updates to control drift
 
 ## Context Parallelism
 

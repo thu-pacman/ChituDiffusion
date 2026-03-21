@@ -17,7 +17,7 @@ Smart-Diffusion is the pure enjoyment version of Chitu-Diffusion, developed by t
 - **🚀 High Performance**: Optimized diffusion inference with advanced parallelism strategies
 - **🔧 Flexible Architecture**: Support for multiple attention backends (FlashAttention, SageAttention, SpargeAttention)
 - **💾 Memory Efficient**: Low memory mode with model offloading and VAE tiling
-- **📊 Feature Cache**: Support for lossy acceleration algorithms (TeaCache, PAB)
+- **📊 Feature Cache**: Unified FlexCache API for TeaCache, PAB, and DiTango
 - **🎯 Easy to Use**: Simple API with per-request parameter configuration
 - **🌐 Multi-Model**: Currently supports Wan-T2V series (1.3B, 14B, A14B) with more coming soon
 
@@ -269,13 +269,30 @@ Enable feature reuse acceleration with `infer.diffusion.enable_flexcache=true`:
 | Method | cache_type | Description |
 |--------|------------|-------------|
 | `teacache` | [TeaCache](https://github.com/ali-vilab/TeaCache) | CVPR24 spotlight. Time embedding tells. |
-| `PAB` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/) | ICLR25. Pyramid attention broadcasting |
+| `pab` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/) | ICLR25. Pyramid attention broadcasting |
+| `ditango` | DiTango | ASE-based grouped reuse |
 
-**Example:**
+Unified per-request API:
+
+```python
+from chitu_diffusion.task import DiffusionUserParams, FlexCacheParams
+
+user_params = DiffusionUserParams(
+  prompt="A cat walking on grass.",
+  flexcache_params=FlexCacheParams(
+    strategy="teacache",  # teacache / pab / ditango
+    cache_ratio=0.4,       # 0 quality-first, 1 speed-first
+    warmup=5,
+    cooldown=5,
+  ),
+)
+```
+
+Legacy style is still supported:
 ```python
 user_params = DiffusionUserParams(
     prompt="A cat walking on grass.",
-    flexcache='teacache',  # or 'PAB'
+  flexcache='teacache',
     # ... other params
 )
 ```

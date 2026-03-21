@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import os
 from typing import Optional, Any, Dict
 import torch.distributed as dist
 import functools
@@ -68,9 +69,83 @@ class PABStrategy(FlexCacheStrategy):
           
         # 自动设置参数（会设置 warmup_steps, cooldown_steps, skip_self_range 等）
         self._setup_PAB(warmup_steps, cooldown_steps, skip_self_range, skip_cross_range)
+
+        self._vis_records: Dict[int, int] = {}
+        self._vis_max_step = -1
         
         # 在参数设置后计算 tradeoff_score
-        self.tradeoff_score = (self.cooldown_steps - self.warmup_steps) / self.skip_self_range
+        active_steps = max(1, self.num_steps - self.warmup_steps - self.cooldown_steps)
+        self.tradeoff_score = active_steps / self.skip_self_range
+
+    def _get_output_dir(self) -> str:
+        task = DiffusionBackend.generator.current_task
+        if task is not None and task.req is not None and task.req.params is not None:
+            if task.req.params.save_dir:
+                return task.req.params.save_dir
+
+        env_output = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if env_output:
+            return env_output
+
+        args = getattr(DiffusionBackend, "args", None)
+        if args is not None:
+            output_cfg = getattr(args, "output", None)
+            if output_cfg is not None:
+                root_dir = getattr(output_cfg, "root_dir", None)
+                if root_dir:
+                    return str(root_dir)
+
+        return "./outputs"
+
+    def _record_step_policy(self, step: int, code: int):
+        # 仅记录 pos 分支，避免 CFG 双分支重复写入
+        if DiffusionBackend.cfg_type != CFGType.POS:
+            return
+        prev = self._vis_records.get(step)
+        if prev is None:
+            self._vis_records[step] = code
+        else:
+            # 优先级: full_compute(0) < periodic_compute(1) < self_reuse(2) < cross_reuse(3)
+            self._vis_records[step] = max(prev, code)
+        self._vis_max_step = max(self._vis_max_step, step)
+
+    def _save_policy_ppm(self):
+        if not _is_main_process() or self._vis_max_step < 0:
+            return
+
+        output_dir = self._get_output_dir()
+        os.makedirs(output_dir, exist_ok=True)
+
+        cell = 12
+        width = (self._vis_max_step + 1) * cell
+        height = cell
+        rgb = bytearray(width * height * 3)
+
+        for step in range(self._vis_max_step + 1):
+            code = self._vis_records.get(step, 0)
+            if code == 3:
+                color = (20, 80, 200)    # cross reuse: deep blue
+            elif code == 2:
+                color = (120, 200, 255)  # self reuse: light blue
+            elif code == 1:
+                color = (255, 180, 40)   # periodic recompute
+            else:
+                color = (160, 160, 160)  # warmup/cooldown full compute
+
+            for yy in range(height):
+                for xx in range(step * cell, (step + 1) * cell):
+                    idx = (yy * width + xx) * 3
+                    rgb[idx] = color[0]
+                    rgb[idx + 1] = color[1]
+                    rgb[idx + 2] = color[2]
+
+        ppm_path = os.path.join(output_dir, "pab_policy_timestep_pos.ppm")
+        with open(ppm_path, "wb") as f:
+            header = f"P6\n{width} {height}\n255\n".encode("ascii")
+            f.write(header)
+            f.write(bytes(rgb))
+
+        logger.info(f"[PAB] Saved policy visualization PPM to {ppm_path}")
         
     def _setup_PAB(
         self, 
@@ -95,7 +170,7 @@ class PABStrategy(FlexCacheStrategy):
         if cooldown_steps is not None:
             self.cooldown_steps = cooldown_steps
         else:
-            self.cooldown_steps = self.num_steps - 5
+            self.cooldown_steps = 5
         if skip_self_range is not None:
             self.skip_self_range = skip_self_range
         else:
@@ -112,7 +187,7 @@ class PABStrategy(FlexCacheStrategy):
                         f"skip_self_range={self.skip_self_range}, skip_cross_range={self.skip_cross_range}")
         
         
-    def get_reuse_key(self, range) -> Optional[str]:
+    def get_reuse_key(self, range, attn_kind: str = "self") -> Optional[str]:
         """
         判断是否可以复用缓存
         
@@ -131,12 +206,18 @@ class PABStrategy(FlexCacheStrategy):
         
         branch_key = f"{'pos' if is_pos else 'neg'}_cp{cp_rank}"
         
-        # 在指定范围外，不使用缓存
-        if current_step < self.warmup_steps or current_step >= self.cooldown_steps:
+        # warmup: 前 warmup_steps 步完整计算
+        # cooldown: 后 cooldown_steps 步完整计算
+        cooldown_start = max(0, self.num_steps - self.cooldown_steps)
+        if current_step < self.warmup_steps or current_step >= cooldown_start:
+            self._record_step_policy(current_step, 0)
             return None
         elif (current_step - self.warmup_steps) % range == 0:
+            self._record_step_policy(current_step, 1)
             return None  # 该步需要重新计算
         else: 
+            reuse_code = 2 if attn_kind == "self" else 3
+            self._record_step_policy(current_step, reuse_code)
             return branch_key  # 可以复用
         
     
@@ -207,7 +288,7 @@ class PABStrategy(FlexCacheStrategy):
                 """
                 带PAB缓存的 self-attention forward
                 """
-                reuse_key = self.get_reuse_key(range=self.skip_self_range)
+                reuse_key = self.get_reuse_key(range=self.skip_self_range, attn_kind="self")
                 
                 # 构建完整缓存键
                 if reuse_key is not None:
@@ -248,7 +329,7 @@ class PABStrategy(FlexCacheStrategy):
                 """
                 带PAB缓存的 cross-attention forward
                 """
-                reuse_key = self.get_reuse_key(range=self.skip_cross_range)
+                reuse_key = self.get_reuse_key(range=self.skip_cross_range, attn_kind="cross")
                 
                 # 构建完整缓存键
                 if reuse_key is not None:
@@ -297,6 +378,8 @@ class PABStrategy(FlexCacheStrategy):
             if hasattr(block.cross_attn, '_original_forward'):
                 block.cross_attn.forward = block.cross_attn._original_forward
                 delattr(block.cross_attn, '_original_forward')
+
+        self._save_policy_ppm()
         
         logger.info(f"Module {module.__class__.__name__} unwrapped from PAB strategy")
     
