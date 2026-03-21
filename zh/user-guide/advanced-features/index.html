@@ -29,7 +29,7 @@
       
       
       <link rel="icon" href="../../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
@@ -88,7 +88,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#advanced-features" class="md-skip">
+        <a href="#_1" class="md-skip">
           跳转至
         </a>
       
@@ -840,10 +840,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#teacache" class="md-nav__link">
+  <a href="#_2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TeaCache
+        统一参数
       
     </span>
   </a>
@@ -851,10 +851,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pyramid-attention-broadcast-pab" class="md-nav__link">
+  <a href="#_3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Pyramid Attention Broadcast (PAB)
+        推荐示例
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        三种策略
       
     </span>
   </a>
@@ -889,49 +900,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-prompts" class="md-nav__link">
+  <a href="#_5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Custom Prompts
+        提示词建议
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Custom Prompts">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#effective-prompt-engineering" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Effective Prompt Engineering
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#negative-prompts-future" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Negative Prompts (Future)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
+  <a href="#_6" class="md-nav__link">
     <span class="md-ellipsis">
       
-        See Also
+        相关文档
       
     </span>
   </a>
@@ -1822,10 +1805,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#teacache" class="md-nav__link">
+  <a href="#_2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TeaCache
+        统一参数
       
     </span>
   </a>
@@ -1833,10 +1816,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pyramid-attention-broadcast-pab" class="md-nav__link">
+  <a href="#_3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Pyramid Attention Broadcast (PAB)
+        推荐示例
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        三种策略
       
     </span>
   </a>
@@ -1871,49 +1865,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-prompts" class="md-nav__link">
+  <a href="#_5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Custom Prompts
+        提示词建议
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Custom Prompts">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#effective-prompt-engineering" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Effective Prompt Engineering
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#negative-prompts-future" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Negative Prompts (Future)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
+  <a href="#_6" class="md-nav__link">
     <span class="md-ellipsis">
       
-        See Also
+        相关文档
       
     </span>
   </a>
@@ -1940,67 +1906,59 @@
   
 
 
-<h1 id="advanced-features">Advanced Features<a class="headerlink" href="#advanced-features" title="Permanent link">&para;</a></h1>
-<p>Explore Smart-Diffusion's advanced capabilities for optimal performance.</p>
+<h1 id="_1">高级功能<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h1>
+<p>本页介绍 Smart-Diffusion 的高级能力与推荐用法。</p>
 <h2 id="flexcache">FlexCache<a class="headerlink" href="#flexcache" title="Permanent link">&para;</a></h2>
-<p>FlexCache enables feature reuse across denoising steps, providing significant speedup with minimal quality loss.</p>
-<h3 id="teacache">TeaCache<a class="headerlink" href="#teacache" title="Permanent link">&para;</a></h3>
-<p>Temporal adaptive caching strategy from CVPR24.</p>
-<p><strong>Usage:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">user_params</span> <span class="o">=</span> <span class="n">DiffusionUserParams</span><span class="p">(</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;A cat walking on grass&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">flexcache</span><span class="o">=</span><span class="s1">&#39;teacache&#39;</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="p">)</span>
+<p>FlexCache 通过跨步特征复用，在保持较好画质的同时提升推理效率。</p>
+<h3 id="_2">统一参数<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
+<p>FlexCache 统一为以下参数组：</p>
+<ul>
+<li><code>strategy</code>: <code>teacache</code>、<code>pab</code>、<code>ditango</code></li>
+<li><code>cache_ratio</code>: 0 到 1 的质量-效率权衡参数（推荐唯一调节项）</li>
+<li><code>warmup</code>: 前几步完整计算</li>
+<li><code>cooldown</code>: 后几步完整计算</li>
+</ul>
+<h3 id="_3">推荐示例<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chitu_diffusion.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiffusionUserParams</span><span class="p">,</span> <span class="n">FlexCacheParams</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">user_params</span> <span class="o">=</span> <span class="n">DiffusionUserParams</span><span class="p">(</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;A cat walking on grass&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">num_inference_steps</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">flexcache_params</span><span class="o">=</span><span class="n">FlexCacheParams</span><span class="p">(</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;pab&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="n">cache_ratio</span><span class="o">=</span><span class="mf">0.35</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="n">warmup</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="n">cooldown</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="p">),</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">)</span>
 </code></pre></div>
-<p><strong>How it works:</strong>
-- Monitors feature change rates across denoising steps
-- Reuses features when changes are minimal
-- Typically provides 30-40% speedup</p>
-<h3 id="pyramid-attention-broadcast-pab">Pyramid Attention Broadcast (PAB)<a class="headerlink" href="#pyramid-attention-broadcast-pab" title="Permanent link">&para;</a></h3>
-<p>Hierarchical attention broadcasting from ICLR25.</p>
-<p><strong>Usage:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">user_params</span> <span class="o">=</span> <span class="n">DiffusionUserParams</span><span class="p">(</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;A cat walking on grass&quot;</span><span class="p">,</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">flexcache</span><span class="o">=</span><span class="s1">&#39;PAB&#39;</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">)</span>
-</code></pre></div>
-<p><strong>How it works:</strong>
-- Computes attention at coarse scales
-- Broadcasts to finer scales
-- Typically provides 40-50% speedup</p>
+<h3 id="_4">三种策略<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>TeaCache: 适合通用场景，基于时间步变化自适应复用。</li>
+<li>PAB: 基于注意力广播，常用于质量和速度均衡场景。</li>
+<li>DiTango: 基于 ASE 判据进行分组计算/复用控制。</li>
+</ul>
+<p>更多细节见 <a href="../../advanced/flexcache/">FlexCache</a>。</p>
 <h2 id="context-parallelism">Context Parallelism<a class="headerlink" href="#context-parallelism" title="Permanent link">&para;</a></h2>
-<p>Split long sequences across multiple GPUs.</p>
-<p><strong>Configuration:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span>infer.diffusion.cp_size<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>infer.diffusion.up_limit<span class="o">=</span><span class="m">81</span>
+<p>将长序列切分到多张 GPU 上执行。</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span>infer.diffusion.cp_size<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span>infer.diffusion.up_limit<span class="o">=</span><span class="m">81</span>
 </code></pre></div>
-<p><strong>Benefits:</strong>
-- Handle longer videos (more frames)
-- Linear memory scaling
-- Near-linear speedup</p>
 <h2 id="cfg-parallelism">CFG Parallelism<a class="headerlink" href="#cfg-parallelism" title="Permanent link">&para;</a></h2>
-<p>Split positive/negative prompts across 2 GPUs.</p>
-<p><strong>Automatic when:</strong>
+<p>将正负分支拆分到不同 GPU。</p>
+<p>自动触发条件：
 - <code>world_size &gt;= 2</code>
 - <code>guidance_scale &gt; 0</code></p>
-<p><strong>Benefits:</strong>
-- 2x speedup for CFG
-- No extra memory overhead</p>
-<h2 id="custom-prompts">Custom Prompts<a class="headerlink" href="#custom-prompts" title="Permanent link">&para;</a></h2>
-<h3 id="effective-prompt-engineering">Effective Prompt Engineering<a class="headerlink" href="#effective-prompt-engineering" title="Permanent link">&para;</a></h3>
-<p><strong>Good prompts:</strong>
-- "A fluffy cat walking slowly through tall green grass on a sunny day"
-- "Close-up of ocean waves crashing on a rocky shore at sunset"</p>
-<p><strong>Less effective:</strong>
-- "cat grass" (too brief)
-- "A cat walking on grass and also playing with a ball while a dog runs" (too complex)</p>
-<h3 id="negative-prompts-future">Negative Prompts (Future)<a class="headerlink" href="#negative-prompts-future" title="Permanent link">&para;</a></h3>
-<p>Support for negative prompts coming soon.</p>
-<h2 id="see-also">See Also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<h2 id="_5">提示词建议<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
+<p>更有效的提示词通常具备：
+- 明确主体和动作
+- 明确场景和镜头
+- 适当细节，不要过度堆砌</p>
+<h2 id="_6">相关文档<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../performance-tuning/">Performance Tuning</a></li>
-<li><a href="../../getting-started/configuration/">Configuration Guide</a></li>
+<li><a href="../performance-tuning/">性能调优</a></li>
+<li><a href="../../getting-started/configuration/">配置指南</a></li>
 </ul>
 
 

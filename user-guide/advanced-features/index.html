@@ -29,7 +29,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
@@ -838,6 +838,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#unified-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unified Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#teacache" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -853,6 +864,17 @@
     <span class="md-ellipsis">
       
         Pyramid Attention Broadcast (PAB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ditango" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DiTango
       
     </span>
   </a>
@@ -1820,6 +1842,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#unified-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unified Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#teacache" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1835,6 +1868,17 @@
     <span class="md-ellipsis">
       
         Pyramid Attention Broadcast (PAB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ditango" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DiTango
       
     </span>
   </a>
@@ -1942,13 +1986,35 @@
 <p>Explore Smart-Diffusion's advanced capabilities for optimal performance.</p>
 <h2 id="flexcache">FlexCache<a class="headerlink" href="#flexcache" title="Permanent link">&para;</a></h2>
 <p>FlexCache enables feature reuse across denoising steps, providing significant speedup with minimal quality loss.</p>
+<h3 id="unified-parameters">Unified Parameters<a class="headerlink" href="#unified-parameters" title="Permanent link">&para;</a></h3>
+<p>Use the dedicated FlexCache parameter group:</p>
+<ul>
+<li><code>strategy</code>: <code>teacache</code>, <code>pab</code>, <code>ditango</code></li>
+<li><code>cache_ratio</code>: <code>0</code> to <code>1</code> quality-efficiency tradeoff (<code>0</code> quality-first, <code>1</code> speed-first)</li>
+<li><code>warmup</code>: first N steps always full compute</li>
+<li><code>cooldown</code>: last N steps always full compute</li>
+</ul>
+<p>Recommended API:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chitu_diffusion.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiffusionUserParams</span><span class="p">,</span> <span class="n">FlexCacheParams</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">user_params</span> <span class="o">=</span> <span class="n">DiffusionUserParams</span><span class="p">(</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;A cat walking on grass&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">num_inference_steps</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">flexcache_params</span><span class="o">=</span><span class="n">FlexCacheParams</span><span class="p">(</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;teacache&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="n">cache_ratio</span><span class="o">=</span><span class="mf">0.4</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="n">warmup</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="n">cooldown</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="p">),</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">)</span>
+</code></pre></div>
 <h3 id="teacache">TeaCache<a class="headerlink" href="#teacache" title="Permanent link">&para;</a></h3>
 <p>Temporal adaptive caching strategy from CVPR24.</p>
 <p><strong>Usage:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">user_params</span> <span class="o">=</span> <span class="n">DiffusionUserParams</span><span class="p">(</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;A cat walking on grass&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">flexcache</span><span class="o">=</span><span class="s1">&#39;teacache&#39;</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">user_params</span> <span class="o">=</span> <span class="n">DiffusionUserParams</span><span class="p">(</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;A cat walking on grass&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">flexcache</span><span class="o">=</span><span class="s1">&#39;teacache&#39;</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">)</span>
 </code></pre></div>
 <p><strong>How it works:</strong>
 - Monitors feature change rates across denoising steps
@@ -1957,21 +2023,33 @@
 <h3 id="pyramid-attention-broadcast-pab">Pyramid Attention Broadcast (PAB)<a class="headerlink" href="#pyramid-attention-broadcast-pab" title="Permanent link">&para;</a></h3>
 <p>Hierarchical attention broadcasting from ICLR25.</p>
 <p><strong>Usage:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">user_params</span> <span class="o">=</span> <span class="n">DiffusionUserParams</span><span class="p">(</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;A cat walking on grass&quot;</span><span class="p">,</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">flexcache</span><span class="o">=</span><span class="s1">&#39;PAB&#39;</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">user_params</span> <span class="o">=</span> <span class="n">DiffusionUserParams</span><span class="p">(</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;A cat walking on grass&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">flexcache</span><span class="o">=</span><span class="s1">&#39;PAB&#39;</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="p">)</span>
 </code></pre></div>
 <p><strong>How it works:</strong>
 - Computes attention at coarse scales
 - Broadcasts to finer scales
 - Typically provides 40-50% speedup</p>
+<h3 id="ditango">DiTango<a class="headerlink" href="#ditango" title="Permanent link">&para;</a></h3>
+<p>ASE-guided grouped compute/reuse strategy.</p>
+<p><strong>Usage:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">user_params</span> <span class="o">=</span> <span class="n">DiffusionUserParams</span><span class="p">(</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;A cat walking on grass&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">flexcache</span><span class="o">=</span><span class="s1">&#39;ditango&#39;</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">)</span>
+</code></pre></div>
+<p><strong>How it works:</strong>
+- Estimates group-level reuse confidence from ASE
+- Recomputes groups when confidence is insufficient
+- Uses periodic anchor updates to control drift</p>
 <h2 id="context-parallelism">Context Parallelism<a class="headerlink" href="#context-parallelism" title="Permanent link">&para;</a></h2>
 <p>Split long sequences across multiple GPUs.</p>
 <p><strong>Configuration:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span>infer.diffusion.cp_size<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>infer.diffusion.up_limit<span class="o">=</span><span class="m">81</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>infer.diffusion.cp_size<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span>infer.diffusion.up_limit<span class="o">=</span><span class="m">81</span>
 </code></pre></div>
 <p><strong>Benefits:</strong>
 - Handle longer videos (more frames)
