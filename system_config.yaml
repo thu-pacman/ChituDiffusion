@@ -14,7 +14,7 @@ runtime:
 
 model:
   name: Wan2.1-T2V-1.3B
-  ckpt_dir: /home/zhongrx/cyy/Wan2.1/Wan2.1-T2V-1.3B
+  ckpt_dir: /home/chenyy/WORK/models/Wan2.1-T2V-1.3B
 
 parallel:
   # cfg-parallel factor: only 1 or 2.
