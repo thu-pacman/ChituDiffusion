@@ -1,7 +1,7 @@
 launch:
   num_nodes: 1
   gpus_per_node: 4
-  python_script: test/test_flexcache.py
+  python_script: test/test_generate.py
   log_dir: logs
   srun:
     partition: debug
@@ -14,7 +14,7 @@ runtime:
 
 model:
   name: Wan2.1-T2V-1.3B
-  ckpt_dir: /home/chenyy/WORK/models/Wan2.1-T2V-1.3B
+  ckpt_dir: /home/zhongrx/cyy/Wan2.1/Wan2.1-T2V-1.3B
 
 parallel:
   # cfg-parallel factor: only 1 or 2.
@@ -23,15 +23,15 @@ parallel:
 infer:
   attn_type: flash_attn
   low_mem_level: 0
-  enable_flexcache: true
+  enable_flexcache: false
   up_limit: 1
 
 eval:
-  eval_type: [psnr,ssim,lpips]
-  reference_path: /home/zhongrx/cyy/SmartDiffusion/outputs/a_cat_walking_on_grass_20260316_192520_wan2_1_t2v_1_3b
+  eval_type: []
+  reference_path: null
 
 output:
-  root_dir: origins
+  root_dir: outputs/origins
   enable_run_log: false
   enable_timer_dump: true
 
