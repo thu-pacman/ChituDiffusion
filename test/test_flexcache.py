@@ -30,9 +30,9 @@ from chitu_diffusion.chitu_diffusion_main import (
 # from chitu_core.task import UserRequest, TaskPool, Task
 from chitu_diffusion.task import DiffusionUserRequest, DiffusionTask, DiffusionTaskPool, DiffusionUserParams, FlexCacheParams
 
-from chitu_core.global_vars import get_timers
 from chitu_core.schemas import ServeConfig
 from chitu_core.utils import get_config_dir_path, gen_req_id
+from chitu_diffusion.bench import Timer
 
 logger = getLogger(__name__)
 
@@ -193,7 +193,7 @@ def _dump_run_metadata(run_output_dir: str, args, reqs: list[DiffusionUserReques
         f.write(OmegaConf.to_yaml(args, resolve=True))
 
 
-def run_normal(args, timers):
+def run_normal(args):
     rank = torch.distributed.get_rank()
     warmup_diffusion_engine(args)
 
@@ -232,15 +232,13 @@ def run_normal(args, timers):
 
         logger.info(f"------ batch {i} ------")
         t_start = time.time()
-        timers("overall").start()
-
-        while not chitu_is_terminated():
-            chitu_generate()
-            if rank == 0 and DiffusionTaskPool.all_finished():
-                break
+        with Timer.get_timer("overall"):
+            while not chitu_is_terminated():
+                chitu_generate()
+                if rank == 0 and DiffusionTaskPool.all_finished():
+                    break
 
         if rank == 0:
-            timers("overall").stop()
             t_end = time.time()
             logger.info(f"Time cost {t_end - t_start}")
         logger.info(
@@ -248,9 +246,8 @@ def run_normal(args, timers):
         )
 
         if rank == 0 and getattr(args.output, "enable_timer_dump", False):
-            timers.dump_csv(os.path.join(run_output_dir, "timer_stats.csv"), reset=False)
-
-        timers.log()
+            Timer.print_statistics()
+            Timer.save_statistics(os.path.join(run_output_dir, "timer_stats.csv"))
 
     chitu_terminate()
     chitu_run_eval()
@@ -276,10 +273,9 @@ def main(args: ServeConfig):
     logger.info("initialized chitu_core.")
     torch.distributed.barrier(device_ids=[torch.cuda.current_device()])
 
-    timers = get_timers()
     logger.debug("finish init")
 
-    run_normal(args, timers)
+    run_normal(args)
 
 
 if __name__ == "__main__":

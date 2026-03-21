@@ -25,11 +25,11 @@ from chitu_diffusion.chitu_diffusion_main import (
 )
 
 # from chitu_core.task import UserRequest, TaskPool, Task
-from chitu_diffusion.task import DiffusionUserRequest, DiffusionTask, DiffusionTaskPool, DiffusionUserParams, FlexCacheParams
+from chitu_diffusion.task import DiffusionUserRequest, DiffusionTask, DiffusionTaskPool, DiffusionUserParams
 
-from chitu_core.global_vars import get_timers
 from chitu_core.schemas import ServeConfig
 from chitu_core.utils import get_config_dir_path, gen_req_id
+from chitu_diffusion.bench.timer import Timer
 
 logger = getLogger(__name__)
 
@@ -44,14 +44,8 @@ msgs = [
     frame_num=81,
     size=(832,480), # 14b: 1280 720
     negative_prompt='色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走',
-    num_inference_steps=50,
+    num_inference_steps=40,
     sample_solver='unipc',
-    flexcache_params=FlexCacheParams(
-        strategy="pab",
-        cache_ratio=0.35,
-        warmup=5,
-        cooldown=5,
-    ),
 ),
 #     DiffusionUserParams(
 #     role="Bob",
@@ -140,7 +134,7 @@ def _dump_run_metadata(run_output_dir: str, args, reqs: list[DiffusionUserReques
     with open(os.path.join(run_output_dir, "run_config.yaml"), "w", encoding="utf-8") as f:
         f.write(OmegaConf.to_yaml(args, resolve=True))
 
-def run_normal(args, timers):
+def run_normal(args):
     rank = torch.distributed.get_rank()
     warmup_diffusion_engine(args)
 
@@ -179,15 +173,13 @@ def run_normal(args, timers):
             
         logger.info(f"------ batch {i} ------")
         t_start = time.time()
-        timers("overall").start()
-
-        while not chitu_is_terminated():
-            chitu_generate()
-            if rank == 0 and DiffusionTaskPool.all_finished():
-                break
+        with Timer.get_timer("overall"):
+            while not chitu_is_terminated():
+                chitu_generate()
+                if rank == 0 and DiffusionTaskPool.all_finished():
+                    break
             
         if rank == 0:
-            timers("overall").stop()
             t_end = time.time()
             logger.info(f"Time cost {t_end - t_start}")
         logger.info(
@@ -195,9 +187,8 @@ def run_normal(args, timers):
         )
 
         if rank == 0 and getattr(args.output, "enable_timer_dump", False):
-            timers.dump_csv(os.path.join(run_output_dir, "timer_stats.csv"), reset=False)
-
-        timers.log()
+            Timer.print_statistics()
+            Timer.save_statistics(os.path.join(run_output_dir, "timer_stats.csv"))
         
     chitu_terminate()
     chitu_run_eval()
@@ -224,10 +215,9 @@ def main(args: ServeConfig):
     logger.info("initialized chitu_core.")
     torch.distributed.barrier(device_ids=[torch.cuda.current_device()])
 
-    timers = get_timers()
     logger.debug("finish init")
     
-    run_normal(args, timers)
+    run_normal(args)
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ import torch.amp as amp
 from tqdm import tqdm
 
 from logging import getLogger
-from chitu_core.global_vars import get_global_args, get_slot_handle, get_timers
+from chitu_core.global_vars import get_global_args, get_slot_handle
 from chitu_core.logging_utils import log_stage, log_progress, log_result, log_perf, should_log_info_on_rank
 from chitu_diffusion.backend import BackendState, CFGType, DiffusionBackend
 from chitu_diffusion.task import DiffusionTask, DiffusionTaskType, DiffusionTaskPool, DiffusionTaskStatus, FlexCacheParams
@@ -199,7 +199,6 @@ class Generator:
         return cls(args)
     
     def __init__(self, args):
-        self.timers = get_timers()
         self.rank = torch.distributed.get_rank()
         self.local_rank: int = self.rank % 8 
         self.task_dispatchers: List = []

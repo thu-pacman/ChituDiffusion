@@ -193,9 +193,24 @@ if [ "$CP_SIZE" -lt 1 ]; then
     exit 1
 fi
 
+# Normalize YAML booleans to 1/0 for consistent env parsing in Python.
+to_env_bool01() {
+    case "${1,,}" in
+        1|true|yes|on)
+            echo 1
+            ;;
+        *)
+            echo 0
+            ;;
+    esac
+}
+
+CHITU_DEBUG="$(to_env_bool01 "$CHITU_DEBUG")"
+CUDA_LAUNCH_BLOCKING="$(to_env_bool01 "$CUDA_LAUNCH_BLOCKING")"
+
 export CHITU_DEBUG
 export HYDRA_FULL_ERROR=1
-if [ "$CUDA_LAUNCH_BLOCKING" = "true" ]; then
+if [ "$CUDA_LAUNCH_BLOCKING" = "1" ]; then
     export CUDA_LAUNCH_BLOCKING=1
 fi
 

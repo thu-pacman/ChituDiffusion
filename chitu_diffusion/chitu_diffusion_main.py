@@ -47,6 +47,11 @@ logger = getLogger(__name__)
 from logging import getLogger
 import logging
 
+
+def _env_flag(name: str, default: str = "0") -> bool:
+    value = str(os.getenv(name, default)).strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
 def init_logger(logging_level=logging.INFO):
     """
     Initialize the Chitu logging system.
@@ -144,7 +149,7 @@ def chitu_init(args, logging_level=None):
         This function must be called before any inference operations.
     """
 
-    debug = os.getenv("CHITU_DEBUG", "0") == "1"
+    debug = _env_flag("CHITU_DEBUG", "0")
 
     if (
         is_nvidia()
