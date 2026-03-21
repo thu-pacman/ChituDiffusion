@@ -1,203 +1,94 @@
 # FlexCache
 
-FlexCache is a feature caching system that accelerates diffusion generation by reusing computations from previous denoising steps.
+FlexCache is Smart-Diffusion's unified feature reuse acceleration framework.
 
-## Overview
+## Unified User API
 
-During diffusion denoising, features change slowly between adjacent steps. FlexCache exploits this temporal similarity to skip redundant computations.
+FlexCache is configured with one dedicated parameter group:
 
-**Benefits**:
-- Speedup testing in progress
-- Minimal quality loss expected
-- No additional VRAM required
+- `strategy`: `teacache`, `pab`, or `ditango`
+- `cache_ratio`: required, range `[0, 1]`
+- `warmup`: required, first `warmup` denoising steps always run full compute
+- `cooldown`: required, last `cooldown` denoising steps always run full compute
 
-## Strategies
+`cache_ratio` is the only recommended user tuning knob:
 
-### TeaCache
+- `0.0`: quality-first, conservative cache reuse
+- `1.0`: speed-first, aggressive cache reuse
 
-**Principle**: Reuse features when they change slowly
+Most users should only tune `cache_ratio`. `warmup` and `cooldown` are advanced controls.
 
-**How it Works**:
-1. Compute features for step t
-2. Check similarity with step t-1
-3. If similar, reuse cached features
-4. Otherwise, recompute and update cache
+## Strategy Mapping
 
-**Configuration**:
-```python
-params = DiffusionUserParams(
-    prompt="A cat walking",
-    flexcache="teacache"
-)
-```
+The same `cache_ratio` scale is mapped to one strategy-specific core parameter:
 
-**Performance**:
-- Speedup: Performance testing in progress
-- Quality impact: Minimal expected
-- Best for: Standard generation
+| Strategy | Internal control | Mapping direction |
+|----------|------------------|-------------------|
+| TeaCache | `teacache_thresh` | higher ratio -> larger threshold -> more reuse |
+| PAB | `skip_self_range` | higher ratio -> larger skip range -> more reuse |
+| DiTango | `ase_threshold` | higher ratio -> larger threshold -> more reuse |
 
-### PAB (Pyramid Attention Broadcast)
-
-**Principle**: Broadcast high-level features to lower layers
-
-**How it Works**:
-1. Compute full attention at pyramid levels
-2. Broadcast results to intermediate layers
-3. Skip attention computation at intermediate layers
-
-**Configuration**:
-```python
-params = DiffusionUserParams(
-    prompt="A cat walking",
-    flexcache="PAB"
-)
-```
-
-**Performance**:
-- Speedup: Performance testing in progress
-- Quality impact: Minimal expected
-- Best for: High-quality generation
+Other strategy internals are fixed by design for API consistency.
 
 ## Usage
 
-### Basic Usage
+### Recommended style
 
 ```python
-from chitu_diffusion.task import DiffusionUserParams
+from chitu_diffusion.task import DiffusionUserParams, FlexCacheParams
 
-# Enable TeaCache
 params = DiffusionUserParams(
-    prompt="A sunset over mountains",
-    flexcache="teacache"
+    prompt="A cat walking on grass",
+    num_inference_steps=50,
+    flexcache_params=FlexCacheParams(
+        strategy="ditango",
+        cache_ratio=0.45,
+        warmup=5,
+        cooldown=5,
+    ),
 )
 ```
 
-### Disable Caching
+### Legacy compatible style
 
 ```python
-# No caching (default)
 params = DiffusionUserParams(
-    prompt="A sunset",
-    flexcache=None
+    prompt="A cat walking on grass",
+    flexcache="teacache",
 )
 ```
 
-### Comparing Strategies
+### Disable FlexCache
 
 ```python
-# Test different strategies
-strategies = [None, "teacache", "PAB"]
-
-for strategy in strategies:
-    params = DiffusionUserParams(
-        prompt="A cat",
-        seed=42,  # Same seed for fair comparison
-        flexcache=strategy
-    )
-    
-    start = time.time()
-    # ... generate ...
-    elapsed = time.time() - start
-    
-    print(f"{strategy}: {elapsed:.2f}s")
+params = DiffusionUserParams(
+    prompt="A cat walking on grass",
+    flexcache=None,
+)
 ```
 
-## Performance Comparison
+## System Switch
 
-Performance benchmarking in progress for different caching strategies.
+Enable FlexCache globally at startup:
 
-| Strategy | Time | Speedup | Quality Score |
-|----------|------|---------|---------------|
-| None | Baseline | 1.0x | Baseline |
-| TeaCache | To be tested | To be tested | To be tested |
-| PAB | To be tested | To be tested | To be tested |
-
-## Implementation Details
-
-### Cache Manager
-
-```python
-class FlexCacheManager:
-    def __init__(self, strategy: str):
-        self.strategy = strategy
-        self.cache = {}
-    
-    def should_reuse(self, step_idx: int) -> bool:
-        """Decide whether to reuse cache"""
-        if self.strategy == "teacache":
-            return self._teacache_reuse_logic(step_idx)
-        elif self.strategy == "PAB":
-            return self._pab_reuse_logic(step_idx)
-        return False
+```yaml
+infer:
+  enable_flexcache: true
 ```
 
-### Cache Storage
+If `enable_flexcache` is false, task-level FlexCache requests are ignored.
 
-Cache is stored in GPU memory:
-```python
-cache = {
-    "layer_0": tensor([...]),  # Shape: [B, N, D]
-    "layer_12": tensor([...]),
-    "layer_24": tensor([...]),
-}
-```
+## Parameter Validation
 
-## Advanced Configuration
+FlexCache validates parameters during task preparation:
 
-### Cache Ratio
-
-Control how aggressively to cache:
-
-```python
-# More aggressive caching
-args.infer.flexcache_ratio = 0.7  # Cache 70% of steps
-
-# Conservative caching
-args.infer.flexcache_ratio = 0.3  # Cache 30% of steps
-```
-
-### Cache Layers
-
-Select which layers to cache:
-
-```python
-# Cache every 6th layer
-args.infer.flexcache_layers = [0, 6, 12, 18, 24, 30, 36]
-```
-
-## Best Practices
-
-1. **Enable by Default**: FlexCache has minimal downsides
-2. **Start with TeaCache**: Simpler and more robust
-3. **Use PAB for Quality**: Slightly better quality preservation
-4. **Profile Your Workload**: Test on your specific prompts
-5. **Combine with Other Optimizations**: Works well with SageAttention
-
-## Troubleshooting
-
-### No Speedup
-
-**Possible Causes**:
-- Very dynamic prompts (benefits less from caching)
-- Too few inference steps
-- Cache overhead dominates
-
-**Solutions**:
-1. Increase `num_inference_steps`
-2. Try different cache strategy
-3. Profile to confirm cache is active
-
-### Quality Degradation
-
-**Symptoms**: Artifacts or reduced detail
-
-**Solutions**:
-1. Disable caching for that prompt
-2. Reduce `flexcache_ratio`
-3. Use PAB instead of TeaCache
+- `cache_ratio` must be in `[0, 1]`
+- `warmup >= 0`
+- `cooldown >= 0`
+- `warmup + cooldown < num_inference_steps`
 
 ## See Also
 
-- [Performance Tuning](../user-guide/performance-tuning.md)
-- [Attention Backends](../architecture/attention-backends.md)
+- [Advanced Features](../user-guide/advanced-features.md)
+- [Configuration Guide](../getting-started/configuration.md)
 - [Low Memory Mode](low-memory.md)

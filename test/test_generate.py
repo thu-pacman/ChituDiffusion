@@ -25,7 +25,7 @@ from chitu_diffusion.chitu_diffusion_main import (
 )
 
 # from chitu_core.task import UserRequest, TaskPool, Task
-from chitu_diffusion.task import DiffusionUserRequest, DiffusionTask, DiffusionTaskPool, DiffusionUserParams
+from chitu_diffusion.task import DiffusionUserRequest, DiffusionTask, DiffusionTaskPool, DiffusionUserParams, FlexCacheParams
 
 from chitu_core.global_vars import get_timers
 from chitu_core.schemas import ServeConfig
@@ -46,7 +46,12 @@ msgs = [
     negative_prompt='色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走',
     num_inference_steps=50,
     sample_solver='unipc',
-    flexcache='PAB', # TODO: 统一的 quality/latency tradeoff 参数
+    flexcache_params=FlexCacheParams(
+        strategy="pab",
+        cache_ratio=0.35,
+        warmup=5,
+        cooldown=5,
+    ),
 ),
 #     DiffusionUserParams(
 #     role="Bob",
