@@ -1,8 +1,8 @@
 launch:
+  tag: test
   num_nodes: 1
   gpus_per_node: 4
-  python_script: test/test_generate.py
-  log_dir: logs
+  python_script: test/test_flexcache.py
   srun:
     partition: debug
     cpus_per_gpu: 24
@@ -23,7 +23,7 @@ parallel:
 infer:
   attn_type: flash_attn
   low_mem_level: 0
-  enable_flexcache: false
+  enable_flexcache: true
   up_limit: 1
 
 eval:
@@ -31,7 +31,7 @@ eval:
   reference_path: null
 
 output:
-  root_dir: outputs/origins
+  root_dir: outputs
   enable_run_log: false
   enable_timer_dump: true
 

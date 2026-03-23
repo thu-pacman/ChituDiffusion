@@ -85,10 +85,10 @@ def get(path, default=None):
     return node
 
 values = {
+    "RUN_TAG": str(get("launch.tag", "") or "").strip(),
     "NUM_NODES": int(get("launch.num_nodes", 1)),
     "GPUS_PER_NODE": int(get("launch.gpus_per_node", 1)),
     "PYTHON_SCRIPT": str(get("launch.python_script", "test/test_generate.py")),
-    "LOG_DIR": str(get("launch.log_dir", "logs")),
     "SRUN_PARTITION": str(get("launch.srun.partition", "debug")),
     "SRUN_CPUS_PER_GPU": int(get("launch.srun.cpus_per_gpu", 24)),
     "SRUN_MEM_PER_GPU": int(get("launch.srun.mem_per_gpu", 242144)),
@@ -210,6 +210,7 @@ CUDA_LAUNCH_BLOCKING="$(to_env_bool01 "$CUDA_LAUNCH_BLOCKING")"
 
 export CHITU_DEBUG
 export HYDRA_FULL_ERROR=1
+export CHITU_RUN_TAG="$RUN_TAG"
 if [ "$CUDA_LAUNCH_BLOCKING" = "1" ]; then
     export CUDA_LAUNCH_BLOCKING=1
 fi
@@ -228,8 +229,11 @@ if [ ! -f "$PYTHON_SCRIPT" ]; then
 fi
 
 DATE="$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/${DATE}.log"
+LOG_FILE=""
+if [ "${OUTPUT_ENABLE_RUN_LOG,,}" = "true" ]; then
+    mkdir -p "$OUTPUT_ROOT_DIR"
+    LOG_FILE="$OUTPUT_ROOT_DIR/launch_${DATE}.log"
+fi
 
 BASE_OVERRIDES=(
     "models=$MODEL_NAME"
@@ -273,8 +277,19 @@ echo "cp(context-parallel): $CP_SIZE"
 echo "model: $MODEL_NAME"
 echo "ckpt_dir: $MODEL_CKPT_DIR"
 echo "python_script: $PYTHON_SCRIPT"
-echo "log_file: $LOG_FILE"
+if [ -n "$RUN_TAG" ]; then
+    echo "run_tag: $RUN_TAG"
+fi
+if [ -n "$LOG_FILE" ]; then
+    echo "log_file: $LOG_FILE"
+else
+    echo "log_file: disabled (output.enable_run_log=false)"
+fi
 echo "===================================="
 echo "Executing: ${CMD[*]}"
 
-"${CMD[@]}" 2>&1 | tee "$LOG_FILE"
+if [ -n "$LOG_FILE" ]; then
+    "${CMD[@]}" 2>&1 | tee "$LOG_FILE"
+else
+    "${CMD[@]}"
+fi

@@ -90,6 +90,11 @@ def _build_run_output_dir(args, reqs: list[DiffusionUserRequest]) -> str:
     model_slug = _slugify(getattr(args.models, "name", "model"), max_len=64)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir_name = f"{prompt_slug}_{ts}_{model_slug}"
+    run_tag = str(os.getenv("CHITU_RUN_TAG", "")).strip()
+    if run_tag:
+        run_tag_slug = _slugify(run_tag, max_len=PROMPT_SLUG_LEN)
+        if run_tag_slug:
+            run_dir_name = f"{run_tag_slug}_{run_dir_name}"
     return os.path.join(root_dir, run_dir_name)
 
 
