@@ -397,10 +397,6 @@ class Generator:
                 logger.warning(f"task_id={task.task_id} VAE decode returned None; skip saving video")
                 return
             self._save_image(task, video)
-            # save_time_stats
-            output_dir = task.req.params.save_dir
-            Timer.print_statistics()
-            Timer.save_statistics(f"{output_dir}/time_stat_{task.task_id}.csv")
             # Magnitiude experiments
             # MagLogger.save_to_csv(save_dir=f"./experiments/{task.task_id}")
 
@@ -534,6 +530,7 @@ class Generator:
             ase_threshold = self._ditango_ase_from_ratio(cache_ratio)
             return DiTangoV3Strategy(
                 task=task,
+                cache_ratio=cache_ratio,
                 ase_threshold=ase_threshold,
                 warmup_steps=warmup_steps,
                 cooldown_steps=cooldown_steps,

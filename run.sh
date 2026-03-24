@@ -106,6 +106,8 @@ values = {
     "OUTPUT_ROOT_DIR": str(get("output.root_dir", "outputs")),
     "OUTPUT_ENABLE_RUN_LOG": bool(get("output.enable_run_log", True)),
     "OUTPUT_ENABLE_TIMER_DUMP": bool(get("output.enable_timer_dump", False)),
+    "OUTPUT_HYDRA_DUMP_MODE": str(get("output.hydra_dump_mode", "video_dir")),
+    "OUTPUT_ENABLE_LAUNCH_LOG": bool(get("launch.enable_launch_log", False)),
 }
 
 raw_eval_type = get("eval.eval_type", [])
@@ -208,9 +210,24 @@ to_env_bool01() {
 CHITU_DEBUG="$(to_env_bool01 "$CHITU_DEBUG")"
 CUDA_LAUNCH_BLOCKING="$(to_env_bool01 "$CUDA_LAUNCH_BLOCKING")"
 
+RUNTIME_PYTHON_BIN="${CHITU_PYTHON_BIN:-}"
+if [ -z "$RUNTIME_PYTHON_BIN" ]; then
+    if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+        RUNTIME_PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
+    elif command -v python >/dev/null 2>&1; then
+        RUNTIME_PYTHON_BIN="$(command -v python)"
+    elif command -v python3 >/dev/null 2>&1; then
+        RUNTIME_PYTHON_BIN="$(command -v python3)"
+    else
+        echo "Error: no runtime python found"
+        exit 1
+    fi
+fi
+
 export CHITU_DEBUG
 export HYDRA_FULL_ERROR=1
 export CHITU_RUN_TAG="$RUN_TAG"
+export CHITU_PYTHON_BIN="$RUNTIME_PYTHON_BIN"
 if [ "$CUDA_LAUNCH_BLOCKING" = "1" ]; then
     export CUDA_LAUNCH_BLOCKING=1
 fi
@@ -230,7 +247,7 @@ fi
 
 DATE="$(date +%Y%m%d_%H%M%S)"
 LOG_FILE=""
-if [ "${OUTPUT_ENABLE_RUN_LOG,,}" = "true" ]; then
+if [ "${OUTPUT_ENABLE_LAUNCH_LOG,,}" = "true" ]; then
     mkdir -p "$OUTPUT_ROOT_DIR"
     LOG_FILE="$OUTPUT_ROOT_DIR/launch_${DATE}.log"
 fi
@@ -249,6 +266,7 @@ BASE_OVERRIDES=(
     "output.root_dir=$OUTPUT_ROOT_DIR"
     "output.enable_run_log=$OUTPUT_ENABLE_RUN_LOG"
     "output.enable_timer_dump=$OUTPUT_ENABLE_TIMER_DUMP"
+    "output.hydra_dump_mode=$OUTPUT_HYDRA_DUMP_MODE"
 )
 
 if [ -n "${EXTRA_OVERRIDES:-}" ]; then
@@ -277,6 +295,7 @@ echo "cp(context-parallel): $CP_SIZE"
 echo "model: $MODEL_NAME"
 echo "ckpt_dir: $MODEL_CKPT_DIR"
 echo "python_script: $PYTHON_SCRIPT"
+echo "runtime_python: $CHITU_PYTHON_BIN"
 if [ -n "$RUN_TAG" ]; then
     echo "run_tag: $RUN_TAG"
 fi

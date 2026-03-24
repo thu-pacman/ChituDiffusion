@@ -47,6 +47,14 @@ class Timer:
         return _TimerContext()
 
     @staticmethod
+    def record(name: str, elapsed_ms: float):
+        """Record one timing sample in milliseconds for a timer name."""
+        if not Timer._global_enabled:
+            return
+        Timer._ensure_timer_exists(name)
+        Timer._timers[name]['times'].append(float(elapsed_ms))
+
+    @staticmethod
     def print_statistics():
         """Print timing statistics for all timers"""
         if not Timer._global_enabled:
