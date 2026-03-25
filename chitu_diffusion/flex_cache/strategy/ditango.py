@@ -372,6 +372,46 @@ class DiTangoV3Strategy(FlexCacheStrategy):
     def _anchor_step_scope_key(self) -> str:
         return f"{self._branch_key()}_{get_timestep()}"
 
+    def cache_pos_anchor_decision(self, step: int, decision: bool):
+        self.anchor_step_decision_pos_cache[int(step)] = bool(decision)
+        # Keep only a tiny tail to avoid unbounded growth.
+        stale_steps = [k for k in self.anchor_step_decision_pos_cache.keys() if k < (int(step) - 2)]
+        for k in stale_steps:
+            del self.anchor_step_decision_pos_cache[k]
+
+    def get_pos_anchor_decision(self, step: int) -> Optional[bool]:
+        return self.anchor_step_decision_pos_cache.get(int(step), None)
+
+    def cache_pos_group_plan(
+        self,
+        step: int,
+        layer_id: int,
+        plan: Dict[int, bool],
+        ase_map: Dict[int, float],
+    ):
+        key = (int(step), int(layer_id))
+        self.step_layer_plan_pos_cache[key] = (
+            {int(g): bool(v) for g, v in plan.items()},
+            {int(g): float(v) for g, v in ase_map.items()},
+        )
+
+        stale_keys = [k for k in self.step_layer_plan_pos_cache.keys() if k[0] < (int(step) - 1)]
+        for k in stale_keys:
+            del self.step_layer_plan_pos_cache[k]
+
+    def get_pos_group_plan(
+        self,
+        step: int,
+        layer_id: int,
+    ) -> Optional[Tuple[Dict[int, bool], Dict[int, float]]]:
+        key = (int(step), int(layer_id))
+        cached = self.step_layer_plan_pos_cache.get(key, None)
+        if cached is None:
+            return None
+        plan, ase_map = cached
+        # Return detached copies so caller-side edits won't mutate cache.
+        return dict(plan), dict(ase_map)
+
     def _get_local_change_metrics(self, layer_id: int) -> Tuple[float, float]:
         """Return (absolute_change, relative_change) of local compressed state vs last anchor."""
         scope_key = self._anchor_scope_key(layer_id)
@@ -801,6 +841,8 @@ class DiTangoV3Strategy(FlexCacheStrategy):
         self.layer_ase_thresholds: Dict[str, float] = {}
         self.last_threshold_log_step: int = -1
         self.anchor_step_decision_cache: Dict[str, bool] = {}
+        self.anchor_step_decision_pos_cache: Dict[int, bool] = {}
+        self.step_layer_plan_pos_cache: Dict[Tuple[int, int], Tuple[Dict[int, bool], Dict[int, float]]] = {}
         self.compute_ratio_records: Dict[str, Dict[Tuple[int, int], float]] = {"pos": {}, "neg": {}}
         self.group_decision_records: Dict[str, Dict[Tuple[int, int, int], bool]] = {"pos": {}, "neg": {}}
         self.phase_records: Dict[str, Dict[Tuple[int, int], str]] = {"pos": {}, "neg": {}}
@@ -911,6 +953,56 @@ class DitangoV3Attention:
 
         cfg_group.broadcast(flag_tensor, src=src_rank)
         return bool(int(flag_tensor.item()))
+
+    def _sync_anchor_flag_cross_branch(self, strategy: DiTangoV3Strategy, step: int, local_flag: bool) -> bool:
+        """
+        Keep POS/NEG anchor gate consistent for both execution modes:
+        - cfg-parallel: POS -> NEG via broadcast.
+        - non-parallel: NEG reuses POS cached decision from the same step.
+        """
+        can_cfg_broadcast = False
+        if self.enable_cfg_parallel:
+            cfg_group = get_cfg_group()
+            can_cfg_broadcast = cfg_group.group_size == 2
+        if can_cfg_broadcast:
+            return self._sync_anchor_flag_from_pos(local_flag)
+
+        if strategy._branch_key() == "pos":
+            strategy.cache_pos_anchor_decision(step, local_flag)
+            return local_flag
+
+        cached = strategy.get_pos_anchor_decision(step)
+        if cached is not None:
+            return bool(cached)
+        return local_flag
+
+    def _sync_group_plan_cross_branch(
+        self,
+        strategy: DiTangoV3Strategy,
+        step: int,
+        layer_id: int,
+        local_plan: Dict[int, bool],
+        local_ase_map: Dict[int, float],
+        num_groups: int,
+    ) -> Tuple[Dict[int, bool], Dict[int, float]]:
+        """
+        Keep POS/NEG per-group compute/reuse plan consistent for both modes.
+        """
+        can_cfg_broadcast = False
+        if self.enable_cfg_parallel:
+            cfg_group = get_cfg_group()
+            can_cfg_broadcast = cfg_group.group_size == 2
+        if can_cfg_broadcast:
+            return self._sync_plan_from_pos(local_plan, local_ase_map, num_groups)
+
+        if strategy._branch_key() == "pos":
+            strategy.cache_pos_group_plan(step, layer_id, local_plan, local_ase_map)
+            return local_plan, local_ase_map
+
+        cached = strategy.get_pos_group_plan(step, layer_id)
+        if cached is not None:
+            return cached
+        return local_plan, local_ase_map
 
     def _format_decision_log(self, plan: Dict[int, bool], ase_map: Dict[int, float], 
                                strategy_ase_threshold: float, strategy: DiTangoV3Strategy) -> str:
@@ -1041,7 +1133,7 @@ class DitangoV3Attention:
         curr_step = get_timestep()
         force_full_compute = strategy._is_warmup_or_cooldown_step(curr_step)
         pre_anchor_local = strategy.should_anchor_this_step()
-        pre_anchor = self._sync_anchor_flag_from_pos(pre_anchor_local)
+        pre_anchor = self._sync_anchor_flag_cross_branch(strategy, curr_step, pre_anchor_local)
 
         # Keep per-branch cache consistent with synced CFG decision for this step.
         cache_key = strategy._anchor_step_scope_key()
@@ -1224,6 +1316,8 @@ class DitangoV3Attention:
         fallback_count = 0
 
         current_group_id = local_group_id
+        # outer step: group-level rotation - selective compute or reuse ; inner step: intra-group rotation
+
         for outer_step in range(outer_loop_size):
             # Calculate plan after the local group (outer_step=0) is computed
             if outer_step == 1:
@@ -1232,7 +1326,14 @@ class DitangoV3Attention:
                     num_groups,
                     local_group_id,
                 )
-                group_plan, ase_map = self._sync_plan_from_pos(group_plan, ase_map, num_groups)
+                group_plan, ase_map = self._sync_group_plan_cross_branch(
+                    strategy,
+                    get_timestep(),
+                    self.layer_id,
+                    group_plan,
+                    ase_map,
+                    num_groups,
+                )
 
             # Determine whether to compute for current group
             should_compute = True
@@ -1312,12 +1413,19 @@ class DitangoV3Attention:
 
         # Ensure plan exists if num_groups == 1 (loop didn't hit outer_step=1)
         if not group_plan:
-             group_plan, ase_map = strategy.plan_group_update(
+            group_plan, ase_map = strategy.plan_group_update(
                 self.layer_id,
                 num_groups,
                 local_group_id,
-                )
-             group_plan, ase_map = self._sync_plan_from_pos(group_plan, ase_map, num_groups)
+            )
+            group_plan, ase_map = self._sync_group_plan_cross_branch(
+                strategy,
+                get_timestep(),
+                self.layer_id,
+                group_plan,
+                ase_map,
+                num_groups,
+            )
 
         if not local_partition_state.is_empty():
             final_state = AttentionState.merge(final_state, local_partition_state)

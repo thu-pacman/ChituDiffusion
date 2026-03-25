@@ -84,7 +84,12 @@ user_params = DiffusionUserParams(
 **How it works:**
 - Estimates group-level reuse confidence from ASE
 - Recomputes groups when confidence is insufficient
-- Uses periodic anchor updates to control drift
+- Uses step-level anchor gating to control drift
+
+Current behavior notes:
+- Local partition is always computed each step and merged separately.
+- Anchor gate and per-group compute/reuse plan are synchronized across CFG positive/negative branches.
+- `cache_ratio` drives both anchor aggressiveness and global ASE-threshold quantile update.
 
 ## Context Parallelism
 

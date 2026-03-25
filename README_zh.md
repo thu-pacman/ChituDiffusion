@@ -100,6 +100,26 @@ bash run.sh system_config.yaml
 bash run.sh system_config.yaml --num-nodes 2 --gpus-per-node 8 --cfp 2
 ```
 
+运行补充说明：
+- `parallel.cfp`（或 `--cfp`）当前仅支持 `1` 或 `2`，并映射到 `infer.diffusion.cfg_size`。
+- `infer.diffusion.cp_size` 会由 `(num_nodes * gpus_per_node) / cfp` 自动推导。
+- `launch.tag` 会导出为 `CHITU_RUN_TAG`，并用于给输出目录名前缀打标。
+- `launch.enable_launch_log=true` 时，启动日志会写入 `output.root_dir/launch_<timestamp>.log`。
+- 可通过 `CHITU_PYTHON_BIN` 指定运行时 Python；默认优先级为 `.venv/bin/python` -> `python` -> `python3`。
+
+推荐同步配置 `system_config.yaml` 的输出段：
+
+```yaml
+output:
+    root_dir: outputs
+    enable_run_log: true
+    enable_timer_dump: true
+    hydra_dump_mode: off   # default/video_dir/off
+```
+
+其中 `hydra_dump_mode=video_dir` 会将 Hydra 的 `.hydra` 元数据移动到视频输出目录。
+当 `enable_timer_dump=true` 时，每次运行会在输出目录写入 `time_stats.csv`。
+
 ---
 
 # 魔法参数 !!!
@@ -150,6 +170,11 @@ bash run.sh system_config.yaml --num-nodes 2 --gpus-per-node 8 --cfp 2
 | `teacache` |[Teacache](https://github.com/ali-vilab/TeaCache)(CVPR24-spotlight ) | 待测试。 |
 | `pab` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/)(ICLR25 ) | 待测试。 |
 | `ditango` | DiTango (ASE分组复用) | 待测试。 |
+
+DiTango 当前实现说明：
+- Local partition 每步都强制计算，并与 group 状态分开合并，保证稳定性。
+- Anchor 判定是 step 级决策，并在 CFG 正负分支间保持一致。
+- `cache_ratio` 同时影响 anchor 触发激进程度与全局 ASE 阈值分位更新。
 ---
 
 推荐使用统一参数接口：

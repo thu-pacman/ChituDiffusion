@@ -38,6 +38,11 @@ user_params = DiffusionUserParams(
 - PAB: 基于注意力广播，常用于质量和速度均衡场景。
 - DiTango: 基于 ASE 判据进行分组计算/复用控制。
 
+DiTango 当前实现要点：
+- Local partition 每步强制计算，并与 group 状态分开合并。
+- Anchor gate 与 group 计算计划会在 CFG 正负分支间同步，避免分支决策不一致。
+- `cache_ratio` 同时影响 anchor 触发激进程度和全局 ASE 阈值分位更新。
+
 更多细节见 [FlexCache](../advanced/flexcache.md)。
 
 ## Context Parallelism

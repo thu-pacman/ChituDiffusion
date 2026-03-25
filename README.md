@@ -235,6 +235,26 @@ Optional runtime overrides:
 bash run.sh system_config.yaml --num-nodes 2 --gpus-per-node 8 --cfp 2
 ```
 
+Runtime notes:
+- `parallel.cfp` (or `--cfp`) must be `1` or `2`; launcher maps it to `infer.diffusion.cfg_size`.
+- `infer.diffusion.cp_size` is auto-derived as `(num_nodes * gpus_per_node) / cfp`.
+- `launch.tag` is exported as `CHITU_RUN_TAG` and prefixes output run directory names.
+- `launch.enable_launch_log=true` writes launcher logs to `output.root_dir/launch_<timestamp>.log`.
+- `CHITU_PYTHON_BIN` can force the runtime Python; default order is `.venv/bin/python` -> `python` -> `python3`.
+
+Recommended `system_config.yaml` output section:
+
+```yaml
+output:
+  root_dir: outputs
+  enable_run_log: true
+  enable_timer_dump: true
+  hydra_dump_mode: off   # default/video_dir/off
+```
+
+`hydra_dump_mode=video_dir` relocates Hydra `.hydra` metadata to the video output directory.
+When `enable_timer_dump=true`, timer statistics are dumped as `time_stats.csv` in each run directory.
+
 ### Advanced Configuration
 
 Configuration is split into three levels:
@@ -294,6 +314,11 @@ Enable feature reuse acceleration with `infer.diffusion.enable_flexcache=true`:
 | `teacache` | [TeaCache](https://github.com/ali-vilab/TeaCache) | CVPR24 spotlight. Time embedding tells. |
 | `pab` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/) | ICLR25. Pyramid attention broadcasting |
 | `ditango` | DiTango | ASE-based grouped reuse |
+
+DiTango behavior notes (current implementation):
+- Local partition is always computed each step and merged separately for stability.
+- Anchor decision is step-level and synchronized across CFG positive/negative branches.
+- `cache_ratio` controls both anchor trigger aggressiveness and global ASE-threshold quantile update.
 
 Unified per-request API:
 
