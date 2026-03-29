@@ -4,3 +4,4 @@
 
 # Chitu-Diffusion
 from chitu_core.models.diffusion import model_wan  # NOQA
+from chitu_core.models.diffusion import model_flux2

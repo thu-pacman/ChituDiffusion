@@ -334,3 +334,38 @@ class AutoEncoder(nn.Module):
         )
         dec = self.decoder(z)
         return dec
+
+
+
+
+class FLUX2VAE:
+    def __init__(self, 
+                vae_path=None,
+                dtype=torch.float,
+                device="cuda"):
+        self.dtype = dtype
+        self.device = device
+
+        with torch.device('meta'):
+            self.model = AutoEncoder(AutoEncoderParams())
+        
+        if str(vae_path).endswith(".safetensors"):
+            from safetensors.torch import load_file
+            self.model.load_state_dict(
+                load_file(vae_path, device=str(device)),
+                assign=True
+            )
+        else:
+            self.model.load_state_dict(
+                torch.load(vae_path, map_location=device, mmap=True), 
+                assign=True
+            )
+
+
+    def encode(self, x):
+        return self.model.encode(x)
+
+    def decode(self, z):
+        return self.model.decode(z)
+
+    

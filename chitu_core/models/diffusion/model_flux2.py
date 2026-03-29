@@ -1,4 +1,5 @@
 import math
+from logging import getLogger
 from dataclasses import dataclass, field
 
 import torch
@@ -6,6 +7,12 @@ from einops import rearrange
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from chitu_core.models.registry import ModelType, register_model, log_init_params
+from chitu_diffusion.model_default import Flux2ModelDefaults
+
+logger = getLogger(__name__)
+
+__all__ = ['Flux2']
 
 @dataclass
 class Flux2Params:
@@ -48,28 +55,46 @@ class Klein4BParams:
     mlp_ratio: float = 3.0
     use_guidance_embed: bool = False
 
-
+@register_model(ModelType.FLUX2_KLEIN)
+@log_init_params
 class Flux2(nn.Module):
-    def __init__(self, params: Flux2Params):
+    r"""
+    Flux2 diffusion backbone supporting text-to-image for now
+    """
+    def __init__(self, model_type='t2i', attn_backend=None, rope_impl=None, **kwargs):
         super().__init__()
 
-        self.in_channels = params.in_channels
-        self.out_channels = params.in_channels
-        if params.hidden_size % params.num_heads != 0:
+        assert model_type in ['t2i']
+        self.model_type = model_type
+
+        # 使用默认值填充缺失的参数
+        defaults = Flux2ModelDefaults()
+
+        self.in_channels = kwargs.get('in_channels', defaults.in_channels)
+        self.out_channels = self.in_channels
+        self.context_in_dim = kwargs.get('context_in_dim', defaults.context_in_dim)
+        self.hidden_size = kwargs.get('hidden_size', defaults.hidden_size)
+        self.num_heads = kwargs.get('num_heads', defaults.num_heads)
+        self.depth = kwargs.get('depth', defaults.depth)
+        self.depth_single_blocks = kwargs.get('depth_single_blocks', defaults.depth_single_blocks)
+        self.axes_dim = list(kwargs.get('axes_dim', defaults.axes_dim))
+        self.theta = kwargs.get('theta', defaults.theta)
+        self.mlp_ratio = kwargs.get('mlp_ratio', defaults.mlp_ratio)
+        self.use_guidance_embed = kwargs.get('use_guidance_embed', defaults.use_guidance_embed)
+
+        if self.hidden_size % self.num_heads != 0:
             raise ValueError(
-                f"Hidden size {params.hidden_size} must be divisible by num_heads {params.num_heads}"
+                f"Hidden size {self.hidden_size} must be divisible by num_heads {self.num_heads}"
             )
-        pe_dim = params.hidden_size // params.num_heads
-        if sum(params.axes_dim) != pe_dim:
-            raise ValueError(f"Got {params.axes_dim} but expected positional dim {pe_dim}")
-        self.hidden_size = params.hidden_size
-        self.num_heads = params.num_heads
-        self.pe_embedder = EmbedND(dim=pe_dim, theta=params.theta, axes_dim=params.axes_dim)
+        pe_dim = self.hidden_size // self.num_heads
+        if sum(self.axes_dim) != pe_dim:
+            raise ValueError(f"Got {self.axes_dim} but expected positional dim {pe_dim}")
+
+        self.pe_embedder = EmbedND(dim=pe_dim, theta=self.theta, axes_dim=self.axes_dim)
         self.img_in = nn.Linear(self.in_channels, self.hidden_size, bias=False)
         self.time_in = MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size, disable_bias=True)
-        self.txt_in = nn.Linear(params.context_in_dim, self.hidden_size, bias=False)
+        self.txt_in = nn.Linear(self.context_in_dim, self.hidden_size, bias=False)
 
-        self.use_guidance_embed = params.use_guidance_embed
         if self.use_guidance_embed:
             self.guidance_in = MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size, disable_bias=True)
 
@@ -78,9 +103,9 @@ class Flux2(nn.Module):
                 DoubleStreamBlock(
                     self.hidden_size,
                     self.num_heads,
-                    mlp_ratio=params.mlp_ratio,
+                    mlp_ratio=self.mlp_ratio,
                 )
-                for _ in range(params.depth)
+                for _ in range(self.depth)
             ]
         )
 
@@ -89,9 +114,9 @@ class Flux2(nn.Module):
                 SingleStreamBlock(
                     self.hidden_size,
                     self.num_heads,
-                    mlp_ratio=params.mlp_ratio,
+                    mlp_ratio=self.mlp_ratio,
                 )
-                for _ in range(params.depth_single_blocks)
+                for _ in range(self.depth_single_blocks)
             ]
         )
 
