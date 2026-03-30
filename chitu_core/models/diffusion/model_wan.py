@@ -2,6 +2,8 @@
 import itertools
 import math
 from logging import getLogger
+from typing import Optional
+
 import torch
 import torch.amp as amp
 import torch.nn as nn
@@ -13,6 +15,11 @@ from chitu_core.distributed.partition import compute_layer_dist_in_pp
 from chitu_core.distributed.parallel_state import get_fpp_group  
 from chitu_diffusion.model_default import WanModelDefaults
 from chitu_diffusion.modules.attention.wan_attention import flash_attention
+
+
+from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheManager
+from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
+
 
 logger = getLogger(__name__)
 
@@ -140,7 +147,7 @@ class WanSelfAttention(nn.Module):
         self.rope_impl = rope_impl or rope_apply
 
 
-    def forward(self, x, seq_lens, grid_sizes, freqs):
+    def forward(self, x, grid_sizes, freqs, save_cache=False):
         r"""
         Args:
             x(Tensor): Shape [B, L, num_heads, C / num_heads]
@@ -161,11 +168,14 @@ class WanSelfAttention(nn.Module):
         rope_q = self.rope_impl(q, grid_sizes, freqs)
         rope_k = self.rope_impl(k, grid_sizes, freqs)
 
+        ## should save cache here
+
         x = self.attn_func(
             q = half(rope_q),
             k = half(rope_k),
             v = half(v),
-            window_size=self.window_size
+            window_size=self.window_size,
+
         )[0]
         x = x.to(q.dtype)
 
@@ -173,6 +183,9 @@ class WanSelfAttention(nn.Module):
         x = x.flatten(2)
         x = self.o(x)
         return x
+
+    def forward_patch(self, x, grid_sizes, freqs, patch_idx):
+        pass
 
 
 class WanT2VCrossAttention(WanSelfAttention):
@@ -298,11 +311,10 @@ class WanAttentionBlock(nn.Module):
         self,
         x,
         e,
-        seq_lens,
+        context,
         grid_sizes,
         freqs,
-        context,
-        context_lens,
+        context_lens=None
     ):
         r"""
         Args:
@@ -319,7 +331,7 @@ class WanAttentionBlock(nn.Module):
 
         # self-attention
         y = self.self_attn(
-            self.norm1(x).float() * (1 + e[1]) + e[0], seq_lens, grid_sizes,
+            self.norm1(x).float() * (1 + e[1]) + e[0], grid_sizes,
             freqs)
         with amp.autocast(device_type="cuda", dtype=torch.float32):
             x = x + y * e[2]
@@ -467,6 +479,8 @@ class WanModel(ModelMixin, ConfigMixin):
         self.fpp_size = get_fpp_group().group_size
         # initialize weights
         self.init_weights()
+
+        self.cache_manager: Optional[FlexCacheManager] = None
     
     # 这个函数会在模型初始化后被调用，用于根据当前的pp_rank调整模型层的分布    
     def wrap_layers_for_fpp(self):
@@ -512,67 +526,115 @@ class WanModel(ModelMixin, ConfigMixin):
         import time
         print(f"[{time.strftime('%H:%M:%S.%f')}] Rank {self.pp_rank}: {msg}", flush=True)
 
-    def _single_input_preprocess(self, x, t, context, y):
-        x = [x]
-        t = t.unsqueeze(0)
-        context = [context]
-        if y is not None:
-            y = [y]
-        return x, t, context, y
-    
-    def model_compute_sync_pipeline(self, tokens, **kwargs):
-        x = tokens
-
-        if self.pp_rank > 0:
-            # self.log(f"Waiting to receive tokens from rank {self.pp_rank - 1},tag {self.counter}")
-            x = self.fpp_group.p2p_irecv(x.shape, x.dtype, src=self.pp_rank - 1)
-            self.fpp_group.p2p_commit()
-            self.fpp_group.p2p_wait()
-            self.log(f"Received tokens from rank {self.pp_rank - 1}")
-
-        self.log(f"x before model_compute: {x}")
-        
-        # import pdb; pdb.set_trace()
-        x = self.model_compute(x, **kwargs)
-        self.log(f"x after model_compute: {x}")
-
-        if self.pp_rank < self.fpp_size - 1:
-            self.fpp_group.p2p_isend(x, dst=self.pp_rank + 1)
-            self.fpp_group.p2p_commit()
-            self.fpp_group.p2p_wait()
-
-        self.counter += 1
-
-        if self.pp_rank == self.fpp_size - 1:
-            torch.distributed.send(x, dst=0)
-            print(f"Rank {self.pp_rank}: Sent tokens to rank 0")
-        if self.pp_rank == 0:
-            torch.distributed.recv(x, src=self.fpp_size - 1)
-            print(f"Rank {self.pp_rank}: Received tokens from rank {self.fpp_size - 1}")
-
-        return x 
-
-    def model_compute(self, tokens, **kwargs):
+    def model_compute(self, tokens, time_proj, context_embedding, grid_sizes,  context_lens=None):
         """
         主计算负载：通过所有transformer blocks处理tokens
         这是计算密集的核心部分，适合分布式处理
         
         Args:
-            tokens: 输入tokens
-            **kwargs: 从latents_to_tokens传递的所有必要参数
-            
+            tokens: 输入tokens shape [B, L(padded), dim`]
+            time_proj: 时间投影
+            context_embedding: 上下文嵌入
+            grid_sizes: 网格大小
+            context_lens: 上下文长度
+
         Returns:
             processed_tokens: 处理后的tokens
         """
+
         x = tokens
         for i, block in enumerate(self.blocks):
-            x = block(x, **kwargs)
+            x = block(x, time_proj, context_embedding, grid_sizes, self.freqs, context_lens)
         return x
-        
 
+
+
+    def _cal_patch_embedding(self, x, seq_len, y=None) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        """
+        # 阶段1: latents -> tokens
+        if not isinstance(x, list):
+            x = [x]
+
+        if self.model_type == 'i2v' or self.model_type == 'flf2v':
+            assert y is not None
+
+        if y is not None:
+            x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
+
+        # embeddings - 将latents转换为patch embeddings
+        # x : list[C(in_dim), F, H, W] -> list[1, C_o(dim), F, H, W]
+        x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
+
+        # grid_sizes : [1,3] (F_patches, H_patches, W_patches)
+        grid_sizes = torch.stack(
+            [torch.tensor(u.shape[2:], dtype=torch.long) for u in x])
+        # x : list[1, C_o(dim), F_patches, H_patches, W_patches] -> list[1, F*H*W, dim]
+        x = [u.flatten(2).transpose(1, 2) for u in x]
+        # 创建tokens - 这是将要传递给主计算的数据
+        # pad tokens to be divisible by split_size (cp_size * fpp_size)
+
+        tokens = torch.cat([
+            torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))],
+                    dim=1) for u in x
+        ])
+
+        return tokens, grid_sizes
+    
+    def _cal_grid_sizes(self, latent_shape: torch.Size):
+
+        # grid_sizes = torch.tensor(latent_shape[1:] // self.patch_size, dtype=torch.long)
+
+        grid_sizes = torch.tensor([
+            latent_shape[1] // self.patch_size[0], 
+            latent_shape[2] // self.patch_size[1], 
+            latent_shape[3] // self.patch_size[2]], 
+            dtype=torch.long).reshape(1, 3)
+        return grid_sizes
+
+    def _cal_timeproj_and_context_embeddings(self, t, context, clip_fea=None):
+        if not isinstance(context, list):
+            context = [context]
+        t = t.unsqueeze_(0) if t.dim() == 0 else t
+
+        if self.model_type == 'i2v' or self.model_type == 'flf2v':
+            assert clip_fea is not None
+    
+        with amp.autocast(device_type="cuda", dtype=torch.float32):
+            e = self.time_embedding(
+                sinusoidal_embedding_1d(self.freq_dim, t).float())
+            e0 = self.time_projection(e).unflatten(1, (6, self.dim))
+        
+        context = self.text_embedding(
+            torch.stack([
+                torch.cat(
+                    [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
+                for u in context
+            ]))
+        
+        if clip_fea is not None:
+            context_clip = self.img_emb(clip_fea)  # bs x 257 (x2) x dim
+            context = torch.concat([context_clip, context], dim=1)
+
+        return e0, context
+
+    def _cal_time_embeddings(self, t):
+        t = t.unsqueeze(0) if t.dim() == 0 else t
+        with amp.autocast(device_type="cuda", dtype=torch.float32):
+            e = self.time_embedding(
+                sinusoidal_embedding_1d(self.freq_dim, t).float())
+        return e
+
+    def _post_dit(self, x, e, grid_sizes):
+        # head processing
+        x = self.head(x, e)
+        # unpatchify - 将tokens转换回空间表示
+        x = self.unpatchify(x, grid_sizes)
+        return x  
+            
     def forward(
         self,
-        x,
+        latent,
         t,
         context,
         seq_len,
@@ -581,76 +643,44 @@ class WanModel(ModelMixin, ConfigMixin):
     ):
         """
         完整的前向传播，现在拆分为三个阶段
+        x: latents, [C, F_l, H_l, W_l] or List[Latent]
         """
-        # 阶段1: latents -> tokens
-        if not isinstance(x, list):
-            x, t, context, y = self._single_input_preprocess(x, t, context, y)
+        tokens = self._cal_patch_embedding(latent, seq_len, y)
+        grid_sizes = self._cal_grid_sizes(latent.shape)
+        time_proj, context_embedding = self._cal_timeproj_and_context_embeddings(t, context, clip_fea)
 
-        if self.model_type == 'i2v' or self.model_type == 'flf2v':
-            assert clip_fea is not None and y is not None
+        tokens = self.model_compute(tokens, time_proj, context_embedding, grid_sizes)
 
-        if y is not None:
-            x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
+        time_embedding = self._cal_time_embeddings(t)
+        latent = self._post_dit(tokens, time_embedding, grid_sizes)
 
-        # embeddings - 将latents转换为patch embeddings
-        x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
-        grid_sizes = torch.stack(
-            [torch.tensor(u.shape[2:], dtype=torch.long) for u in x])
-        x = [u.flatten(2).transpose(1, 2) for u in x]
-        seq_lens = torch.tensor([u.size(1) for u in x], dtype=torch.long)
-        assert seq_lens.max() <= seq_len
-        
-        # 创建tokens - 这是将要传递给主计算的数据
-        tokens = torch.cat([
-            torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))],
-                    dim=1) for u in x
-        ])
+        return latent[0].to(torch.float32)
 
-        # time embeddings
-        with amp.autocast(device_type="cuda", dtype=torch.float32):
-            e = self.time_embedding(
-                sinusoidal_embedding_1d(self.freq_dim, t).float())
-            e0 = self.time_projection(e).unflatten(1, (6, self.dim))
-            assert e.dtype == torch.float32 and e0.dtype == torch.float32
+    def sync_pipe_forward(self, latent, t, context, seq_len, clip_fea=None, y=None, save_cache=False):
+        """
+        同步管道前向传播：在每个阶段之间进行同步，适用于分布式环境
+        """
+        tokens = self._cal_patch_embedding(latent, seq_len, y)
+        grid_sizes = self._cal_grid_sizes(latent.shape[1:])  # [1,3]
+        time_proj, context_embedding = self._cal_timeproj_and_context_embeddings(t, context, clip_fea)
 
-        # context processing
-        context_lens = None
-        context = self.text_embedding(
-            torch.stack([
-                torch.cat(
-                    [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
-                for u in context
-            ]))
 
-        if clip_fea is not None:
-            context_clip = self.img_emb(clip_fea)  # bs x 257 (x2) x dim
-            context = torch.concat([context_clip, context], dim=1)
+        if self.pp_rank > 0:
+            tokens = self.fpp_group.p2p_irecv(tokens.shape, tokens.dtype, self.fpp_group.prev_rank)
+            self.fpp_group.p2p_wait()
 
-        # 准备主计算所需的参数
-        kwargs = dict(
-            e=e0,
-            seq_lens=seq_lens,
-            grid_sizes=grid_sizes,
-            freqs=self.freqs,
-            context=context,
-            context_lens=context_lens
-        )
-        
-        if self.fpp_size > 1:
-            tokens = tokens.to(dtype=torch.float32)  # ensure tokens are in float32 for pipeline communication
-            x = self.model_compute_sync_pipeline(tokens, **kwargs)
-        else:
-            x = self.model_compute(tokens, **kwargs)
+        tokens = self.model_compute(tokens, time_proj, context_embedding, grid_sizes)
 
-        # head processing
-        x = self.head(x, e)
-        
-        # unpatchify - 将tokens转换回空间表示
-        x = self.unpatchify(x, grid_sizes)
-        
-        # return [u.float() for u in x]
-        return x[0].to(torch.float32)
-    
+        if self.pp_rank < self.fpp_size - 1:
+            self.fpp_group.p2p_isend(tokens, self.fpp_group.next_rank)
+            self.fpp_group.p2p_commit()
+            return None
+
+        if self.pp_rank == self.fpp_size - 1:
+            time_embedding = self._cal_time_embeddings(t)
+            latents = self._post_dit(tokens, time_embedding, grid_sizes)
+            return latents[0].to(torch.float32)
+
     def unpatchify(self, x, grid_sizes):
         r"""
         Reconstruct video tensors from patch embeddings.

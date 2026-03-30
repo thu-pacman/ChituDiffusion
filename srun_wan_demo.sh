@@ -35,7 +35,7 @@ fi
 # Model configurations
 # 模型配置
 declare -A MODEL_CONFIGS=(
-    ["Wan2.1-T2V-1.3B"]="/home/fit/zhaijdcyy/WORK/models/Wan2.1-T2V-1.3B"
+    ["Wan2.1-T2V-1.3B"]="/home/dataset/Wan2.1-T2V-1.3B"
     ["Wan2.1-T2V-14B"]="/home/fit/zhaijdcyy/WORK/models/Wan2.1-T2V-14B"
     ["Wan2.2-T2V-A14B"]="/home/zhongrx/cyy/model/Wan22-t2v-a14b"
     # Add more models here
@@ -75,7 +75,7 @@ select_model
 basic_params="models=$model models.ckpt_dir=$ckpt_dir"
 
 # 并行参数（根据GPU数自动设置）
-parallel_params="infer.diffusion.cp_size=$cp_size infer.diffusion.up_limit=8"
+parallel_params="infer.diffusion.fpp_size=$num_gpus infer.diffusion.cp_size=1 infer.diffusion.up_limit=8"
 eval_params="eval.eval_type=vbench"
 # 魔法参数！
 magic_params="
