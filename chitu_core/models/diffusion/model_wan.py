@@ -18,7 +18,7 @@ from chitu_diffusion.modules.attention.wan_attention import flash_attention
 
 
 from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheManager
-from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
+# from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
 
 
 logger = getLogger(__name__)
@@ -566,9 +566,6 @@ class WanModel(ModelMixin, ConfigMixin):
         # x : list[C(in_dim), F, H, W] -> list[1, C_o(dim), F, H, W]
         x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
 
-        # grid_sizes : [1,3] (F_patches, H_patches, W_patches)
-        grid_sizes = torch.stack(
-            [torch.tensor(u.shape[2:], dtype=torch.long) for u in x])
         # x : list[1, C_o(dim), F_patches, H_patches, W_patches] -> list[1, F*H*W, dim]
         x = [u.flatten(2).transpose(1, 2) for u in x]
         # 创建tokens - 这是将要传递给主计算的数据
@@ -579,7 +576,7 @@ class WanModel(ModelMixin, ConfigMixin):
                     dim=1) for u in x
         ])
 
-        return tokens, grid_sizes
+        return tokens
     
     def _cal_grid_sizes(self, latent_shape: torch.Size):
 
@@ -661,22 +658,28 @@ class WanModel(ModelMixin, ConfigMixin):
         同步管道前向传播：在每个阶段之间进行同步，适用于分布式环境
         """
         tokens = self._cal_patch_embedding(latent, seq_len, y)
-        grid_sizes = self._cal_grid_sizes(latent.shape[1:])  # [1,3]
+        grid_sizes = self._cal_grid_sizes(latent.shape)  # [1,3]
         time_proj, context_embedding = self._cal_timeproj_and_context_embeddings(t, context, clip_fea)
+        
 
 
-        if self.pp_rank > 0:
-            tokens = self.fpp_group.p2p_irecv(tokens.shape, tokens.dtype, self.fpp_group.prev_rank)
+        if not self.fpp_group.is_first_rank: 
+            
+            tokens = self.fpp_group.p2p_irecv(tokens.shape, torch.float32, self.fpp_group.prev_rank)
+            self.fpp_group.p2p_commit()
             self.fpp_group.p2p_wait()
+
 
         tokens = self.model_compute(tokens, time_proj, context_embedding, grid_sizes)
 
-        if self.pp_rank < self.fpp_size - 1:
-            self.fpp_group.p2p_isend(tokens, self.fpp_group.next_rank)
+        if not self.fpp_group.is_last_rank:
+            # print(f"dtype before send: {tokens.dtype}")
+            self.fpp_group.p2p_isend(tokens.to(torch.float32), self.fpp_group.next_rank)
             self.fpp_group.p2p_commit()
+            self.fpp_group.p2p_wait()
             return None
 
-        if self.pp_rank == self.fpp_size - 1:
+        if self.fpp_group.is_last_rank:
             time_embedding = self._cal_time_embeddings(t)
             latents = self._post_dit(tokens, time_embedding, grid_sizes)
             return latents[0].to(torch.float32)

@@ -21,6 +21,7 @@ from chitu_diffusion.task import DiffusionTask, DiffusionTaskType, DiffusionTask
 from chitu_core.distributed.parallel_state import (
     get_cfg_group,
     get_cp_group,
+    get_fpp_group,
     get_up_group,
     get_world_group
 )
@@ -33,10 +34,10 @@ from chitu_diffusion.modules.samplers.fm_solvers_unipc import FlowUniPCMultistep
 from chitu_diffusion.utils.wan_utils import cache_video
 from chitu_diffusion.utils.shared_utils import SequencePadder
 
+from chitu_core.models.diffusion.model_wan import WanModel
 
 logger = getLogger(__name__)
 
-from contextlib import contextmanager
 
 @contextmanager
 def device_scope(model: torch.nn.Module):
@@ -200,6 +201,7 @@ class Generator:
         self.task_dispatchers: List = []
         self.cp_size = args.infer.diffusion.cp_size
         self.cfg_size = get_cfg_group().group_size
+        self.fpp_size = get_fpp_group().group_size
         if self.cp_size > 1:
             self.cp_dispatcher = ContextParallelDispatcher()
             self.cp_dispatcher.wrap_model_compute_with_cp()
@@ -239,7 +241,11 @@ class Generator:
         elif task_type == DiffusionTaskType.VAEDecode:
             out = self.vae_decode_step(task)
         elif task_type == DiffusionTaskType.Denoise:
-            out = self.denoise_step(task)
+            if self.fpp_size > 1:
+                out = self.denoise_sync_pipeline(task)
+            else:
+                out = self.denoise_step(task)
+
         else:
             raise NotImplementedError  
         
@@ -276,6 +282,62 @@ class Generator:
     def vae_encode_step(self, task: DiffusionTask):
         pass
     
+    @amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+    @torch.no_grad()
+    def denoise_sync_pipeline(self, task: DiffusionTask):
+        latent_model_input = task.buffer.latents
+        assert task.buffer.latents is not None and task.buffer.timesteps is not None
+
+
+        timestep = task.buffer.timesteps[task.buffer.current_step]
+
+        assert DiffusionBackend.guidance_scale > 0 and self.cfg_size == 1 and self.fpp_size > 1
+
+        print(f"RANK:{self.rank}, Denoise step {task.buffer.current_step}/{len(task.buffer.timesteps)}, timestep: {timestep}, latents shape: {latent_model_input.shape}",flush=True)
+
+        model : WanModel = DiffusionBackend.active_model
+        DiffusionBackend.cfg_type = CFGType.POS
+        noise_pred_cond = model.sync_pipe_forward(latent_model_input, t=timestep, context=task.buffer.text_embeddings, seq_len=task.buffer.seq_len)
+        # if get_fpp_group().is_last_rank:
+        #     print(f"noise_pred_cond shape: {noise_pred_cond.shape}, dtype: {noise_pred_cond.dtype}",flush=True)
+        DiffusionBackend.cfg_type = CFGType.NEG
+        noise_pred_uncond = model.sync_pipe_forward(latent_model_input, t=timestep, context=task.buffer.negative_embeddings, seq_len=task.buffer.seq_len)
+
+        fpp_group = get_fpp_group()
+        if fpp_group.is_last_rank:
+            noise_pred = noise_pred_uncond + DiffusionBackend.guidance_scale * (noise_pred_cond - noise_pred_uncond)
+
+            sampled_latents = task.buffer.sampler.step(
+                noise_pred.unsqueeze(0),
+                timestep,
+                task.buffer.latents.unsqueeze(0),
+                return_dict=False,
+                generator=task.buffer.seed_g
+            )[0].squeeze(0)
+
+            assert sampled_latents.dtype == torch.float32
+            fpp_group.p2p_isend(tensor=sampled_latents, dst=fpp_group.next_rank)
+            fpp_group.p2p_commit()
+            fpp_group.p2p_wait()
+            
+            return sampled_latents
+        
+        elif fpp_group.is_first_rank:
+            sampled_latents = fpp_group.p2p_irecv(size=task.buffer.latents.shape,dtype=torch.float32, src=fpp_group.prev_rank)
+            fpp_group.p2p_commit()
+            fpp_group.p2p_wait()
+            return sampled_latents
+    
+        else:
+            return noise_pred_cond # 中间rank不需要等待，直接返回结果供下一步计算使用
+
+
+        
+
+
+        
+    
+
     @amp.autocast(device_type="cuda", dtype=torch.bfloat16)
     @torch.no_grad()
     def denoise_step(self, task: DiffusionTask):
