@@ -37,6 +37,13 @@ from chitu_diffusion.utils.wan_utils import cache_video
 from chitu_diffusion.utils.shared_utils import SequencePadder
 from chitu_diffusion.bench import Timer, MagLogger
 from chitu_diffusion.utils.output_naming import build_video_name_from_task
+from chitu_diffusion.utils.flux_utils import (
+    batched_prc_img,
+    batched_prc_txt,
+    get_schedule,
+    scatter_ids,
+    save_image_as_png,
+)
 
 
 logger = getLogger(__name__)
@@ -199,6 +206,7 @@ class Generator:
         return cls(args)
     
     def __init__(self, args):
+        self.args = args
         self.rank = torch.distributed.get_rank()
         self.local_rank: int = self.rank % 8 
         self.task_dispatchers: List = []
@@ -306,6 +314,14 @@ class Generator:
                 DiffusionBackend.cfg_type = CFGType.NEG
 
         logger.debug(f"[text_encode_step] task_id={task.task_id}, prompt_len={len(payload)}")
+
+        if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
+            with device_scope(DiffusionBackend.text_encoder.model):
+                out = DiffusionBackend.text_encoder([payload])
+            ctx, ctx_ids = batched_prc_txt(out.to(torch.bfloat16))
+            task.buffer.ctx_ids = ctx_ids
+            logger.info(f"[text_encode_step] FLUX2 ctx shape: {ctx.shape}, ctx_ids shape: {ctx_ids.shape}")
+            return ctx
         
         with device_scope(DiffusionBackend.text_encoder.model):        
             out = DiffusionBackend.text_encoder(payload, torch.cuda.current_device())
@@ -321,6 +337,26 @@ class Generator:
     @torch.no_grad()
     def denoise_step(self, task: DiffusionTask):
         assert task.buffer.latents is not None and task.buffer.timesteps is not None
+
+        if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
+            """Single Euler denoising step for FLUX2 (guidance-distilled, no CFG)."""
+            x = task.buffer.latents
+            t_curr = task.buffer.timesteps[task.buffer.current_step]
+            t_prev = task.buffer.timesteps[task.buffer.current_step + 1]
+
+            t_vec = torch.full((x.shape[0],), t_curr, dtype=x.dtype, device=x.device)
+
+            pred = DiffusionBackend.active_model(
+                x=x,
+                x_ids=task.buffer.x_ids,
+                timesteps=t_vec,
+                ctx=task.buffer.text_embeddings,
+                ctx_ids=task.buffer.ctx_ids,
+                guidance=task.buffer.guidance_vec,
+            )
+
+            sampled_latents = x + (t_prev - t_curr) * pred
+            return sampled_latents
 
         latent_model_input = task.buffer.latents
         timestep = task.buffer.timesteps[task.buffer.current_step]
@@ -380,10 +416,18 @@ class Generator:
         
     @Timer.get_timer("VaeDecode")
     def vae_decode_step(self, task: DiffusionTask):
-        target_decode_device = 0 # TODO: Flexible vae device
+        target_decode_device = 0 # TODO
+        logger.debug(f"task_id={task.task_id} entering VAE decode at step={task.buffer.current_step}"): Flexible vae device
         if torch.distributed.get_rank() == target_decode_device:
             payload = [task.buffer.latents]
-            logger.debug(f"task_id={task.task_id} entering VAE decode at step={task.buffer.current_step}")
+
+            if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
+                x = torch.cat(scatter_ids(task.buffer.latents, task.buffer.x_ids)).squeeze(2).float()
+                with device_scope(DiffusionBackend.vae.model):
+                    img = DiffusionBackend.vae.decode(x).float()
+                self._save_image(task, img)
+                return img
+              
             with device_scope(DiffusionBackend.vae.model):
                 video = DiffusionBackend.vae.decode(payload)[0]
             return video
@@ -396,12 +440,16 @@ class Generator:
             if video is None:
                 logger.warning(f"task_id={task.task_id} VAE decode returned None; skip saving video")
                 return
-            self._save_image(task, video)
+            self._save_video(task, video)
+            # save_time_stats
+            output_dir = task.req.params.save_dir
+            Timer.print_statistics()
+            Timer.save_statistics(f"{output_dir}/time_stat_{task.task_id}.csv")
             # Magnitiude experiments
             # MagLogger.save_to_csv(save_dir=f"./experiments/{task.task_id}")
 
     # TODO: CPU/GPU overlap
-    def _save_image(self, task: DiffusionTask, video: torch.Tensor):
+    def _save_video(self, task: DiffusionTask, video: torch.Tensor):
         os.makedirs(task.req.params.save_dir, exist_ok=True)
         save_name = build_video_name_from_task(task)
         save_path = os.path.join(task.req.params.save_dir, save_name)
@@ -426,6 +474,17 @@ class Generator:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
 
         log_result(logger, task_id=task.task_id, message=f"video_saved={save_path}")
+    
+    # TODO: CPU/GPU overlap
+    def _save_image(self, task: DiffusionTask, img: torch.Tensor):
+        os.makedirs(task.req.params.save_dir, exist_ok=True)
+        save_name = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "") \
+                    + f"_{task.task_id}.png"
+        save_path = os.path.join(task.req.params.save_dir, save_name)
+        logger.info(f"Saving image: {img.shape=} {img.dtype=}")
+        save_image_as_png(img[0], save_path)
+        log_result(logger, task_id=task.task_id, message=f"image_saved={save_path}")
+
 
     def _clear_flexcache_strategy(self):
         """Safely remove current flexcache strategy wrappers from active model."""
@@ -502,7 +561,7 @@ class Generator:
         if strategy == "teacache":
             from chitu_diffusion.flex_cache.strategy.teacache import TeaCacheStrategy
 
-            model_name = DiffusionBackend.args.models.name
+            model_name = DiffusionBackend.args.name
             teacache_thresh = self._teacache_threshold_from_ratio(cache_ratio, model_name)
             return TeaCacheStrategy(
                 task=task,
@@ -554,6 +613,35 @@ class Generator:
         """
 
         device = torch.cuda.current_device()
+
+        if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
+            """Prepare FLUX2 latents (packed 2D), Euler schedule, and guidance vector."""
+
+            width, height = task.req.params.size
+            shape = (1, 128, height // 16, width // 16)
+
+            seed_g = torch.Generator(device=device)
+            seed_g.manual_seed(task.req.params.seed)
+
+            randn = torch.randn(shape, generator=seed_g, dtype=torch.bfloat16, device=device)
+            x, x_ids = batched_prc_img(randn)
+
+            timesteps = get_schedule(task.req.params.num_inference_steps, x.shape[1])
+
+            guidance = DiffusionBackend.args.models.sampler.guidance_scale[0]
+            guidance_vec = torch.full((x.shape[0],), guidance, device=device, dtype=x.dtype)
+
+            task.buffer.seed_g = seed_g
+            task.buffer.latents = x
+            task.buffer.x_ids = x_ids
+            task.buffer.timesteps = timesteps
+            task.buffer.guidance_vec = guidance_vec
+
+            DiffusionBackend.switch_active_model(flush=True)
+            logger.info(f"[Pre Denoise FLUX2] x={x.shape}, x_ids={x_ids.shape}, "
+                        f"timesteps={len(timesteps)} steps, guidance={guidance}")
+            return
+
         # Prepare latents on rank 0, only data in rank 0 would be used.
         if task.buffer.latents is None:
             F = task.req.params.frame_num

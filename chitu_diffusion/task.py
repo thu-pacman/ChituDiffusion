@@ -176,6 +176,11 @@ class DiffusionTaskBuffer:
     # VAE Decode buffers
     generated_image: Optional[torch.Tensor] = field(default=None)
 
+    # FLUX2-specific buffers
+    ctx_ids: Optional[torch.Tensor] = field(default=None)
+    x_ids: Optional[torch.Tensor] = field(default=None)
+    guidance_vec: Optional[torch.Tensor] = field(default=None)
+
 class DiffusionTask:
     
     def __init__(
