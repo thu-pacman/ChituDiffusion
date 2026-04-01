@@ -416,7 +416,8 @@ class Generator:
         
     @Timer.get_timer("VaeDecode")
     def vae_decode_step(self, task: DiffusionTask):
-        target_decode_device = 0 # TODO: Flexible vae device
+        target_decode_device = 0 # TODO
+        logger.debug(f"task_id={task.task_id} entering VAE decode at step={task.buffer.current_step}"): Flexible vae device
         if torch.distributed.get_rank() == target_decode_device:
             payload = [task.buffer.latents]
 
@@ -426,8 +427,7 @@ class Generator:
                     img = DiffusionBackend.vae.decode(x).float()
                 self._save_image(task, img)
                 return img
-
-            logger.debug(f"task_id={task.task_id} entering VAE decode at step={task.buffer.current_step}")
+              
             with device_scope(DiffusionBackend.vae.model):
                 video = DiffusionBackend.vae.decode(payload)[0]
             return video
@@ -584,11 +584,12 @@ class Generator:
             )
 
         if strategy == "ditango":
-            from chitu_diffusion.flex_cache.strategy.ditango import DiTangoV3Strategy
+            from chitu_diffusion.flex_cache.strategy.ditango.ditango import DiTangoV3Strategy
 
             ase_threshold = self._ditango_ase_from_ratio(cache_ratio)
             return DiTangoV3Strategy(
                 task=task,
+                cache_ratio=cache_ratio,
                 ase_threshold=ase_threshold,
                 warmup_steps=warmup_steps,
                 cooldown_steps=cooldown_steps,

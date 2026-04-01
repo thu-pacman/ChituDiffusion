@@ -1,6 +1,7 @@
 from logging import getLogger
 import importlib
 from contextlib import nullcontext
+import sys
 import warnings
 
 import numpy as np
@@ -37,11 +38,18 @@ class LpipsStrategy(ReferenceMetricStrategy):
 
         try:
             lpips = importlib.import_module("lpips")
-        except ImportError:
+        except ImportError as exc:
+            install_hint = (
+                "lpips package not installed. "
+                "Install with: uv sync --extra eval "
+                "or lightweight install in current env: "
+                f"{sys.executable} -m pip install --no-deps lpips==0.1.4 "
+                "(if pip missing: python -m ensurepip --upgrade)"
+            )
             result = {
                 "metric": "lpips",
                 "status": "skipped",
-                "message": "lpips package not installed",
+                "message": f"{install_hint}. python={sys.executable}. ImportError: {exc}",
             }
             result_path = self.save_result(result)
             result["result_path"] = result_path

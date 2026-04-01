@@ -1,8 +1,8 @@
 launch:
+  tag: perf
   num_nodes: 1
-  gpus_per_node: 4
-  python_script: test/test_generate.py
-  log_dir: logs
+  gpus_per_node: 8
+  python_script: test/test_flexcache.py
   srun:
     partition: debug
     cpus_per_gpu: 24
@@ -18,23 +18,24 @@ model:
 
 parallel:
   # cfg-parallel factor: only 1 or 2.
-  cfp: 1
+  cfp: 2
 
 infer:
   attn_type: flash_attn
   low_mem_level: 0
-  enable_flexcache: false
+  enable_flexcache: true
   up_limit: 1
 
 eval:
-  eval_type: []
-  reference_path: null
+  eval_type: [psnr,lpips]
+  reference_path: /home/chenyy/WORK/cyy/SmartDiffusion/outputs/origin/origin_a_cat_walking_on_grass_20260401_174307_wan2_1_t2v_1_3b
 
 output:
-  root_dir: outputs/origins
-  enable_run_log: false
+  root_dir: outputs
+  enable_run_log: true
   enable_timer_dump: true
-
+  hydra_dump_mode: off
+  
 # Extra hydra overrides appended to the launch command.
 # Example:
 # overrides:

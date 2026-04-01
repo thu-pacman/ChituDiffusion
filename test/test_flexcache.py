@@ -9,6 +9,7 @@ import copy
 import re
 import sys
 import subprocess
+import shutil
 from subprocess import TimeoutExpired
 from datetime import datetime
 from logging import getLogger
@@ -51,7 +52,7 @@ msgs = [
         sample_solver="unipc",
         flexcache_params=FlexCacheParams(
             strategy="ditango",
-            cache_ratio=0.2,
+            cache_ratio=0.4,
             warmup=5,
             cooldown=5,
         ),
@@ -99,6 +100,11 @@ def _build_run_output_dir(args, reqs: list[DiffusionUserRequest]) -> str:
     model_slug = _slugify(getattr(args.models, "name", "model"), max_len=64)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir_name = f"{prompt_slug}_{ts}_{model_slug}"
+    run_tag = str(os.getenv("CHITU_RUN_TAG", "")).strip()
+    if run_tag:
+        run_tag_slug = _slugify(run_tag, max_len=PROMPT_SLUG_LEN)
+        if run_tag_slug:
+            run_dir_name = f"{run_tag_slug}_{run_dir_name}"
     return os.path.join(root_dir, run_dir_name)
 
 
@@ -193,6 +199,56 @@ def _dump_run_metadata(run_output_dir: str, args, reqs: list[DiffusionUserReques
         f.write(OmegaConf.to_yaml(args, resolve=True))
 
 
+def _get_hydra_runtime_output_dir() -> str:
+    try:
+        from hydra.core.hydra_config import HydraConfig
+
+        runtime = HydraConfig.get().runtime
+        if runtime is None:
+            return ""
+        return str(getattr(runtime, "output_dir", "") or "")
+    except Exception:
+        return ""
+
+
+def _apply_hydra_dump_policy(run_output_dir: str, args) -> None:
+    mode = str(getattr(args.output, "hydra_dump_mode", "video_dir") or "video_dir").strip().lower()
+    runtime_output_dir = _get_hydra_runtime_output_dir()
+    if not runtime_output_dir:
+        return
+
+    src_hydra_dir = os.path.join(runtime_output_dir, ".hydra")
+
+    if mode in {"off", "disable", "none"}:
+        if os.path.isdir(src_hydra_dir):
+            shutil.rmtree(src_hydra_dir, ignore_errors=True)
+        return
+
+    if mode not in {"video_dir", "same_as_video", "relocate"}:
+        return
+
+    if not run_output_dir or not os.path.isdir(src_hydra_dir):
+        return
+
+    if os.path.abspath(runtime_output_dir) == os.path.abspath(run_output_dir):
+        return
+
+    os.makedirs(run_output_dir, exist_ok=True)
+    dst_hydra_dir = os.path.join(run_output_dir, ".hydra")
+    if os.path.isdir(dst_hydra_dir):
+        shutil.rmtree(dst_hydra_dir, ignore_errors=True)
+
+    shutil.copytree(src_hydra_dir, dst_hydra_dir)
+    shutil.rmtree(src_hydra_dir, ignore_errors=True)
+
+    # Best effort: remove empty hydra runtime directory after relocation.
+    try:
+        if os.path.isdir(runtime_output_dir) and not os.listdir(runtime_output_dir):
+            os.rmdir(runtime_output_dir)
+    except OSError:
+        pass
+
+
 def run_normal(args):
     rank = torch.distributed.get_rank()
     warmup_diffusion_engine(args)
@@ -219,6 +275,9 @@ def run_normal(args):
 
         if run_output_dir:
             os.environ["CHITU_CURRENT_OUTPUT_DIR"] = run_output_dir
+
+        if rank == 0:
+            _apply_hydra_dump_policy(run_output_dir, args)
 
         log_handler = None
         if run_output_dir and getattr(args.output, "enable_run_log", True):
@@ -247,7 +306,7 @@ def run_normal(args):
 
         if rank == 0 and getattr(args.output, "enable_timer_dump", False):
             Timer.print_statistics()
-            Timer.save_statistics(os.path.join(run_output_dir, "timer_stats.csv"))
+            Timer.save_statistics(os.path.join(run_output_dir, "time_stats.csv"))
 
     chitu_terminate()
     chitu_run_eval()

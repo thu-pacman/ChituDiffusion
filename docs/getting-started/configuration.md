@@ -74,6 +74,37 @@ DiffusionUserParams(
 - Attention backends
 - Evaluation settings
 
+### Recommended `system_config.yaml` Template
+
+```yaml
+launch:
+    tag: my-exp
+    num_nodes: 1
+    gpus_per_node: 4
+    python_script: test/test_generate.py
+    enable_launch_log: false
+
+parallel:
+    cfp: 1  # only 1 or 2
+
+infer:
+    attn_type: flash_attn
+    low_mem_level: 0
+    enable_flexcache: true
+    up_limit: 81
+
+output:
+    root_dir: outputs
+    enable_run_log: true
+    enable_timer_dump: true
+    hydra_dump_mode: video_dir  # default/video_dir/off
+```
+
+Launcher behavior tied to this file:
+- `launch.tag` is exported as `CHITU_RUN_TAG` and prefixes run output directory names.
+- `parallel.cfp` maps to `infer.diffusion.cfg_size`.
+- `infer.diffusion.cp_size` is auto-derived as `(num_nodes * gpus_per_node) / cfp`.
+
 ## System Configuration
 
 ### Model Selection
@@ -145,10 +176,15 @@ Options:
 - `1`: No CFG parallelism
 - `2`: Split positive/negative prompts
 
+When using `run.sh`, prefer setting `parallel.cfp` (or `--cfp`) instead of directly setting `infer.diffusion.cfg_size`.
+
 ### FlexCache
 
 ```bash
-# Enable feature cache
+# Enable feature cache in system_config.yaml
+infer.enable_flexcache=true
+
+# Runtime Hydra override applied by launcher
 infer.diffusion.enable_flexcache=true
 ```
 
@@ -210,6 +246,15 @@ output_dir="./outputs"
 # Logging level
 logging_level="INFO"  # or "DEBUG"
 ```
+
+### Output and Runtime Metadata
+
+- `output.hydra_dump_mode`:
+    - `default`: keep Hydra metadata in Hydra runtime output directory
+    - `video_dir`: relocate `.hydra` into each run video directory
+    - `off`: remove Hydra metadata directory after run
+- `output.enable_timer_dump=true` writes `time_stats.csv` into the run output directory.
+- `launch.enable_launch_log=true` writes launch stdout/stderr to `output.root_dir/launch_<timestamp>.log`.
 
 ## Configuration Files
 

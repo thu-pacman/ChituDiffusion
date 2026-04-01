@@ -112,6 +112,53 @@ $$\text{IsAnchor}(t) = \begin{cases}
 \text{False} & \text{otherwise}
 \end{cases}$$
 
+### 动态阈值（统一 local-state 度量）
+
+设 FlexCache 的 `cache_ratio` 为 $c \in [0,1]$。当前实现将 anchor 阈值与 ASE 阈值统一到“local state 变化”这一主度量上。
+
+1. **Anchor 相对阈值（relative）**
+
+每个 layer $l$ 在 step $t$ 定义 local 压缩态变化：
+
+$$\Delta^{abs}_{l,t}=\|\text{AS}^{loc}_{l,t}-\text{AS}^{loc}_{l,t_a}\|_2$$
+$$\Delta^{rel}_{l,t}=\frac{\Delta^{abs}_{l,t}}{\|\text{AS}^{loc}_{l,t_a}\|_2+\varepsilon}$$
+
+其中 $t_a$ 是该 layer 最近一次 anchor 更新时刻。
+
+Anchor 相对阈值由 $c$ 线性映射：
+
+$$\epsilon_{anchor}(c)=0.1+0.2c$$
+
+当前实现将 trigger 扩展为 step 级 gate：
+
+$$\text{AnchorGate}(t)=\mathbf{1}\left[\max_l\Delta^{rel}_{l,t}>\epsilon_{anchor}(c)\right]$$
+
+即同一步内所有 layer 使用同一个 anchor 决策，保证 anchor step 进行时会完整计算所有 layer 的所有 group。
+
+2. **ASE 绝对阈值（absolute）**
+
+在 anchor step 中，每个 layer 先构造本层候选：
+
+$$\theta_{l,t}=\Delta^{abs}_{l,t}\cdot\sum_{g\in\mathcal{G}_l} w_{l,g}$$
+
+其中求和仅覆盖非 local partition 对应的 group 元信息（代码中的 group cache 元信息集合）。
+
+然后仅在该 anchor step 的最后一层，聚合所有 layer 候选并按 cache ratio 分位更新全局阈值：
+
+$$\epsilon^{global}_{ase,t}=Q_{c}\left(\{\theta_{l,t}\}_{l}\right),\quad c\in[0,1]$$
+
+非 anchor step 的 group 选择统一按全局阈值 $\epsilon^{global}_{ase,t}$ 进行比较；每层候选阈值 $\theta_{l,t}$ 的作用是提供跨层重要性视野，并用于全局阈值聚合。
+
+### Anchor Step 执行规则
+
+当前代码中的 anchor step 在执行上满足：
+
+- 完整计算所有 layer 的所有 group。
+- 每层更新 anchor stats（$w,\alpha,\text{local ref}$）。
+- 在最后一层统一更新一次全局 $\epsilon^{global}_{ase,t}$。
+
+并且 anchor 判定信号会打印全层相对误差快照，便于调试触发行为。
+
 ---
 
 ## Dynamic Group State Compose 公式
@@ -134,10 +181,14 @@ $$\text{GroupCompose}(g \rightarrow kg): AS_t(G_i) \oplus AS_t(G_{i+1}) \oplus .
 | 最大化 GPU 利用率      | 双流异步调度，复用操作填补通信气泡                           |
 | 保证输出正确性         | 每步结束时所有 partition 均被 COMPUTE 或 REUSE 覆盖，确保完整性 |
 
-|      |      |
-| ---- | ---- |
-|      |      |
-|      |      |
-|      |      |
-|      |      |
-|      |      |
+
+## 修正：对于DiTango中local partition和 local group的理解
+
+目前代码实现中，出现了对local概念理解的混淆，因此我在此处说明，并希望agent基于此做改进。
+对于序列并行度为s的场景，序列被分为s份。ditango设置group size = g。则会出现 s // g 个Attention state group（as group）（假设整除）。
+
+local group 表示 当前 rank in cp 所在的as组。非local group中由g个attention state merge而成，但是local group需要区别对待，因为local group中有一个local attention state，因此当g>1时，local group 由 g-1个attention state merge而成。
+
+local attention state的特殊性在于，local partition （q_id = kv_id）是不依赖通信获取的，也是attention中计算贡献占比最大的，因此一定参与计算，而且作为 attention state error modeling的标尺。因此需要区别对待，在ditango attention中单独被计算，不参与group merge，但参与final state merge。此计算发生于第一次partition wise attention （inner step == 0 and outer step == 0），可以有效被计算通信重叠。
+
+local group中其他的attention state则与别的group没有区别，正常参与计算和决策即可。

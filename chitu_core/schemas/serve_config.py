@@ -82,6 +82,7 @@ class OutputConfig:
     root_dir: str = "outputs"
     enable_run_log: bool = True
     enable_timer_dump: bool = False
+    hydra_dump_mode: str = "video_dir"  # one of: default, video_dir, off
 
 
 @dataclass

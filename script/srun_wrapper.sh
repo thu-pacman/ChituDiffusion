@@ -9,4 +9,6 @@ export MASTER_ADDR=$(scontrol show jobid=$SLURM_JOB_ID | tr '=' ' ' | grep Batch
 echo "Task $RANK: RANK=$RANK, LOCAL_RANK=$LOCAL_RANK, WORLD_SIZE=$WORLD_SIZE, MASTER_ADDR=$MASTER_ADDR"
 
 # 执行实际的 Python 脚本
-exec python "$@"
+RUNTIME_PYTHON="${CHITU_PYTHON_BIN:-python}"
+echo "Task $RANK: using python=$RUNTIME_PYTHON"
+exec "$RUNTIME_PYTHON" "$@"

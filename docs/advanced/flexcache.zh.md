@@ -26,9 +26,15 @@ FlexCache 使用一组专门参数：
 |------|--------------|----------|
 | TeaCache | `teacache_thresh` | ratio 越高，阈值越大，复用越多 |
 | PAB | `skip_self_range` | ratio 越高，跳步越大，复用越多 |
-| DiTango | `ase_threshold` | ratio 越高，阈值越大，复用越多 |
+| DiTango | `anchor_rel_err_threshold` + 全局 `ase_threshold` 分位 | ratio 越高，越偏向复用 |
 
 其他策略内部参数默认写死，以保证接口一致性。
+
+DiTango 运行时说明：
+- `cache_ratio` 同时参与 anchor gate 判定和全局 ASE 阈值分位更新。
+- 为保证稳定性，local partition 每步都会重算。
+- 策略实现已迁移至 `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`。
+- 会输出合并决策可视化：`<output_dir>/ditango_policy_step_layer_group.ppm`。
 
 ## 使用方式
 

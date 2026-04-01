@@ -60,6 +60,7 @@ output:
   root_dir: outputs
   enable_run_log: true
   enable_timer_dump: false
+  hydra_dump_mode: video_dir # one of: default, video_dir, off
 
 request: # for testing in single_req_test.py, NOT affecting the real serving
   prompt_tokens_len: -1 # use for performance testing, -1 means use real requests.

@@ -16,6 +16,9 @@ Configure Smart-Diffusion for multi-GPU execution.
 bash run.sh system_config.yaml --num-nodes 1 --gpus-per-node 4 --cfp 2
 ```
 
+`--cfp` (or `parallel.cfp` in config) is CFG parallel factor (`1` or `2`).
+Launcher derives `infer.diffusion.cp_size = total_gpus / cfp` automatically.
+
 ## Multi-Node Setup
 
 ### Using SLURM

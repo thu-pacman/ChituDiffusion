@@ -51,7 +51,7 @@ DiffusionUserParams(
 
 - `teacache` -> `teacache_thresh`
 - `pab` -> `skip_self_range` (`skip_cross_range` is derived internally)
-- `ditango` -> `ase_threshold`
+- `ditango` -> `anchor_rel_err_threshold` + global `ase_threshold` quantile
 
 Other strategy internals are intentionally fixed to keep API compact and predictable.
 
@@ -60,6 +60,7 @@ Other strategy internals are intentionally fixed to keep API compact and predict
 - Parameter normalization happens in `chitu_diffusion/task.py`.
 - Strategy assembly and ratio mapping happen in `chitu_diffusion/generator.py`.
 - Strategy implementations are in `chitu_diffusion/flex_cache/strategy/`.
+- DiTango implementation is in `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`.
 - All strategies now follow the same warmup/cooldown semantics.
 
 ## Validation Rules
