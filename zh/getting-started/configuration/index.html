@@ -769,6 +769,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="3. 系统参数（半静态）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#system_configyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        推荐的 system_config.yaml 模板
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -810,6 +827,17 @@
     <span class="md-ellipsis">
       
         FlexCache 全局开关
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        输出与运行元数据
       
     </span>
   </a>
@@ -1879,6 +1907,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="3. 系统参数（半静态）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#system_configyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        推荐的 system_config.yaml 模板
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1920,6 +1965,17 @@
     <span class="md-ellipsis">
       
         FlexCache 全局开关
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        输出与运行元数据
       
     </span>
   </a>
@@ -2002,23 +2058,64 @@
 <h2 id="3">3. 系统参数（半静态）<a class="headerlink" href="#3" title="Permanent link">&para;</a></h2>
 <p>位置：启动配置（命令行或配置文件）</p>
 <p>用途：并行、算子、内存、评测等系统行为。</p>
+<h3 id="system_configyaml">推荐的 <code>system_config.yaml</code> 模板<a class="headerlink" href="#system_configyaml" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">launch</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-exp</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">num_nodes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">gpus_per_node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">python_script</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">test/test_generate.py</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">enable_launch_log</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="nt">parallel</span><span class="p">:</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="nt">cfp</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">  </span><span class="c1"># 仅支持 1 或 2</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="nt">infer</span><span class="p">:</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="nt">attn_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">flash_attn</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">    </span><span class="nt">low_mem_level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">    </span><span class="nt">enable_flexcache</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="nt">up_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">81</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="nt">output</span><span class="p">:</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">    </span><span class="nt">root_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">outputs</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">    </span><span class="nt">enable_run_log</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">    </span><span class="nt">enable_timer_dump</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">    </span><span class="nt">hydra_dump_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">video_dir</span><span class="w">  </span><span class="c1"># default/video_dir/off</span>
+</code></pre></div>
+<p>与启动脚本 <code>run.sh</code> 对应关系：
+- <code>launch.tag</code> 会导出为 <code>CHITU_RUN_TAG</code>，并作为输出目录前缀。
+- <code>parallel.cfp</code> 会映射为 <code>infer.diffusion.cfg_size</code>。
+- <code>infer.diffusion.cp_size</code> 会按 <code>(num_nodes * gpus_per_node) / cfp</code> 自动推导。</p>
 <h2 id="_3">常用系统参数<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
 <h3 id="_4">注意力后端<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>infer.attn_type<span class="o">=</span>flash_attn<span class="w">   </span><span class="c1"># 或 sage / sparge / auto</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>infer.attn_type<span class="o">=</span>flash_attn<span class="w">   </span><span class="c1"># 或 sage / sparge / auto</span>
 </code></pre></div>
 <h3 id="_5">低内存模式<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>infer.diffusion.low_mem_level<span class="o">=</span><span class="m">2</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>infer.diffusion.low_mem_level<span class="o">=</span><span class="m">2</span>
 </code></pre></div>
 <h3 id="flexcache_1">FlexCache 全局开关<a class="headerlink" href="#flexcache_1" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>infer.enable_flexcache<span class="o">=</span><span class="nb">true</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>infer.enable_flexcache<span class="o">=</span><span class="nb">true</span>
 </code></pre></div>
 <p>仅当全局开关开启时，请求侧 FlexCache 才会生效。</p>
+<p>启动后会通过 Hydra 覆盖为：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>infer.diffusion.enable_flexcache<span class="o">=</span><span class="nb">true</span>
+</code></pre></div>
+<h3 id="_6">输出与运行元数据<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>output.hydra_dump_mode</code>:<ul>
+<li><code>default</code>: 保留 Hydra 运行目录中的 <code>.hydra</code></li>
+<li><code>video_dir</code>: 将 <code>.hydra</code> 移动到视频输出目录</li>
+<li><code>off</code>: 运行后清理 <code>.hydra</code></li>
+</ul>
+</li>
+<li><code>output.enable_timer_dump=true</code> 时，会在每次输出目录中写入 <code>time_stats.csv</code>。</li>
+<li><code>launch.enable_launch_log=true</code> 时，启动日志会写入 <code>output.root_dir/launch_&lt;timestamp&gt;.log</code>。</li>
+</ul>
 <h2 id="hydra">Hydra 覆盖示例<a class="headerlink" href="#hydra" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span>models.name<span class="o">=</span>Wan2.1-T2V-14B<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span>models.ckpt_dir<span class="o">=</span>/path/to/checkpoint<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span>infer.attn_type<span class="o">=</span>sage<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span>infer.diffusion.low_mem_level<span class="o">=</span><span class="m">2</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>python<span class="w"> </span>test_generate.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>models.name<span class="o">=</span>Wan2.1-T2V-14B<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span>models.ckpt_dir<span class="o">=</span>/path/to/checkpoint<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span>infer.attn_type<span class="o">=</span>sage<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span>infer.diffusion.low_mem_level<span class="o">=</span><span class="m">2</span>
 </code></pre></div>
 
 

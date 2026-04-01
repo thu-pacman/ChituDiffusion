@@ -2043,7 +2043,13 @@
 <p><strong>How it works:</strong>
 - Estimates group-level reuse confidence from ASE
 - Recomputes groups when confidence is insufficient
-- Uses periodic anchor updates to control drift</p>
+- Uses step-level anchor gating to control drift</p>
+<p>Current behavior notes:
+- Local partition is always computed each step and merged separately.
+- Anchor gate and per-group compute/reuse plan are synchronized across CFG positive/negative branches.
+- <code>cache_ratio</code> drives both anchor aggressiveness and global ASE-threshold quantile update.
+- Implementation path: <code>chitu_diffusion/flex_cache/strategy/ditango/ditango.py</code>.
+- Decision visualization output: <code>&lt;output_dir&gt;/ditango_policy_step_layer_group.ppm</code>.</p>
 <h2 id="context-parallelism">Context Parallelism<a class="headerlink" href="#context-parallelism" title="Permanent link">&para;</a></h2>
 <p>Split long sequences across multiple GPUs.</p>
 <p><strong>Configuration:</strong></p>

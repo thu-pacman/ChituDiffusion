@@ -1938,6 +1938,12 @@
 <li>PAB: 基于注意力广播，常用于质量和速度均衡场景。</li>
 <li>DiTango: 基于 ASE 判据进行分组计算/复用控制。</li>
 </ul>
+<p>DiTango 当前实现要点：
+- Local partition 每步强制计算，并与 group 状态分开合并。
+- Anchor gate 与 group 计算计划会在 CFG 正负分支间同步，避免分支决策不一致。
+- <code>cache_ratio</code> 同时影响 anchor 触发激进程度和全局 ASE 阈值分位更新。
+- 实现路径：<code>chitu_diffusion/flex_cache/strategy/ditango/ditango.py</code>。
+- 决策可视化输出：<code>&lt;output_dir&gt;/ditango_policy_step_layer_group.ppm</code>。</p>
 <p>更多细节见 <a href="../../advanced/flexcache/">FlexCache</a>。</p>
 <h2 id="context-parallelism">Context Parallelism<a class="headerlink" href="#context-parallelism" title="Permanent link">&para;</a></h2>
 <p>将长序列切分到多张 GPU 上执行。</p>

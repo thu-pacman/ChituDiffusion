@@ -2086,6 +2086,8 @@
 <h3 id="unified-launcher">Unified Launcher<a class="headerlink" href="#unified-launcher" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>bash<span class="w"> </span>run.sh<span class="w"> </span>system_config.yaml<span class="w"> </span>--num-nodes<span class="w"> </span><span class="m">1</span><span class="w"> </span>--gpus-per-node<span class="w"> </span><span class="m">4</span><span class="w"> </span>--cfp<span class="w"> </span><span class="m">2</span>
 </code></pre></div>
+<p><code>--cfp</code> (or <code>parallel.cfp</code> in config) is CFG parallel factor (<code>1</code> or <code>2</code>).
+Launcher derives <code>infer.diffusion.cp_size = total_gpus / cfp</code> automatically.</p>
 <h2 id="multi-node-setup">Multi-Node Setup<a class="headerlink" href="#multi-node-setup" title="Permanent link">&para;</a></h2>
 <h3 id="using-slurm">Using SLURM<a class="headerlink" href="#using-slurm" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bash<span class="w"> </span>run.sh<span class="w"> </span>system_config.yaml<span class="w"> </span>--num-nodes<span class="w"> </span><span class="m">2</span><span class="w"> </span>--gpus-per-node<span class="w"> </span><span class="m">4</span><span class="w"> </span>--cfp<span class="w"> </span><span class="m">2</span><span class="w">  </span><span class="c1"># 8 GPUs total</span>

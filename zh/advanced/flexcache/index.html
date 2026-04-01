@@ -1967,12 +1967,17 @@
 </tr>
 <tr>
 <td>DiTango</td>
-<td><code>ase_threshold</code></td>
-<td>ratio 越高，阈值越大，复用越多</td>
+<td><code>anchor_rel_err_threshold</code> + 全局 <code>ase_threshold</code> 分位</td>
+<td>ratio 越高，越偏向复用</td>
 </tr>
 </tbody>
 </table>
 <p>其他策略内部参数默认写死，以保证接口一致性。</p>
+<p>DiTango 运行时说明：
+- <code>cache_ratio</code> 同时参与 anchor gate 判定和全局 ASE 阈值分位更新。
+- 为保证稳定性，local partition 每步都会重算。
+- 策略实现已迁移至 <code>chitu_diffusion/flex_cache/strategy/ditango/ditango.py</code>。
+- 会输出合并决策可视化：<code>&lt;output_dir&gt;/ditango_policy_step_layer_group.ppm</code>。</p>
 <h2 id="_2">使用方式<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
 <h3 id="_3">推荐写法<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chitu_diffusion.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiffusionUserParams</span><span class="p">,</span> <span class="n">FlexCacheParams</span>

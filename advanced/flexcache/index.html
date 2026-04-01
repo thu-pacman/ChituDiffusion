@@ -1965,12 +1965,17 @@
 </tr>
 <tr>
 <td>DiTango</td>
-<td><code>ase_threshold</code></td>
-<td>higher ratio -&gt; larger threshold -&gt; more reuse</td>
+<td><code>anchor_rel_err_threshold</code> + global <code>ase_threshold</code> quantile</td>
+<td>higher ratio -&gt; stronger reuse preference</td>
 </tr>
 </tbody>
 </table>
 <p>Other strategy internals are fixed by design for API consistency.</p>
+<p>DiTango runtime notes:
+- <code>cache_ratio</code> is used by both anchor gating and global ASE-threshold quantile update.
+- Local partition is always recomputed each step for stability.
+- The strategy implementation moved to <code>chitu_diffusion/flex_cache/strategy/ditango/ditango.py</code>.
+- A merged decision map is written to <code>&lt;output_dir&gt;/ditango_policy_step_layer_group.ppm</code>.</p>
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
 <h3 id="recommended-style">Recommended style<a class="headerlink" href="#recommended-style" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chitu_diffusion.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiffusionUserParams</span><span class="p">,</span> <span class="n">FlexCacheParams</span>
