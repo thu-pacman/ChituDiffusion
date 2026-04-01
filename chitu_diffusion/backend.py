@@ -33,7 +33,7 @@ from chitu_core.distributed.parallel_state import (
 )
 from chitu_core.models.registry import ModelType, get_model_class
 from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend, DiffusionAttention_with_CP
-
+from chitu_diffusion.modules.rope.diffusion_rope_backend import naive_rope_apply, rope_apply_with_cp, rope_apply_with_position
 from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheManager
 
 # from chitu_core.distributed.moe_token_dispatcher import init_token_dispatcher
@@ -601,11 +601,16 @@ class DiffusionBackend:
         Returns:
             callable or None: RoPE implementation function, or None for default.
         """
+
         if args.infer.diffusion.cp_size > 1:
-            from chitu_diffusion.utils.wan_utils import rope_apply_with_cp
             return partial(rope_apply_with_cp, cp_size=get_cp_group().group_size, cp_rank=get_cp_group().rank_in_group)
+
+        elif args.infer.diffusion.fpp_size > 1:
+            return rope_apply_with_position 
         
-        return None
+        else:
+            return naive_rope_apply 
+
 
     # hmx: refactored for Wan2.2 because it has two noise models
     @staticmethod
@@ -630,7 +635,7 @@ class DiffusionBackend:
                 ckpt_path,
                 attn_backend, 
                 rope_impl
-            )
+            ) 
             DiffusionBackend.model_pool.append(model) 
             
         elif args.models.name in ["Wan2.2-T2V-A14B"]:
@@ -717,6 +722,9 @@ class DiffusionBackend:
         rope_impl = DiffusionBackend._get_rope_implementation(args)
        
         DiffusionBackend._build_and_setup_model(args, attn_backend, rope_impl)
+
+        for model in DiffusionBackend.model_pool:
+            model.cache_manager = DiffusionBackend.flexcache
 
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         logger.info(

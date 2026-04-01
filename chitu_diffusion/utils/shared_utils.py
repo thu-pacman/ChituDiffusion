@@ -53,7 +53,29 @@ class SequencePadder:
         tensor = tensor[slicing]
         
         return tensor
+
+def split_latent(shape: torch.Size, split_num: int, split_dim = 1) -> List[Tuple[int,int]]:
     
+    full_size = shape[split_dim]
+    split_size = full_size // split_num
+    remainder = full_size % split_num
+
+    split_start_end_idxs = []
+    
+    start_idx = 0
+    for i in range(split_num):
+        end_idx = start_idx + split_size
+        if i < remainder:  
+            end_idx += 1
+        split_start_end_idxs.append((start_idx, end_idx))
+        start_idx = end_idx
+    
+    return split_start_end_idxs
+
+
+
+
+
 @torch.jit.script
 def transpose_and_unsqueeze(x: torch.Tensor) -> torch.Tensor:
     return x.transpose(-2, -1).unsqueeze(-1)

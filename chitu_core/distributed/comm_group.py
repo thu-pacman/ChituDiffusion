@@ -118,7 +118,7 @@ class CommGroup:
         """Return the global rank of the process that precedes the caller"""
         rank_in_group = self.rank_in_group
         group_size = self.group_size
-        return self.rank_list[(rank_in_group - 1) % group_size]
+        return self.rank_list[(rank_in_group - 1 + group_size) % group_size]
 
     @property
     def is_first_rank(self):
@@ -302,17 +302,18 @@ class CommGroup:
         return list(zip(ip_list, port_dp_list, port_pp_list))
     
     # ==================== For Diffusion Ring Attention =================
-    def p2p_isend(self, tensor: torch.Tensor, dst: int):
+    def p2p_isend(self, tensor: torch.Tensor, dst: int, tag=0):
         # logger.info(f"R{self.global_rank}| send to {self.rank_list[dst]}")
-        send_op = torch.distributed.P2POp(torch.distributed.isend, tensor, self.rank_list[dst], self.gpu_group)
+        send_op = torch.distributed.P2POp(torch.distributed.isend, tensor, self.rank_list[dst], self.gpu_group, tag)
         self.p2p_ops.append(send_op)
 
-    def p2p_irecv(self, size: torch.Size, dtype: torch.dtype, src: int):
+    def p2p_irecv(self, size: torch.Size, dtype: torch.dtype, src: int, tag=0):
         tensor = torch.empty(size, dtype=dtype, device=self.device)
         # logger.info(f"R{self.global_rank}| recv from {self.rank_list[src]}")
-        recv_op = torch.distributed.P2POp(torch.distributed.irecv, tensor, self.rank_list[src], self.gpu_group)
+        recv_op = torch.distributed.P2POp(torch.distributed.irecv, tensor, self.rank_list[src], self.gpu_group, tag)
         self.p2p_ops.append(recv_op)
         return tensor
+
 
     # @toolbox.timer.torch_function_decorator("p2p_commit")
     def p2p_commit(self):

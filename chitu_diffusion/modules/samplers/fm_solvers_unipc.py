@@ -140,6 +140,12 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
         """
         return self._step_index
 
+    def increment_step_index(self):
+        """
+        Manually increase the step index by one. This is useful for some customized pipelines that require more control over the scheduler step index.
+        """
+        self._step_index += 1
+
     @property
     def begin_index(self):
         """
@@ -659,7 +665,8 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
              timestep: Union[int, torch.Tensor],
              sample: torch.Tensor,
              return_dict: bool = True,
-             generator=None) -> Union[SchedulerOutput, Tuple]:
+             generator=None,
+             update_step_index=True) -> Union[SchedulerOutput, Tuple]:
         """
         Predict the sample from the previous timestep by reversing the SDE. This function propagates the sample with
         the multistep UniPC.
@@ -734,7 +741,8 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
             self.lower_order_nums += 1
 
         # upon completion increase step index by one
-        self._step_index += 1  # pyright: ignore
+        if update_step_index:
+            self._step_index += 1  # pyright: ignore
 
         if not return_dict:
             return (prev_sample,)

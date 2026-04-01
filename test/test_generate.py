@@ -37,7 +37,7 @@ msgs = [
     negative_prompt='色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走',
     num_inference_steps=50,
     sample_solver='unipc',
-    flexcache='PAB', # TODO: 统一的 quality/latency tradeoff 参数
+    flexcache='FPP', # TODO: 统一的 quality/latency tradeoff 参数
 ),
     DiffusionUserParams(
     role="Bob",
@@ -46,7 +46,7 @@ msgs = [
     frame_num=81,
     size=(832,480),
     negative_prompt='色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走',
-    num_inference_steps=5,
+    num_inference_steps=50,
     sample_solver='unipc',
 ),
 
@@ -54,7 +54,7 @@ msgs = [
 
 def gen_reqs(num_reqs, max_new_tokens, frequency_penalty, is_vl=False):
     reqs: list[DiffusionUserRequest] = []
-    for i in range(num_reqs):
+    for i in range(1):
         req = DiffusionUserRequest(
             request_id = f"{gen_req_id()}",
             params=msgs[i]
@@ -99,7 +99,7 @@ def run_normal(args, timers):
         timers.log()
         
     chitu_terminate()
-    chitu_run_eval()
+    # chitu_run_eval()
 
 
 @hydra.main(
@@ -115,7 +115,7 @@ def main(args: ServeConfig):
         logger.info(f"Run with args: {args}")
 
     # Initialize Backend: args / distributed / load models & kernels
-    chitu_init(args, logging_level=logging.INFO)
+    chitu_init(args, logging_level=logging.DEBUG)
     logger.info("initialized chitu_core.")
     torch.distributed.barrier(device_ids=[torch.cuda.current_device()])
 

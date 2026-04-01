@@ -102,19 +102,36 @@ class DiffusionUserRequest:
         return f"DiffusionUserRequest(id={self.request_id}, request={self.params})"
 
 @dataclass
+class FPPTaskState:
+    """细粒度流水并行在单个 denoise 任务内的执行状态。"""
+    warmup_steps: int = 2
+    warmup_done: bool = False
+    num_patches: int = 0
+    split_dim: int = 1
+    current_patch_idx: int = 0
+    next_latents: Optional[torch.Tensor] = field(default=None)
+
+
+@dataclass
 class DiffusionTaskBuffer:
     """存储扩散任务的缓冲区数据"""
     # Text encode buffers
     text_embeddings: Optional[torch.Tensor] = field(default=None)
     negative_embeddings: Optional[torch.Tensor] = field(default=None)
     seq_len: Optional[int] = field(default=None)
-    
+    unpad_seq_len: Optional[int] = field(default=None)
+    frames_seq_stride: Optional[int] = field(default=None)
+    grid_sizes: Optional[torch.Tensor] = field(default=None) # [B, 3], the second dimension contains (F, H, W)  
     # Denoise buffers
     seed_g: Optional[torch.Generator] = field(default=None)
     sampler: Optional[Any] = field(default=None)
     latents: Optional[torch.Tensor] = field(default=None)
     timesteps: Optional[List[int]] = field(default=None)
     current_step: int = field(default=0)
+    fpp_split_idxs: Optional[List[Tuple[int,int]]] = field(default=None) # [(start_idx, end_idx), ...] for each fpp rank
+    fpp_schedule: Optional[List[List[Any]]] = field(default=None)
+    fpp_state: Optional[FPPTaskState] = field(default=None)
+    
     denoised_latents: Optional[torch.Tensor] = field(default=None)
     
     # VAE Decode buffers

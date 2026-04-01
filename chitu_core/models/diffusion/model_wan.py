@@ -147,7 +147,7 @@ class WanSelfAttention(nn.Module):
         self.rope_impl = rope_impl or rope_apply
 
 
-    def forward(self, x, grid_sizes, freqs, save_cache=False):
+    def forward(self, x, grid_sizes, freqs, save_cache=False, position_idx=None, cache_manager = None, layer_idx = None):
         r"""
         Args:
             x(Tensor): Shape [B, L, num_heads, C / num_heads]
@@ -165,10 +165,28 @@ class WanSelfAttention(nn.Module):
             return q, k, v
 
         q, k, v = qkv_fn(x)
-        rope_q = self.rope_impl(q, grid_sizes, freqs)
-        rope_k = self.rope_impl(k, grid_sizes, freqs)
+
+        if position_idx is not None:
+            # async patch forward
+            rope_q = self.rope_impl(q, grid_sizes, freqs, position_idx)
+            rope_k = self.rope_impl(k, grid_sizes, freqs, position_idx)
+
+            # print(f"Position idx {position_idx}: rope_q shape {rope_q.shape}, rope_k shape {rope_k.shape}", flush=True)
+        else:
+            from chitu_diffusion.modules.rope.diffusion_rope_backend import naive_rope_apply
+            # sync pipe forward
+            rope_q = naive_rope_apply(q, grid_sizes, freqs)
+            rope_k = naive_rope_apply(k, grid_sizes, freqs)
 
         ## should save cache here
+        if save_cache:
+            from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
+            cache_manager : FPPCache
+            if position_idx is None:
+                cache_manager.init_layer_stale_kv(rope_k, v, layer_idx)
+            else:
+                rope_k, v = cache_manager.update_layer_stale_kv_patch(rope_k, v, layer_idx, (position_idx, position_idx + s))
+            
 
         x = self.attn_func(
             q = half(rope_q),
@@ -314,7 +332,11 @@ class WanAttentionBlock(nn.Module):
         context,
         grid_sizes,
         freqs,
-        context_lens=None
+        context_lens=None,
+        save_cache=False,
+        position_idx=None,
+        cache_manager = None,
+        layer_idx = None
     ):
         r"""
         Args:
@@ -332,7 +354,8 @@ class WanAttentionBlock(nn.Module):
         # self-attention
         y = self.self_attn(
             self.norm1(x).float() * (1 + e[1]) + e[0], grid_sizes,
-            freqs)
+            freqs, save_cache, position_idx, cache_manager, layer_idx)
+        
         with amp.autocast(device_type="cuda", dtype=torch.float32):
             x = x + y * e[2]
 
@@ -480,7 +503,7 @@ class WanModel(ModelMixin, ConfigMixin):
         # initialize weights
         self.init_weights()
 
-        self.cache_manager: Optional[FlexCacheManager] = None
+        self.cache_manager = None
     
     # 这个函数会在模型初始化后被调用，用于根据当前的pp_rank调整模型层的分布    
     def wrap_layers_for_fpp(self):
@@ -526,7 +549,7 @@ class WanModel(ModelMixin, ConfigMixin):
         import time
         print(f"[{time.strftime('%H:%M:%S.%f')}] Rank {self.pp_rank}: {msg}", flush=True)
 
-    def model_compute(self, tokens, time_proj, context_embedding, grid_sizes,  context_lens=None):
+    def model_compute(self, tokens, time_proj, context_embedding, grid_sizes,  context_lens=None, save_cache=False, position_idx=None):
         """
         主计算负载：通过所有transformer blocks处理tokens
         这是计算密集的核心部分，适合分布式处理
@@ -544,10 +567,12 @@ class WanModel(ModelMixin, ConfigMixin):
 
         x = tokens
         for i, block in enumerate(self.blocks):
-            x = block(x, time_proj, context_embedding, grid_sizes, self.freqs, context_lens)
+            # print(f"model_compute: cache_manager = {self.cache_manager}, strategy = {self.cache_manager.strategy}, layer_idx={i}")
+            x = block(x, time_proj, context_embedding, grid_sizes, self.freqs, context_lens, save_cache=save_cache, position_idx=position_idx, cache_manager=self.cache_manager.strategy, layer_idx=i)
         return x
 
-
+    
+    
 
     def _cal_patch_embedding(self, x, seq_len, y=None) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -571,10 +596,7 @@ class WanModel(ModelMixin, ConfigMixin):
         # 创建tokens - 这是将要传递给主计算的数据
         # pad tokens to be divisible by split_size (cp_size * fpp_size)
 
-        tokens = torch.cat([
-            torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))],
-                    dim=1) for u in x
-        ])
+        tokens = torch.cat(x)
 
         return tokens
     
@@ -589,38 +611,45 @@ class WanModel(ModelMixin, ConfigMixin):
             dtype=torch.long).reshape(1, 3)
         return grid_sizes
 
-    def _cal_timeproj_and_context_embeddings(self, t, context, clip_fea=None):
-        if not isinstance(context, list):
-            context = [context]
-        t = t.unsqueeze_(0) if t.dim() == 0 else t
+    def _cal_timeproj(self, t):
 
-        if self.model_type == 'i2v' or self.model_type == 'flf2v':
-            assert clip_fea is not None
+        t = t.unsqueeze_(0) if t.dim() == 0 else t
     
         with amp.autocast(device_type="cuda", dtype=torch.float32):
             e = self.time_embedding(
                 sinusoidal_embedding_1d(self.freq_dim, t).float())
             e0 = self.time_projection(e).unflatten(1, (6, self.dim))
-        
-        context = self.text_embedding(
-            torch.stack([
-                torch.cat(
-                    [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
-                for u in context
-            ]))
-        
-        if clip_fea is not None:
-            context_clip = self.img_emb(clip_fea)  # bs x 257 (x2) x dim
-            context = torch.concat([context_clip, context], dim=1)
 
-        return e0, context
-
+        return e0
+    
     def _cal_time_embeddings(self, t):
         t = t.unsqueeze(0) if t.dim() == 0 else t
         with amp.autocast(device_type="cuda", dtype=torch.float32):
             e = self.time_embedding(
                 sinusoidal_embedding_1d(self.freq_dim, t).float())
         return e
+
+    def _cal_context_embeddings(self, context, clip_fea=None):
+        if not isinstance(context, list):
+            context = [context]
+
+        if self.model_type == 'i2v' or self.model_type == 'flf2v':
+            assert clip_fea is not None
+
+        with amp.autocast(device_type="cuda", dtype=torch.float32):
+            context = self.text_embedding(
+                torch.stack([
+                    torch.cat(
+                        [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
+                    for u in context
+                ]))
+        
+        if clip_fea is not None:
+            context_clip = self.img_emb(clip_fea)  # bs x 257 (x2) x dim
+            context = torch.concat([context_clip, context], dim=1)
+
+        return context
+    
 
     def _post_dit(self, x, e, grid_sizes):
         # head processing
@@ -644,7 +673,9 @@ class WanModel(ModelMixin, ConfigMixin):
         """
         tokens = self._cal_patch_embedding(latent, seq_len, y)
         grid_sizes = self._cal_grid_sizes(latent.shape)
-        time_proj, context_embedding = self._cal_timeproj_and_context_embeddings(t, context, clip_fea)
+        time_proj = self._cal_timeproj(t)
+        context_embedding = self._cal_context_embeddings(context, clip_fea)
+
 
         tokens = self.model_compute(tokens, time_proj, context_embedding, grid_sizes)
 
@@ -653,33 +684,39 @@ class WanModel(ModelMixin, ConfigMixin):
 
         return latent[0].to(torch.float32)
 
+
+    
     def sync_pipe_forward(self, latent, t, context, seq_len, clip_fea=None, y=None, save_cache=False):
         """
         同步管道前向传播：在每个阶段之间进行同步，适用于分布式环境
         """
         tokens = self._cal_patch_embedding(latent, seq_len, y)
         grid_sizes = self._cal_grid_sizes(latent.shape)  # [1,3]
-        time_proj, context_embedding = self._cal_timeproj_and_context_embeddings(t, context, clip_fea)
+        time_proj = self._cal_timeproj(t)
+        context_embedding = self._cal_context_embeddings(context, clip_fea)
         
-
-
         if not self.fpp_group.is_first_rank: 
             
-            tokens = self.fpp_group.p2p_irecv(tokens.shape, torch.float32, self.fpp_group.prev_rank)
+            tokens = self.fpp_group.p2p_irecv(tokens.shape, torch.float32, self.fpp_group.prev_rank,tag=5)
             self.fpp_group.p2p_commit()
             self.fpp_group.p2p_wait()
 
-
-        tokens = self.model_compute(tokens, time_proj, context_embedding, grid_sizes)
+        tokens = self.model_compute(tokens, time_proj, context_embedding, grid_sizes, save_cache=save_cache)
 
         if not self.fpp_group.is_last_rank:
             # print(f"dtype before send: {tokens.dtype}")
-            self.fpp_group.p2p_isend(tokens.to(torch.float32), self.fpp_group.next_rank)
+
+            self.fpp_group.p2p_isend(tokens.to(torch.float32), self.fpp_group.next_rank,tag=5)
             self.fpp_group.p2p_commit()
             self.fpp_group.p2p_wait()
-            return None
+            return None 
 
         if self.fpp_group.is_last_rank:
+            from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
+            cache_strategy : FPPCache = self.cache_manager.strategy 
+            cache_strategy.init_stale_tokens(tokens)
+            # print(f"Rank {self.pp_rank}: saved_stale_tokens", flush=True)
+
             time_embedding = self._cal_time_embeddings(t)
             latents = self._post_dit(tokens, time_embedding, grid_sizes)
             return latents[0].to(torch.float32)
