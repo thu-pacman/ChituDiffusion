@@ -169,12 +169,14 @@ output:
 |-------|-------------| ---------|
 | `teacache` |[Teacache](https://github.com/ali-vilab/TeaCache)(CVPR24-spotlight ) | 待测试。 |
 | `pab` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/)(ICLR25 ) | 待测试。 |
-| `ditango` | DiTango (ASE分组复用) | 待测试。 |
+| `ditango` | DiTango (ASE + Anchor 门控分组复用) | 待测试。 |
 
 DiTango 当前实现说明：
 - Local partition 每步都强制计算，并与 group 状态分开合并，保证稳定性。
 - Anchor 判定是 step 级决策，并在 CFG 正负分支间保持一致。
 - `cache_ratio` 同时影响 anchor 触发激进程度与全局 ASE 阈值分位更新。
+- 策略实现位于 `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`。
+- 会在输出目录生成合并决策可视化：`<output_dir>/ditango_policy_step_layer_group.ppm`。
 ---
 
 推荐使用统一参数接口：

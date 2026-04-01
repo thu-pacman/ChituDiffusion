@@ -52,8 +52,8 @@ msgs = [
         sample_solver="unipc",
         flexcache_params=FlexCacheParams(
             strategy="ditango",
-            cache_ratio=0.6,
-            warmup=2,
+            cache_ratio=0.4,
+            warmup=5,
             cooldown=5,
         ),
     ),

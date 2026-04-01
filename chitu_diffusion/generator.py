@@ -525,7 +525,7 @@ class Generator:
             )
 
         if strategy == "ditango":
-            from chitu_diffusion.flex_cache.strategy.ditango import DiTangoV3Strategy
+            from chitu_diffusion.flex_cache.strategy.ditango.ditango import DiTangoV3Strategy
 
             ase_threshold = self._ditango_ase_from_ratio(cache_ratio)
             return DiTangoV3Strategy(

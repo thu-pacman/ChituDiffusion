@@ -90,6 +90,8 @@ Current behavior notes:
 - Local partition is always computed each step and merged separately.
 - Anchor gate and per-group compute/reuse plan are synchronized across CFG positive/negative branches.
 - `cache_ratio` drives both anchor aggressiveness and global ASE-threshold quantile update.
+- Implementation path: `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`.
+- Decision visualization output: `<output_dir>/ditango_policy_step_layer_group.ppm`.
 
 ## Context Parallelism
 

@@ -1,7 +1,7 @@
 launch:
-  tag: ditango-cp4
+  tag: perf
   num_nodes: 1
-  gpus_per_node: 4
+  gpus_per_node: 8
   python_script: test/test_flexcache.py
   srun:
     partition: debug
@@ -18,7 +18,7 @@ model:
 
 parallel:
   # cfg-parallel factor: only 1 or 2.
-  cfp: 1
+  cfp: 2
 
 infer:
   attn_type: flash_attn
@@ -28,7 +28,7 @@ infer:
 
 eval:
   eval_type: [psnr,lpips]
-  reference_path: /home/chenyy/WORK/cyy/SmartDiffusion/outputs/origin_a_cat_walking_on_grass_20260324_184715_wan2_1_t2v_1_3b
+  reference_path: /home/chenyy/WORK/cyy/SmartDiffusion/outputs/origin/origin_a_cat_walking_on_grass_20260401_174307_wan2_1_t2v_1_3b
 
 output:
   root_dir: outputs

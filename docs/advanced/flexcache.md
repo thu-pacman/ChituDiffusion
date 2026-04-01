@@ -26,9 +26,15 @@ The same `cache_ratio` scale is mapped to one strategy-specific core parameter:
 |----------|------------------|-------------------|
 | TeaCache | `teacache_thresh` | higher ratio -> larger threshold -> more reuse |
 | PAB | `skip_self_range` | higher ratio -> larger skip range -> more reuse |
-| DiTango | `ase_threshold` | higher ratio -> larger threshold -> more reuse |
+| DiTango | `anchor_rel_err_threshold` + global `ase_threshold` quantile | higher ratio -> stronger reuse preference |
 
 Other strategy internals are fixed by design for API consistency.
+
+DiTango runtime notes:
+- `cache_ratio` is used by both anchor gating and global ASE-threshold quantile update.
+- Local partition is always recomputed each step for stability.
+- The strategy implementation moved to `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`.
+- A merged decision map is written to `<output_dir>/ditango_policy_step_layer_group.ppm`.
 
 ## Usage
 

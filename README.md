@@ -313,12 +313,14 @@ Enable feature reuse acceleration with `infer.diffusion.enable_flexcache=true`:
 |--------|------------|-------------|
 | `teacache` | [TeaCache](https://github.com/ali-vilab/TeaCache) | CVPR24 spotlight. Time embedding tells. |
 | `pab` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/) | ICLR25. Pyramid attention broadcasting |
-| `ditango` | DiTango | ASE-based grouped reuse |
+| `ditango` | DiTango | ASE + anchor-gated grouped reuse |
 
 DiTango behavior notes (current implementation):
 - Local partition is always computed each step and merged separately for stability.
 - Anchor decision is step-level and synchronized across CFG positive/negative branches.
 - `cache_ratio` controls both anchor trigger aggressiveness and global ASE-threshold quantile update.
+- Strategy implementation is in `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`.
+- A merged decision visualization is emitted to `<output_dir>/ditango_policy_step_layer_group.ppm`.
 
 Unified per-request API:
 

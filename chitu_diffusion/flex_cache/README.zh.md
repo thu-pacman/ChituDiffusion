@@ -51,7 +51,7 @@ DiffusionUserParams(
 
 - `teacache` -> `teacache_thresh`
 - `pab` -> `skip_self_range`（`skip_cross_range` 在内部固定派生）
-- `ditango` -> `ase_threshold`
+- `ditango` -> `anchor_rel_err_threshold` + 全局 `ase_threshold` 分位
 
 其他策略细节参数默认写死，以保持接口简洁和行为稳定。
 
@@ -60,6 +60,7 @@ DiffusionUserParams(
 - 参数归一入口在 `chitu_diffusion/task.py`。
 - 策略分发与 ratio 映射在 `chitu_diffusion/generator.py`。
 - 策略实现位于 `chitu_diffusion/flex_cache/strategy/`。
+- DiTango 实现在 `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`。
 - 三种策略统一采用同一 warmup/cooldown 语义。
 
 ## 参数校验规则
