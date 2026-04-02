@@ -18,3 +18,18 @@ class WanModelDefaults:
     qk_norm: bool = True
     cross_attn_norm: bool = True
     eps: float = 1e-6
+
+@dataclass(frozen=True)
+class Flux2ModelDefaults:
+    """Flux2Model 的默认超参常量池（与 __init__ 默认值保持同步）"""
+    model_type: str = "t2i"
+    in_channels: int = 128
+    context_in_dim: int = 7680
+    hidden_size: int = 3072
+    num_heads: int = 24
+    depth: int = 5
+    depth_single_blocks: int = 20
+    axes_dim: tuple = (32, 32, 32, 32)
+    theta: int = 2000
+    mlp_ratio: float = 3.0
+    use_guidance_embed: bool = False

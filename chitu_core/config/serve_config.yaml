@@ -46,6 +46,7 @@ infer:
   mtp_size: 1 # if mtp_size==1, the mtp function is turned off; the mtp function will only be enabled when mtp_size>1.
   schedule_overlap: auto # True, False or auto
   diffusion:
+    cfg_size: 1
     cp_size: 1
     fpp_size: 1
     up_limit: 8
@@ -53,7 +54,14 @@ infer:
     enable_flexcache: False
 
 eval:
-  eval_type: null # one of: vbench, null
+  eval_type: [] # list items in: vbench, fid, fvd, psnr, ssim, lpips
+  reference_path: null # required by fid/fvd/psnr/ssim/lpips
+
+output:
+  root_dir: outputs
+  enable_run_log: true
+  enable_timer_dump: false
+  hydra_dump_mode: video_dir # one of: default, video_dir, off
 
 request: # for testing in single_req_test.py, NOT affecting the real serving
   prompt_tokens_len: -1 # use for performance testing, -1 means use real requests.

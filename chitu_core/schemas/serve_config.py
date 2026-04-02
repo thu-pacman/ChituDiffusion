@@ -62,6 +62,7 @@ class InferConfig:
 
     @dataclass
     class DiffusionConfig:
+        cfg_size: int = MISSING
         cp_size: int = MISSING
         fpp_size: int = MISSING
         up_limit: int = MISSING
@@ -73,7 +74,16 @@ class InferConfig:
 
 @dataclass
 class EvalConfig:
-    eval_type: Optional[str] = None
+    eval_type: Optional[list[str]] = None
+    reference_path: Optional[str] = None
+
+
+@dataclass
+class OutputConfig:
+    root_dir: str = "outputs"
+    enable_run_log: bool = True
+    enable_timer_dump: bool = False
+    hydra_dump_mode: str = "video_dir"  # one of: default, video_dir, off
 
 
 @dataclass
@@ -283,6 +293,7 @@ class ServeConfig:
     benchmark: Any = MISSING
     infer: InferConfig = field(default_factory=InferConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
+    output: OutputConfig = field(default_factory=OutputConfig)
     request: RequestConfig = field(default_factory=RequestConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     dp_config: DpConfig = field(default_factory=DpConfig)

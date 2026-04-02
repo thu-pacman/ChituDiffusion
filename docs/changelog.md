@@ -5,6 +5,17 @@ All notable changes to Smart-Diffusion will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-03-16
+
+### Changed
+- Unified launch entry to `run.sh` only
+- Moved startup/system parameter control to `system_config.yaml`
+- Replaced CFG parallel toggle with explicit `cfp -> infer.diffusion.cfg_size` flow
+- Updated documentation to use `bash run.sh system_config.yaml ...` examples
+- Extended eval strategy support to multi-select `eval.eval_type=[...]`
+- Added eval strategies: `fid`, `fvd`, `psnr`, `ssim`, `lpips` (in addition to `vbench`)
+- Added `eval.reference_path` for reference-based metrics, with skip-on-missing behavior
+
 ## [0.1.1] - 2026-02-16 Chuxi
 
 ### Added

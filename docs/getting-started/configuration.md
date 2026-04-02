@@ -49,7 +49,13 @@ DiffusionUserParams(
     # Advanced
     seed=None,                       # Random seed (None = random)
     save_path=None,                  # Output path (None = auto)
-    flexcache=None,                  # Cache strategy ('teacache', 'PAB')
+    flexcache=None,                  # Legacy cache strategy field
+    flexcache_params=FlexCacheParams(
+        strategy="teacache",        # 'teacache' / 'pab' / 'ditango'
+        cache_ratio=0.4,             # 0 quality-first, 1 speed-first
+        warmup=5,                    # First 5 steps full compute
+        cooldown=5,                  # Last 5 steps full compute
+    ),
 )
 ```
 
@@ -67,6 +73,37 @@ DiffusionUserParams(
 - Memory management
 - Attention backends
 - Evaluation settings
+
+### Recommended `system_config.yaml` Template
+
+```yaml
+launch:
+    tag: my-exp
+    num_nodes: 1
+    gpus_per_node: 4
+    python_script: test/test_generate.py
+    enable_launch_log: false
+
+parallel:
+    cfp: 1  # only 1 or 2
+
+infer:
+    attn_type: flash_attn
+    low_mem_level: 0
+    enable_flexcache: true
+    up_limit: 81
+
+output:
+    root_dir: outputs
+    enable_run_log: true
+    enable_timer_dump: true
+    hydra_dump_mode: video_dir  # default/video_dir/off
+```
+
+Launcher behavior tied to this file:
+- `launch.tag` is exported as `CHITU_RUN_TAG` and prefixes run output directory names.
+- `parallel.cfp` maps to `infer.diffusion.cfg_size`.
+- `infer.diffusion.cp_size` is auto-derived as `(num_nodes * gpus_per_node) / cfp`.
 
 ## System Configuration
 
@@ -139,31 +176,60 @@ Options:
 - `1`: No CFG parallelism
 - `2`: Split positive/negative prompts
 
+When using `run.sh`, prefer setting `parallel.cfp` (or `--cfp`) instead of directly setting `infer.diffusion.cfg_size`.
+
 ### FlexCache
 
 ```bash
-# Enable feature cache
+# Enable feature cache in system_config.yaml
+infer.enable_flexcache=true
+
+# Runtime Hydra override applied by launcher
 infer.diffusion.enable_flexcache=true
 ```
 
 Then set cache type in user parameters:
 ```python
+from chitu_diffusion.task import DiffusionUserParams, FlexCacheParams
+
 DiffusionUserParams(
     prompt="...",
-    flexcache='teacache'  # or 'PAB'
+    flexcache_params=FlexCacheParams(
+        strategy='teacache',
+        cache_ratio=0.4,
+        warmup=5,
+        cooldown=5,
+    )
+)
+```
+
+Legacy style is still supported:
+
+```python
+DiffusionUserParams(
+    prompt="...",
+    flexcache='teacache'
 )
 ```
 
 ### Evaluation
 
 ```bash
-# Enable automatic evaluation
-eval.eval_type=<type>
+# Enable automatic evaluation (multi-select)
+eval.eval_type=[vbench,fid,psnr]
+eval.reference_path=/path/to/reference_videos
 ```
 
 Options:
-- `null` - No evaluation (default)
+- `[]`/`null` - No evaluation (default)
 - `vbench` - VBench custom-mode evaluation
+- `fid` - Frechet Inception Distance (needs `eval.reference_path`)
+- `fvd` - Frechet Video Distance (needs `eval.reference_path`)
+- `psnr` - Peak Signal-to-Noise Ratio (needs `eval.reference_path`)
+- `ssim` - Structural Similarity (needs `eval.reference_path`)
+- `lpips` - Perceptual similarity LPIPS (needs `eval.reference_path`)
+
+If `eval.reference_path` is missing or invalid, reference-based metrics are skipped with warning while other selected metrics continue.
 
 ### Other Settings
 
@@ -180,6 +246,15 @@ output_dir="./outputs"
 # Logging level
 logging_level="INFO"  # or "DEBUG"
 ```
+
+### Output and Runtime Metadata
+
+- `output.hydra_dump_mode`:
+    - `default`: keep Hydra metadata in Hydra runtime output directory
+    - `video_dir`: relocate `.hydra` into each run video directory
+    - `off`: remove Hydra metadata directory after run
+- `output.enable_timer_dump=true` writes `time_stats.csv` into the run output directory.
+- `launch.enable_launch_log=true` writes launch stdout/stderr to `output.root_dir/launch_<timestamp>.log`.
 
 ## Configuration Files
 

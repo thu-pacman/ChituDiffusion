@@ -17,7 +17,7 @@ Smart-Diffusion is the pure enjoyment version of Chitu-Diffusion, developed by t
 - **🚀 High Performance**: Optimized diffusion inference with advanced parallelism strategies
 - **🔧 Flexible Architecture**: Support for multiple attention backends (FlashAttention, SageAttention, SpargeAttention)
 - **💾 Memory Efficient**: Low memory mode with model offloading and VAE tiling
-- **📊 Feature Cache**: Support for lossy acceleration algorithms (TeaCache, PAB)
+- **📊 Feature Cache**: Unified FlexCache API for TeaCache, PAB, and DiTango
 - **🎯 Easy to Use**: Simple API with per-request parameter configuration
 - **🌐 Multi-Model**: Currently supports Wan-T2V series (1.3B, 14B, A14B) with more coming soon
 
@@ -66,7 +66,18 @@ We recommend using `uv` for a smoother installation experience.
 ```bash
 git clone git@github.com:chen-yy20/SmartDiffusion.git
 cd SmartDiffusion
-git submodule update --init --recursive
+```
+
+#### 1.1 Clone the submodules
+Option 1: Clone all submodules (sage-attn, sparge-attn and vbench)
+```bash
+git submodule update --init --recursive 
+```
+Option 2: Clone only a specific submodule. For example, to clone only the sage/sparge_attn submodule:
+
+```bash
+git submodule update --init third_party/sage_attn
+git submodule update --init third_party/sparge_attn
 ```
 
 #### 2. Install uv
@@ -120,12 +131,24 @@ spas_sage_attn = {
 #### 4. Install dependencies
 
 ```bash
-# Basic installation (FlashAttention only)
+# Required installation (base dependencies in [project.dependencies]) | 30mins
 uv sync -v 2>&1 | tee uv_sync.log
 
-# Full installation with quantized attention (SageAttention + SpargeAttention)
-# Build time: ~10 minutes on 32-core, 256GB memory
-uv sync -v --all-extras 2>&1 | tee build.log
+# Optional extras from [project.optional-dependencies]
+# SageAttention
+uv sync -v --extra sage 2>&1 | tee build_sage.log
+
+# SpargeAttention
+uv sync -v --extra sparge 2>&1 | tee build_sparge.log
+
+# VBench evaluation toolkit
+uv sync -v --extra vbench 2>&1 | tee build_vbench.log
+
+# Evaluation metrics (FID/FVD/PSNR/SSIM/LPIPS)
+uv sync -v --extra eval 2>&1 | tee build_eval.log
+
+# One-command extension install (sage + sparge + vbench + eval)
+uv sync -v --all-extras 2>&1 | tee build_full.log
 ```
 
 ### Manual Installation
@@ -197,20 +220,40 @@ print(f"Video saved to: {task.buffer.save_path}")
 
 ### Launch Scripts
 
-**Single GPU:**
+Only `srun` launch is supported.
+
+1. Edit `system_config.yaml` to configure model path, system params, and `cfp`.
+2. Run the unified launcher:
+
 ```bash
-python test_generate.py models.ckpt_dir=/path/to/checkpoint
+bash run.sh system_config.yaml
 ```
 
-**Multi-GPU (Data Parallel):**
+Optional runtime overrides:
+
 ```bash
-bash run_local_single.sh  # Uses torchrun
+bash run.sh system_config.yaml --num-nodes 2 --gpus-per-node 8 --cfp 2
 ```
 
-**Distributed (SLURM):**
-```bash
-bash srun_wan_demo.sh <num_gpus>
+Runtime notes:
+- `parallel.cfp` (or `--cfp`) must be `1` or `2`; launcher maps it to `infer.diffusion.cfg_size`.
+- `infer.diffusion.cp_size` is auto-derived as `(num_nodes * gpus_per_node) / cfp`.
+- `launch.tag` is exported as `CHITU_RUN_TAG` and prefixes output run directory names.
+- `launch.enable_launch_log=true` writes launcher logs to `output.root_dir/launch_<timestamp>.log`.
+- `CHITU_PYTHON_BIN` can force the runtime Python; default order is `.venv/bin/python` -> `python` -> `python3`.
+
+Recommended `system_config.yaml` output section:
+
+```yaml
+output:
+  root_dir: outputs
+  enable_run_log: true
+  enable_timer_dump: true
+  hydra_dump_mode: off   # default/video_dir/off
 ```
+
+`hydra_dump_mode=video_dir` relocates Hydra `.hydra` metadata to the video output directory.
+When `enable_timer_dump=true`, timer statistics are dumped as `time_stats.csv` in each run directory.
 
 ### Advanced Configuration
 
@@ -218,7 +261,7 @@ Configuration is split into three levels:
 
 1. **Model Parameters** (Static): Defined in `chitu_core/config/models/<model>.yaml`
 2. **User Parameters** (Dynamic): Set per-request via `DiffusionUserParams`
-3. **System Parameters** (Semi-static): Set via launch arguments
+3. **System Parameters** (Semi-static): Set in `system_config.yaml`
 
 **Example: Using different attention backend**
 ```bash
@@ -269,29 +312,61 @@ Enable feature reuse acceleration with `infer.diffusion.enable_flexcache=true`:
 | Method | cache_type | Description |
 |--------|------------|-------------|
 | `teacache` | [TeaCache](https://github.com/ali-vilab/TeaCache) | CVPR24 spotlight. Time embedding tells. |
-| `PAB` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/) | ICLR25. Pyramid attention broadcasting |
+| `pab` | [Pyramid Attention Broadcast](https://oahzxl.github.io/PAB/) | ICLR25. Pyramid attention broadcasting |
+| `ditango` | DiTango | ASE + anchor-gated grouped reuse |
 
-**Example:**
+DiTango behavior notes (current implementation):
+- Local partition is always computed each step and merged separately for stability.
+- Anchor decision is step-level and synchronized across CFG positive/negative branches.
+- `cache_ratio` controls both anchor trigger aggressiveness and global ASE-threshold quantile update.
+- Strategy implementation is in `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`.
+- A merged decision visualization is emitted to `<output_dir>/ditango_policy_step_layer_group.ppm`.
+
+Unified per-request API:
+
+```python
+from chitu_diffusion.task import DiffusionUserParams, FlexCacheParams
+
+user_params = DiffusionUserParams(
+  prompt="A cat walking on grass.",
+  flexcache_params=FlexCacheParams(
+    strategy="teacache",  # teacache / pab / ditango
+    cache_ratio=0.4,       # 0 quality-first, 1 speed-first
+    warmup=5,
+    cooldown=5,
+  ),
+)
+```
+
+Legacy style is still supported:
 ```python
 user_params = DiffusionUserParams(
     prompt="A cat walking on grass.",
-    flexcache='teacache',  # or 'PAB'
+  flexcache='teacache',
     # ... other params
 )
 ```
 
 ### Evaluation
 
-Enable automatic evaluation with `eval.eval_type`:
+Enable automatic evaluation with `eval.eval_type` (multi-select):
 
 ```bash
-python test_generate.py eval.eval_type=vbench
+python test_generate.py eval.eval_type=[vbench,fid,psnr] eval.reference_path=/path/to/reference_videos
 ```
 
 Supported evaluation methods:
 - `vbench`: VBench custom-mode evaluation
+- `fid`: Frechet Inception Distance (requires `reference_path`)
+- `fvd`: Frechet Video Distance (requires `reference_path`)
+- `psnr`: Peak Signal-to-Noise Ratio (requires `reference_path`)
+- `ssim`: Structural Similarity Index (requires `reference_path`)
+- `lpips`: Learned Perceptual Image Patch Similarity (requires `reference_path`)
 
-Results are saved to `./vbench_out/` directory.
+Behavior notes:
+- `eval.eval_type=[]` or `null` disables evaluation.
+- Metrics requiring references are skipped with warning if `eval.reference_path` is missing or invalid.
+- Results are saved under `./vbench_out/` (`vbench`) and `./eval_out/` (other metrics).
 
 ## Documentation
 

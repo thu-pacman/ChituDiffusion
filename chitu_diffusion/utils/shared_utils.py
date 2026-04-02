@@ -1,6 +1,8 @@
 import torch
+from datetime import datetime
 import torch.nn.functional as F
 from typing import List, Dict, Tuple, Optional
+from chitu_core.distributed.comm_group import CommGroup
 
 class SequencePadder:
     _padding_info: Dict = {}
@@ -102,12 +104,12 @@ def _update_out_and_lse(
 
 
 def update_out_and_lse(
-    out: Optional[torch.Tensor], # （b, s, a, d）
-    lse: Optional[torch.Tensor], # (b, s, d, 1)
-    block_out: torch.Tensor, # (b, s, a, d)
-    block_lse: torch.Tensor, # (b, d, s)
+    out: Optional[torch.Tensor], # （b, s, n, d）
+    lse: Optional[torch.Tensor], # (b, s, n, 1)
+    block_out: torch.Tensor, # (b, s, n, d)
+    block_lse: torch.Tensor, # (b, n, s)
   ) -> Tuple[torch.Tensor, torch.Tensor]:
-    # output: out (b, s, a, d) lse (b, s, d, 1)        
+    # output: out (b, s, n, d) lse (b, s, n, 1)        
     if out is None:
       out = block_out.to(torch.float32)
       lse = transpose_and_unsqueeze(block_lse)
@@ -115,3 +117,43 @@ def update_out_and_lse(
       out, lse = _update_out_and_lse(out, lse, block_out, block_lse)
       
     return out, lse
+
+
+def async_ring_p2p_commit(group: CommGroup, tensors: Tuple[torch.Tensor, ...], src_rank: int, dst_rank: int):
+    """Set up ring communication for sending and receiving tensors asynchronously.
+
+    Args:
+        tensors: Tuple of tensors to be sent
+        dst_rank: Destination rank to send tensors to
+        src_rank: Source rank to receive tensors from
+        
+    Returns:
+        Tuple[torch.Tensor, ...]: Tuple of tensors to be received after wait
+    """
+    recv_tensors = []
+    
+    for tensor in tensors:
+        send_tensor = tensor
+        recv_size = send_tensor.shape
+        recv_dtype = send_tensor.dtype
+        group.p2p_isend(send_tensor, dst=dst_rank)
+        next_tensor = group.p2p_irecv(size=recv_size, dtype=recv_dtype, src=src_rank)
+        recv_tensors.append(next_tensor)
+        
+    group.p2p_commit()
+    return tuple(recv_tensors)
+
+def async_ring_p2p_wait_and_update(group: CommGroup, recv_tensors: Tuple[torch.Tensor, ...]):
+    """Wait for asynchronous communication to complete and return received tensors.
+
+    Args:
+        recv_tensors: Tuple of tensors returned from async_ring_p2p_commit
+        
+    Returns:
+        Tuple[torch.Tensor, ...]: Tuple of received tensors after communication completes
+    """
+    group.p2p_wait()
+    return recv_tensors
+
+def get_timestamp():
+    return datetime.now().strftime('%Y-%m-%d_%H-%M-%S')

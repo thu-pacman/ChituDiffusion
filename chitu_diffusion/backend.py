@@ -113,6 +113,7 @@ class DiffusionBackend:
     group_gloo = None
 
     # components
+    attn = None
     scheduler: Optional["DiffusionScheduler"] = None
 
     # mutable
@@ -436,6 +437,14 @@ class DiffusionBackend:
         non_expert_data_parallel_size = 1 # TODO: support batch generation with data parallelism
 
         # FIXME: a better cfg worldsize decision
+
+
+        # if args.models.name in ["FLUX.2-klein-4B"]:
+        #     DiffusionBackend.do_cfg = False
+        # else:
+        #     DiffusionBackend.do_cfg = all(x > 0 for x in args.models.sampler.guidance_scale)
+        # cfg_size = 2 if (world_size >= 2 and  DiffusionBackend.do_cfg and args.infer.diffusion.cfg_size > 1) else 1
+
         DiffusionBackend.do_cfg = all(x > 0 for x in args.models.sampler.guidance_scale)
         #cfg_size = 2 if (world_size >= 2 and  DiffusionBackend.do_cfg) else 1
         fine_grained_parallel_size = args.infer.diffusion.fpp_size
@@ -446,6 +455,7 @@ class DiffusionBackend:
         else:#默认行为:如果有CFG且有多GPU且没有开启流水线并行，自动启用CFG并行
             cfg_size = 2 if (world_size >= 2 and DiffusionBackend.do_cfg and fine_grained_parallel_size == 1) else 1
             logger.info(f"Auto-determined cfg size={cfg_size} (world size-{world_size}, do_cfg={DiffusionBackend.do_cfg})")
+
         up_limit = args.infer.diffusion.up_limit
         context_parallel_size = args.infer.diffusion.cp_size
 
@@ -516,6 +526,15 @@ class DiffusionBackend:
                     tokenizer_path=os.path.join(args.models.ckpt_dir, args.models.encoder.t5_tokenizer),
                 )
             logger.info(f"Initialized T5 encoder for {args.models.name}")
+        elif "FLUX" in args.models.name:
+            from chitu_diffusion.modules.encoders.qwen3 import Qwen3Embedder
+            logger.info(f"Initializing T5 encoder for {args.models.name}")
+
+            text_encoder = Qwen3Embedder(
+                    model_spec=args.models.encoder.ckpt_dir,
+                    device = init_device,
+                )
+            logger.info(f"Initialized T5 encoder for {args.models.name}")
         else:
             text_encoder = None
 
@@ -544,6 +563,17 @@ class DiffusionBackend:
                     device = init_device,
                 )
             logger.info(f"Initialized Wan VAE for {args.models.name}")
+        elif "FLUX" in args.models.name:
+            from diffusers import AutoencoderKL
+            logger.info(f"Initializing VAE for {args.models.name}")
+
+            from chitu_diffusion.modules.vaes.flux_vae import FLUX2VAE
+            vae = FLUX2VAE(
+                    vae_path=args.models.vae.checkpoint,
+                    device = init_device,
+                )
+
+            logger.info(f"Initialized VAE for {args.models.name}")
         else:
             # 将来其他vae优先支持slicing和tiling
             vae = None
@@ -580,11 +610,10 @@ class DiffusionBackend:
         """
         attn_type = args.infer.attn_type
         attn = DiffusionAttnBackend(attn_type)
+        DiffusionBackend.attn = attn
 
         if args.infer.diffusion.cp_size > 1:
             attn = DiffusionAttention_with_CP(attn, args.infer.diffusion.up_limit)
-        
-        DiffusionBackend.attn = attn
         return attn
     
     @staticmethod
@@ -656,6 +685,15 @@ class DiffusionBackend:
                 rope_impl
             )
             DiffusionBackend.model_pool = [high_noise_model, low_noise_model]
+        elif args.models.name in ["FLUX.2-klein-4B"]:
+            ckpt_path = os.path.join(args.models.ckpt_dir, "flux-2-klein-4b.safetensors")
+            model = DiffusionBackend._build_and_setup_single_model(
+                args,
+                ckpt_path,
+                attn_backend,
+                rope_impl,
+            )
+            DiffusionBackend.model_pool.append(model)
         else:
             raise ValueError(f"Unsupported model name: {args.models.name}")
 
@@ -718,6 +756,7 @@ class DiffusionBackend:
         DiffusionBackend.flexcache = DiffusionBackend._init_cache_manager(args)
 
         # Initialize attention backend
+        # FIXME: 这里的实现有点丑陋了, CP相关应该在wrap model with cp里面做？
         attn_backend = DiffusionBackend._init_attention_backend(args)
         rope_impl = DiffusionBackend._get_rope_implementation(args)
        

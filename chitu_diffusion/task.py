@@ -46,6 +46,15 @@ class DiffusionTaskStatus(Enum):
 
 
 @dataclass
+class FlexCacheParams:
+    """统一的 FlexCache 用户参数。"""
+    strategy: Optional[str] = None
+    cache_ratio: float = 0.5
+    warmup: int = 5
+    cooldown: int = 5
+
+
+@dataclass
 class DiffusionUserParams:
     """Diffusion生成参数"""
     role: str = "user"
@@ -59,8 +68,55 @@ class DiffusionUserParams:
     num_inference_steps: int = None
     # 其他参数
     save_dir: Optional[str] = "./output"  # 输出保存路径
-    # FlexCache参数
-    flexcache: Optional[str] = None # 支持teacache
+    # FlexCache 兼容字段: 仅指定策略名
+    flexcache: Optional[str] = None
+    # FlexCache 统一参数对象
+    flexcache_params: Optional[Union[FlexCacheParams, Dict[str, Any]]] = None
+
+    def __post_init__(self):
+        if isinstance(self.flexcache_params, dict):
+            self.flexcache_params = FlexCacheParams(**self.flexcache_params)
+
+    def resolve_flexcache_params(self) -> Optional[FlexCacheParams]:
+        """
+        统一 FlexCache 参数入口。
+        优先使用 flexcache_params，缺省时回退到 legacy 字段 flexcache。
+        """
+        params = self.flexcache_params
+
+        if params is None:
+            strategy = (self.flexcache or "").strip()
+            if not strategy:
+                return None
+            params = FlexCacheParams(strategy=strategy)
+
+        strategy = (params.strategy or "").strip().lower()
+        if strategy in {"", "none", "off", "disable", "disabled"}:
+            return None
+
+        if strategy not in {"teacache", "pab", "ditango"}:
+            raise ValueError(
+                f"Unsupported flexcache strategy '{params.strategy}'. "
+                "Supported strategies are: teacache, pab, ditango."
+            )
+
+        cache_ratio = float(params.cache_ratio)
+        if cache_ratio < 0.0 or cache_ratio > 1.0:
+            raise ValueError(f"flexcache cache_ratio must be in [0, 1], got {cache_ratio}.")
+
+        warmup = int(params.warmup)
+        cooldown = int(params.cooldown)
+        if warmup < 0:
+            raise ValueError(f"flexcache warmup must be >= 0, got {warmup}.")
+        if cooldown < 0:
+            raise ValueError(f"flexcache cooldown must be >= 0, got {cooldown}.")
+
+        return FlexCacheParams(
+            strategy=strategy,
+            cache_ratio=cache_ratio,
+            warmup=warmup,
+            cooldown=cooldown,
+        )
     
 
 class DiffusionUserRequest:
@@ -136,6 +192,11 @@ class DiffusionTaskBuffer:
     
     # VAE Decode buffers
     generated_image: Optional[torch.Tensor] = field(default=None)
+
+    # FLUX2-specific buffers
+    ctx_ids: Optional[torch.Tensor] = field(default=None)
+    x_ids: Optional[torch.Tensor] = field(default=None)
+    guidance_vec: Optional[torch.Tensor] = field(default=None)
 
 class DiffusionTask:
     

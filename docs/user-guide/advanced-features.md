@@ -6,6 +6,32 @@ Explore Smart-Diffusion's advanced capabilities for optimal performance.
 
 FlexCache enables feature reuse across denoising steps, providing significant speedup with minimal quality loss.
 
+### Unified Parameters
+
+Use the dedicated FlexCache parameter group:
+
+- `strategy`: `teacache`, `pab`, `ditango`
+- `cache_ratio`: `0` to `1` quality-efficiency tradeoff (`0` quality-first, `1` speed-first)
+- `warmup`: first N steps always full compute
+- `cooldown`: last N steps always full compute
+
+Recommended API:
+
+```python
+from chitu_diffusion.task import DiffusionUserParams, FlexCacheParams
+
+user_params = DiffusionUserParams(
+    prompt="A cat walking on grass",
+    num_inference_steps=50,
+    flexcache_params=FlexCacheParams(
+        strategy="teacache",
+        cache_ratio=0.4,
+        warmup=5,
+        cooldown=5,
+    ),
+)
+```
+
 ### TeaCache
 
 Temporal adaptive caching strategy from CVPR24.
@@ -41,6 +67,31 @@ user_params = DiffusionUserParams(
 - Computes attention at coarse scales
 - Broadcasts to finer scales
 - Typically provides 40-50% speedup
+
+### DiTango
+
+ASE-guided grouped compute/reuse strategy.
+
+**Usage:**
+
+```python
+user_params = DiffusionUserParams(
+    prompt="A cat walking on grass",
+    flexcache='ditango'
+)
+```
+
+**How it works:**
+- Estimates group-level reuse confidence from ASE
+- Recomputes groups when confidence is insufficient
+- Uses step-level anchor gating to control drift
+
+Current behavior notes:
+- Local partition is always computed each step and merged separately.
+- Anchor gate and per-group compute/reuse plan are synchronized across CFG positive/negative branches.
+- `cache_ratio` drives both anchor aggressiveness and global ASE-threshold quantile update.
+- Implementation path: `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`.
+- Decision visualization output: `<output_dir>/ditango_policy_step_layer_group.ppm`.
 
 ## Context Parallelism
 

@@ -1,9 +1,11 @@
 import torch
+import time
 from typing import Optional, Tuple
 from chitu_core.distributed.parallel_state import get_cp_group, get_up_group
 
 from logging import getLogger
 from chitu_diffusion.utils.shared_utils import update_out_and_lse, squeeze_and_transpose
+from chitu_diffusion.bench.timer import Timer
 
 # try:
 #     import flash_attn_interface       
@@ -321,6 +323,11 @@ class DiffusionAttention_with_CP:
         '''
         cp_size = self.cp_size
         local_rank = self.local_chunk_id
+        timer_start = None
+        if Timer.is_enabled():
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            timer_start = time.perf_counter()
 
         ulysses_size = cp_size if cp_size <= self.ulysses_limit else self.ulysses_limit
         if ulysses_size > 1:
@@ -401,6 +408,12 @@ class DiffusionAttention_with_CP:
             fresh_out, fresh_lse = None, None
 
         # assert not torch.isnan(out).any(), f"NaN detected in only output"
+
+        if timer_start is not None:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            elapsed_ms = (time.perf_counter() - timer_start) * 1000.0
+            Timer.record(f"cp{cp_size}_attn", elapsed_ms)
 
         return out, None, None
             

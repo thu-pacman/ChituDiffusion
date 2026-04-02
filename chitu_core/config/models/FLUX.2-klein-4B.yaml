@@ -1,0 +1,35 @@
+name: FLUX.2-klein-4B
+type: flux2-klein
+source: "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B" # Just for displaying. No automatic download.
+ckpt_dir: null # Please override this in commond line with `models.ckpt_dir:<path>`.
+transformer_checkpoint: "transformer"
+tokenizer_path: null # By default the same as ckpt_dir, or you can override it with `models.tokenizer_path:<path>`.
+tokenizer_type: "hf" # one of: hf, tiktoken
+
+task: t2i
+
+encoder:
+  name: "qwen3"
+  ckpt_dir: "/home/dataset/Qwen3-4B-FP8" # Please override this in commond line with `encoder.ckpt_dir:<path>`.
+
+vae:
+  checkpoint: "/home/dataset/FLUX.2-dev/ae.safetensors"
+
+sampler:
+  sample_shift: 1.0
+  sample_steps: 4
+  boundary: []
+  guidance_scale: [4.0]
+  num_train_timesteps: 1000
+
+transformer:
+  in_channels: 128
+  context_in_dim: 7680
+  hidden_size: 3072
+  num_heads: 24
+  depth: 5
+  depth_single_blocks: 20
+  axes_dim: [32, 32, 32, 32]
+  theta: 2000
+  mlp_ratio: 3.0
+  use_guidance_embed: false

@@ -3,12 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import json
 import sys
 import math
-from models.diffusion.model_wan import WanModel
+import time
 import torch
 import torch.distributed as dist
-from typing import Any, Callable, Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 from functools import partial
 from contextlib import contextmanager
 import numpy as np
@@ -16,9 +17,10 @@ import torch.amp as amp
 from tqdm import tqdm
 
 from logging import getLogger
-from chitu_core.global_vars import get_global_args, get_slot_handle, get_timers
+from chitu_core.global_vars import get_global_args, get_slot_handle
+from chitu_core.logging_utils import log_stage, log_progress, log_result, log_perf, should_log_info_on_rank
 from chitu_diffusion.backend import BackendState, CFGType, DiffusionBackend
-from chitu_diffusion.task import DiffusionTask, DiffusionTaskType, DiffusionTaskPool, DiffusionTaskStatus
+from chitu_diffusion.task import DiffusionTask, DiffusionTaskType, DiffusionTaskPool, DiffusionTaskStatus, FPPTaskState, FlexCacheParams
 from chitu_diffusion.task import FPPTaskState
 from chitu_core.distributed.parallel_state import (
     get_cfg_group,
@@ -37,13 +39,18 @@ from chitu_diffusion.modules.samplers.fpp_pipeline_schedule import build_patch_p
 from chitu_diffusion.modules.samplers.fpp_scheduler_adapter import FPPPatchSchedulerAdapter
 from chitu_diffusion.modules.samplers.fm_solvers_unipc import FlowUniPCMultistepScheduler
 from chitu_diffusion.utils.wan_utils import cache_video
-from chitu_diffusion.utils.shared_utils import (
-    SequencePadder,
-    split_latent,
-)
-
-from chitu_core.models.diffusion.model_wan import WanModel
 from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
+from chitu_diffusion.utils.shared_utils import SequencePadder, split_latent
+from chitu_diffusion.bench import Timer, MagLogger
+from chitu_diffusion.utils.output_naming import build_video_name_from_task
+from chitu_diffusion.utils.flux_utils import (
+    batched_prc_img,
+    batched_prc_txt,
+    get_schedule,
+    scatter_ids,
+    save_image_as_png,
+)
+from chitu_core.models.diffusion.model_wan import WanModel
 
 
 logger = getLogger(__name__)
@@ -79,7 +86,7 @@ class DiffusionTaskDispatcher():
 
         self.main_rank = 0
         self.is_main_rank = self.group.is_first_rank
-        logger.info("init diffusion task dispatcher.")
+        logger.debug("init diffusion task dispatcher")
 
 
     def dispatch_metadata(self, task: Optional[DiffusionTask] = None) -> tuple[DiffusionTaskType, DiffusionTask]:
@@ -94,7 +101,7 @@ class DiffusionTaskDispatcher():
                                     device="cpu" if DiffusionBackend.use_gloo else self.local_rank)
             
             # 第一阶段：广播任务大小
-            logger.info(f"Rank {self.rank}: Broadcasting task size {task_size.item()}")
+            logger.debug(f"Rank {self.rank}: Broadcasting task size {task_size.item()}")
             dist.broadcast(
                 tensor=task_size,
                 src=self.main_rank,
@@ -112,13 +119,13 @@ class DiffusionTaskDispatcher():
             )
             
             # 第二阶段：根据接收到的大小创建空buffer
-            logger.info(f"Rank {self.rank}: Received task size {task_size.item()}, creating buffer")
+            logger.debug(f"Rank {self.rank}: Received task size {task_size.item()}, creating buffer")
             task_tensor = DiffusionTask.create_empty_serialization(
                 size=task_size.item(),  # 注意这里要用 .item() 获取标量值
                 device="cpu" if DiffusionBackend.use_gloo else self.local_rank
             )
         
-        logger.info(f"Rank {self.rank} | {task_tensor.shape=} {task_size[0]=} {task_tensor.dtype=} {task_tensor.device=}, ready to broadcast.")
+        logger.debug(f"Rank {self.rank} | {task_tensor.shape=} {task_size[0]=} {task_tensor.dtype=} {task_tensor.device=}, ready to broadcast.")
         
         # 第二阶段：广播实际的任务数据
         dist.broadcast(
@@ -131,7 +138,7 @@ class DiffusionTaskDispatcher():
             task = DiffusionTask.deserialize(task_tensor)
             task_type = task.task_type
         
-        logger.info(f"Rank {self.rank}: {task=}")
+        logger.debug(f"Rank {self.rank}: {task=}")
         return task_type, task
 
     def send_payload(self, *args, **kwargs):
@@ -205,7 +212,7 @@ class Generator:
         return cls(args)
     
     def __init__(self, args):
-        self.timers = get_timers()
+        self.args = args
         self.rank = torch.distributed.get_rank()
         self.local_rank: int = self.rank % 8 
         self.task_dispatchers: List = []
@@ -221,6 +228,39 @@ class Generator:
 
         # Ensure FIFO
         self.current_task = None # 通过这个储存当前任务的中间状态
+        self._last_logged_stage = {}
+        self.denoise_progress_interval = max(1, int(os.getenv("CHITU_PROGRESS_INTERVAL", "5")))
+        self.enable_stage_perf = bool(getattr(args.output, "enable_timer_dump", False))
+        self._stage_start_time = {}
+
+    def _emit_stage_start_if_needed(self, task: DiffusionTask):
+        stage = task.task_type.name
+        if self._last_logged_stage.get(task.task_id) == stage:
+            return
+
+        if self.enable_stage_perf:
+            self._stage_start_time[(task.task_id, stage)] = time.perf_counter()
+
+        if stage == "Denoise":
+            total = task.req.params.num_inference_steps
+            log_stage(
+                logger,
+                stage_name=stage,
+                event="START",
+                task_id=task.task_id,
+                extra=f"step={0:>3}/{total:<3} pct={0.0:>5.1f}%",
+            )
+        else:
+            log_stage(logger, stage_name=stage, event="START", task_id=task.task_id)
+        self._last_logged_stage[task.task_id] = stage
+
+    def _emit_stage_end(self, stage: DiffusionTaskType, task_id: str):
+        log_stage(logger, stage_name=stage.name, event="END", task_id=task_id)
+        if self.enable_stage_perf:
+            start = self._stage_start_time.pop((task_id, stage.name), None)
+            if start is not None:
+                elapsed_ms = (time.perf_counter() - start) * 1000.0
+                log_perf(logger, task_id=task_id, stage_name=stage.name, elapsed_ms=elapsed_ms)
 
 
     def step(self, task: Optional[DiffusionTask]) -> torch.Tensor:
@@ -239,7 +279,10 @@ class Generator:
         
         task.status = DiffusionTaskStatus.Running
 
+        self._emit_stage_start_if_needed(task)
+
         if task_type == DiffusionTaskType.Terminate:
+            self._clear_flexcache_strategy()
             DiffusionBackend.state = BackendState.Terminated
             task.status = DiffusionTaskStatus.Completed
             return None
@@ -555,7 +598,15 @@ class Generator:
                 payload = task.req.get_n_prompt()
                 DiffusionBackend.cfg_type = CFGType.NEG
 
-        logger.info(f"[text_encode_step] task_id={task.task_id}, txt={payload}")
+        logger.debug(f"[text_encode_step] task_id={task.task_id}, prompt_len={len(payload)}")
+
+        if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
+            with device_scope(DiffusionBackend.text_encoder.model):
+                out = DiffusionBackend.text_encoder([payload])
+            ctx, ctx_ids = batched_prc_txt(out.to(torch.bfloat16))
+            task.buffer.ctx_ids = ctx_ids
+            logger.info(f"[text_encode_step] FLUX2 ctx shape: {ctx.shape}, ctx_ids shape: {ctx_ids.shape}")
+            return ctx
         
         # with device_scope(DiffusionBackend.text_encoder.model):        
         out = DiffusionBackend.text_encoder(payload, torch.cuda.current_device())
@@ -566,10 +617,31 @@ class Generator:
     def vae_encode_step(self, task: DiffusionTask):
         pass
     
+    @Timer.get_timer("denoise")
     @amp.autocast(device_type="cuda", dtype=torch.bfloat16)
     @torch.no_grad()
     def denoise_step(self, task: DiffusionTask):
         assert task.buffer.latents is not None and task.buffer.timesteps is not None
+
+        if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
+            """Single Euler denoising step for FLUX2 (guidance-distilled, no CFG)."""
+            x = task.buffer.latents
+            t_curr = task.buffer.timesteps[task.buffer.current_step]
+            t_prev = task.buffer.timesteps[task.buffer.current_step + 1]
+
+            t_vec = torch.full((x.shape[0],), t_curr, dtype=x.dtype, device=x.device)
+
+            pred = DiffusionBackend.active_model(
+                x=x,
+                x_ids=task.buffer.x_ids,
+                timesteps=t_vec,
+                ctx=task.buffer.text_embeddings,
+                ctx_ids=task.buffer.ctx_ids,
+                guidance=task.buffer.guidance_vec,
+            )
+
+            sampled_latents = x + (t_prev - t_curr) * pred
+            return sampled_latents
 
         latent_model_input = task.buffer.latents
         timestep = task.buffer.timesteps[task.buffer.current_step]
@@ -624,33 +696,49 @@ class Generator:
             generator=task.buffer.seed_g
         )[0].squeeze(0)
 
-        # logger.info(f"[Denoise Step] {task.buffer.current_step}/"
-        #             f"{task.req.params.num_inference_steps} "
-        #             f"timestep: {timestep} latents shape: {sampled_latents.shape}, {sampled_latents.dtype=}")
-
         return sampled_latents
 
         
-    
+    @Timer.get_timer("VaeDecode")
     def vae_decode_step(self, task: DiffusionTask):
-        target_decode_device = 0 # TODO: Flexible vae device
+        target_decode_device = 0 # TODO
+        logger.debug(f"task_id={task.task_id} entering VAE decode at step={task.buffer.current_step}")
         if torch.distributed.get_rank() == target_decode_device:
             payload = [task.buffer.latents]
-            logger.info(f"Step {task.buffer.current_step}: Enter VAE Decode Stage!")
+
+            if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
+                x = torch.cat(scatter_ids(task.buffer.latents, task.buffer.x_ids)).squeeze(2).float()
+                with device_scope(DiffusionBackend.vae.model):
+                    img = DiffusionBackend.vae.decode(x).float()
+                self._save_image(task, img)
+                return img
+              
             with device_scope(DiffusionBackend.vae.model):
                 video = DiffusionBackend.vae.decode(payload)[0]
-            self._save_image(task, video)
             return video
         return None
-
+    
+    def _post_vae_decode(self, task: DiffusionTask, video: Optional[torch.Tensor]):
+        target_decode_device = 0 # TODO: Flexible vae device
+        if torch.distributed.get_rank() == target_decode_device:
+            # save_video
+            if video is None:
+                logger.warning(f"task_id={task.task_id} VAE decode returned None; skip saving video")
+                return
+            self._save_video(task, video)
+            # save_time_stats
+            output_dir = task.req.params.save_dir
+            Timer.print_statistics()
+            Timer.save_statistics(f"{output_dir}/time_stat_{task.task_id}.csv")
+            # Magnitiude experiments
+            # MagLogger.save_to_csv(save_dir=f"./experiments/{task.task_id}")
 
     # TODO: CPU/GPU overlap
-    def _save_image(self, task: DiffusionTask, video: torch.Tensor):
+    def _save_video(self, task: DiffusionTask, video: torch.Tensor):
         os.makedirs(task.req.params.save_dir, exist_ok=True)
-        save_name = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "") \
-                    + f"_{task.task_id}.mp4"
+        save_name = build_video_name_from_task(task)
         save_path = os.path.join(task.req.params.save_dir, save_name)
-        logger.info(f"Saving video: {video.shape=} {video.dtype=}")
+        logger.debug(f"Saving video tensor: shape={video.shape} dtype={video.dtype}")
         cache_video(
             tensor=video[None],
             save_file=save_path,
@@ -658,7 +746,150 @@ class Generator:
             nrow=1,
             normalize=True,
             value_range=(-1, 1))
-        logger.info(f"[Succeed] Task {task.task_id} video saved to {save_path}")
+
+        sidecar_path = os.path.splitext(save_path)[0] + ".json"
+        metadata = {
+            "filename": os.path.basename(save_path),
+            "prompt": task.req.get_prompt(),
+            "seed": getattr(task.req.params, "seed", None),
+            "step": getattr(task.req.params, "num_inference_steps", None),
+            "task_id": task.task_id,
+        }
+        with open(sidecar_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+        log_result(logger, task_id=task.task_id, message=f"video_saved={save_path}")
+    
+    # TODO: CPU/GPU overlap
+    def _save_image(self, task: DiffusionTask, img: torch.Tensor):
+        os.makedirs(task.req.params.save_dir, exist_ok=True)
+        save_name = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "") \
+                    + f"_{task.task_id}.png"
+        save_path = os.path.join(task.req.params.save_dir, save_name)
+        logger.info(f"Saving image: {img.shape=} {img.dtype=}")
+        save_image_as_png(img[0], save_path)
+        log_result(logger, task_id=task.task_id, message=f"image_saved={save_path}")
+
+
+    def _clear_flexcache_strategy(self):
+        """Safely remove current flexcache strategy wrappers from active model."""
+        manager = DiffusionBackend.flexcache
+        if manager is None:
+            return
+
+        model = DiffusionBackend.active_model
+        strategy = manager.strategy
+
+        if model is not None and strategy is not None:
+            try:
+                strategy.unwrap_module(model)
+            except Exception as e:
+                logger.warning(f"Failed to unwrap flexcache strategy cleanly: {e}")
+
+        # Defensive cleanup in case wrapper metadata remains unexpectedly.
+        if model is not None and hasattr(model, '_original_forward'):
+            model.model_compute = model._original_forward
+            delattr(model, '_original_forward')
+
+        if model is not None and hasattr(model, 'blocks'):
+            for block in model.blocks:
+                if hasattr(block.self_attn, '_original_forward'):
+                    block.self_attn.forward = block.self_attn._original_forward
+                    delattr(block.self_attn, '_original_forward')
+                if hasattr(block.cross_attn, '_original_forward'):
+                    block.cross_attn.forward = block.cross_attn._original_forward
+                    delattr(block.cross_attn, '_original_forward')
+
+        manager.strategy = None
+        manager.cache.clear()
+
+    @staticmethod
+    def _teacache_threshold_from_ratio(cache_ratio: float, model_name: str) -> float:
+        # 0 -> quality first (smaller thresh), 1 -> speed first (larger thresh)
+        model_name = (model_name or "").lower()
+        if "14b" in model_name:
+            min_thresh, max_thresh = 0.04, 0.20
+        else:
+            min_thresh, max_thresh = 0.08, 0.35
+        return min_thresh + cache_ratio * (max_thresh - min_thresh)
+
+    @staticmethod
+    def _pab_skip_self_from_ratio(cache_ratio: float) -> int:
+        # 0 -> quality first (recompute frequently), 1 -> speed first (reuse aggressively)
+        return int(round(cache_ratio * 10))
+
+    @staticmethod
+    def _ditango_ase_from_ratio(cache_ratio: float) -> float:
+        # 0 -> quality first (low threshold), 1 -> speed first (high threshold)
+        min_thresh, max_thresh = 0.01, 0.08
+        return min_thresh + cache_ratio * (max_thresh - min_thresh)
+
+    def _resolve_flexcache_spec(self, task: DiffusionTask) -> Optional[FlexCacheParams]:
+        spec = task.req.params.resolve_flexcache_params()
+        if spec is None:
+            return None
+
+        total_steps = int(task.req.params.num_inference_steps)
+        if spec.warmup + spec.cooldown >= total_steps:
+            raise ValueError(
+                "Invalid flexcache warmup/cooldown: "
+                f"warmup({spec.warmup}) + cooldown({spec.cooldown}) must be < num_inference_steps({total_steps})."
+            )
+        return spec
+
+    def _build_flexcache_strategy(self, task: DiffusionTask, spec: FlexCacheParams):
+        strategy = spec.strategy
+        cache_ratio = spec.cache_ratio
+        warmup_steps = spec.warmup
+        cooldown_steps = spec.cooldown
+
+        if strategy == "teacache":
+            from chitu_diffusion.flex_cache.strategy.teacache import TeaCacheStrategy
+
+            model_name = DiffusionBackend.args.name
+            teacache_thresh = self._teacache_threshold_from_ratio(cache_ratio, model_name)
+            return TeaCacheStrategy(
+                task=task,
+                teacache_thresh=teacache_thresh,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+            )
+
+        if strategy == "pab":
+            from chitu_diffusion.flex_cache.strategy.PAB import PABStrategy
+
+            skip_self_range = self._pab_skip_self_from_ratio(cache_ratio)
+            skip_cross_range = int(round(skip_self_range * 5 / 3))
+            return PABStrategy(
+                task=task,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+                skip_self_range=skip_self_range,
+                skip_cross_range=skip_cross_range,
+            )
+
+        if strategy == "ditango":
+            from chitu_diffusion.flex_cache.strategy.ditango.ditango import DiTangoV3Strategy
+
+            ase_threshold = self._ditango_ase_from_ratio(cache_ratio)
+            return DiTangoV3Strategy(
+                task=task,
+                cache_ratio=cache_ratio,
+                ase_threshold=ase_threshold,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+            )
+
+        raise ValueError(f"Unknown flexcache strategy '{strategy}'.")
+
+    @staticmethod
+    def _flexcache_strategy_name(strategy: str) -> str:
+        names = {
+            "teacache": "TeaCache",
+            "pab": "PAB",
+            "ditango": "DiTango",
+        }
+        return names.get(strategy, strategy)
         
     def _pre_denoising(self, task: DiffusionTask):
         """
@@ -667,6 +898,35 @@ class Generator:
         """
 
         device = torch.cuda.current_device()
+
+        if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
+            """Prepare FLUX2 latents (packed 2D), Euler schedule, and guidance vector."""
+
+            width, height = task.req.params.size
+            shape = (1, 128, height // 16, width // 16)
+
+            seed_g = torch.Generator(device=device)
+            seed_g.manual_seed(task.req.params.seed)
+
+            randn = torch.randn(shape, generator=seed_g, dtype=torch.bfloat16, device=device)
+            x, x_ids = batched_prc_img(randn)
+
+            timesteps = get_schedule(task.req.params.num_inference_steps, x.shape[1])
+
+            guidance = DiffusionBackend.args.models.sampler.guidance_scale[0]
+            guidance_vec = torch.full((x.shape[0],), guidance, device=device, dtype=x.dtype)
+
+            task.buffer.seed_g = seed_g
+            task.buffer.latents = x
+            task.buffer.x_ids = x_ids
+            task.buffer.timesteps = timesteps
+            task.buffer.guidance_vec = guidance_vec
+
+            DiffusionBackend.switch_active_model(flush=True)
+            logger.info(f"[Pre Denoise FLUX2] x={x.shape}, x_ids={x_ids.shape}, "
+                        f"timesteps={len(timesteps)} steps, guidance={guidance}")
+            return
+
         # Prepare latents on rank 0, only data in rank 0 would be used.
         if task.buffer.latents is None:
             F = task.req.params.frame_num
@@ -752,23 +1012,47 @@ class Generator:
         
         DiffusionBackend.switch_active_model(flush=True)
 
-        # enable flexcache
-        if task.req.params.flexcache == "teacache":
-            from chitu_diffusion.flex_cache.strategy.teacache import TeaCacheStrategy
-            cache_strategy = TeaCacheStrategy(task=task)
-            DiffusionBackend.flexcache.set_strategy(cache_strategy)
-            # wrap model
-            DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
-            logger.info("Teacache: Successfully wrapped models!")
+        # Configure flexcache strategy for this task.
+        spec = self._resolve_flexcache_spec(task)
 
-        # logger.info(f"[Pre Denoise] Init {latents.shape=} {timesteps=}")
-        if task.req.params.flexcache == "PAB":
-            from chitu_diffusion.flex_cache.strategy.PAB import PABStrategy
-            cache_strategy = PABStrategy(task=task)
-            DiffusionBackend.flexcache.set_strategy(cache_strategy)
-            # wrap model
-            DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
-            logger.info("PAB: Successfully wrapped models!")
+        if spec is None:
+            if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
+                self._clear_flexcache_strategy()
+                logger.info("Flexcache disabled for current task; cleared previous strategy wrappers.")
+            return
+
+        if DiffusionBackend.flexcache is None:
+            logger.warning(
+                f"Flexcache strategy '{spec.strategy}' is requested, "
+                "but infer.diffusion.enable_flexcache is False. Strategy will be ignored."
+            )
+            return
+
+        # Always clear any previous strategy before (re)applying current task strategy.
+        if DiffusionBackend.flexcache.strategy is not None:
+            self._clear_flexcache_strategy()
+
+        cache_strategy = self._build_flexcache_strategy(task, spec)
+        DiffusionBackend.flexcache.set_strategy(cache_strategy)
+        DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
+
+        resolved_log: Dict[str, Any] = {
+            "strategy": spec.strategy,
+            "cache_ratio": spec.cache_ratio,
+            "warmup": spec.warmup,
+            "cooldown": spec.cooldown,
+        }
+        if spec.strategy == "teacache":
+            resolved_log["teacache_thresh"] = cache_strategy.teacache_thresh
+        elif spec.strategy == "pab":
+            resolved_log["skip_self_range"] = cache_strategy.skip_self_range
+            resolved_log["skip_cross_range"] = cache_strategy.skip_cross_range
+        elif spec.strategy == "ditango":
+            resolved_log["ase_threshold"] = cache_strategy.ase_threshold
+
+        logger.info(
+            f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
+        )
 
         if task.req.params.flexcache == "FPP":
             cache_strategy = FPPCache()
@@ -786,9 +1070,6 @@ class Generator:
         elif is_main_process:
             logger.warning(f"Task {task.task_id} - Status: {task.status}")
         
-        if is_main_process:
-            logger.info(f"[Task] ============ current stage: {task.task_type} ===============")
-
         # 处理Text Encode阶段
         if task.task_type == DiffusionTaskType.TextEncode:                
             if self.cfg_size == 1:
@@ -810,6 +1091,7 @@ class Generator:
                     task.buffer.negative_embeddings = tokens
                 
             # Text Encode完成，转换到下一阶段
+            self._emit_stage_end(DiffusionTaskType.TextEncode, task.task_id)
             if has_img:
                 task.task_type = DiffusionTaskType.VAEEncode 
             else:
@@ -829,6 +1111,7 @@ class Generator:
             task.buffer.latents = tokens  # 保存编码后的latents
             
             # 转换到Denoise阶段
+            self._emit_stage_end(DiffusionTaskType.VAEEncode, task.task_id)
             task.task_type = DiffusionTaskType.Denoise
             
             if is_main_process:
@@ -840,11 +1123,25 @@ class Generator:
             # 更新当前去噪后的latents
             task.buffer.latents = tokens
             task.buffer.current_step += 1
+            current_step = task.buffer.current_step
+            total_steps = task.req.params.num_inference_steps
+            timestep = task.buffer.timesteps[current_step - 1] if task.buffer.timesteps is not None else None
+
+            log_progress(
+                logger,
+                stage_name=DiffusionTaskType.Denoise.name,
+                task_id=task.task_id,
+                step=current_step,
+                total=total_steps,
+                interval=self.denoise_progress_interval,
+                timestep=timestep,
+            )
             
 
             # 检查是否完成所有denoise步骤
             if task.buffer.current_step >= task.req.params.num_inference_steps:
                 # 所有denoise步骤完成，转换到VAE Decode
+                self._emit_stage_end(DiffusionTaskType.Denoise, task.task_id)
                 task.task_type = DiffusionTaskType.VAEDecode
                 if is_main_process:
                     logger.debug(f"Task {task.task_id} completed denoising, transitioned to {task.task_type}")
@@ -861,10 +1158,20 @@ class Generator:
         # 处理VAE Decode阶段（最终阶段）
         elif task.task_type == DiffusionTaskType.VAEDecode:               
             task.buffer.generated_image = tokens  # 保存最终生成的图像
+            self._post_vae_decode(task, tokens)
+            self._emit_stage_end(DiffusionTaskType.VAEDecode, task.task_id)
+            self._clear_flexcache_strategy()
             if is_main_process:
                 logger.debug(f"Task {task.task_id} completed all stages")
             task.status = DiffusionTaskStatus.Completed
             self.current_task = None
+            self._last_logged_stage.pop(task.task_id, None)
+            if self.enable_stage_perf:
+                stale_keys = [
+                    key for key in self._stage_start_time.keys() if key[0] == task.task_id
+                ]
+                for key in stale_keys:
+                    self._stage_start_time.pop(key, None)
             return False  # 完成所有阶段，不需要继续调度
         
         # 未知阶段

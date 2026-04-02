@@ -1,15 +1,22 @@
 import torch
 import numpy as np
+import os
 from typing import Optional, Any, Dict
 import torch.distributed as dist
 import functools
 from logging import getLogger
-from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.task import DiffusionTask
 from chitu_diffusion.backend import DiffusionBackend, CFGType
+from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
+from chitu_core.logging_utils import should_log_info_on_rank
 
 logger = getLogger(__name__)
-is_main_process = dist.get_rank() == 0
+
+
+def _is_main_process() -> bool:
+    if dist.is_available() and dist.is_initialized():
+        return dist.get_rank() == 0
+    return True
 
 
 class TeaCacheStrategy(FlexCacheStrategy):
@@ -59,7 +66,78 @@ class TeaCacheStrategy(FlexCacheStrategy):
         self.previous_e0_neg = None
         
         # 自动设置参数
-        self._setup_teacache(coefficients, warmup_steps, cooldown_steps)
+        self._setup_teacache(teacache_thresh, coefficients, warmup_steps, cooldown_steps)
+
+        self._vis_records: Dict[int, int] = {}
+        self._vis_max_step = -1
+
+    def _get_output_dir(self) -> str:
+        task = DiffusionBackend.generator.current_task
+        if task is not None and task.req is not None and task.req.params is not None:
+            if task.req.params.save_dir:
+                return task.req.params.save_dir
+
+        env_output = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if env_output:
+            return env_output
+
+        args = getattr(DiffusionBackend, "args", None)
+        if args is not None:
+            output_cfg = getattr(args, "output", None)
+            if output_cfg is not None:
+                root_dir = getattr(output_cfg, "root_dir", None)
+                if root_dir:
+                    return str(root_dir)
+
+        return "./outputs"
+
+    def _record_step_policy(self, step: int, code: int):
+        # 仅记录 pos 分支，避免 CFG 双分支重复
+        if DiffusionBackend.cfg_type != CFGType.POS:
+            return
+        prev = self._vis_records.get(step)
+        if prev is None:
+            self._vis_records[step] = code
+        else:
+            # full_compute(0) < teacache_compute(1) < reuse(2)
+            self._vis_records[step] = max(prev, code)
+        self._vis_max_step = max(self._vis_max_step, step)
+
+    def _save_policy_ppm(self):
+        if not _is_main_process() or self._vis_max_step < 0:
+            return
+
+        output_dir = self._get_output_dir()
+        os.makedirs(output_dir, exist_ok=True)
+
+        cell = 12
+        width = (self._vis_max_step + 1) * cell
+        height = cell
+        rgb = bytearray(width * height * 3)
+
+        for step in range(self._vis_max_step + 1):
+            code = self._vis_records.get(step, 0)
+            if code == 2:
+                color = (40, 140, 255)   # reuse
+            elif code == 1:
+                color = (255, 180, 40)   # teacache compute
+            else:
+                color = (160, 160, 160)  # warmup/cooldown or no-history
+
+            for yy in range(height):
+                for xx in range(step * cell, (step + 1) * cell):
+                    idx = (yy * width + xx) * 3
+                    rgb[idx] = color[0]
+                    rgb[idx + 1] = color[1]
+                    rgb[idx + 2] = color[2]
+
+        ppm_path = os.path.join(output_dir, "teacache_policy_timestep_pos.ppm")
+        with open(ppm_path, "wb") as f:
+            header = f"P6\n{width} {height}\n255\n".encode("ascii")
+            f.write(header)
+            f.write(bytes(rgb))
+
+        logger.info(f"[TeaCache] Saved policy visualization PPM to {ppm_path}")
         
     def _setup_teacache(
         self, 
@@ -76,16 +154,14 @@ class TeaCacheStrategy(FlexCacheStrategy):
             warmup_steps: 自定义retention steps，若为None则自动设置
             cooldown_steps: 自定义cutoff steps，若为None则自动设置
         """
-        if thresh is not None:
-            self.teacache_thresh = thresh
-        else:
-            # TODO: 测试，并找到最优参数
-            thresh = 0.3
+        user_thresh = thresh
+        if user_thresh is not None:
+            self.teacache_thresh = float(user_thresh)
         # 如果提供了自定义参数，直接使用
         if coefficients is not None:
             self.coefficients = coefficients
             self.warmup_steps = warmup_steps if warmup_steps is not None else 5
-            self.cooldown_steps = cooldown_steps if cooldown_steps is not None else self.num_steps
+            self.cooldown_steps = cooldown_steps if cooldown_steps is not None else 3
             return
         
         model_name = DiffusionBackend.args.models.name
@@ -93,14 +169,16 @@ class TeaCacheStrategy(FlexCacheStrategy):
         # 自动选择coefficients
         if self.use_ref_steps:
             if '1.3B' in model_name:
-                self.teacache_thresh=0.2
+                if user_thresh is None:
+                    self.teacache_thresh = 0.2
                 self.coefficients = [
                     -5.21862437e+04, 9.23041404e+03, -5.28275948e+02, 
                     1.36987616e+01, -4.99875664e-02
                 ]
             elif '14B' in model_name:
                 if 't2v' in model_name or 't2i' in model_name:
-                    self.teacache_thresh=0.08
+                    if user_thresh is None:
+                        self.teacache_thresh = 0.08
                     self.coefficients = [
                         -3.03318725e+05, 4.90537029e+04, -2.65530556e+03, 
                         5.87365115e+01, -3.15583525e-01
@@ -124,9 +202,11 @@ class TeaCacheStrategy(FlexCacheStrategy):
             else:
                 # 默认系数
                 self.coefficients = [1.0]
+                if user_thresh is None:
+                    self.teacache_thresh = 0.2
             
-            self.warmup_steps = 5
-            self.cooldown_steps = self.num_steps - 3
+            self.warmup_steps = warmup_steps if warmup_steps is not None else 1
+            self.cooldown_steps = cooldown_steps if cooldown_steps is not None else 1
             
         else:  # not use_ref_steps: 简便起见，暂时不会走这个分支
             if '1.3B' in model_name:
@@ -157,13 +237,16 @@ class TeaCacheStrategy(FlexCacheStrategy):
                     ]
             else:
                 self.coefficients = [1.0]
+                if user_thresh is None:
+                    self.teacache_thresh = 0.2
             
-            self.warmup_steps = 1
-            self.cooldown_steps = self.num_steps - 2
+            self.warmup_steps = warmup_steps if warmup_steps is not None else 1
+            self.cooldown_steps = cooldown_steps if cooldown_steps is not None else 1
         
-        logger.info(f"[TeaCache setup] model={model_name}, "
-                   f"use_ref_steps={self.use_ref_steps}, thresh={self.teacache_thresh}, "
-                   f"warmup_steps={self.warmup_steps}, cooldown_steps={self.cooldown_steps}")
+        if should_log_info_on_rank():
+            logger.info(f"[TeaCache setup] model={model_name}, "
+                        f"use_ref_steps={self.use_ref_steps}, thresh={self.teacache_thresh}, "
+                        f"warmup_steps={self.warmup_steps}, cooldown_steps={self.cooldown_steps}")
         
     def get_reuse_key(self, e0: torch.Tensor = None, 
                       **kwargs) -> Optional[str]:
@@ -180,6 +263,7 @@ class TeaCacheStrategy(FlexCacheStrategy):
         # 确定使用哪个嵌入来计算距离
         modulated_inp = e0
         if modulated_inp is None:
+            self._record_step_policy(DiffusionBackend.generator.current_task.buffer.current_step, 1)
             return None
             
         # 从后端获取必要的信息
@@ -188,8 +272,11 @@ class TeaCacheStrategy(FlexCacheStrategy):
 
         branch_key = 'pos' if is_pos else 'neg'
         
-        # 在retention steps或cutoff之后的步骤，不使用缓存
-        if current_step < self.warmup_steps or current_step >= self.cooldown_steps:
+        # warmup: 前 warmup_steps 步完整计算
+        # cooldown: 后 cooldown_steps 步完整计算
+        cooldown_start = max(0, self.num_steps - self.cooldown_steps)
+        if current_step < self.warmup_steps or current_step >= cooldown_start:
+            self._record_step_policy(current_step, 0)
             return None
             
         # 获取对应分支的状态
@@ -202,6 +289,7 @@ class TeaCacheStrategy(FlexCacheStrategy):
             
         # 首次调用该分支，没有历史数据
         if previous_e0 is None:
+            self._record_step_policy(current_step, 1)
             return None
             
         # 计算相对L1距离
@@ -211,6 +299,7 @@ class TeaCacheStrategy(FlexCacheStrategy):
             
             # 避免除零
             if abs_mean < 1e-8:
+                self._record_step_policy(current_step, 1)
                 return None
                 
             rel_l1_distance = (abs_diff / abs_mean).cpu().item()
@@ -222,8 +311,8 @@ class TeaCacheStrategy(FlexCacheStrategy):
         # 更新累积距离
         new_accumulated = accumulated_distance + scaled_distance
         
-        if is_main_process:
-            logger.info(f"T{current_step} | acc/thresh = {new_accumulated:.3f} / {self.teacache_thresh}")
+        if _is_main_process():
+            logger.debug(f"[TeaCache] step={current_step} acc/thresh={new_accumulated:.3f}/{self.teacache_thresh}")
 
         # 判断是否可以复用
         if new_accumulated < self.teacache_thresh: # 若是，返回key并更新误差
@@ -231,12 +320,14 @@ class TeaCacheStrategy(FlexCacheStrategy):
                 self.accumulated_rel_l1_distance_pos = new_accumulated
             else:
                 self.accumulated_rel_l1_distance_neg = new_accumulated
+            self._record_step_policy(current_step, 2)
             return branch_key
         else: # 若否，完整计算并重置累积距离
             if is_pos:
                 self.accumulated_rel_l1_distance_pos = 0.0
             else:
                 self.accumulated_rel_l1_distance_neg = 0.0
+            self._record_step_policy(current_step, 1)
             return None
     
     def reuse(self, cached_feature: torch.Tensor, x: torch.Tensor, 
@@ -317,8 +408,8 @@ class TeaCacheStrategy(FlexCacheStrategy):
             
             if reuse_key is not None and reuse_key in DiffusionBackend.flexcache.cache:
                 cached_residual = DiffusionBackend.flexcache.cache[reuse_key]
-                if is_main_process:
-                    logger.info(f"Get {cached_residual.shape=} from {reuse_key} ans skip this step.")
+                if _is_main_process():
+                    logger.debug(f"[TeaCache] reuse key={reuse_key} residual_shape={cached_residual.shape}")
                 x_with_residual = self.reuse(
                     cached_feature=cached_residual,
                     x=x,
@@ -342,7 +433,8 @@ class TeaCacheStrategy(FlexCacheStrategy):
             return output
         
         module.model_compute = model_compute_with_teacache
-        logger.info(f"Module {module.__class__.__name__} wrapped with TeaCache strategy")
+        if should_log_info_on_rank():
+            logger.info(f"Module {module.__class__.__name__} wrapped with TeaCache strategy")
     
     def unwrap_module(self, module: torch.nn.Module) -> None:
         """
@@ -354,7 +446,9 @@ class TeaCacheStrategy(FlexCacheStrategy):
         if hasattr(module, '_original_forward'):
             module.model_compute = module._original_forward
             delattr(module, '_original_forward')
-            logger.info(f"Module {module.__class__.__name__} unwrapped")
+            self._save_policy_ppm()
+            if should_log_info_on_rank():
+                logger.info(f"Module {module.__class__.__name__} unwrapped")
     
     def reset_state(self):
         """重置所有内部状态"""

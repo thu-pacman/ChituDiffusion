@@ -73,23 +73,19 @@ print(f"✅ 视频已保存至: {task.buffer.save_path}")
 **单 GPU：**
 
 ```bash
-python test_generate.py models.ckpt_dir=/path/to/checkpoint
+bash run.sh system_config.yaml --num-nodes 1 --gpus-per-node 1 --cfp 1
 ```
 
-**使用 torchrun 的多 GPU：**
+**单机多 GPU：**
 
 ```bash
-torchrun --nproc_per_node=2 test_generate.py models.ckpt_dir=/path/to/checkpoint
+bash run.sh system_config.yaml --num-nodes 1 --gpus-per-node 2 --cfp 2
 ```
 
-**使用提供的启动脚本：**
+**多机 SLURM：**
 
 ```bash
-# 单节点
-bash run_local_single.sh
-
-# SLURM 集群
-bash srun_wan_demo.sh 4  # 4 个 GPU
+bash run.sh system_config.yaml --num-nodes 2 --gpus-per-node 2 --cfp 2  # 4 个 GPU
 ```
 
 ### 步骤 3：查看输出

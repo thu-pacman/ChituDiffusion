@@ -8,6 +8,8 @@
 
 import operator
 import time
+import csv
+import os
 from functools import lru_cache, reduce
 from logging import getLogger
 from typing import Optional
@@ -328,6 +330,45 @@ class Timers:
                 name, elapsed_time, cnt, elapsed_time / cnt
             )
         logger.info(string)
+
+    def dump_csv(self, file_path, names=None, normalizer=1.0, reset=False):
+        """Dump timers to a CSV file."""
+        if names is None:
+            names = list(self.timers.keys())
+        assert normalizer > 0.0
+
+        rows = []
+        for name in names:
+            timer = self.timers.get(name)
+            if timer is None or timer.cnt == 0:
+                continue
+            elapsed_ms = timer.elapsed(reset=reset) * 1000.0 / normalizer
+            rows.append(
+                {
+                    "timer_name": name,
+                    "total_ms": elapsed_ms,
+                    "samples": timer.cnt,
+                    "avg_ms": elapsed_ms / timer.cnt,
+                }
+            )
+
+        if not rows:
+            logger.info("No timer rows to dump: %s", file_path)
+            return
+
+        out_dir = os.path.dirname(file_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+
+        with open(file_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=["timer_name", "total_ms", "samples", "avg_ms"],
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+
+        logger.info("Timer CSV saved to %s", file_path)
 
 
 class GlobalMemoryBuffer:
