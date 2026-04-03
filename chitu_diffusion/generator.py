@@ -313,6 +313,7 @@ class Generator:
 
         async_steps1 = task.req.params.num_inference_steps - warm_up_steps - cool_down_steps
         print(f"warmup steps: {warm_up_steps}, cooldown steps: {cool_down_steps},  async steps: {async_steps1}", flush=True)
+        model = DiffusionBackend.active_model
 
         if DiffusionBackend.boundary is not None:
             async_steps1 = int(DiffusionBackend.boundary * task.req.params.num_inference_steps) - warm_up_steps 
@@ -325,7 +326,12 @@ class Generator:
         for step_idx in range(warm_up_steps):
             do_cache = step_idx == warm_up_steps - 1 # only cache the last warmup step
             print(f"Rank {self.rank} starting warmup syncpipe step {step_idx+1}/{warm_up_steps}", flush=True)
-            self.denoise_sync_pipeline(task, do_cache)
+            if async_steps1 == 0 and step_idx > 3 and step_idx < 8:
+                with model.kv_capture_scope(noise_step=task.buffer.current_step, patch_idx=-1):
+                    self.denoise_sync_pipeline(task, do_cache)
+            else:
+                self.denoise_sync_pipeline(task, do_cache)
+
 
 
         for step_idx in range(async_steps1):
@@ -496,9 +502,24 @@ class Generator:
             
              
             DiffusionBackend.cfg_type = CFGType.POS
-            hidden_states_cond_patch = model.model_compute(hidden_states_cond_patch, time_proj, context_embedding, grid_sizes, save_cache=True, position_idx=position_idx)
+            with model.kv_capture_scope(noise_step=cur_step, patch_idx=patch_idx):
+                hidden_states_cond_patch = model.model_compute(
+                    hidden_states_cond_patch,
+                    time_proj,
+                    context_embedding,
+                    grid_sizes,
+                    save_cache=True,
+                    position_idx=position_idx,
+                )
             DiffusionBackend.cfg_type = CFGType.NEG
-            hidden_states_uncond_patch = model.model_compute(hidden_states_uncond_patch, time_proj, negative_context_embedding, grid_sizes, save_cache=True, position_idx=position_idx)
+            hidden_states_uncond_patch = model.model_compute(
+                    hidden_states_uncond_patch,
+                    time_proj,
+                    negative_context_embedding,
+                    grid_sizes,
+                    save_cache=True,
+                    position_idx=position_idx,
+                )
 
 
             if not fpp_group.is_last_rank:
@@ -522,6 +543,22 @@ class Generator:
   
                 hidden_states_cond = cache_strategy.update_stale_tokens_patch(hidden_states_cond_patch, unpad_boundary, True)
                 hidden_states_uncond = cache_strategy.update_stale_tokens_patch(hidden_states_uncond_patch, unpad_boundary, False)
+
+                if model.kv_capture_writer is not None:
+                    model.kv_capture_writer.capture_latents(
+                        latents=hidden_states_cond,
+                        noise_step=cur_step,
+                        is_pos=True,
+                        patch_idx=patch_idx,
+                        pp_rank=getattr(model, "pp_rank", None),
+                    )
+                    model.kv_capture_writer.capture_latents(
+                        latents=hidden_states_uncond,
+                        noise_step=cur_step,
+                        is_pos=False,
+                        patch_idx=patch_idx,
+                        pp_rank=getattr(model, "pp_rank", None),
+                    )
 
                 latents_cond = model._post_dit(hidden_states_cond, time_embedding, grid_sizes)[0].to(torch.float32)
                 latents_uncond = model._post_dit(hidden_states_uncond, time_embedding, grid_sizes)[0].to(torch.float32)
@@ -817,10 +854,10 @@ class Generator:
             return None
 
         total_steps = int(task.req.params.num_inference_steps)
-        if spec.warmup + spec.cooldown >= total_steps:
+        if spec.warmup + spec.cooldown > total_steps:
             raise ValueError(
                 "Invalid flexcache warmup/cooldown: "
-                f"warmup({spec.warmup}) + cooldown({spec.cooldown}) must be < num_inference_steps({total_steps})."
+                f"warmup({spec.warmup}) + cooldown({spec.cooldown}) must be <= num_inference_steps({total_steps})."
             )
         return spec
 

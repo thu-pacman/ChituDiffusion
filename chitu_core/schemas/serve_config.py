@@ -84,6 +84,7 @@ class OutputConfig:
     enable_run_log: bool = True
     enable_timer_dump: bool = False
     hydra_dump_mode: str = "video_dir"  # one of: default, video_dir, off
+    enable_kv_capture: bool = False
 
 
 @dataclass

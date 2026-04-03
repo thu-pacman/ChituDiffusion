@@ -37,7 +37,9 @@ output:
   root_dir: outputs
   enable_run_log: true
   enable_timer_dump: true
+  enable_kv_capture: true
   hydra_dump_mode: off
+
   
 # Extra hydra overrides appended to the launch command.
 # Example:

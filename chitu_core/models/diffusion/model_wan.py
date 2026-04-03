@@ -1,6 +1,9 @@
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
+import contextlib
 import itertools
 import math
+import os
+from dataclasses import dataclass
 from logging import getLogger
 from typing import Optional
 
@@ -15,6 +18,7 @@ from chitu_core.distributed.partition import compute_layer_dist_in_pp
 from chitu_core.distributed.parallel_state import get_fpp_group  
 from chitu_diffusion.model_default import WanModelDefaults
 from chitu_diffusion.modules.attention.wan_attention import flash_attention
+from chitu_diffusion.utils.kv_capture import WanKVCaptureWriter
 
 
 from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheManager
@@ -27,6 +31,13 @@ __all__ = ['WanModel']
 
 T5_CONTEXT_TOKEN_NUMBER = 512
 FIRST_LAST_FRAME_CONTEXT_TOKEN_NUMBER = 257 * 2
+
+
+@dataclass
+class KVCaptureContext:
+    enabled: bool = False
+    noise_step: Optional[int] = None
+    patch_idx: Optional[int] = None
 
 
 def sinusoidal_embedding_1d(dim, position):
@@ -147,7 +158,7 @@ class WanSelfAttention(nn.Module):
         self.rope_impl = rope_impl or rope_apply
 
 
-    def forward(self, x, grid_sizes, freqs, save_cache=False, position_idx=None, cache_manager = None, layer_idx = None):
+    def forward(self, x, grid_sizes, freqs, save_cache=False, position_idx=None, cache_manager = None, layer_idx = None, kv_capture_writer=None, kv_capture_ctx=None, pp_rank=None):
         r"""
         Args:
             x(Tensor): Shape [B, L, num_heads, C / num_heads]
@@ -181,8 +192,26 @@ class WanSelfAttention(nn.Module):
                 cache_manager.init_layer_stale_kv(rope_k, v, layer_idx)
             else:
                 rope_k, v = cache_manager.update_layer_stale_kv_patch(rope_k, v, layer_idx, (position_idx, position_idx + s))
-            
 
+        if (
+            kv_capture_ctx is not None
+            and kv_capture_ctx.enabled
+            and kv_capture_writer is not None
+            and kv_capture_writer.should_capture(layer_idx)
+        ):
+            from chitu_diffusion.backend import CFGType, DiffusionBackend
+            is_pos = None
+            if DiffusionBackend.cfg_type is not None:
+                is_pos = DiffusionBackend.cfg_type == CFGType.POS
+            kv_capture_writer.capture(
+                k=rope_k,
+                v=v,
+                noise_step=kv_capture_ctx.noise_step,
+                layer_idx=layer_idx,
+                is_pos=is_pos,
+                patch_idx=kv_capture_ctx.patch_idx,
+                pp_rank=pp_rank,
+            )
 
         x = self.attn_func(
             q = half(rope_q),
@@ -329,7 +358,10 @@ class WanAttentionBlock(nn.Module):
         save_cache=False,
         position_idx=None,
         cache_manager = None,
-        layer_idx = None
+        layer_idx = None,
+        kv_capture_writer=None,
+        kv_capture_ctx=None,
+        pp_rank=None,
     ):
         r"""
         Args:
@@ -347,7 +379,7 @@ class WanAttentionBlock(nn.Module):
         # self-attention
         y = self.self_attn(
             self.norm1(x).float() * (1 + e[1]) + e[0], grid_sizes,
-            freqs, save_cache, position_idx, cache_manager, layer_idx)
+            freqs, save_cache, position_idx, cache_manager, layer_idx, kv_capture_writer, kv_capture_ctx, pp_rank)
         
         with amp.autocast(device_type="cuda", dtype=torch.float32):
             x = x + y * e[2]
@@ -497,6 +529,38 @@ class WanModel(ModelMixin, ConfigMixin):
         self.init_weights()
 
         self.cache_manager = None
+        self.kv_capture_writer = None
+        self.kv_capture_ctx = KVCaptureContext()
+        # self._init_kv_capture_from_env()
+ 
+
+    def _init_kv_capture_from_env(self):
+        capture_dir = os.getenv("CHITU_WAN_KV_CAPTURE_DIR")
+        if capture_dir:
+            self.kv_capture_writer = WanKVCaptureWriter.from_env()
+
+    def enable_kv_capture(self, layers=[0], layer_interval=None, tensor_dtype=torch.bfloat16):
+        self.kv_capture_writer = WanKVCaptureWriter(
+            layers=set(layers) if layers is not None else None,
+            layer_interval=layer_interval,
+            tensor_dtype=tensor_dtype,
+        )
+
+    def disable_kv_capture(self):
+        self.kv_capture_writer = None
+
+    @contextlib.contextmanager
+    def kv_capture_scope(self, *, noise_step: Optional[int], patch_idx: Optional[int] = None):
+        prev_ctx = self.kv_capture_ctx
+        self.kv_capture_ctx = KVCaptureContext(
+            enabled=True,
+            noise_step=noise_step,
+            patch_idx=patch_idx,
+        )
+        try:
+            yield self.kv_capture_ctx
+        finally:
+            self.kv_capture_ctx = prev_ctx
     
     # 这个函数会在模型初始化后被调用，用于根据当前的pp_rank调整模型层的分布    
     def wrap_layers_for_fpp(self):
@@ -561,7 +625,21 @@ class WanModel(ModelMixin, ConfigMixin):
         x = tokens
         for i, block in enumerate(self.blocks):
             # print(f"model_compute: cache_manager = {self.cache_manager}, strategy = {self.cache_manager.strategy}, layer_idx={i}")
-            x = block(x, time_proj, context_embedding, grid_sizes, self.freqs, context_lens, save_cache=save_cache, position_idx=position_idx, cache_manager=self.cache_manager.strategy, layer_idx=i)
+            x = block(
+                x,
+                time_proj,
+                context_embedding,
+                grid_sizes,
+                self.freqs,
+                context_lens,
+                save_cache=save_cache,
+                position_idx=position_idx,
+                cache_manager=self.cache_manager.strategy,
+                layer_idx=i,
+                kv_capture_writer=self.kv_capture_writer,
+                kv_capture_ctx=self.kv_capture_ctx,
+                pp_rank=getattr(self, "pp_rank", None),
+            )
         return x
 
     
@@ -707,7 +785,20 @@ class WanModel(ModelMixin, ConfigMixin):
         if self.fpp_group.is_last_rank:
             from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
             cache_strategy : FPPCache = self.cache_manager.strategy 
-            cache_strategy.init_stale_tokens(tokens)
+
+            if save_cache:
+                cache_strategy.init_stale_tokens(tokens)
+            if self.kv_capture_writer is not None and self.kv_capture_ctx is not None:
+                
+                from chitu_diffusion.backend import CFGType, DiffusionBackend
+                # print(f"Rank {self.pp_rank}: capturing final tokens", flush=True)
+                self.kv_capture_writer.capture_latents(
+                    latents=tokens,
+                    noise_step=self.kv_capture_ctx.noise_step,
+                    is_pos=DiffusionBackend.cfg_type == CFGType.POS,
+                    patch_idx=self.kv_capture_ctx.patch_idx,
+                    pp_rank=self.pp_rank,
+                )
             # print(f"Rank {self.pp_rank}: saved_stale_tokens", flush=True)
 
             time_embedding = self._cal_time_embeddings(t)

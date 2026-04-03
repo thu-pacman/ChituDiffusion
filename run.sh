@@ -110,6 +110,7 @@ values = {
     "OUTPUT_ENABLE_TIMER_DUMP": bool(get("output.enable_timer_dump", False)),
     "OUTPUT_HYDRA_DUMP_MODE": str(get("output.hydra_dump_mode", "video_dir")),
     "OUTPUT_ENABLE_LAUNCH_LOG": bool(get("launch.enable_launch_log", False)),
+    "OUTPUT_ENABLE_KV_CAPTURE": bool(get("output.enable_kv_capture", False)),
 }
 
 raw_eval_type = get("eval.eval_type", [])
@@ -270,6 +271,7 @@ BASE_OVERRIDES=(
     "output.enable_run_log=$OUTPUT_ENABLE_RUN_LOG"
     "output.enable_timer_dump=$OUTPUT_ENABLE_TIMER_DUMP"
     "output.hydra_dump_mode=$OUTPUT_HYDRA_DUMP_MODE"
+    "output.enable_kv_capture=$OUTPUT_ENABLE_KV_CAPTURE"
 )
 
 if [ -n "${EXTRA_OVERRIDES:-}" ]; then

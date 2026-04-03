@@ -766,6 +766,12 @@ class DiffusionBackend:
 
         for model in DiffusionBackend.model_pool:
             model.cache_manager = DiffusionBackend.flexcache
+            if DiffusionBackend.args.output.enable_kv_capture:
+                from chitu_core.distributed.parallel_state import get_fpp_group
+                if get_fpp_group().is_first_rank or get_fpp_group().is_last_rank: # 只有fpp rank 0的模型需要开启kv capture，其他rank的模型不需要
+                    print("Enabling KV capture.",flush=True)
+                    model.enable_kv_capture()
+
 
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         logger.info(
