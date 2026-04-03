@@ -2,13 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import deque
 from logging import getLogger
 import time
-from typing import List, Optional
+from typing import List
 
 from chitu_diffusion.task import DiffusionTaskPool, DiffusionTaskStatus
-from chitu_core.distributed.parallel_state import get_cfg_group
 
 logger = getLogger(__name__)
 

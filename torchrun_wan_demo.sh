@@ -113,8 +113,9 @@ parallel_params="infer.diffusion.fpp_size=$num_gpus infer.diffusion.cp_size=1 in
 eval_params="eval.eval_type=vbench"
 # 魔法参数！
 magic_params="
-            "
-
+            infer.attn_type='sparge' \
+            infer.diffusion.low_mem_level=1 \
+            infer.diffusion.enable_flexcache=true"
 # Build and execute command
 # 构建并执行命令
 command="torchrun \

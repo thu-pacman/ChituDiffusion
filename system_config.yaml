@@ -1,11 +1,12 @@
 launch:
   tag: perf
   num_nodes: 1
-  gpus_per_node: 8
+  gpus_per_node: 3
   python_script: test/test_flexcache.py
   srun:
-    partition: debug
-    cpus_per_gpu: 24
+    partition: a100
+    mem_per_gpu: 60536 
+    cpus_per_gpu: 16
     job_name: chitu-diffusion
 
 runtime:
@@ -14,17 +15,19 @@ runtime:
 
 model:
   name: Wan2.1-T2V-1.3B
-  ckpt_dir: /home/chenyy/WORK/models/Wan2.1-T2V-1.3B
+  ckpt_dir: /home/dataset/Wan2.1-T2V-1.3B
 
 parallel:
   # cfg-parallel factor: only 1 or 2.
-  cfp: 2
+  cfp: 1  
+  cp_size : 1
+  fpp_size: 3
 
 infer:
   attn_type: flash_attn
   low_mem_level: 0
   enable_flexcache: true
-  up_limit: 1
+  up_limit: 8 
 
 eval:
   eval_type: [psnr,lpips]

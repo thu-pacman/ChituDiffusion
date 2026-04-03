@@ -17,6 +17,8 @@ class FPPCache():
     
     def __init__(
         self,
+        warmup_steps: int = 0,
+        cooldown_steps: int = 0,
     ):
         """
         Args:
@@ -27,6 +29,8 @@ class FPPCache():
         """
         super().__init__()
         self.type = 'FPP'
+        self.warmup_steps = warmup_steps
+        self.cooldown_steps = cooldown_steps
         
         fpp_group = get_fpp_group()
         fpp_rank = fpp_group.rank_in_group if fpp_group.group_size > 1 else 0

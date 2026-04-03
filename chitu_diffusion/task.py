@@ -94,10 +94,10 @@ class DiffusionUserParams:
         if strategy in {"", "none", "off", "disable", "disabled"}:
             return None
 
-        if strategy not in {"teacache", "pab", "ditango"}:
+        if strategy not in {"teacache", "pab", "ditango", "fpp_cache"}:
             raise ValueError(
                 f"Unsupported flexcache strategy '{params.strategy}'. "
-                "Supported strategies are: teacache, pab, ditango."
+                "Supported strategies are: teacache, pab, ditango, fpp_cache."
             )
 
         cache_ratio = float(params.cache_ratio)
@@ -161,7 +161,9 @@ class DiffusionUserRequest:
 class FPPTaskState:
     """细粒度流水并行在单个 denoise 任务内的执行状态。"""
     warmup_steps: int = 2
+    cooldown_steps: int = 2
     warmup_done: bool = False
+    
     num_patches: int = 0
     split_dim: int = 1
     current_patch_idx: int = 0
@@ -184,10 +186,7 @@ class DiffusionTaskBuffer:
     latents: Optional[torch.Tensor] = field(default=None)
     timesteps: Optional[List[int]] = field(default=None)
     current_step: int = field(default=0)
-    fpp_split_idxs: Optional[List[Tuple[int,int]]] = field(default=None) # [(start_idx, end_idx), ...] for each fpp rank
-    fpp_schedule: Optional[List[List[Any]]] = field(default=None)
-    fpp_state: Optional[FPPTaskState] = field(default=None)
-    
+
     denoised_latents: Optional[torch.Tensor] = field(default=None)
     
     # VAE Decode buffers

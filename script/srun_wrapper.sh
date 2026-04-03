@@ -1,5 +1,16 @@
 #!/bin/bash
 
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+VENV_PATH=${VENV_PATH:-"$PROJECT_ROOT/.venv"}
+
+if [[ -f "$VENV_PATH/bin/activate" ]]; then
+    # Ensure cluster workers use the same project environment.
+    source "$VENV_PATH/bin/activate"
+fi
+
 # 设置 PyTorch 分布式所需的环境变量
 export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID

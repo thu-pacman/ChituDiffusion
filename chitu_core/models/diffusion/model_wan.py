@@ -167,17 +167,12 @@ class WanSelfAttention(nn.Module):
         q, k, v = qkv_fn(x)
 
         if position_idx is not None:
-            # async patch forward
-            rope_q = self.rope_impl(q, grid_sizes, freqs, position_idx)
-            rope_k = self.rope_impl(k, grid_sizes, freqs, position_idx)
-
-            # print(f"Position idx {position_idx}: rope_q shape {rope_q.shape}, rope_k shape {rope_k.shape}", flush=True)
+            rope_q = self.rope_impl(q, grid_sizes, freqs)
+            rope_k = self.rope_impl(k, grid_sizes, freqs)
         else:
             from chitu_diffusion.modules.rope.diffusion_rope_backend import naive_rope_apply
-            # sync pipe forward
             rope_q = naive_rope_apply(q, grid_sizes, freqs)
             rope_k = naive_rope_apply(k, grid_sizes, freqs)
-
         ## should save cache here
         if save_cache:
             from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
@@ -187,6 +182,7 @@ class WanSelfAttention(nn.Module):
             else:
                 rope_k, v = cache_manager.update_layer_stale_kv_patch(rope_k, v, layer_idx, (position_idx, position_idx + s))
             
+
 
         x = self.attn_func(
             q = half(rope_q),
@@ -201,9 +197,6 @@ class WanSelfAttention(nn.Module):
         x = x.flatten(2)
         x = self.o(x)
         return x
-
-    def forward_patch(self, x, grid_sizes, freqs, patch_idx):
-        pass
 
 
 class WanT2VCrossAttention(WanSelfAttention):

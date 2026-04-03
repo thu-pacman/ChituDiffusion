@@ -98,6 +98,8 @@ values = {
     "MODEL_NAME": str(get("model.name", "Wan2.1-T2V-1.3B")),
     "MODEL_CKPT_DIR": str(get("model.ckpt_dir", "")),
     "CFP": int(get("parallel.cfp", 1)),
+    "FPP_SIZE": int(get("parallel.fpp_size", 1)),
+    "CP_SIZE": int(get("parallel.cp_size", 1)),
     "UP_LIMIT": int(get("infer.up_limit", 8)),
     "ATTN_TYPE": str(get("infer.attn_type", "flash_attn")),
     "LOW_MEM_LEVEL": int(get("infer.low_mem_level", 0)),
@@ -188,12 +190,12 @@ if [ $((TOTAL_GPUS % CFP)) -ne 0 ]; then
     echo "Error: total_gpus ($TOTAL_GPUS) must be divisible by cfp ($CFP)"
     exit 1
 fi
-CP_SIZE=$((TOTAL_GPUS / CFP))
+# CP_SIZE=$((TOTAL_GPUS / CFP))
 
-if [ "$CP_SIZE" -lt 1 ]; then
-    echo "Error: computed cp_size is invalid: $CP_SIZE"
-    exit 1
-fi
+# if [ "$CP_SIZE" -lt 1 ]; then
+#     echo "Error: computed cp_size is invalid: $CP_SIZE"
+#     exit 1
+# fi
 
 # Normalize YAML booleans to 1/0 for consistent env parsing in Python.
 to_env_bool01() {
@@ -257,6 +259,7 @@ BASE_OVERRIDES=(
     "models.ckpt_dir=$MODEL_CKPT_DIR"
     "infer.diffusion.cfg_size=$CFP"
     "infer.diffusion.cp_size=$CP_SIZE"
+    "infer.diffusion.fpp_size=$FPP_SIZE"
     "infer.diffusion.up_limit=$UP_LIMIT"
     "infer.attn_type=$ATTN_TYPE"
     "infer.diffusion.low_mem_level=$LOW_MEM_LEVEL"

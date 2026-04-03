@@ -25,7 +25,7 @@ dependencies = [
     "safetensors==0.7.0",
     "scipy==1.16.3",
     "tiktoken>=0.7.0",
-    "torch==2.9.1",
+    "torch==2.6.0",
     "torchvision",
     "tqdm==4.67.1",
     "transformers[torch]>=4.49.0,<4.57.0",
@@ -70,23 +70,23 @@ default = true
 
 [tool.uv.sources]
 # Switch to your cuda version
-torch = { index = "pytorch-cu130" }
-torchvision = { index = "pytorch-cu130" }
+torch = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }
 sageattention = { git = "https://github.com/thu-ml/SageAttention.git" }
-spas_sage_attn = { git = "https://github.com/thu-ml/SpargeAttn.git" }
+spas_sage_attn = { workspace = true }
 vbench = { workspace = true }
 
 
 
 [tool.uv.extra-build-dependencies]
-flash_attn = ["torch==2.9.1"]
-sageattention = ["torch==2.9.1"]
-spas_sage_attn = ["torch==2.9.1"]
+flash_attn = ["torch==2.6.0"]
+sageattention = ["torch==2.6.0"]
+spas_sage_attn = ["torch==2.6.0"]
 
 [tool.uv.extra-build-variables]
-# flash_attn     = { FLASH_ATTENTION_FORCE_BUILD = "TRUE", MAX_JOBS="8", FLASH_ATTN_CUDA_ARCHS = "90" }
-sageattention  = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
-spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
+flash_attn     = { FLASH_ATTENTION_FORCE_BUILD = "TRUE", MAX_JOBS="8", FLASH_ATTN_CUDA_ARCHS = "80" }
+sageattention  = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "8.0"}
+spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "8.0"}
 
 
 
@@ -96,7 +96,7 @@ spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS=
 # reinstall-package = ["spas_sage_attn"]
 # [dependency-groups]
 # dev = [
-#     "torch==2.9.1",
+#     "torch==2.6.0",
 #     "flash_attn",
 # ]
 [project.optional-dependencies]
@@ -113,5 +113,6 @@ vbench = ["vbench"]
 [tool.uv.workspace]
 members = [
     "third_party/vbench",
+    "third_party/sparge_attn"
 ]
 

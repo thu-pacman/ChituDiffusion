@@ -29,7 +29,8 @@ from tqdm import tqdm
 from chitu_core.distributed.parallel_state import (
     get_world_group,
     initialize_diffusion_parallel_groups,
-    get_cp_group
+    get_cp_group,
+    get_fpp_group
 )
 from chitu_core.models.registry import ModelType, get_model_class
 from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend, DiffusionAttention_with_CP
@@ -462,7 +463,7 @@ class DiffusionBackend:
         assert (
             world_size
             == non_expert_data_parallel_size * cfg_size * context_parallel_size * fine_grained_parallel_size
-        ), f"World size not match: {world_size} != {non_expert_data_parallel_size} * {cfg_size} * {context_parallel_size}"
+        ), f"World size not match: {world_size} != {non_expert_data_parallel_size} * {cfg_size} * {context_parallel_size} * {fine_grained_parallel_size}"
         print (f"Initialized distributed with world size {world_size}, cfg size {cfg_size}, context parallel size {context_parallel_size}, fine-grained parallel size {fine_grained_parallel_size}")
         initialize_diffusion_parallel_groups(
             cfg_size= cfg_size,
@@ -632,10 +633,11 @@ class DiffusionBackend:
         """
 
         if args.infer.diffusion.cp_size > 1:
+
             return partial(rope_apply_with_cp, cp_size=get_cp_group().group_size, cp_rank=get_cp_group().rank_in_group)
 
         elif args.infer.diffusion.fpp_size > 1:
-            return rope_apply_with_position 
+            return partial(rope_apply_with_cp, cp_size=get_fpp_group().group_size, cp_rank=get_fpp_group().rank_in_group)
         
         else:
             return naive_rope_apply 

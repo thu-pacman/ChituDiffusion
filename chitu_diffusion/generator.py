@@ -34,12 +34,10 @@ from chitu_diffusion.modules.samplers.fm_solvers import (
     get_sampling_sigmas,
     retrieve_timesteps,
 )
-from chitu_diffusion.modules.samplers.fpp_pipeline_runtime import DistributedFPPPatchPipelineRunner
-from chitu_diffusion.modules.samplers.fpp_pipeline_schedule import build_patch_pipeline_schedule
-from chitu_diffusion.modules.samplers.fpp_scheduler_adapter import FPPPatchSchedulerAdapter
 from chitu_diffusion.modules.samplers.fm_solvers_unipc import FlowUniPCMultistepScheduler
 from chitu_diffusion.utils.wan_utils import cache_video
 from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
+from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.utils.shared_utils import SequencePadder, split_latent
 from chitu_diffusion.bench import Timer, MagLogger
 from chitu_diffusion.utils.output_naming import build_video_name_from_task
@@ -310,18 +308,19 @@ class Generator:
 
     def fpp_denoise_steps(self, task: DiffusionTask):
         # first_steps for warmup 
-        warm_up_steps = task.buffer.fpp_state.warmup_steps
-        first_syncpipe_steps = task.req.params.num_inference_steps - warm_up_steps
-        print(f"warmup steps: {warm_up_steps}, first syncpipe steps: {first_syncpipe_steps}", flush=True)
+        warm_up_steps = task.req.params.flexcache_params.warmup 
+        cool_down_steps = task.req.params.flexcache_params.cooldown
+
+        async_steps1 = task.req.params.num_inference_steps - warm_up_steps - cool_down_steps
+        print(f"warmup steps: {warm_up_steps}, cooldown steps: {cool_down_steps},  async steps: {async_steps1}", flush=True)
 
         if DiffusionBackend.boundary is not None:
-            first_syncpipe_steps = int(DiffusionBackend.boundary * task.req.params.num_inference_steps) - warm_up_steps 
+            async_steps1 = int(DiffusionBackend.boundary * task.req.params.num_inference_steps) - warm_up_steps 
 
             second_syncpipe_steps = int( (1-DiffusionBackend.boundary) * task.req.params.num_inference_steps) - warm_up_steps
 
         else:
-            first_syncpipe_steps = task.req.params.num_inference_steps - warm_up_steps
-
+            async_steps1 = task.req.params.num_inference_steps - warm_up_steps - cool_down_steps
         
         for step_idx in range(warm_up_steps):
             do_cache = step_idx == warm_up_steps - 1 # only cache the last warmup step
@@ -329,15 +328,24 @@ class Generator:
             self.denoise_sync_pipeline(task, do_cache)
 
 
-        for step_idx in range(first_syncpipe_steps):
+        for step_idx in range(async_steps1):
             
             is_first_step = (step_idx == 0)
-            is_last_step = (step_idx == first_syncpipe_steps - 1)
-            print(f"Rank {self.rank} starting FPP Denoise step {step_idx+1}/{first_syncpipe_steps}", flush=True)
+            is_last_step = (step_idx == async_steps1 - 1)
+            print(f"Rank {self.rank} starting FPP Denoise step {step_idx+1}/{async_steps1}", flush=True)
             self.fpp_denoise_one_step(task, is_first_step=is_first_step, is_last_step=is_last_step)
+        
+        for step_idx in range(cool_down_steps):
+            print(f"Rank {self.rank} starting cooldown syncpipe step {step_idx+1}/{cool_down_steps}", flush=True)
+            self.denoise_sync_pipeline(task)
+
+
         if DiffusionBackend.boundary is not None:
             # after boundary, run another syncpipe to warm up the second model
+            DiffusionBackend.switch_active_model(flush=False)
+            DiffusionBackend.flexcache.cache.clear() # clear cache to free memory after switch
             for step_idx in range(warm_up_steps):
+
                 do_cache = step_idx == warm_up_steps - 1 # only cache the last warmup step
                 self.denoise_sync_pipeline(task, do_cache)
             
@@ -346,6 +354,7 @@ class Generator:
                 self.fpp_denoise_one_step(task, is_first_step=is_first_step)
         
 
+        task.task_type = DiffusionTaskType.VAEDecode
         task.status = DiffusionTaskStatus.Pending
         return 
         
@@ -400,47 +409,21 @@ class Generator:
         task.buffer.current_step += 1
 
 
-    def fpp_update_step(self, task: DiffusionTask, patch_num: Optional[int] = None):
-        is_main_process = dist.get_rank() == 0
-        patch_num = patch_num if patch_num is not None else get_fpp_group().group_size
-
-        task.buffer.current_step += 1
-
-        # if get_fpp_group().is_first_rank:
-        #     import pdb; pdb.set_trace()
-
-        if task.buffer.current_step >= task.req.params.num_inference_steps:
-            task.task_type = DiffusionTaskType.VAEDecode
-
-            if get_fpp_group().is_first_rank:
-                for patch_idx in range(patch_num):
-                    self.fpp_receive_and_update_buffer(task)
-            
-            if is_main_process:
-                print(f"Task {task.task_id} completed all denoise steps, moving to VAEDecode.")
-        # float boundary may cause problems here
-        # after switch, should clear cache and run warmup syncpipe again to fresh feature cache
-        # so we need to deal with pipeline tail sync here to make sure the first rank's latent buffer is updated
-        elif DiffusionBackend.boundary is not None and task.buffer.current_step == int(DiffusionBackend.boundary * task.req.params.num_inference_steps):
-            DiffusionBackend.switch_active_model(flush=False)
-            if get_fpp_group().is_first_rank:
-                for patch_idx in range(patch_num):
-                    self.fpp_receive_and_update_buffer(task)
-            DiffusionBackend.flexcache.cache.clear() # clear cache to free memory after switch
-
-        else:
-            return True
-
-    def fpp_receive_and_update_buffer(self, task: DiffusionTask):
-
+    def fpp_async_tail_collection(self, task: DiffusionTask, patch_num: Optional[int] = None):
+        # collect the last step's latents from the first rank to ensure the tail syncpipe can start with updated latents
+        # only run at_first_rank
         fpp_group = get_fpp_group()
-        latent_shape = task.buffer.latents.shape
+        patch_num = patch_num if patch_num is not None else self.fpp_size
 
-        recv_latent = fpp_group.p2p_irecv(latent_shape, torch.float32, src=fpp_group.prev_rank, tag=3)
-        fpp_group.p2p_commit()
-        fpp_group.p2p_wait()
+
+        for patch_idx in range(self.fpp_size):
+            recv_latent = fpp_group.p2p_irecv(task.buffer.latents.shape, torch.float32, src=fpp_group.prev_rank, tag=3)
+            fpp_group.p2p_commit()
+            fpp_group.p2p_wait()
 
         task.buffer.latents = recv_latent
+
+
 
     @amp.autocast(device_type='cuda', dtype=torch.bfloat16)
     @torch.no_grad()
@@ -460,8 +443,6 @@ class Generator:
         negative_context_embedding = model._cal_context_embeddings(task.buffer.negative_embeddings, clip_fea=None)
 
         grid_sizes = task.buffer.grid_sizes
-
-
 
         for patch_idx in range(patch_num):
 
@@ -490,6 +471,9 @@ class Generator:
                 
     
                 hidden_states : torch.Tensor = model._cal_patch_embedding(task.buffer.latents, seq_len=task.buffer.seq_len)
+
+                assert hidden_states.shape == torch.Size([1, task.buffer.seq_len, model.dim]), f"Expected hidden states shape {[1, task.buffer.seq_len, model.dim]}, but got {hidden_states.shape}"
+
                 hidden_states_patch = SequencePadder.split_sequence_padding(hidden_states, patch_num, split_dim=1, name='fpp')[patch_idx] # pad and split for fpp
 
                 assert hidden_states_patch.shape == token_patch_shape, f"Expected hidden states patch shape {token_patch_shape}, but got {hidden_states_patch.shape}"
@@ -570,15 +554,18 @@ class Generator:
                 if not send_recv_flag:
                     fpp_group.p2p_commit()
                     fpp_group.p2p_wait()
-
-
         # after the last patch, update current_step and switch model if needed
-        self.fpp_update_step(task)
-        # update the latents at the last rank, this buffer works only as the input for scheduler's original latent, the timing of update is subtle but carefully considered.
-        # requires warmup last step stores the sampled latents to last rank's buffer
+        
+        task.buffer.current_step += 1
         if fpp_group.is_last_rank:
             task.buffer.latents = sampled_latents
             task.buffer.sampler.increment_step_index()
+
+
+        if is_last_step and fpp_group.is_first_rank:
+            self.fpp_async_tail_collection(task, patch_num) # collect the last step's latents from the first rank to ensure the tail syncpipe can start with updated latents from last step
+        # update the latents at the last rank, this buffer works only as the input for scheduler's original latent, the timing of update is subtle but carefully considered.
+        # requires warmup last step stores the sampled latents to last rank's buffer
 
 
     def text_encode_step(self, task: DiffusionTask) -> torch.Tensor:
@@ -880,6 +867,14 @@ class Generator:
                 cooldown_steps=cooldown_steps,
             )
 
+        if strategy == "fpp_cache":
+            from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
+
+            return FPPCache(
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+            )
+
         raise ValueError(f"Unknown flexcache strategy '{strategy}'.")
 
     @staticmethod
@@ -999,17 +994,7 @@ class Generator:
 
 
 
-        if self.fpp_size > 1:
-            split_dim = 1 # split freq dim
-            assert DiffusionBackend.args.models.transformer.patch_size[0] == 1, "patch size dim 0 must be 1 in our current implementation"
-            task.buffer.fpp_split_idxs = split_latent(target_shape, self.fpp_size, split_dim)
-            task.buffer.fpp_state = FPPTaskState(
-                warmup_steps=5,
-                warmup_done=False,
-                num_patches=len(task.buffer.fpp_split_idxs),
-                split_dim=split_dim,
-            )
-        
+
         DiffusionBackend.switch_active_model(flush=True)
 
         # Configure flexcache strategy for this task.
@@ -1034,7 +1019,9 @@ class Generator:
 
         cache_strategy = self._build_flexcache_strategy(task, spec)
         DiffusionBackend.flexcache.set_strategy(cache_strategy)
-        DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
+
+        if isinstance(cache_strategy, FlexCacheStrategy):
+            DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
 
         resolved_log: Dict[str, Any] = {
             "strategy": spec.strategy,
@@ -1054,11 +1041,7 @@ class Generator:
             f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
         )
 
-        if task.req.params.flexcache == "FPP":
-            cache_strategy = FPPCache()
-            print(f"Using FPP cache strategy with split num {self.fpp_size} and split dim {split_dim}")
-            DiffusionBackend.flexcache.set_strategy(cache_strategy)
-            logger.info("FPP: Successfully wrapped models!")
+
 
     def _update_task_stage_and_buffer(self, task: DiffusionTask, tokens: torch.Tensor):
 
