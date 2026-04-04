@@ -637,7 +637,7 @@ class DiffusionBackend:
             return partial(rope_apply_with_cp, cp_size=get_cp_group().group_size, cp_rank=get_cp_group().rank_in_group)
 
         elif args.infer.diffusion.fpp_size > 1:
-            return partial(rope_apply_with_cp, cp_size=get_fpp_group().group_size, cp_rank=get_fpp_group().rank_in_group)
+            return rope_apply_with_position 
         
         else:
             return naive_rope_apply 

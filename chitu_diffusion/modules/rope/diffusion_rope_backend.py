@@ -3,6 +3,8 @@ import torch
 def pad_freqs(original_tensor, target_len):
     seq_len, s1, s2 = original_tensor.shape
     pad_size = target_len - seq_len
+    if pad_size <= 0:
+        return original_tensor
     padding_tensor = torch.ones(
         pad_size,
         s1,
@@ -109,12 +111,11 @@ def rope_apply_with_position(x, grid_sizes, freqs, position_idx):
 
         # apply rotary embedding
 
-
-        freqs_i_rank = freqs_i[position_idx: position_idx + s, :, :]
+        padded_freqs_i = pad_freqs(freqs_i, s + position_idx)
+        freqs_i_rank = padded_freqs_i[position_idx: position_idx + s, :, :]
         x_i = torch.view_as_real(x_i * freqs_i_rank).flatten(2)
         x_i = torch.cat([x_i, x[i, s:]])
 
         # append to collection
         output.append(x_i)
     return torch.stack(output).float()
-

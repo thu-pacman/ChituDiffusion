@@ -334,6 +334,27 @@ class Generator:
 
 
 
+        # big_loop_size = 10
+        
+        # assert async_steps1 % big_loop_size == 0, f"async_steps1 should be divisible by {big_loop_size} for {big_loop_size - 1} + 1 syncing, but got {async_steps1}"
+
+        # big_loop_num = async_steps1 // big_loop_size
+        # for big_loop_idx in range(big_loop_num):
+        #     for step_idx in range(big_loop_size // 2):
+        #         is_first_step = step_idx == 0
+        #         is_last_step = step_idx == (big_loop_size // 2 - 1)
+        #         self.fpp_denoise_one_step(task, is_first_step=is_first_step, is_last_step=is_last_step)
+            
+        #     for step_idx in range(big_loop_size //2, big_loop_size):
+
+        #         print(f"Rank {self.rank} starting big loop syncpipe step {step_idx+1}/{big_loop_idx}", flush=True)
+        #         do_cache = step_idx == big_loop_size - 1
+        #         self.denoise_sync_pipeline(task,save_cache=do_cache) # sync every big_loop_size - 1 steps, the last step's cache will be used for the first step in the next loop
+            
+
+
+
+
         for step_idx in range(async_steps1):
             
             is_first_step = (step_idx == 0)
@@ -422,7 +443,7 @@ class Generator:
         patch_num = patch_num if patch_num is not None else self.fpp_size
 
 
-        for patch_idx in range(self.fpp_size):
+        for patch_idx in range(patch_num):
             recv_latent = fpp_group.p2p_irecv(task.buffer.latents.shape, torch.float32, src=fpp_group.prev_rank, tag=3)
             fpp_group.p2p_commit()
             fpp_group.p2p_wait()
@@ -440,6 +461,7 @@ class Generator:
         dtype = task.buffer.latents.dtype
         cur_step = task.buffer.current_step
         model : WanModel = DiffusionBackend.active_model
+        cache_strategy : FPPCache = DiffusionBackend.flexcache.strategy
 
         patch_num = fpp_group.group_size
 
@@ -451,6 +473,7 @@ class Generator:
         grid_sizes = task.buffer.grid_sizes
 
         for patch_idx in range(patch_num):
+            patch_idx_cal = (patch_idx + 1) % patch_num
 
             patch_seq_len = task.buffer.seq_len // patch_num
             
@@ -480,7 +503,7 @@ class Generator:
 
                 assert hidden_states.shape == torch.Size([1, task.buffer.seq_len, model.dim]), f"Expected hidden states shape {[1, task.buffer.seq_len, model.dim]}, but got {hidden_states.shape}"
 
-                hidden_states_patch = SequencePadder.split_sequence_padding(hidden_states, patch_num, split_dim=1, name='fpp')[patch_idx] # pad and split for fpp
+                hidden_states_patch = SequencePadder.split_sequence_padding(hidden_states, patch_num, split_dim=1, name='fpp')[patch_idx_cal] # pad and split for fpp
 
                 assert hidden_states_patch.shape == token_patch_shape, f"Expected hidden states patch shape {token_patch_shape}, but got {hidden_states_patch.shape}"
 
@@ -495,14 +518,14 @@ class Generator:
                 fpp_group.p2p_wait()
 
 
-            position_idx = patch_idx * patch_seq_len
+            position_idx = patch_idx_cal * patch_seq_len
             position_idx_end = min(position_idx + patch_seq_len, task.buffer.unpad_seq_len)
 
-            print(f"Rank {fpp_group.global_rank} processing patch {patch_idx}, position idx range [{position_idx}:{position_idx_end}]", flush=True)
+            print(f"Rank {fpp_group.global_rank} processing patch {patch_idx_cal}, position idx range [{position_idx}:{position_idx_end}]", flush=True)
             
              
             DiffusionBackend.cfg_type = CFGType.POS
-            with model.kv_capture_scope(noise_step=cur_step, patch_idx=patch_idx):
+            with model.kv_capture_scope(noise_step=cur_step, patch_idx=patch_idx_cal):
                 hidden_states_cond_patch = model.model_compute(
                     hidden_states_cond_patch,
                     time_proj,
@@ -539,7 +562,6 @@ class Generator:
                 ## cache other patch latents,unpad
                 ## hard_coding patch_grid_sizes
                 unpad_boundary = (position_idx, position_idx_end)
-                cache_strategy : FPPCache = DiffusionBackend.flexcache.strategy
   
                 hidden_states_cond = cache_strategy.update_stale_tokens_patch(hidden_states_cond_patch, unpad_boundary, True)
                 hidden_states_uncond = cache_strategy.update_stale_tokens_patch(hidden_states_uncond_patch, unpad_boundary, False)
@@ -549,14 +571,14 @@ class Generator:
                         latents=hidden_states_cond,
                         noise_step=cur_step,
                         is_pos=True,
-                        patch_idx=patch_idx,
+                        patch_idx=patch_idx_cal,
                         pp_rank=getattr(model, "pp_rank", None),
                     )
                     model.kv_capture_writer.capture_latents(
                         latents=hidden_states_uncond,
                         noise_step=cur_step,
                         is_pos=False,
-                        patch_idx=patch_idx,
+                        patch_idx=patch_idx_cal,
                         pp_rank=getattr(model, "pp_rank", None),
                     )
 
@@ -570,7 +592,7 @@ class Generator:
 
                 original_latent = task.buffer.latents
 
-                print(f"[Sampler] step:{cur_step}, patch_idx:{patch_idx}")
+                print(f"[Sampler] step:{cur_step}, patch_idx:{patch_idx_cal}")
 
                 sampled_latents = task.buffer.sampler.step(
                     noise_pred.unsqueeze(0), 
@@ -591,8 +613,10 @@ class Generator:
                 if not send_recv_flag:
                     fpp_group.p2p_commit()
                     fpp_group.p2p_wait()
+                
         # after the last patch, update current_step and switch model if needed
-        
+        cache_strategy.switch_stale_kv(model.num_layers, True)
+        cache_strategy.switch_stale_kv(model.num_layers, False)
         task.buffer.current_step += 1
         if fpp_group.is_last_rank:
             task.buffer.latents = sampled_latents

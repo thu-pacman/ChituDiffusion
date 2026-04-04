@@ -40,44 +40,77 @@ class FPPCache():
               f"rank_list={fpp_group.rank_list}")
         logger.info(f"[FPP Init] Global Rank {global_rank}: fpp_size={fpp_size}, fpp_rank={fpp_rank}")
 
-    def get_key(self, layer_index: int, is_pos: Optional[bool] = None) -> Optional[str]:
+    def get_key(self, layer_index: int, is_prev: bool, is_pos: Optional[bool] = None) -> Optional[str]:
         is_pos = DiffusionBackend.cfg_type == CFGType.POS if is_pos is None else is_pos
 
-        branch_key = f"{'pos' if is_pos else 'neg'}_l{layer_index}"
+        branch_key = f"{'pos' if is_pos else 'neg'}_l{layer_index}_{is_prev}"
         return branch_key
     
-    def get_tokens_key(self, is_pos: Optional[bool] = None) -> Optional[str]:
+    def get_tokens_key(self, is_pos: Optional[bool] = None, is_prev: bool = False) -> Optional[str]:
         is_pos = DiffusionBackend.cfg_type == CFGType.POS if is_pos is None else is_pos
 
-        branch_key = f"{'pos' if is_pos else 'neg'}_tokens"
+        branch_key = f"{'pos' if is_pos else 'neg'}_tokens_{is_prev}"
         return branch_key
 
     def init_layer_stale_kv(self, k: torch.Tensor, v: torch.Tensor, layer_index: int, is_pos: Optional[bool] = None): 
-        DiffusionBackend.flexcache.cache[self.get_key(layer_index, is_pos)] = (k, v)
+        DiffusionBackend.flexcache.cache[self.get_key(layer_index, is_prev=False, is_pos=is_pos)] = (k, v)
+        DiffusionBackend.flexcache.cache[self.get_key(layer_index, is_prev=True, is_pos=is_pos)] = (k.clone(), v.clone())
 
-    def init_stale_tokens(self, latents: torch.Tensor, is_pos: Optional[bool] = None):
-        DiffusionBackend.flexcache.cache[self.get_tokens_key(is_pos)] = latents
-    
+
     def update_layer_stale_kv_patch(self, k: torch.Tensor, v: torch.Tensor, layer_index: int, patch_range: tuple[int, int], is_pos: Optional[bool] = None):
 
-        k_ref, v_ref = DiffusionBackend.flexcache.cache[self.get_key(layer_index, is_pos)]
+        k_ref, v_ref = DiffusionBackend.flexcache.cache[self.get_key(layer_index,is_prev=True, is_pos=is_pos)]
+        k_update, v_update = DiffusionBackend.flexcache.cache[self.get_key(layer_index,is_prev=False, is_pos=is_pos)]
         # b, s, n, c
         assert k_ref.shape[0] == 1 and v_ref.shape[0] == 1, "Expected batch size of 1 for stale KV"
-        k_ref[:, patch_range[0]:patch_range[1], :, :] = k
-        v_ref[:, patch_range[0]:patch_range[1], :, :] = v
+        k_update[:, patch_range[0]:patch_range[1], :, :] = k
+        v_update[:, patch_range[0]:patch_range[1], :, :] = v
 
         return k_ref, v_ref
 
-    # check how xdit implement this scheduler patch 
+
+    def switch_stale_kv(self, layer_num: int, is_pos: Optional[bool] = None):
+        for layer_index in range(layer_num):
+            key_prev = self.get_key(layer_index, is_prev=True, is_pos=is_pos)
+            key_curr = self.get_key(layer_index, is_prev=False, is_pos=is_pos)
+            DiffusionBackend.flexcache.cache[key_prev], DiffusionBackend.flexcache.cache[key_curr] = DiffusionBackend.flexcache.cache[key_curr], DiffusionBackend.flexcache.cache[key_prev]
+    
+    def init_stale_tokens(self, latents: torch.Tensor, is_pos: Optional[bool] = None):
+        DiffusionBackend.flexcache.cache[self.get_tokens_key(is_pos, is_prev=False)] = latents
+        # DiffusionBackend.flexcache.cache[self.get_tokens_key(is_pos, is_prev=True)] = latents.clone()
     def update_stale_tokens_patch(self, tokens: torch.Tensor, patch_range: tuple[int, int], is_pos: Optional[bool] = None):
 
-        tokens_ref = DiffusionBackend.flexcache.cache[self.get_tokens_key(is_pos)]
+        # tokens_ref = DiffusionBackend.flexcache.cache[self.get_tokens_key(is_pos, is_prev=True)]
+        tokens_ref = DiffusionBackend.flexcache.cache[self.get_tokens_key(is_pos, is_prev=False)]
         # b, s, c
         assert tokens_ref.shape[0] == 1, "Expected batch size of 1 for stale tokens"
         original_seq_len = patch_range[1] - patch_range[0]
         tokens_ref[:, patch_range[0]:patch_range[1], :] = tokens[:, :original_seq_len, :]
 
         return tokens_ref
+    
+    # def switch_stale_tokens(self, is_pos: Optional[bool] = None):
+
+    #     key_prev_tokens = self.get_tokens_key(is_pos, is_prev=True)
+    #     key_curr_tokens = self.get_tokens_key(is_pos, is_prev=False)
+    #     DiffusionBackend.flexcache.cache[key_prev_tokens], DiffusionBackend.flexcache.cache[key_curr_tokens] = DiffusionBackend.flexcache.cache[key_curr_tokens], DiffusionBackend.flexcache.cache[key_prev_tokens]
+
+    # def update_layer_stale_kv_patch(self, k: torch.Tensor, v: torch.Tensor, layer_index: int, patch_range: tuple[int, int], is_pos: Optional[bool] = None):
+
+    #     k_ref, v_ref = DiffusionBackend.flexcache.cache[self.get_key(layer_index,is_prev=False, is_pos=is_pos)]
+    #     # b, s, n, c
+    #     assert k_ref.shape[0] == 1 and v_ref.shape[0] == 1, "Expected batch size of 1 for stale KV"
+
+    #     k_ref[:, patch_range[0]:patch_range[1], :, :] = k
+    #     v_ref[:, patch_range[0]:patch_range[1], :, :] = v
+
+    #     return k_ref, v_ref
+    
+
+
+
+
+    # check how xdit implement this scheduler patch 
     
     def reset_state(self):
         """重置所有内部状态"""

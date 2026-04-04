@@ -178,8 +178,8 @@ class WanSelfAttention(nn.Module):
         q, k, v = qkv_fn(x)
 
         if position_idx is not None:
-            rope_q = self.rope_impl(q, grid_sizes, freqs)
-            rope_k = self.rope_impl(k, grid_sizes, freqs)
+            rope_q = self.rope_impl(q, grid_sizes, freqs, position_idx)
+            rope_k = self.rope_impl(k, grid_sizes, freqs, position_idx)
         else:
             from chitu_diffusion.modules.rope.diffusion_rope_backend import naive_rope_apply
             rope_q = naive_rope_apply(q, grid_sizes, freqs)
@@ -580,6 +580,7 @@ class WanModel(ModelMixin, ConfigMixin):
         self.local_end_layer_id = first_layer_id_of_each_rank[self.pp_rank + 1]
 
         self.blocks = self.blocks[self.local_begin_layer_id:self.local_end_layer_id]
+        self.num_layers = len(self.blocks)
 
     @property
     def freqs(self):
