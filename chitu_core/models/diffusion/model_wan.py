@@ -186,11 +186,14 @@ class WanSelfAttention(nn.Module):
             rope_k = naive_rope_apply(k, grid_sizes, freqs)
         ## should save cache here
         if save_cache:
+
+            rope_k, v = half(rope_k), half(v)
             from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
             cache_manager : FPPCache
             if position_idx is None:
                 cache_manager.init_layer_stale_kv(rope_k, v, layer_idx)
             else:
+                # print(f"Updating cache for layer {layer_idx}, position_idx {position_idx}, rope_k shape {rope_k.shape}, v shape {v.shape}")
                 rope_k, v = cache_manager.update_layer_stale_kv_patch(rope_k, v, layer_idx, (position_idx, position_idx + s))
 
         if (
@@ -738,6 +741,8 @@ class WanModel(ModelMixin, ConfigMixin):
         seq_len,
         clip_fea=None,
         y=None,
+        save_cache=False,
+        position_idx=None,
     ):
         """
         完整的前向传播，现在拆分为三个阶段
@@ -749,7 +754,7 @@ class WanModel(ModelMixin, ConfigMixin):
         context_embedding = self._cal_context_embeddings(context, clip_fea)
 
 
-        tokens = self.model_compute(tokens, time_proj, context_embedding, grid_sizes)
+        tokens = self.model_compute(tokens, time_proj, context_embedding, grid_sizes, save_cache=save_cache, position_idx=position_idx)
 
         time_embedding = self._cal_time_embeddings(t)
         latent = self._post_dit(tokens, time_embedding, grid_sizes)

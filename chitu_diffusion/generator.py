@@ -297,7 +297,17 @@ class Generator:
                 self.fpp_denoise_steps(task)
                 return
             else:
-                out = self.denoise_step(task)
+                       
+                warm_up_steps = task.req.params.flexcache_params.warmup 
+                cool_down_steps = task.req.params.flexcache_params.cooldown
+
+                cur_step = task.buffer.current_step
+
+                print(f"warm_up_steps: {warm_up_steps}, cool_down_steps: {cool_down_steps}, current_step: {cur_step}", flush=True)
+                is_first_step = (cur_step < warm_up_steps) or (cur_step >= task.req.params.num_inference_steps - cool_down_steps) or ((cur_step-warm_up_steps) % 5 == 0)
+
+
+                out = self.denoise_step(task,is_first_step)
 
         else:
             raise NotImplementedError  
@@ -668,7 +678,7 @@ class Generator:
     @Timer.get_timer("denoise")
     @amp.autocast(device_type="cuda", dtype=torch.bfloat16)
     @torch.no_grad()
-    def denoise_step(self, task: DiffusionTask):
+    def denoise_step(self, task: DiffusionTask, is_first_step: bool = False):
         assert task.buffer.latents is not None and task.buffer.timesteps is not None
 
         if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
@@ -711,20 +721,30 @@ class Generator:
                 )
                 noise_pred_cond, noise_pred_uncond = self.cfg_dispatcher.all_gather_cfg_noise_preds(cfg_partial_noise_pred)
             else:
+                
                 DiffusionBackend.cfg_type = CFGType.POS
                 noise_pred_cond = DiffusionBackend.active_model(
                     latent_model_input,
                     t=timestep,
                     context=task.buffer.text_embeddings,
-                    seq_len=task.buffer.seq_len
+                    seq_len=task.buffer.seq_len,
+                    save_cache = True,
+                    position_idx = None if is_first_step else 0
                 )
                 DiffusionBackend.cfg_type = CFGType.NEG
                 noise_pred_uncond = DiffusionBackend.active_model(
                     latent_model_input,
                     t=timestep,
                     context=task.buffer.negative_embeddings,
-                    seq_len=task.buffer.seq_len
+                    seq_len=task.buffer.seq_len,
+                    save_cache = True,
+                    position_idx = None if is_first_step else 0
                 )
+                model = DiffusionBackend.active_model
+                cache_strategy = DiffusionBackend.flexcache.strategy
+                cache_strategy.switch_stale_kv(model.num_layers, True)
+                cache_strategy.switch_stale_kv(model.num_layers, False)
+
             noise_pred = noise_pred_uncond + \
                 DiffusionBackend.guidance_scale * (noise_pred_cond - noise_pred_uncond)
         else:

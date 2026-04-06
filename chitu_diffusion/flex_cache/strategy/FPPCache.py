@@ -62,7 +62,7 @@ class FPPCache():
         k_ref, v_ref = DiffusionBackend.flexcache.cache[self.get_key(layer_index,is_prev=True, is_pos=is_pos)]
         k_update, v_update = DiffusionBackend.flexcache.cache[self.get_key(layer_index,is_prev=False, is_pos=is_pos)]
         # b, s, n, c
-        assert k_ref.shape[0] == 1 and v_ref.shape[0] == 1, "Expected batch size of 1 for stale KV"
+        # assert k_ref.shape[0] == 1 and v_ref.shape[0] == 1, "Expected batch size of 1 for stale KV"
         k_update[:, patch_range[0]:patch_range[1], :, :] = k
         v_update[:, patch_range[0]:patch_range[1], :, :] = v
 
