@@ -666,7 +666,7 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
              sample: torch.Tensor,
              return_dict: bool = True,
              generator=None,
-             update_step_index=True) -> Union[SchedulerOutput, Tuple]:
+             update_step=True) -> Union[SchedulerOutput, Tuple]:
         """
         Predict the sample from the previous timestep by reversing the SDE. This function propagates the sample with
         the multistep UniPC.
@@ -695,6 +695,12 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
         if self.step_index is None:
             self._init_step_index(timestep)
 
+        if not update_step:
+            model_outputs_copy = self.model_outputs.copy() 
+            timestep_list_copy = self.timestep_list.copy() 
+            last_sample_copy = self.last_sample.clone()
+            this_order_copy = self.this_order
+
         use_corrector = (
             self.step_index > 0 and
             self.step_index - 1 not in self.disable_corrector and
@@ -710,6 +716,9 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
                 this_sample=sample,
                 order=self.this_order,
             )
+
+
+
 
         for i in range(self.config.solver_order - 1):
             self.model_outputs[i] = self.model_outputs[i + 1]
@@ -737,11 +746,16 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
             order=self.this_order,
         )
 
-        if self.lower_order_nums < self.config.solver_order:
-            self.lower_order_nums += 1
+        if not update_step:
+            self.model_outputs = model_outputs_copy
+            self.timestep_list = timestep_list_copy
+            self.last_sample = last_sample_copy
+            self.this_order = this_order_copy
 
-        # upon completion increase step index by one
-        if update_step_index:
+        if update_step:
+            if self.lower_order_nums < self.config.solver_order:
+                self.lower_order_nums += 1
+            # upon completion increase step index by one
             self._step_index += 1  # pyright: ignore
 
         if not return_dict:

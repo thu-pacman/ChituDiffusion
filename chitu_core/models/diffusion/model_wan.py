@@ -175,54 +175,57 @@ class WanSelfAttention(nn.Module):
             v = self.v(x).view(b, s, n, d)
             return q, k, v
 
-        q, k, v = qkv_fn(x)
+        from chitu_diffusion.bench import Timer
+        with Timer.get_timer(f"qkv_fn, shape: {x.shape}"):
+            q, k, v = qkv_fn(x)
 
-        if position_idx is not None:
-            rope_q = self.rope_impl(q, grid_sizes, freqs, position_idx)
-            rope_k = self.rope_impl(k, grid_sizes, freqs, position_idx)
-        else:
-            from chitu_diffusion.modules.rope.diffusion_rope_backend import naive_rope_apply
-            rope_q = naive_rope_apply(q, grid_sizes, freqs)
-            rope_k = naive_rope_apply(k, grid_sizes, freqs)
-        ## should save cache here
-        if save_cache:
-
-            rope_k, v = half(rope_k), half(v)
-            from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
-            cache_manager : FPPCache
-            if position_idx is None:
-                cache_manager.init_layer_stale_kv(rope_k, v, layer_idx)
+        with Timer.get_timer(f"rope_impl, shape: {q.shape}"):
+            if position_idx is not None:
+                rope_q = self.rope_impl(q, grid_sizes, freqs, position_idx)
+                rope_k = self.rope_impl(k, grid_sizes, freqs, position_idx)
             else:
-                # print(f"Updating cache for layer {layer_idx}, position_idx {position_idx}, rope_k shape {rope_k.shape}, v shape {v.shape}")
-                rope_k, v = cache_manager.update_layer_stale_kv_patch(rope_k, v, layer_idx, (position_idx, position_idx + s))
+                from chitu_diffusion.modules.rope.diffusion_rope_backend import naive_rope_apply
+                rope_q = naive_rope_apply(q, grid_sizes, freqs)
+                rope_k = naive_rope_apply(k, grid_sizes, freqs)
+            ## should save cache here
+            if save_cache:
 
-        if (
-            kv_capture_ctx is not None
-            and kv_capture_ctx.enabled
-            and kv_capture_writer is not None
-            and kv_capture_writer.should_capture(layer_idx)
-        ):
-            from chitu_diffusion.backend import CFGType, DiffusionBackend
-            is_pos = None
-            if DiffusionBackend.cfg_type is not None:
-                is_pos = DiffusionBackend.cfg_type == CFGType.POS
-            kv_capture_writer.capture(
-                k=rope_k,
-                v=v,
-                noise_step=kv_capture_ctx.noise_step,
-                layer_idx=layer_idx,
-                is_pos=is_pos,
-                patch_idx=kv_capture_ctx.patch_idx,
-                pp_rank=pp_rank,
-            )
+                rope_k, v = half(rope_k), half(v)
+                from chitu_diffusion.flex_cache.strategy.FPPCache import FPPCache
+                cache_manager : FPPCache
+                if position_idx is None:
+                    cache_manager.init_layer_stale_kv(rope_k, v, layer_idx)
+                else:
+                    # print(f"Updating cache for layer {layer_idx}, position_idx {position_idx}, rope_k shape {rope_k.shape}, v shape {v.shape}")
+                    rope_k, v = cache_manager.update_layer_stale_kv_patch(rope_k, v, layer_idx, (position_idx, position_idx + s))
 
-        x = self.attn_func(
-            q = half(rope_q),
-            k = half(rope_k),
-            v = half(v),
-            window_size=self.window_size,
+        # if (
+        #     kv_capture_ctx is not None
+        #     and kv_capture_ctx.enabled
+        #     and kv_capture_writer is not None
+        #     and kv_capture_writer.should_capture(layer_idx)
+        # ):
+        #     from chitu_diffusion.backend import CFGType, DiffusionBackend
+        #     is_pos = None
+        #     if DiffusionBackend.cfg_type is not None:
+        #         is_pos = DiffusionBackend.cfg_type == CFGType.POS
+        #     kv_capture_writer.capture(
+        #         k=rope_k,
+        #         v=v,
+        #         noise_step=kv_capture_ctx.noise_step,
+        #         layer_idx=layer_idx,
+        #         is_pos=is_pos,
+        #         patch_idx=kv_capture_ctx.patch_idx,
+        #         pp_rank=pp_rank,
+        #     )
 
-        )[0]
+        with Timer.get_timer(f"attn_func, shape: {rope_q.shape}"):
+            x = self.attn_func(
+                q = half(rope_q),
+                k = half(rope_k),
+                v = half(v),
+                window_size=self.window_size,
+            )[0]
         x = x.to(q.dtype)
 
         # output
@@ -626,8 +629,12 @@ class WanModel(ModelMixin, ConfigMixin):
             processed_tokens: 处理后的tokens
         """
 
+        # import pdb; pdb.set_trace()
         x = tokens
+        
         for i, block in enumerate(self.blocks):
+            from chitu_diffusion.bench import Timer
+            # with Timer.get_timer(f"model_compute_layer_{i}, shape: {x.shape}"):
             # print(f"model_compute: cache_manager = {self.cache_manager}, strategy = {self.cache_manager.strategy}, layer_idx={i}")
             x = block(
                 x,
@@ -755,6 +762,9 @@ class WanModel(ModelMixin, ConfigMixin):
 
 
         tokens = self.model_compute(tokens, time_proj, context_embedding, grid_sizes, save_cache=save_cache, position_idx=position_idx)
+
+        if save_cache:
+            self.cache_manager.strategy.init_stale_tokens(tokens)
 
         time_embedding = self._cal_time_embeddings(t)
         latent = self._post_dit(tokens, time_embedding, grid_sizes)

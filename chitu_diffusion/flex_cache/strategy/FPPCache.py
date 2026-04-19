@@ -53,27 +53,34 @@ class FPPCache():
         return branch_key
 
     def init_layer_stale_kv(self, k: torch.Tensor, v: torch.Tensor, layer_index: int, is_pos: Optional[bool] = None): 
-        DiffusionBackend.flexcache.cache[self.get_key(layer_index, is_prev=False, is_pos=is_pos)] = (k, v)
-        DiffusionBackend.flexcache.cache[self.get_key(layer_index, is_prev=True, is_pos=is_pos)] = (k.clone(), v.clone())
+        DiffusionBackend.flexcache.cache[self.get_key(layer_index, is_prev=False, is_pos=is_pos)] = (k.clone(), v.clone())
+        # DiffusionBackend.flexcache.cache[self.get_key(layer_index, is_prev=True, is_pos=is_pos)] = (k.clone(), v.clone())
 
 
     def update_layer_stale_kv_patch(self, k: torch.Tensor, v: torch.Tensor, layer_index: int, patch_range: tuple[int, int], is_pos: Optional[bool] = None):
 
-        k_ref, v_ref = DiffusionBackend.flexcache.cache[self.get_key(layer_index,is_prev=True, is_pos=is_pos)]
+        # k_ref, v_ref = DiffusionBackend.flexcache.cache[self.get_key(layer_index,is_prev=True, is_pos=is_pos)]
         k_update, v_update = DiffusionBackend.flexcache.cache[self.get_key(layer_index,is_prev=False, is_pos=is_pos)]
         # b, s, n, c
         # assert k_ref.shape[0] == 1 and v_ref.shape[0] == 1, "Expected batch size of 1 for stale KV"
         k_update[:, patch_range[0]:patch_range[1], :, :] = k
         v_update[:, patch_range[0]:patch_range[1], :, :] = v
 
-        return k_ref, v_ref
+        # k_ret = k_ref.clone()
+        # v_ret = v_ref.clone()
+
+        # k_ret[:, patch_range[0]:patch_range[1], :, :] = k
+        # v_ret[:, patch_range[0]:patch_range[1], :, :] = v
+
+        return k_update, v_update
 
 
     def switch_stale_kv(self, layer_num: int, is_pos: Optional[bool] = None):
-        for layer_index in range(layer_num):
-            key_prev = self.get_key(layer_index, is_prev=True, is_pos=is_pos)
-            key_curr = self.get_key(layer_index, is_prev=False, is_pos=is_pos)
-            DiffusionBackend.flexcache.cache[key_prev], DiffusionBackend.flexcache.cache[key_curr] = DiffusionBackend.flexcache.cache[key_curr], DiffusionBackend.flexcache.cache[key_prev]
+        pass
+        # for layer_index in range(layer_num):
+        #     key_prev = self.get_key(layer_index, is_prev=True, is_pos=is_pos)
+        #     key_curr = self.get_key(layer_index, is_prev=False, is_pos=is_pos)
+        #     DiffusionBackend.flexcache.cache[key_prev], DiffusionBackend.flexcache.cache[key_curr] = DiffusionBackend.flexcache.cache[key_curr], DiffusionBackend.flexcache.cache[key_prev]
     
     def init_stale_tokens(self, latents: torch.Tensor, is_pos: Optional[bool] = None):
         DiffusionBackend.flexcache.cache[self.get_tokens_key(is_pos, is_prev=False)] = latents

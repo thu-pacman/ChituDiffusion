@@ -53,8 +53,8 @@ msgs = [
         flexcache_params=FlexCacheParams(
             strategy="fpp_cache",
             cache_ratio=0.4,
-            warmup=5,
-            cooldown=5,
+            warmup=25,
+            cooldown=25,
         ),
     ),
     # DiffusionUserParams(
@@ -304,9 +304,9 @@ def run_normal(args):
             f"[Final] | GPU-Alloc:{torch.cuda.memory_allocated()/1024**3:.3f} Max:{torch.cuda.max_memory_allocated()/1024**3:.3f} Rsrv:{torch.cuda.memory_reserved()/1024**3:.3f} GB  | CPU:{resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024**2:.3f} GB"
         )
 
-        if rank == 0 and getattr(args.output, "enable_timer_dump", False):
+        if getattr(args.output, "enable_timer_dump", False):
             Timer.print_statistics()
-            Timer.save_statistics(os.path.join(run_output_dir, "time_stats.csv"))
+            Timer.save_statistics(os.path.join(run_output_dir, f"time_stats_rank{rank}.csv"))
 
     chitu_terminate()
     chitu_run_eval()
