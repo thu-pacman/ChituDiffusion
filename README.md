@@ -409,11 +409,11 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 If you use ChituDiffusion in your research, please cite:
 
 ```bibtex
-@software{smart_diffusion2025,
+@software{chitu_diffusion2025,
   title={ChituDiffusion: High-Performance Diffusion Model Inference Framework},
   author={PACMAN Team, Tsinghua University and QingCheng.ai},
   year={2025},
-  url={https://github.com/chen-yy20/SmartDiffusion}
+  url={https://github.com/thu-pacman/ChituDiffusion}
 }
 ```
 
