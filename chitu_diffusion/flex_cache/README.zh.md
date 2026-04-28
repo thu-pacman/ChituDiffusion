@@ -1,6 +1,6 @@
 # FlexCache 模块
 
-FlexCache 是 Smart-Diffusion 中统一的特征复用加速模块。
+FlexCache 是 ChituDiffusion 中统一的特征复用加速模块。
 
 ## 统一 API
 

@@ -1,10 +1,10 @@
 # 安装指南
 
-本指南将帮助您在系统上安装 Smart-Diffusion。
+本指南将帮助您在系统上安装 ChituDiffusion。
 
 ## 前置要求
 
-在安装 Smart-Diffusion 之前，请确保您具备：
+在安装 ChituDiffusion 之前，请确保您具备：
 
 - **Python**：3.12 或更高版本
 - **CUDA**：12.4 或更高版本（推荐 12.8）
@@ -93,7 +93,7 @@ uv sync
 
 #### 步骤 6：下载模型
 
-Smart-Diffusion 需要预训练模型。您可以：
+ChituDiffusion 需要预训练模型。您可以：
 
 **选项 A：自动下载**（需要 Hugging Face 访问权限）
 
@@ -132,7 +132,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 # 安装其他依赖
 pip install -r requirements.txt
 
-# 安装 Smart-Diffusion
+# 安装 ChituDiffusion
 pip install -e .
 ```
 
@@ -189,14 +189,14 @@ CUDA: True
 
 ## 卸载
 
-要卸载 Smart-Diffusion：
+要卸载 ChituDiffusion：
 
 ```bash
 # 如果使用 uv
 uv cache clean
 
 # 如果使用 pip
-pip uninstall smart-diffusion
+pip uninstall chitu-diffusion
 ```
 
 ## 更新

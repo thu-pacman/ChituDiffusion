@@ -1,6 +1,6 @@
 # Developer Guide
 
-Welcome to Smart-Diffusion development! This guide will help you contribute to the project.
+Welcome to ChituDiffusion development! This guide will help you contribute to the project.
 
 ## Getting Started
 
@@ -256,7 +256,7 @@ Reviewers will check:
 
 ## License
 
-Smart-Diffusion is licensed under the MIT License. By contributing, you agree to license your contributions under the same license.
+ChituDiffusion is licensed under the MIT License. By contributing, you agree to license your contributions under the same license.
 
 ## See Also
 

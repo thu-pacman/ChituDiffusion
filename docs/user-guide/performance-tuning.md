@@ -1,6 +1,6 @@
 # Performance Tuning
 
-Optimize Smart-Diffusion for maximum performance.
+Optimize ChituDiffusion for maximum performance.
 
 ## Quick Wins
 

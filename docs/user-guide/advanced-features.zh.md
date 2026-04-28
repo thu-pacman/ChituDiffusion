@@ -1,6 +1,6 @@
 # 高级功能
 
-本页介绍 Smart-Diffusion 的高级能力与推荐用法。
+本页介绍 ChituDiffusion 的高级能力与推荐用法。
 
 ## FlexCache
 

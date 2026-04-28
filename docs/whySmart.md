@@ -1,4 +1,4 @@
-# Why Smart-Diffusion?
+# Why ChituDiffusion?
 [中文版](./whySmart_zh.md)
 
 ## Characteristics of Diffusion Inference
@@ -10,7 +10,7 @@ Diffusion inference is compute-intensive with these key characteristics:
 3. **Attention is the bottleneck**: In long-sequence scenarios, Full Attention accounts for over 80% of end-to-end latency, making it the primary optimization target.  
 4. **Small activation changes**: Activations change minimally between denoising steps, so simple Feature Cache methods can provide significant speedups.
 
-## Smart-Diffusion Design Philosophy
+## ChituDiffusion Design Philosophy
 
 ### Three Optimization Directions: Parallelism × Kernels × Algorithms  
 Each direction can be optimized independently, but combining them yields the best results.  
@@ -25,7 +25,7 @@ The core idea is to decompose the Diffusion pipeline into composable stages orch
 
 ## Developer Guide
 
-Thanks for contributing to Smart-Diffusion! To make code review easier, please understand our parameter taxonomy:
+Thanks for contributing to ChituDiffusion! To make code review easier, please understand our parameter taxonomy:
 
 | Category | Lifecycle | Location | Who Can Change | Best Practice |
 |---|---|---|---|---|

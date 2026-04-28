@@ -1,10 +1,10 @@
 # Configuration Guide
 
-This guide explains all configuration options available in Smart-Diffusion.
+This guide explains all configuration options available in ChituDiffusion.
 
 ## Configuration Levels
 
-Smart-Diffusion uses a three-tier configuration system:
+ChituDiffusion uses a three-tier configuration system:
 
 ### 1. Model Parameters (Static)
 
@@ -260,7 +260,7 @@ logging_level="INFO"  # or "DEBUG"
 
 ### Using Hydra
 
-Smart-Diffusion uses Hydra for configuration management.
+ChituDiffusion uses Hydra for configuration management.
 
 **Default config**: `config/wan.yaml`
 
@@ -299,7 +299,7 @@ python test_generate.py --config-name my_config
 
 ## Environment Variables
 
-Smart-Diffusion respects several environment variables:
+ChituDiffusion respects several environment variables:
 
 ```bash
 # Enable debug mode

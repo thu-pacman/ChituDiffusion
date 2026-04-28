@@ -1,6 +1,6 @@
 # API Reference - Core
 
-This page documents the core API of Smart-Diffusion.
+This page documents the core API of ChituDiffusion.
 
 ## Main Functions
 

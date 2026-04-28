@@ -1,6 +1,6 @@
 # Backend API
 
-This page documents the `DiffusionBackend` class, which manages model loading, initialization, and resource coordination for Smart-Diffusion.
+This page documents the `DiffusionBackend` class, which manages model loading, initialization, and resource coordination for ChituDiffusion.
 
 ## DiffusionBackend
 

@@ -1,10 +1,10 @@
 # 配置指南
 
-本页说明 Smart-Diffusion 的主要配置项。
+本页说明 ChituDiffusion 的主要配置项。
 
 ## 三层配置体系
 
-Smart-Diffusion 使用三层配置：
+ChituDiffusion 使用三层配置：
 
 ## 1. 模型参数（静态）
 

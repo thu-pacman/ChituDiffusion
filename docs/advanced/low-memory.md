@@ -1,6 +1,6 @@
 # Low Memory Mode
 
-Smart-Diffusion provides multiple memory optimization strategies to run diffusion models on GPUs with limited VRAM.
+ChituDiffusion provides multiple memory optimization strategies to run diffusion models on GPUs with limited VRAM.
 
 ## Overview
 
@@ -8,7 +8,7 @@ Low memory mode uses a multi-level approach to reduce VRAM usage through model o
 
 ## Memory Levels
 
-Smart-Diffusion implements four memory levels (0-3):
+ChituDiffusion implements four memory levels (0-3):
 
 ### Level 0: Default (No Optimization)
 

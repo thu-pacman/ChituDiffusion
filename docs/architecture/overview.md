@@ -1,10 +1,10 @@
 # Architecture Overview
 
-This document provides an overview of Smart-Diffusion's architecture and design principles.
+This document provides an overview of ChituDiffusion's architecture and design principles.
 
 ## System Architecture
 
-Smart-Diffusion follows a modular, pipeline-based architecture optimized for high-performance diffusion inference:
+ChituDiffusion follows a modular, pipeline-based architecture optimized for high-performance diffusion inference:
 
 ```mermaid
 graph TB
@@ -200,7 +200,7 @@ sequenceDiagram
 
 ### Memory Hierarchy
 
-Smart-Diffusion manages memory across multiple levels:
+ChituDiffusion manages memory across multiple levels:
 
 ```
 ┌─────────────────────────────────────┐
@@ -233,7 +233,7 @@ Smart-Diffusion manages memory across multiple levels:
 
 ## Parallelism Strategy
 
-Smart-Diffusion supports multiple parallelism dimensions:
+ChituDiffusion supports multiple parallelism dimensions:
 
 ### 1. Context Parallelism (CP)
 
@@ -282,7 +282,7 @@ GPU 1: Request B
 
 ### Backend Selection
 
-Smart-Diffusion supports multiple attention implementations:
+ChituDiffusion supports multiple attention implementations:
 
 | Backend | Precision | Speed | Memory |
 |---------|-----------|-------|--------|
@@ -331,7 +331,7 @@ graph TD
 
 ## Configuration Taxonomy
 
-Smart-Diffusion uses a three-level configuration system:
+ChituDiffusion uses a three-level configuration system:
 
 ### 1. Model Parameters (Static)
 
@@ -359,7 +359,7 @@ Content: Parallelism, operators, memory mode
 
 ## Extension Points
 
-Smart-Diffusion is designed for extensibility:
+ChituDiffusion is designed for extensibility:
 
 ### Adding New Models
 

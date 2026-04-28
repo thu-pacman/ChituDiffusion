@@ -1,4 +1,4 @@
-site_name: Smart-Diffusion Documentation
+site_name: ChituDiffusion Documentation
 site_description: High-Performance Diffusion Model Inference Framework
 site_author: PACMAN Team, Tsinghua University & QingCheng.ai
 site_url: https://chen-yy20.github.io/SmartDiffusion/
@@ -86,7 +86,7 @@ plugins:
             Developer Guide: 开发者指南
             Code Style: 代码风格
             Testing: 测试
-            Why Smart-Diffusion: 为什么选择Smart-Diffusion
+            Why ChituDiffusion: 为什么选择ChituDiffusion
             FAQ: 常见问题
             Changelog: 更新日志
   - mkdocstrings:
@@ -149,7 +149,7 @@ nav:
     - Developer Guide: contributing/developer-guide.md
     - Code Style: contributing/code-style.md
     - Testing: contributing/testing.md
-  - Why Smart-Diffusion: whySmart.md
+  - Why ChituDiffusion: whySmart.md
   - FAQ: faq.md
   - Changelog: changelog.md
 

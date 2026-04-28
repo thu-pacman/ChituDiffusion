@@ -1,10 +1,10 @@
 # Custom Models
 
-This guide explains how to add support for custom diffusion models in Smart-Diffusion.
+This guide explains how to add support for custom diffusion models in ChituDiffusion.
 
 ## Overview
 
-Smart-Diffusion's modular architecture allows you to add new model architectures with minimal changes.
+ChituDiffusion's modular architecture allows you to add new model architectures with minimal changes.
 
 ## Model Requirements
 
@@ -185,7 +185,7 @@ If your checkpoint format differs, create a conversion script:
 import torch
 
 def convert_checkpoint(original_path, output_path):
-    """Convert your checkpoint to Smart-Diffusion format"""
+    """Convert your checkpoint to ChituDiffusion format"""
     # Load original
     ckpt = torch.load(original_path)
     

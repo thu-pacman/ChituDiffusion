@@ -1,10 +1,10 @@
-# Smart-Diffusion Documentation
+# ChituDiffusion Documentation
 
-Welcome to the Smart-Diffusion documentation! Smart-Diffusion is a high-performance diffusion model inference framework that provides extreme performance and flexible scheduling for AI-generated content (AIGC) workloads.
+Welcome to the ChituDiffusion documentation! ChituDiffusion is a high-performance diffusion model inference framework that provides extreme performance and flexible scheduling for AI-generated content (AIGC) workloads.
 
-## What is Smart-Diffusion?
+## What is ChituDiffusion?
 
-Smart-Diffusion is built on [Chitu](https://github.com/thu-pacman/chitu), a high-performance LLM inference framework. It extends Chitu's capabilities to support the rapidly growing Diffusion ecosystem, providing:
+ChituDiffusion is built on [Chitu](https://github.com/thu-pacman/chitu), a high-performance LLM inference framework. It extends Chitu's capabilities to support the rapidly growing Diffusion ecosystem, providing:
 
 - **🚀 Extreme Performance**: Advanced parallelism strategies and optimized kernels
 - **🔧 Flexible Architecture**: Multiple attention backend support
@@ -20,7 +20,7 @@ Smart-Diffusion is built on [Chitu](https://github.com/thu-pacman/chitu), a high
 
     ---
 
-    Install Smart-Diffusion and run your first generation in minutes
+    Install ChituDiffusion and run your first generation in minutes
 
     [:octicons-arrow-right-24: Installation](getting-started/installation.md)
 
@@ -28,7 +28,7 @@ Smart-Diffusion is built on [Chitu](https://github.com/thu-pacman/chitu), a high
 
     ---
 
-    Learn how to use Smart-Diffusion effectively
+    Learn how to use ChituDiffusion effectively
 
     [:octicons-arrow-right-24: Basic Usage](user-guide/basic-usage.md)
 
@@ -54,7 +54,7 @@ Smart-Diffusion is built on [Chitu](https://github.com/thu-pacman/chitu), a high
 
 ### High-Performance Inference
 
-Smart-Diffusion achieves superior performance through:
+ChituDiffusion achieves superior performance through:
 
 - **Parallelism**: Context parallelism (CP), CFG parallelism, and data parallelism
 - **Optimized Kernels**: FlashAttention, SageAttention, SpargeAttention
@@ -100,7 +100,7 @@ graph TD
     VD --> V[Output]
 ```
 
-Smart-Diffusion follows a modular architecture:
+ChituDiffusion follows a modular architecture:
 
 1. **Task Management**: User requests are converted to tasks and added to the task pool
 2. **Scheduling**: The scheduler selects pending tasks for execution
@@ -122,11 +122,11 @@ Join our community:
 
 Ready to get started?
 
-1. [Install Smart-Diffusion](getting-started/installation.md)
+1. [Install ChituDiffusion](getting-started/installation.md)
 2. [Run your first generation](getting-started/quick-start.md)
 3. [Explore advanced features](user-guide/advanced-features.md)
 4. [Read the design philosophy](architecture/design-philosophy.md)
 
 ---
 
-**Note**: Smart-Diffusion is under active development. We welcome contributions and feedback!
+**Note**: ChituDiffusion is under active development. We welcome contributions and feedback!
