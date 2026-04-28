@@ -1,16 +1,16 @@
-# Smart-Diffusion
+# ChituDiffusion
 
-[中文版](./README_zh.md) | [Why Smart-Diffusion?](./docs/whySmart.md)
+[中文版](./README_zh.md) | [Why ChituDiffusion?](./docs/whySmart.md)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![CUDA 12.4+](https://img.shields.io/badge/cuda-12.4+-green.svg)](https://developer.nvidia.com/cuda-downloads)
 
-Smart-Diffusion is a high-performance diffusion model inference framework built on [Chitu](https://github.com/thu-pacman/chitu). It provides extreme performance and flexible scheduling for AI-generated content (AIGC) workloads.
+ChituDiffusion is a high-performance diffusion model inference framework built on [Chitu](https://github.com/thu-pacman/chitu). It provides extreme performance and flexible scheduling for AI-generated content (AIGC) workloads.
 
 ## Overview
 
-Smart-Diffusion is the pure enjoyment version of Chitu-Diffusion, developed by the PACMAN team from Tsinghua University and QingCheng.ai. We aim to provide support for the rapidly growing Diffusion ecosystem by restructuring DiT models under the API and scheduling philosophy of Chitu, maintaining scheduling flexibility while offering extreme performance.
+ChituDiffusion is the pure enjoyment version of Chitu-Diffusion, developed by the PACMAN team from Tsinghua University and QingCheng.ai. We aim to provide support for the rapidly growing Diffusion ecosystem by restructuring DiT models under the API and scheduling philosophy of Chitu, maintaining scheduling flexibility while offering extreme performance.
 
 ### Key Features
 
@@ -23,12 +23,12 @@ Smart-Diffusion is the pure enjoyment version of Chitu-Diffusion, developed by t
 
 ### Design Philosophy
 
-Smart-Diffusion follows three core pillars:
+ChituDiffusion follows three core pillars:
 1. **Parallelism**: Context parallelism (CP), CFG parallelism, and data parallelism
 2. **Kernels**: Optimized attention implementations with quantization support
 3. **Algorithms**: Feature reuse and caching strategies for acceleration
 
-See [Why Smart-Diffusion?](./docs/whySmart.md) for detailed design philosophy.
+See [Why ChituDiffusion?](./docs/whySmart.md) for detailed design philosophy.
 
 ## Table of Contents
 
@@ -165,7 +165,7 @@ pip install -e .
 
 ## Supported Models
 
-Smart-Diffusion currently supports the Wan-T2V series:
+ChituDiffusion currently supports the Wan-T2V series:
 
 | Model ID | Parameters | Description |
 |----------|------------|-------------|
@@ -370,13 +370,13 @@ Behavior notes:
 
 ## Documentation
 
-- [Why Smart-Diffusion?](./docs/whySmart.md) - Design philosophy and architecture
+- [Why ChituDiffusion?](./docs/whySmart.md) - Design philosophy and architecture
 - [API Reference](./docs/) - Detailed API documentation
 - [Configuration Guide](./docs/) - Complete configuration options
 
 ## Contributing
 
-We welcome contributions! Smart-Diffusion is in active development.
+We welcome contributions! ChituDiffusion is in active development.
 
 To contribute:
 1. Fork the repository
@@ -406,11 +406,11 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ## Citation
 
-If you use Smart-Diffusion in your research, please cite:
+If you use ChituDiffusion in your research, please cite:
 
 ```bibtex
 @software{smart_diffusion2025,
-  title={Smart-Diffusion: High-Performance Diffusion Model Inference Framework},
+  title={ChituDiffusion: High-Performance Diffusion Model Inference Framework},
   author={PACMAN Team, Tsinghua University and QingCheng.ai},
   year={2025},
   url={https://github.com/chen-yy20/SmartDiffusion}
@@ -431,4 +431,4 @@ If you use Smart-Diffusion in your research, please cite:
 
 ---
 
-**Note**: Smart-Diffusion is currently in testing and development phase. We're working hard to make it better! Join us in building the future of AIGC acceleration. 🚀
+**Note**: ChituDiffusion is currently in testing and development phase. We're working hard to make it better! Join us in building the future of AIGC acceleration. 🚀

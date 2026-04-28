@@ -1,6 +1,6 @@
 # Multi-GPU Setup
 
-Configure Smart-Diffusion for multi-GPU execution.
+Configure ChituDiffusion for multi-GPU execution.
 
 ## Prerequisites
 

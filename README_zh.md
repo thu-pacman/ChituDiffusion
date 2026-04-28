@@ -1,4 +1,4 @@
-# Smart-Diffusion
+# ChituDiffusion
 
 [英文版](./README.md)
 

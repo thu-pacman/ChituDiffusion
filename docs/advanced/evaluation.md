@@ -1,6 +1,6 @@
 # Evaluation
 
-Smart-Diffusion supports evaluation of generated videos using industry-standard metrics.
+ChituDiffusion supports evaluation of generated videos using industry-standard metrics.
 
 ## Supported Metrics
 

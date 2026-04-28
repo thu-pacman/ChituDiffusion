@@ -14,7 +14,7 @@ def _read_requirements(file_name: str):
     return requirements
 
 setup(
-    name="smart-diffusion",
+    name="chitu-diffusion",
     version="0.1",
     packages=find_packages(),
     install_requires=_read_requirements("requirements.txt"),

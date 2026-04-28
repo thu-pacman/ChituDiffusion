@@ -1,4 +1,4 @@
-# 为什么选择 Smart-Diffusion？
+# 为什么选择 ChituDiffusion？
 [English Edition](./whySmart.md)
 
 ## Diffusion 推理的特点
@@ -10,7 +10,7 @@ Diffusion 推理是计算密集型任务，有以下几个特点：
 3. **Attention 是瓶颈**：长序列场景下，Full Attention 占了 80% 以上的延迟，优化重点就是 Attention。  
 4. **激活值变化小**：相邻去噪步之间的激活值变化不大，用 Feature Cache 这种简单方法就能明显加速。
 
-## Smart-Diffusion 的设计理念
+## ChituDiffusion 的设计理念
 
 ### 三个优化方向：并行、算子、算法  
 这三个方向可以单独优化，但配合起来效果最好。  
@@ -25,7 +25,7 @@ Diffusion 推理是计算密集型任务，有以下几个特点：
 
 ## 开发指南
 
-感谢你参与 Smart-Diffusion 开源项目！为了让代码审查更顺利，请先了解一下参数分类：
+感谢你参与 ChituDiffusion 开源项目！为了让代码审查更顺利，请先了解一下参数分类：
 
 | 参数类别 | 生命周期 | 配置位置 | 谁能改 | 最佳实践 |
 |---|---|---|---|---|

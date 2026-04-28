@@ -1,6 +1,6 @@
 # Task Management API
 
-This page documents the task management system in Smart-Diffusion, including task creation, tracking, and pooling.
+This page documents the task management system in ChituDiffusion, including task creation, tracking, and pooling.
 
 ## DiffusionUserParams
 

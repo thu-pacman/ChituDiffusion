@@ -1,4 +1,4 @@
-# Why Smart-Diffusion?
+# Why ChituDiffusion?
 [中文版](../whySmart_zh.md)
 
 ## Workload Characteristics of Diffusion
@@ -10,7 +10,7 @@ Diffusion inference is a *full-stack compute-bound* task:
 3. In long-sequence regimes, Full Attention accounts for ~80 % of end-to-end latency: operator-level efforts must target Attention first.  
 4. Activations change mildly between denoising steps: a simple, *lossy* Feature Cache yields instant speed-ups.
 
-## Design Philosophy of Smart-Diffusion
+## Design Philosophy of ChituDiffusion
 
 ### Three Pillars: Parallelism × Kernels × Algorithms  
 Each can be pursued independently, but *co-design* extracts the last drop of performance.  
@@ -25,7 +25,7 @@ Key idea: decompose the Diffusion pipeline into composable stages and orchestrat
 
 ## Developer Guide
 
-Thanks for joining the Smart-Diffusion open-source community! To keep code review painless, please align on the “parameter taxonomy” first:
+Thanks for joining the ChituDiffusion open-source community! To keep code review painless, please align on the “parameter taxonomy” first:
 
 | Category | Life-Cycle | Location | Who Can Change | Best Practice |
 |---|---|---|---|---|

@@ -1,6 +1,6 @@
 # Code Style Guide
 
-This document outlines the coding standards for Smart-Diffusion.
+This document outlines the coding standards for ChituDiffusion.
 
 ## Python Style
 

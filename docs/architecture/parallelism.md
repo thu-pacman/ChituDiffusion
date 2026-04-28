@@ -1,10 +1,10 @@
-# Parallelism in Smart-Diffusion
+# Parallelism in ChituDiffusion
 
-Smart-Diffusion supports multiple parallelism strategies to scale diffusion model inference across multiple GPUs and nodes.
+ChituDiffusion supports multiple parallelism strategies to scale diffusion model inference across multiple GPUs and nodes.
 
 ## Overview
 
-Smart-Diffusion implements three main parallelism dimensions:
+ChituDiffusion implements three main parallelism dimensions:
 
 1. **Context Parallelism (CP)**: Split the sequence (frames) dimension
 2. **CFG Parallelism**: Split positive/negative prompts for Classifier-Free Guidance
@@ -222,7 +222,7 @@ torchrun \
 
 ### Distributed Groups
 
-Smart-Diffusion creates separate process groups for different parallelism types:
+ChituDiffusion creates separate process groups for different parallelism types:
 
 ```python
 # CP group: GPUs that share sequence chunks

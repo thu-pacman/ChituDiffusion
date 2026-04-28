@@ -1,10 +1,10 @@
 # Basic Usage
 
-This guide covers the fundamental usage patterns of Smart-Diffusion.
+This guide covers the fundamental usage patterns of ChituDiffusion.
 
 ## Prerequisites
 
-- [Installed Smart-Diffusion](../getting-started/installation.md)
+- [Installed ChituDiffusion](../getting-started/installation.md)
 - Downloaded model checkpoint
 - Basic Python knowledge
 

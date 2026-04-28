@@ -1,6 +1,6 @@
 # Advanced Features
 
-Explore Smart-Diffusion's advanced capabilities for optimal performance.
+Explore ChituDiffusion's advanced capabilities for optimal performance.
 
 ## FlexCache
 

@@ -1,6 +1,6 @@
 # FlexCache
 
-FlexCache 是 Smart-Diffusion 中统一的特征复用加速框架。
+FlexCache 是 ChituDiffusion 中统一的特征复用加速框架。
 
 ## 统一用户 API
 

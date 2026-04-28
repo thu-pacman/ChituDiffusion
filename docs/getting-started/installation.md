@@ -1,10 +1,10 @@
 # Installation
 
-This guide will help you install Smart-Diffusion on your system.
+This guide will help you install ChituDiffusion on your system.
 
 ## Prerequisites
 
-Before installing Smart-Diffusion, ensure you have:
+Before installing ChituDiffusion, ensure you have:
 
 - **Python**: Version 3.12 or higher
 - **CUDA**: Version 12.4 or higher (12.8 recommended)
@@ -116,7 +116,7 @@ git submodule update --init --recursive
 pip install -r requirements.txt
 ```
 
-#### Step 3: Install Smart-Diffusion
+#### Step 3: Install ChituDiffusion
 
 ```bash
 pip install -e .
@@ -142,12 +142,12 @@ pip install flash-attn --no-build-isolation
 
 ## Verifying Installation
 
-After installation, verify that Smart-Diffusion is correctly installed:
+After installation, verify that ChituDiffusion is correctly installed:
 
 ```python
 import chitu_core
 import chitu_diffusion
-print("Smart-Diffusion installed successfully!")
+print("ChituDiffusion installed successfully!")
 ```
 
 Check available attention backends:

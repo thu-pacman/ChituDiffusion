@@ -1,6 +1,6 @@
 # Testing Guide
 
-This guide covers testing practices for Smart-Diffusion.
+This guide covers testing practices for ChituDiffusion.
 
 ## Test Organization
 

@@ -1,10 +1,10 @@
 # Attention Backends
 
-Smart-Diffusion supports multiple attention backend implementations to optimize performance and memory usage.
+ChituDiffusion supports multiple attention backend implementations to optimize performance and memory usage.
 
 ## Overview
 
-Attention is the most computationally intensive operation in diffusion models, accounting for 50-80% of total inference time. Smart-Diffusion provides multiple attention implementations optimized for different hardware and use cases.
+Attention is the most computationally intensive operation in diffusion models, accounting for 50-80% of total inference time. ChituDiffusion provides multiple attention implementations optimized for different hardware and use cases.
 
 ## Available Backends
 

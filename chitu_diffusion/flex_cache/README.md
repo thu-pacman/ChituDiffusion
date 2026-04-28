@@ -1,6 +1,6 @@
 # FlexCache Module
 
-FlexCache is the unified feature reuse acceleration module for Smart-Diffusion.
+FlexCache is the unified feature reuse acceleration module for ChituDiffusion.
 
 ## Unified API
 

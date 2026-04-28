@@ -1,10 +1,10 @@
-# Smart-Diffusion 文档
+# ChituDiffusion 文档
 
-欢迎使用 Smart-Diffusion 文档！Smart-Diffusion 是一个高性能扩散模型推理框架，为 AI 生成内容（AIGC）工作负载提供极致性能和灵活调度。
+欢迎使用 ChituDiffusion 文档！ChituDiffusion 是一个高性能扩散模型推理框架，为 AI 生成内容（AIGC）工作负载提供极致性能和灵活调度。
 
-## 什么是 Smart-Diffusion？
+## 什么是 ChituDiffusion？
 
-Smart-Diffusion 基于 [Chitu](https://github.com/thu-pacman/chitu) 构建，Chitu 是一个高性能 LLM 推理框架。它扩展了 Chitu 的能力以支持快速增长的 Diffusion 生态系统，提供：
+ChituDiffusion 基于 [Chitu](https://github.com/thu-pacman/chitu) 构建，Chitu 是一个高性能 LLM 推理框架。它扩展了 Chitu 的能力以支持快速增长的 Diffusion 生态系统，提供：
 
 - **🚀 极致性能**：先进的并行化策略和优化内核
 - **🔧 灵活架构**：多种注意力后端支持
@@ -20,7 +20,7 @@ Smart-Diffusion 基于 [Chitu](https://github.com/thu-pacman/chitu) 构建，Chi
 
     ---
 
-    安装 Smart-Diffusion 并在几分钟内运行您的第一个生成
+    安装 ChituDiffusion 并在几分钟内运行您的第一个生成
 
     [:octicons-arrow-right-24: 安装指南](getting-started/installation.md)
 
@@ -28,7 +28,7 @@ Smart-Diffusion 基于 [Chitu](https://github.com/thu-pacman/chitu) 构建，Chi
 
     ---
 
-    学习如何有效使用 Smart-Diffusion
+    学习如何有效使用 ChituDiffusion
 
     [:octicons-arrow-right-24: 基本用法](user-guide/basic-usage.md)
 
@@ -54,7 +54,7 @@ Smart-Diffusion 基于 [Chitu](https://github.com/thu-pacman/chitu) 构建，Chi
 
 ### 高性能推理
 
-Smart-Diffusion 通过以下方式实现卓越性能：
+ChituDiffusion 通过以下方式实现卓越性能：
 
 - **并行化**：上下文并行 (CP)、CFG 并行和数据并行
 - **优化内核**：FlashAttention、SageAttention、SpargeAttention
@@ -101,7 +101,7 @@ graph TD
     VD --> V[Output]
 ```
 
-Smart-Diffusion 采用模块化架构：
+ChituDiffusion 采用模块化架构：
 
 1. **任务管理**：用户请求转换为任务并添加到任务池
 2. **调度**：调度器选择待执行的任务
@@ -123,11 +123,11 @@ Smart-Diffusion 采用模块化架构：
 
 准备好开始了吗？
 
-1. [安装 Smart-Diffusion](getting-started/installation.zh.md)
+1. [安装 ChituDiffusion](getting-started/installation.zh.md)
 2. [运行您的第一个生成](getting-started/quick-start.zh.md)
 3. [探索高级功能](user-guide/advanced-features.zh.md)
 4. [阅读配置指南](getting-started/configuration.zh.md)
 
 ---
 
-**注意**：Smart-Diffusion 正在积极开发中。我们欢迎贡献和反馈！
+**注意**：ChituDiffusion 正在积极开发中。我们欢迎贡献和反馈！

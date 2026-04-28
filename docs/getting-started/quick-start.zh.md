@@ -1,17 +1,17 @@
 # 快速入门
 
-本指南将帮助您在几分钟内使用 Smart-Diffusion 生成您的第一个视频。
+本指南将帮助您在几分钟内使用 ChituDiffusion 生成您的第一个视频。
 
 ## 前置条件
 
 开始之前，请确保您已经：
 
-1. [安装了 Smart-Diffusion](installation.md)
+1. [安装了 ChituDiffusion](installation.md)
 2. 下载了模型检查点（参见[模型下载](#模型下载)）
 
 ## 模型下载 {#模型下载}
 
-Smart-Diffusion 目前支持 Wan-T2V 系列模型：
+ChituDiffusion 目前支持 Wan-T2V 系列模型：
 
 | 模型 | 大小 | 下载链接 |
 |-------|------|----------|

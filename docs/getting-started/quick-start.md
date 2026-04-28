@@ -1,17 +1,17 @@
 # Quick Start
 
-This guide will help you generate your first video with Smart-Diffusion in just a few minutes.
+This guide will help you generate your first video with ChituDiffusion in just a few minutes.
 
 ## Prerequisites
 
 Before starting, make sure you have:
 
-1. [Installed Smart-Diffusion](installation.md)
+1. [Installed ChituDiffusion](installation.md)
 2. Downloaded a model checkpoint (see [Model Downloads](#model-downloads))
 
 ## Model Downloads
 
-Smart-Diffusion currently supports the Wan-T2V series models:
+ChituDiffusion currently supports the Wan-T2V series models:
 
 | Model | Size | Download |
 |-------|------|----------|

@@ -1,6 +1,6 @@
 # FlexCache
 
-FlexCache is Smart-Diffusion's unified feature reuse acceleration framework.
+FlexCache is ChituDiffusion's unified feature reuse acceleration framework.
 
 ## Unified User API
 

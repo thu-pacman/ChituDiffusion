@@ -1,6 +1,6 @@
 # 更新日志
 
-Smart-Diffusion 的所有重要更改都将记录在此文件中。
+ChituDiffusion 的所有重要更改都将记录在此文件中。
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)，
 此项目遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
@@ -46,7 +46,7 @@ Smart-Diffusion 的所有重要更改都将记录在此文件中。
 ## [0.1.0] - 2026-01-27
 
 ### 新增
-- Smart-Diffusion 初始发布
+- ChituDiffusion 初始发布
 - 支持 Wan-T2V 系列模型（1.3B、14B、A14B）
 - 多种注意力后端支持：
   - FlashAttention（默认）
@@ -108,7 +108,7 @@ Smart-Diffusion 的所有重要更改都将记录在此文件中。
 
 ## 贡献
 
-有关如何为 Smart-Diffusion 做出贡献，请参阅 [贡献指南](contributing/developer-guide.md)。
+有关如何为 ChituDiffusion 做出贡献，请参阅 [贡献指南](contributing/developer-guide.md)。
 
 ---
 
