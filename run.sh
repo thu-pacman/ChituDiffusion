@@ -106,7 +106,6 @@ values = {
     "OUTPUT_ROOT_DIR": str(get("output.root_dir", "outputs")),
     "OUTPUT_ENABLE_RUN_LOG": bool(get("output.enable_run_log", True)),
     "OUTPUT_ENABLE_TIMER_DUMP": bool(get("output.enable_timer_dump", False)),
-    "OUTPUT_HYDRA_DUMP_MODE": str(get("output.hydra_dump_mode", "video_dir")),
     "OUTPUT_ENABLE_LAUNCH_LOG": bool(get("launch.enable_launch_log", False)),
 }
 
@@ -136,7 +135,7 @@ else:
 
 extra_overrides = get("overrides", [])
 if not isinstance(extra_overrides, list):
-    raise ValueError("overrides must be a YAML list of Hydra override strings")
+    raise ValueError("overrides must be a YAML list of dotlist override strings")
 
 for key, value in values.items():
     if isinstance(value, bool):
@@ -225,9 +224,14 @@ if [ -z "$RUNTIME_PYTHON_BIN" ]; then
 fi
 
 export CHITU_DEBUG
-export HYDRA_FULL_ERROR=1
 export CHITU_RUN_TAG="$RUN_TAG"
 export CHITU_PYTHON_BIN="$RUNTIME_PYTHON_BIN"
+export CHITU_PROJECT_ROOT="$PROJECT_ROOT"
+if [ -n "${PYTHONPATH:-}" ]; then
+    export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
+else
+    export PYTHONPATH="$PROJECT_ROOT"
+fi
 if [ "$CUDA_LAUNCH_BLOCKING" = "1" ]; then
     export CUDA_LAUNCH_BLOCKING=1
 fi
@@ -266,7 +270,6 @@ BASE_OVERRIDES=(
     "output.root_dir=$OUTPUT_ROOT_DIR"
     "output.enable_run_log=$OUTPUT_ENABLE_RUN_LOG"
     "output.enable_timer_dump=$OUTPUT_ENABLE_TIMER_DUMP"
-    "output.hydra_dump_mode=$OUTPUT_HYDRA_DUMP_MODE"
 )
 
 if [ -n "${EXTRA_OVERRIDES:-}" ]; then

@@ -1,11 +1,11 @@
 import torch
 import time
 from typing import Optional, Tuple
-from chitu_core.distributed.parallel_state import get_cp_group, get_up_group
+from chitu_diffusion.core.distributed.parallel_state import get_cp_group, get_up_group
 
 from logging import getLogger
-from chitu_diffusion.utils.shared_utils import update_out_and_lse, squeeze_and_transpose
-from chitu_diffusion.bench.timer import Timer
+from chitu_diffusion.runtime.parallel_utils import update_out_and_lse, squeeze_and_transpose
+from chitu_diffusion.observability.timer import Timer
 
 # try:
 #     import flash_attn_interface       

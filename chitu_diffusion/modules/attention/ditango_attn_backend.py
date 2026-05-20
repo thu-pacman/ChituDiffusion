@@ -3,10 +3,10 @@ from typing import Optional, Tuple, List
 from dataclasses import dataclass
 from logging import getLogger
 
-from chitu_core.distributed.parallel_state import get_cp_group, get_up_group
-from chitu_diffusion.backend import DiffusionBackend
+from chitu_diffusion.core.distributed.parallel_state import get_cp_group, get_up_group
+from chitu_diffusion.runtime.backend import DiffusionBackend
 from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend
-from chitu_diffusion.utils.shared_utils import update_out_and_lse, squeeze_and_transpose
+from chitu_diffusion.runtime.parallel_utils import update_out_and_lse, squeeze_and_transpose
 
 logger = getLogger(__name__)
 

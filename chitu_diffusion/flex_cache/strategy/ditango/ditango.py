@@ -4,19 +4,19 @@ from dataclasses import dataclass
 from logging import getLogger
 from typing import Any, Dict, Optional, Tuple
 
-from chitu_core.distributed.parallel_state import get_cfg_group, get_cp_group, get_up_group, get_world_group
-from chitu_core.logging_utils import should_log_info_on_rank
-from chitu_diffusion.backend import CFGType, DiffusionBackend
+from chitu_diffusion.core.distributed.parallel_state import get_cfg_group, get_cp_group, get_up_group, get_world_group
+from chitu_diffusion.core.logging_utils import should_log_info_on_rank
+from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
 from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.flex_cache.strategy.ditango.ppm_visualizer import save_ditango_decision_ppm
-from chitu_diffusion.task import DiffusionTask
-from chitu_diffusion.utils.shared_utils import (
+from chitu_diffusion.runtime.task import DiffusionTask
+from chitu_diffusion.runtime.parallel_utils import (
     async_ring_p2p_commit,
     async_ring_p2p_wait_and_update,
     squeeze_and_transpose,
     update_out_and_lse,
 )
-from chitu_diffusion.bench.timer import Timer
+from chitu_diffusion.observability.timer import Timer
 
 logger = getLogger(__name__)
 

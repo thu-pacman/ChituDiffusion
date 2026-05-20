@@ -32,7 +32,7 @@ DiffusionUserParams(
 推荐新写法：
 
 ```python
-from chitu_diffusion.task import DiffusionUserParams, FlexCacheParams
+from chitu_diffusion.runtime.task import DiffusionUserParams, FlexCacheParams
 
 DiffusionUserParams(
     prompt="A cat walking on grass",
@@ -57,8 +57,8 @@ DiffusionUserParams(
 
 ## 开发说明
 
-- 参数归一入口在 `chitu_diffusion/task.py`。
-- 策略分发与 ratio 映射在 `chitu_diffusion/generator.py`。
+- 参数归一入口在 `chitu_diffusion/runtime/task.py`。
+- 策略分发与 ratio 映射在 `chitu_diffusion/runtime/generator.py`。
 - 策略实现位于 `chitu_diffusion/flex_cache/strategy/`。
 - DiTango 实现在 `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`。
 - 三种策略统一采用同一 warmup/cooldown 语义。

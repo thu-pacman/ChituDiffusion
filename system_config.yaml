@@ -2,7 +2,7 @@ launch:
   tag: perf
   num_nodes: 1
   gpus_per_node: 8
-  python_script: test/test_flexcache.py
+  python_script: test/test_generate.py
   srun:
     partition: debug
     cpus_per_gpu: 24
@@ -34,9 +34,8 @@ output:
   root_dir: outputs
   enable_run_log: true
   enable_timer_dump: true
-  hydra_dump_mode: off
   
-# Extra hydra overrides appended to the launch command.
+# Extra dotlist overrides appended to the launch command.
 # Example:
 # overrides:
 #   - infer.max_reqs=4

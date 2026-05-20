@@ -1,0 +1,132 @@
+# SPDX-FileCopyrightText: 2025 Qingcheng.AI
+#
+# SPDX-License-Identifier: Apache-2.0
+
+serve:
+  host: 0.0.0.0
+  port: 21002
+  api_keys: # If the request has a api_key field found in this dict, the request will be prioritized.
+    - key: example_key
+      priority: -1 # The higher the value, the higher the priority. Ordinary request has a priority of 1.
+infer:
+  tp_size: 1
+  pp_size: 1
+  dp_size: 1
+  ep_size: 1
+  do_load: True # Legacy parameter. To be removed in the future.
+  seed: 0
+  max_seq_len: 10240 # length of prefill + decode
+  cache_type: skew # one of: skew, paged
+  attn_type: auto # one of: auto, flash_attn, flash_mla, flash_infer, triton, npu, ref, sage, sparge
+  op_impl: torch # one of: torch, muxi_custom_kernel
+  mla_absorb: "none" # one of: none, absorb-without-precomp, absorb
+  raise_lower_bit_float_to: float8_e4m3fn # choose one hardware-support dtype to compute lower-bit float 
+  soft_fp8: false # Legacy parameter. To be removed in the future.
+  fuse_shared_experts: False # whether to fuse shared experts
+  max_reqs: 8
+  pp_layer_partition: null # The number of layers for each pipeline stage, e.g., [10, 12, 12, 10].
+  use_cuda_graph: auto # one of: auto, True, False
+  num_blocks: -1 # a positive interger or -1 for auto num blocks calculation
+  bind_process_to_cpu: auto # one of: auto, none, numa
+  bind_thread_to_cpu: physical_core # one of: physical_core, logical_core
+  npu_fusion_fp4: False #  for npu fp4 fusion group_gemm mode
+  memory_utilization: 0.98 # GPU memory utilization for each GPU, e.g., 0.98 means 98% of GPU memory will be used.
+  prefill_chunk_size: auto # auto or integer or null
+  moe:
+    prefill_token_dispatcher: auto # one of: auto, tp, allgather, deepep-nl
+    decode_token_dispatcher: auto # one of: auto, tp, allgather, deepep-ll
+  mtp_size: 1 # if mtp_size==1, the mtp function is turned off; the mtp function will only be enabled when mtp_size>1.
+  schedule_overlap: auto # True, False or auto
+  diffusion:
+    cfg_size: 1
+    cp_size: 1
+    up_limit: 8
+    low_mem_level: 0
+    enable_flexcache: False
+
+eval:
+  eval_type: [] # list items in: vbench, fid, fvd, psnr, ssim, lpips
+  reference_path: null # required by fid/fvd/psnr/ssim/lpips
+
+output:
+  root_dir: outputs
+  enable_run_log: true
+  enable_timer_dump: false
+
+request: # for testing in single_req_test.py, NOT affecting the real serving
+  prompt_tokens_len: -1 # use for performance testing, -1 means use real requests.
+  max_new_tokens: 128
+  frequency_penalty: 0.0
+scheduler:
+  type: "request_preset,prefill_first"  # Ordered comma separated list of scheduler types among: "fcfs", "request_preset",
+                                        # "prefill_first", "stride", "deadline", "prefix_align"
+  pp_config:
+    prefill_num_tasks_divided_by_pp: True
+    prefill_num_tasks: null
+    enforce_decode_num_tasks_max: True
+    decode_num_tasks: null
+dp_config:
+  enabled: False
+  scheduler_base_host: 0.0.0.0
+  scheduler_base_port: 29610
+  dp_size: 1
+  dp_id: 0
+  tp_size: 1
+  pp_size: 1
+  # Router configuration
+  router:
+    is_router: False
+    host: 0.0.0.0
+    port: 21003              # HTTP service port
+    stats_port: 29600        # ZMQ port
+    token_port: 29700        # ZMQ port
+    load_balancer_algorithm: "power_of_two_choices"
+    # Scheduler zmq address, there many scheduler, use dp_id to identify the scheduler
+    # dp_id = 0, scheduler_address = tcp://0.0.0.0:29610
+    # dp_id = 1, scheduler_address = tcp://0.0.0.0:29611
+    dp_addresses:
+      - host: 0.0.0.0
+        port: 29610
+      - host: 0.0.0.0
+        port: 29611
+      - host: 0.0.0.0
+        port: 29612
+      - host: 0.0.0.0
+        port: 29613
+      - host: 0.0.0.0
+        port: 29614
+      - host: 0.0.0.0
+        port: 29615
+      - host: 0.0.0.0
+        port: 29616
+      - host: 0.0.0.0
+        port: 29617
+    # PD disaggregation configuration
+    pd_disaggregation:
+      enabled: False            # whether to enable PD disaggregation
+    # Prefill Scheduler list
+    prefill_schedulers:
+      - host: 0.0.0.0
+        port: 29620
+        max_batch_size: 32
+        max_total_tokens: 8192
+        batching_strategy: "varlen"
+    # Decode Scheduler list  
+    decode_schedulers:
+      - host: 0.0.0.0
+        port: 29630
+        scheduling_strategy: "immediate"
+metrics:
+  port: 9097
+  log_interval: 10.0
+  collect_interval: 20.0
+debug:
+  skip_model_load: False
+  force_moe_balance: False
+quant: null
+dtype: null # Legacy parameter. To be removed in the future.
+float_16bit_variant: bfloat16 # one of: bfloat16, float16. This sets the default_dtype of torch
+use_float32_rotary: False # If True, use float32 for RoPE. Otherwise, use the same dtype as `float_16bit_variant`.
+                          # float32 may be helpful if the context length is very long.
+keep_dtype_in_checkpoint: False
+skip_preprocess: False

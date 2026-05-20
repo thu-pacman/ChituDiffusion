@@ -18,8 +18,4 @@ setup(
     version="0.1",
     packages=find_packages(),
     install_requires=_read_requirements("requirements.txt"),
-    package_dir={
-        'chitu_core': 'chitu_core',
-        'chitu_diffusion': 'chitu_diffusion'
-    }
 )

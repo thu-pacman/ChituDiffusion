@@ -6,10 +6,10 @@ import torch.distributed as dist
 import functools
 from logging import getLogger
 from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
-from chitu_diffusion.task import DiffusionTask
-from chitu_diffusion.backend import DiffusionBackend, CFGType
-from chitu_core.distributed.parallel_state import get_cp_group
-from chitu_core.logging_utils import should_log_info_on_rank
+from chitu_diffusion.runtime.task import DiffusionTask
+from chitu_diffusion.runtime.backend import DiffusionBackend, CFGType
+from chitu_diffusion.core.distributed.parallel_state import get_cp_group
+from chitu_diffusion.core.logging_utils import should_log_info_on_rank
 
 logger = getLogger(__name__)
 

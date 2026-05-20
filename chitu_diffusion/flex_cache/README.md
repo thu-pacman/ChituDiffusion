@@ -32,7 +32,7 @@ DiffusionUserParams(
 Unified style:
 
 ```python
-from chitu_diffusion.task import DiffusionUserParams, FlexCacheParams
+from chitu_diffusion.runtime.task import DiffusionUserParams, FlexCacheParams
 
 DiffusionUserParams(
     prompt="A cat walking on grass",
@@ -57,8 +57,8 @@ Other strategy internals are intentionally fixed to keep API compact and predict
 
 ## Notes for Developers
 
-- Parameter normalization happens in `chitu_diffusion/task.py`.
-- Strategy assembly and ratio mapping happen in `chitu_diffusion/generator.py`.
+- Parameter normalization happens in `chitu_diffusion/runtime/task.py`.
+- Strategy assembly and ratio mapping happen in `chitu_diffusion/runtime/generator.py`.
 - Strategy implementations are in `chitu_diffusion/flex_cache/strategy/`.
 - DiTango implementation is in `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`.
 - All strategies now follow the same warmup/cooldown semantics.

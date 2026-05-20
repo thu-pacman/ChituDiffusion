@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from chitu_core.tokenizer import TokenizerHF
+from chitu_diffusion.core.tokenizer import TokenizerHF
 
 __all__ = [
     'T5Model',

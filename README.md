@@ -96,7 +96,7 @@ Common overrides:
 bash run.sh system_config.yaml --gpus-per-node 8 --cfp 2
 ```
 
-`run.sh` reads `system_config.yaml`, builds the Hydra overrides, and launches
+`run.sh` reads `system_config.yaml`, builds dotlist overrides, and launches
 the configured Python entry through the runtime script.
 
 ## Supported Models
@@ -114,12 +114,16 @@ configuration under the project config directory.
 ## Repository Layout
 
 ```text
-chitu_core/            Core configuration, schemas, distributed utilities, registry
-chitu_diffusion/       Diffusion runtime, modules, FlexCache, evaluation, utilities
-script/                Launch helpers for local and Slurm execution
-test/                  Generation and FlexCache test entry points
-system_config.yaml     Default runtime configuration
-run.sh                 Main launch entry point
+chitu_diffusion/core/            Configuration, schemas, distributed utilities, registry
+chitu_diffusion/runtime/         Backend, generator, scheduler, task, main runtime API
+chitu_diffusion/modules/         Model-specific and reusable diffusion modules
+chitu_diffusion/flex_cache/      FlexCache strategies
+chitu_diffusion/evaluation/      Evaluation manager, strategies, metric helpers
+chitu_diffusion/observability/   Timing and magnitude logging helpers
+script/                         Launch helpers for local and Slurm execution
+test/                           Generation and FlexCache test entry points
+system_config.yaml              Default runtime configuration
+run.sh                          Main launch entry point
 ```
 
 This layout will continue to be simplified as the project is prepared for
@@ -147,8 +151,9 @@ Run a lightweight import check:
 
 ```bash
 python - <<'PY'
-import chitu_core
-import chitu_diffusion
+import chitu_diffusion.core
+from chitu_diffusion.runtime.task import DiffusionUserParams
+from chitu_diffusion.observability import Timer
 print("imports ok")
 PY
 ```

@@ -1,4 +1,3 @@
-import hydra
 import torch
 import time
 import os
@@ -9,7 +8,6 @@ import copy
 import re
 import sys
 import subprocess
-import shutil
 from subprocess import TimeoutExpired
 from datetime import datetime
 from logging import getLogger
@@ -18,7 +16,7 @@ from dataclasses import asdict
 
 from omegaconf import OmegaConf
 
-from chitu_diffusion.chitu_diffusion_main import (
+from chitu_diffusion.runtime.main import (
     chitu_init,
     chitu_generate,
     warmup_diffusion_engine,
@@ -28,12 +26,13 @@ from chitu_diffusion.chitu_diffusion_main import (
     chitu_is_terminated,
 )
 
-# from chitu_core.task import UserRequest, TaskPool, Task
-from chitu_diffusion.task import DiffusionUserRequest, DiffusionTask, DiffusionTaskPool, DiffusionUserParams, FlexCacheParams
+# from chitu_diffusion.core.task import UserRequest, TaskPool, Task
+from chitu_diffusion.runtime.task import DiffusionUserRequest, DiffusionTask, DiffusionTaskPool, DiffusionUserParams, FlexCacheParams
 
-from chitu_core.schemas import ServeConfig
-from chitu_core.utils import get_config_dir_path, gen_req_id
-from chitu_diffusion.bench import Timer
+from chitu_diffusion.core.schemas import ServeConfig
+from chitu_diffusion.core.config_loader import load_config_from_cli
+from chitu_diffusion.core.utils import gen_req_id
+from chitu_diffusion.observability import Timer
 
 logger = getLogger(__name__)
 
@@ -199,56 +198,6 @@ def _dump_run_metadata(run_output_dir: str, args, reqs: list[DiffusionUserReques
         f.write(OmegaConf.to_yaml(args, resolve=True))
 
 
-def _get_hydra_runtime_output_dir() -> str:
-    try:
-        from hydra.core.hydra_config import HydraConfig
-
-        runtime = HydraConfig.get().runtime
-        if runtime is None:
-            return ""
-        return str(getattr(runtime, "output_dir", "") or "")
-    except Exception:
-        return ""
-
-
-def _apply_hydra_dump_policy(run_output_dir: str, args) -> None:
-    mode = str(getattr(args.output, "hydra_dump_mode", "video_dir") or "video_dir").strip().lower()
-    runtime_output_dir = _get_hydra_runtime_output_dir()
-    if not runtime_output_dir:
-        return
-
-    src_hydra_dir = os.path.join(runtime_output_dir, ".hydra")
-
-    if mode in {"off", "disable", "none"}:
-        if os.path.isdir(src_hydra_dir):
-            shutil.rmtree(src_hydra_dir, ignore_errors=True)
-        return
-
-    if mode not in {"video_dir", "same_as_video", "relocate"}:
-        return
-
-    if not run_output_dir or not os.path.isdir(src_hydra_dir):
-        return
-
-    if os.path.abspath(runtime_output_dir) == os.path.abspath(run_output_dir):
-        return
-
-    os.makedirs(run_output_dir, exist_ok=True)
-    dst_hydra_dir = os.path.join(run_output_dir, ".hydra")
-    if os.path.isdir(dst_hydra_dir):
-        shutil.rmtree(dst_hydra_dir, ignore_errors=True)
-
-    shutil.copytree(src_hydra_dir, dst_hydra_dir)
-    shutil.rmtree(src_hydra_dir, ignore_errors=True)
-
-    # Best effort: remove empty hydra runtime directory after relocation.
-    try:
-        if os.path.isdir(runtime_output_dir) and not os.listdir(runtime_output_dir):
-            os.rmdir(runtime_output_dir)
-    except OSError:
-        pass
-
-
 def run_normal(args):
     rank = torch.distributed.get_rank()
     warmup_diffusion_engine(args)
@@ -275,9 +224,6 @@ def run_normal(args):
 
         if run_output_dir:
             os.environ["CHITU_CURRENT_OUTPUT_DIR"] = run_output_dir
-
-        if rank == 0:
-            _apply_hydra_dump_policy(run_output_dir, args)
 
         log_handler = None
         if run_output_dir and getattr(args.output, "enable_run_log", True):
@@ -314,12 +260,6 @@ def run_normal(args):
     if log_handler is not None:
         log_handler.close()
 
-
-@hydra.main(
-    version_base=None,
-    config_path=os.getenv("CONFIG_PATH", get_config_dir_path()),
-    config_name=os.getenv("CONFIG_NAME", "serve_config"),
-)
 def main(args: ServeConfig):
     global local_args
     local_args = args
@@ -329,7 +269,7 @@ def main(args: ServeConfig):
 
     # Initialize Backend: args / distributed / load models & kernels
     chitu_init(args, logging_level=logging.INFO)
-    logger.info("initialized chitu_core.")
+    logger.info("initialized chitu_diffusion.core.")
     torch.distributed.barrier(device_ids=[torch.cuda.current_device()])
 
     logger.debug("finish init")
@@ -338,7 +278,7 @@ def main(args: ServeConfig):
 
 
 if __name__ == "__main__":
-    main()
+    main(load_config_from_cli())
 
     # Sometimes torch.distributed will hang during destruction if CUDA graph is enabled.
     # As a workaround, we `exec` a dummy process to kill the current process, without
