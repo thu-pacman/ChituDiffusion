@@ -145,6 +145,32 @@ Additional metric dependencies are installed with:
 uv sync --extra eval
 ```
 
+## Outputs
+
+Each run writes to:
+
+```text
+outputs/<tag>-<YYYYMMDD_HHMMSS>-<taskid>/
+  request_params.json
+  system_params.json
+  run_config.yaml
+  results/
+  metrics/
+    summary.json
+    timing.csv
+    timing.json
+    quality/
+  logs/
+    command.log
+    run.log
+    run.rank<N>.log
+```
+
+`results/` contains generated media and sidecar metadata. `metrics/` contains
+timing, memory, and quality evaluation files. `logs/` contains process logs and
+debug visualizations. `command.log` captures the full launch command output,
+including `run.sh`, `srun`, wrapper output, and Python stdout/stderr.
+
 ## Development
 
 Run a lightweight import check:

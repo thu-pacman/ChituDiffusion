@@ -34,6 +34,7 @@ from chitu_diffusion.runtime.task import DiffusionTask, DiffusionTaskPool, Diffu
 from chitu_diffusion.runtime.backend import DiffusionBackend, BackendState
 from chitu_diffusion.runtime.generator import Generator
 from chitu_diffusion.runtime.scheduler import DiffusionScheduler
+from chitu_diffusion.runtime.output_layout import quality_metrics_dir
 
 numa, has_numa = try_import_opt_dep("numa", "cpu")
 cpuinfer, has_cpuinfer = try_import_opt_dep("cpuinfer", "cpu")
@@ -328,7 +329,7 @@ def chitu_run_eval():
         return
 
     current_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
-    eval_output_dir = os.path.join(current_output_dir, "eval") if current_output_dir else None
+    eval_output_dir = quality_metrics_dir(current_output_dir) if current_output_dir else None
     manager.run(args=args, eval_types=eval_types, output_dir=eval_output_dir)
     
 

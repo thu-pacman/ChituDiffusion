@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+import json
+import os
 from logging import getLogger
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -198,6 +200,12 @@ class EvalManager():
                     "result": None,
                 }
 
-        return self.eval_result
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            summary_path = os.path.join(output_dir, "summary.json")
+            with open(summary_path, "w", encoding="utf-8") as f:
+                json.dump(self.eval_result, f, ensure_ascii=False, indent=2)
+            logger.info("Evaluation summary saved to %s", summary_path)
 
+        return self.eval_result
 

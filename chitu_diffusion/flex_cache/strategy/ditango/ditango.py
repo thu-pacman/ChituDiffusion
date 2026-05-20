@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 from chitu_diffusion.core.distributed.parallel_state import get_cfg_group, get_cp_group, get_up_group, get_world_group
 from chitu_diffusion.core.logging_utils import should_log_info_on_rank
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
+from chitu_diffusion.runtime.output_layout import debug_output_dir
 from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.flex_cache.strategy.ditango.ppm_visualizer import save_ditango_decision_ppm
 from chitu_diffusion.runtime.task import DiffusionTask
@@ -162,14 +163,14 @@ class DiTangoV3Strategy(FlexCacheStrategy):
         return should_log_info_on_rank() and (get_cp_group().rank_in_group == 0)
 
     def _get_output_dir(self) -> str:
+        env_output = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if env_output:
+            return debug_output_dir(env_output)
+
         task = DiffusionBackend.generator.current_task
         if task is not None and task.req is not None and task.req.params is not None:
             if task.req.params.save_dir:
-                return task.req.params.save_dir
-
-        env_output = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
-        if env_output:
-            return env_output
+                return os.path.join(task.req.params.save_dir, "..", "logs")
 
         args = getattr(DiffusionBackend, "args", None)
         if args is not None:

@@ -109,6 +109,38 @@ class Timer:
                     ])
 
     @staticmethod
+    def statistics_dict() -> Dict[str, Dict[str, float]]:
+        stats = {}
+        for name, timer in Timer._timers.items():
+            times = timer['times']
+            if not times:
+                continue
+            stats[name] = {
+                "min_ms": min(times),
+                "max_ms": max(times),
+                "avg_ms": sum(times) / len(times),
+                "samples": len(times),
+            }
+        return stats
+
+    @staticmethod
+    def save_statistics_json(filepath="timing_stats.json"):
+        if not Timer._global_enabled:
+            return
+
+        import json
+        import os
+        from datetime import datetime
+
+        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+        payload = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timers": Timer.statistics_dict(),
+        }
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    @staticmethod
     def enable():
         """Enable timing measurement"""
         Timer._global_enabled = True

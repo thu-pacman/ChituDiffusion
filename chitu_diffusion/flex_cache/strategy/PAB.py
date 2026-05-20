@@ -8,6 +8,7 @@ from logging import getLogger
 from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.runtime.task import DiffusionTask
 from chitu_diffusion.runtime.backend import DiffusionBackend, CFGType
+from chitu_diffusion.runtime.output_layout import debug_output_dir
 from chitu_diffusion.core.distributed.parallel_state import get_cp_group
 from chitu_diffusion.core.logging_utils import should_log_info_on_rank
 
@@ -78,14 +79,14 @@ class PABStrategy(FlexCacheStrategy):
         self.tradeoff_score = active_steps / self.skip_self_range
 
     def _get_output_dir(self) -> str:
+        env_output = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if env_output:
+            return debug_output_dir(env_output)
+
         task = DiffusionBackend.generator.current_task
         if task is not None and task.req is not None and task.req.params is not None:
             if task.req.params.save_dir:
-                return task.req.params.save_dir
-
-        env_output = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
-        if env_output:
-            return env_output
+                return os.path.join(task.req.params.save_dir, "..", "logs")
 
         args = getattr(DiffusionBackend, "args", None)
         if args is not None:
@@ -387,4 +388,3 @@ class PABStrategy(FlexCacheStrategy):
         """重置所有内部状态"""
         DiffusionBackend.flexcache.cache.clear() 
         logger.debug("PAB state reset")
-

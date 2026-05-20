@@ -37,6 +37,7 @@ from chitu_diffusion.modules.wan.utils import cache_video
 from chitu_diffusion.runtime.parallel_utils import SequencePadder
 from chitu_diffusion.observability import Timer, MagLogger
 from chitu_diffusion.runtime.output_naming import build_video_name_from_task
+from chitu_diffusion.runtime.output_layout import metrics_dir, write_json
 from chitu_diffusion.modules.flux.utils import (
     batched_prc_img,
     batched_prc_txt,
@@ -442,9 +443,20 @@ class Generator:
                 return
             self._save_video(task, video)
             # save_time_stats
-            output_dir = task.req.params.save_dir
+            run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+            stats_dir = metrics_dir(run_output_dir) if run_output_dir else task.req.params.save_dir
             Timer.print_statistics()
-            Timer.save_statistics(f"{output_dir}/time_stat_{task.task_id}.csv")
+            Timer.save_statistics(os.path.join(stats_dir, f"timing_{task.task_id}.csv"))
+            if torch.cuda.is_available():
+                write_json(
+                    os.path.join(stats_dir, f"memory_{task.task_id}.json"),
+                    {
+                        "task_id": task.task_id,
+                        "gpu_allocated_gb": torch.cuda.memory_allocated() / 1024**3,
+                        "gpu_max_allocated_gb": torch.cuda.max_memory_allocated() / 1024**3,
+                        "gpu_reserved_gb": torch.cuda.memory_reserved() / 1024**3,
+                    },
+                )
             # Magnitiude experiments
             # MagLogger.save_to_csv(save_dir=f"./experiments/{task.task_id}")
 

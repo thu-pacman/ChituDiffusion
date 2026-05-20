@@ -205,6 +205,10 @@ def log_context(**kwargs):
 
 def configure_chitu_logging():
     dictConfig(DEFAULT_CHITU_LOGGING_CONFIG)
+    logging.captureWarnings(True)
+    for logger_obj in logging.Logger.manager.loggerDict.values():
+        if isinstance(logger_obj, logging.Logger):
+            logger_obj.disabled = False
 
 
 def setup_chitu_logging():

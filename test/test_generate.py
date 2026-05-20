@@ -9,7 +9,6 @@ import re
 from datetime import datetime
 from logging import getLogger
 import resource
-from dataclasses import asdict
 
 from omegaconf import OmegaConf
 
@@ -25,6 +24,14 @@ from chitu_diffusion.runtime.main import (
 
 # from chitu_diffusion.core.task import UserRequest, TaskPool, Task
 from chitu_diffusion.runtime.task import DiffusionUserRequest, DiffusionTask, DiffusionTaskPool, DiffusionUserParams
+from chitu_diffusion.runtime.output_layout import (
+    build_run_output_dir,
+    ensure_run_layout,
+    logs_dir,
+    metrics_dir,
+    results_dir,
+    write_json,
+)
 
 from chitu_diffusion.core.schemas import ServeConfig
 from chitu_diffusion.core.config_loader import load_config_from_cli
@@ -64,8 +71,9 @@ def gen_reqs(num_reqs, max_new_tokens, frequency_penalty, is_vl=False):
     reqs: list[DiffusionUserRequest] = []
     for i in range(num_reqs):
         params = copy.deepcopy(msgs[i])
+        request_id = os.getenv("CHITU_RUN_TASK_ID") if i == 0 else None
         req = DiffusionUserRequest(
-            request_id = f"{gen_req_id()}",
+            request_id=request_id or f"{gen_req_id()}",
             params=params,
         )
         reqs.append(req)
@@ -83,25 +91,41 @@ def _slugify(raw: str, max_len: int = PROMPT_SLUG_LEN) -> str:
 
 
 def _build_run_output_dir(args, reqs: list[DiffusionUserRequest]) -> str:
+    env_run_dir = os.getenv("CHITU_RUN_DIR", "").strip()
+    if env_run_dir:
+        return env_run_dir
     root_dir = str(getattr(args.output, "root_dir", "outputs") or "outputs")
-    root_dir = root_dir.strip() or "outputs"
-    first_prompt = reqs[0].params.prompt if reqs else "prompt"
-    prompt_slug = _slugify(first_prompt, max_len=PROMPT_SLUG_LEN)
-    model_slug = _slugify(getattr(args.models, "name", "model"), max_len=64)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir_name = f"{prompt_slug}_{ts}_{model_slug}"
-    run_tag = str(os.getenv("CHITU_RUN_TAG", "")).strip()
-    if run_tag:
-        run_tag_slug = _slugify(run_tag, max_len=PROMPT_SLUG_LEN)
-        if run_tag_slug:
-            run_dir_name = f"{run_tag_slug}_{run_dir_name}"
-    return os.path.join(root_dir, run_dir_name)
+    run_tag = str(os.getenv("CHITU_RUN_TAG", "")).strip() or "run"
+    task_id = reqs[0].request_id if reqs else "task"
+    return build_run_output_dir(
+        root_dir=root_dir,
+        tag=run_tag,
+        task_id=task_id,
+        timestamp=os.getenv("CHITU_RUN_TIMESTAMP"),
+    )
+
+
+def _build_initial_run_output_dir(args) -> str:
+    env_run_dir = os.getenv("CHITU_RUN_DIR", "").strip()
+    if env_run_dir:
+        return env_run_dir
+    root_dir = str(getattr(args.output, "root_dir", "outputs") or "outputs")
+    run_tag = str(os.getenv("CHITU_RUN_TAG", "")).strip() or "run"
+    task_id = os.getenv("CHITU_RUN_TASK_ID", "").strip() or "task"
+    return build_run_output_dir(
+        root_dir=root_dir,
+        tag=run_tag,
+        task_id=task_id,
+        timestamp=os.getenv("CHITU_RUN_TIMESTAMP"),
+    )
 
 
 def _attach_run_log_handler(run_output_dir: str):
-    os.makedirs(run_output_dir, exist_ok=True)
+    os.makedirs(logs_dir(run_output_dir), exist_ok=True)
     root_logger = logging.getLogger()
-    run_log_path = os.path.join(run_output_dir, "run.log")
+    rank = int(os.getenv("RANK", "0"))
+    log_name = "run.log" if rank == 0 else f"run.rank{rank}.log"
+    run_log_path = os.path.join(logs_dir(run_output_dir), log_name)
     handler = logging.FileHandler(run_log_path, encoding="utf-8")
     handler.setLevel(logging.INFO)
     handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
@@ -110,34 +134,52 @@ def _attach_run_log_handler(run_output_dir: str):
 
 
 def _dump_run_metadata(run_output_dir: str, args, reqs: list[DiffusionUserRequest]):
-    os.makedirs(run_output_dir, exist_ok=True)
+    ensure_run_layout(run_output_dir)
     req_items = []
     for req in reqs:
         req_items.append(
             {
                 "request_id": req.request_id,
-                "params": asdict(req.params),
+                "params": req.params,
             }
         )
 
-    with open(os.path.join(run_output_dir, "request_params.json"), "w", encoding="utf-8") as f:
-        json.dump({"requests": req_items}, f, ensure_ascii=False, indent=2)
-
-    with open(os.path.join(run_output_dir, "run_meta.json"), "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "model_name": str(getattr(args.models, "name", "")),
-                "created_at": datetime.now().isoformat(timespec="seconds"),
-                "num_requests": len(reqs),
-                "output_dir": os.path.abspath(run_output_dir),
-            },
-            f,
-            ensure_ascii=False,
-            indent=2,
-        )
+    write_json(os.path.join(run_output_dir, "request_params.json"), {"requests": req_items})
+    write_json(
+        os.path.join(run_output_dir, "system_params.json"),
+        {
+            "model_name": str(getattr(args.models, "name", "")),
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "num_requests": len(reqs),
+            "output_dir": os.path.abspath(run_output_dir),
+            "results_dir": os.path.abspath(results_dir(run_output_dir)),
+            "config": args,
+        },
+    )
 
     with open(os.path.join(run_output_dir, "run_config.yaml"), "w", encoding="utf-8") as f:
         f.write(OmegaConf.to_yaml(args, resolve=True))
+
+
+def _dump_metrics_summary(run_output_dir: str, elapsed_s: float | None = None):
+    payload = {
+        "timing": {
+            "csv": os.path.join("metrics", "timing.csv"),
+            "json": os.path.join("metrics", "timing.json"),
+            "overall_elapsed_s": elapsed_s,
+        },
+        "quality": {
+            "summary": os.path.join("metrics", "quality", "summary.json"),
+        },
+        "memory": {},
+    }
+    if torch.cuda.is_available():
+        payload["memory"] = {
+            "gpu_allocated_gb": torch.cuda.memory_allocated() / 1024**3,
+            "gpu_max_allocated_gb": torch.cuda.max_memory_allocated() / 1024**3,
+            "gpu_reserved_gb": torch.cuda.memory_reserved() / 1024**3,
+        }
+    write_json(os.path.join(metrics_dir(run_output_dir), "summary.json"), payload)
 
 
 def run_normal(args):
@@ -156,8 +198,10 @@ def run_normal(args):
                 is_vl=hasattr(args.models, "vision_config"),
             )
             run_output_dir = _build_run_output_dir(args, reqs)
+            ensure_run_layout(run_output_dir)
+            run_results_dir = results_dir(run_output_dir)
             for req in reqs:
-                req.params.save_dir = run_output_dir
+                req.params.save_dir = run_results_dir
 
         if torch.distributed.is_initialized() and torch.distributed.get_world_size() > 1:
             payload = [run_output_dir]
@@ -166,9 +210,12 @@ def run_normal(args):
 
         if run_output_dir:
             os.environ["CHITU_CURRENT_OUTPUT_DIR"] = run_output_dir
+            os.environ["CHITU_CURRENT_RESULTS_DIR"] = results_dir(run_output_dir)
+            os.environ["CHITU_CURRENT_METRICS_DIR"] = metrics_dir(run_output_dir)
+            os.environ["CHITU_CURRENT_LOGS_DIR"] = logs_dir(run_output_dir)
 
         log_handler = None
-        if rank == 0 and getattr(args.output, "enable_run_log", True):
+        if rank == 0 and getattr(args.output, "enable_run_log", True) and os.getenv("CHITU_RUN_LOG_ATTACHED", "0") != "1":
             log_handler = _attach_run_log_handler(run_output_dir)
 
         if rank == 0:
@@ -187,6 +234,7 @@ def run_normal(args):
             
         if rank == 0:
             t_end = time.time()
+            elapsed_s = t_end - t_start
             logger.info(f"Time cost {t_end - t_start}")
         logger.info(
             f"[Final] | GPU-Alloc:{torch.cuda.memory_allocated()/1024**3:.3f} Max:{torch.cuda.max_memory_allocated()/1024**3:.3f} Rsrv:{torch.cuda.memory_reserved()/1024**3:.3f} GB  | CPU:{resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024**2:.3f} GB"
@@ -194,7 +242,11 @@ def run_normal(args):
 
         if rank == 0 and getattr(args.output, "enable_timer_dump", False):
             Timer.print_statistics()
-            Timer.save_statistics(os.path.join(run_output_dir, "time_stats.csv"))
+            Timer.save_statistics(os.path.join(metrics_dir(run_output_dir), "timing.csv"))
+            Timer.save_statistics_json(os.path.join(metrics_dir(run_output_dir), "timing.json"))
+
+        if rank == 0:
+            _dump_metrics_summary(run_output_dir, elapsed_s=locals().get("elapsed_s"))
         
     chitu_terminate()
     chitu_run_eval()
@@ -207,7 +259,19 @@ def main(args: ServeConfig):
     global local_args
     local_args = args
     logger.setLevel(logging.DEBUG)
-    if os.getenv("RANK") == 0:
+    initial_run_output_dir = _build_initial_run_output_dir(args)
+    ensure_run_layout(initial_run_output_dir)
+    os.environ["CHITU_CURRENT_OUTPUT_DIR"] = initial_run_output_dir
+    os.environ["CHITU_CURRENT_RESULTS_DIR"] = results_dir(initial_run_output_dir)
+    os.environ["CHITU_CURRENT_METRICS_DIR"] = metrics_dir(initial_run_output_dir)
+    os.environ["CHITU_CURRENT_LOGS_DIR"] = logs_dir(initial_run_output_dir)
+
+    early_log_handler = None
+    if os.getenv("RANK") == "0" and getattr(args.output, "enable_run_log", True):
+        early_log_handler = _attach_run_log_handler(initial_run_output_dir)
+        os.environ["CHITU_RUN_LOG_ATTACHED"] = "1"
+
+    if os.getenv("RANK") == "0":
         logger.info(f"Run with args: {args}")
 
     # Initialize Backend: args / distributed / load models & kernels
@@ -217,7 +281,12 @@ def main(args: ServeConfig):
 
     logger.debug("finish init")
     
-    run_normal(args)
+    try:
+        run_normal(args)
+    finally:
+        if early_log_handler is not None:
+            logging.getLogger().removeHandler(early_log_handler)
+            early_log_handler.close()
 
 
 if __name__ == "__main__":

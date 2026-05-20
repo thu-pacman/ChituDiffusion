@@ -1,8 +1,8 @@
 launch:
-  tag: perf
+  tag: ditango
   num_nodes: 1
   gpus_per_node: 8
-  python_script: test/test_generate.py
+  python_script: test/test_flexcache.py
   srun:
     partition: debug
     cpus_per_gpu: 24
@@ -28,7 +28,7 @@ infer:
 
 eval:
   eval_type: [psnr,lpips]
-  reference_path: /home/chenyy/WORK/cyy/SmartDiffusion/outputs/origin/origin_a_cat_walking_on_grass_20260401_174307_wan2_1_t2v_1_3b
+  reference_path: /home/chenyy/WORK/cyy/ChituDiffusion/outputs/origin/origin_a_cat_walking_on_grass_20260401_174307_wan2_1_t2v_1_3b
 
 output:
   root_dir: outputs

@@ -225,6 +225,27 @@ fi
 
 export CHITU_DEBUG
 export CHITU_RUN_TAG="$RUN_TAG"
+export CHITU_RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+if [ -z "${CHITU_RUN_TASK_ID:-}" ]; then
+    if command -v uuidgen >/dev/null 2>&1; then
+        export CHITU_RUN_TASK_ID="$(uuidgen | tr '[:upper:]' '[:lower:]' | cut -c1-8)"
+    else
+        export CHITU_RUN_TASK_ID="$(date +%s%N | cut -c11-18)"
+    fi
+fi
+slugify_run_part() {
+    local value="${1:-}"
+    local fallback="${2:-run}"
+    value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/_/g; s/^[._-]+//; s/[._-]+$//')"
+    if [ -z "$value" ]; then
+        value="$fallback"
+    fi
+    printf '%s' "${value:0:64}"
+}
+CHITU_RUN_TAG_SLUG="$(slugify_run_part "$RUN_TAG" "run")"
+CHITU_RUN_TASK_ID_SLUG="$(slugify_run_part "$CHITU_RUN_TASK_ID" "task")"
+export CHITU_RUN_DIR="$OUTPUT_ROOT_DIR/$CHITU_RUN_TAG_SLUG-$CHITU_RUN_TIMESTAMP-$CHITU_RUN_TASK_ID_SLUG"
+export CHITU_COMMAND_LOG="$CHITU_RUN_DIR/logs/command.log"
 export CHITU_PYTHON_BIN="$RUNTIME_PYTHON_BIN"
 export CHITU_PROJECT_ROOT="$PROJECT_ROOT"
 if [ -n "${PYTHONPATH:-}" ]; then
@@ -247,6 +268,11 @@ cd "$PROJECT_ROOT"
 if [ ! -f "$PYTHON_SCRIPT" ]; then
     echo "Error: launch.python_script does not exist: $PYTHON_SCRIPT"
     exit 1
+fi
+
+if [ "$OUTPUT_ENABLE_RUN_LOG" = "true" ]; then
+    mkdir -p "$(dirname "$CHITU_COMMAND_LOG")"
+    exec > >(tee -a "$CHITU_COMMAND_LOG") 2>&1
 fi
 
 DATE="$(date +%Y%m%d_%H%M%S)"
