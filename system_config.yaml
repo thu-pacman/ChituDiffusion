@@ -1,8 +1,8 @@
 launch:
-  tag: ditango
+  tag: ditango14B
   num_nodes: 1
   gpus_per_node: 8
-  python_script: test/test_flexcache.py
+  python_script: test/test_ditango.py
   srun:
     partition: debug
     cpus_per_gpu: 24
@@ -23,7 +23,7 @@ parallel:
 infer:
   attn_type: flash_attn
   low_mem_level: 0
-  enable_flexcache: true
+  enable_flexcache: false
   up_limit: 1
 
 eval:

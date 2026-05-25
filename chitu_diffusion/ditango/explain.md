@@ -114,7 +114,7 @@ $$\text{IsAnchor}(t) = \begin{cases}
 
 ### 动态阈值（统一 local-state 度量）
 
-设 FlexCache 的 `cache_ratio` 为 $c \in [0,1]$。当前实现将 anchor 阈值与 ASE 阈值统一到“local state 变化”这一主度量上。
+设 DiTango 的 `cache_ratio` 为 $c \in [0,1]$。当前实现将 anchor 阈值与 ASE 阈值统一到“local state 变化”这一主度量上。
 
 1. **Anchor 相对阈值（relative）**
 

@@ -77,6 +77,7 @@ class FidStrategy(ReferenceMetricStrategy):
             "status": "success",
             "score": float(score),
             "num_pairs": len(pairs),
+            "pairs": pairs,
         }
         result_path = self.save_result(result)
         result["result_path"] = result_path

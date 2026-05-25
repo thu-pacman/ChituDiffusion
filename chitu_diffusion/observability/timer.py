@@ -1,6 +1,6 @@
 import time
 import torch
-from typing import Dict, Optional
+from typing import Dict
 from contextlib import ContextDecorator
 
 class Timer:
@@ -80,35 +80,6 @@ class Timer:
         print("=" * 66 + "\n")
 
     @staticmethod
-    def save_statistics(filepath="timing_stats.csv"):
-        """Save timing statistics to CSV file in append mode"""
-        if not Timer._global_enabled:
-            return
-
-        from datetime import datetime
-        import csv
-        
-        with open(filepath, 'a', newline='') as f:
-            writer = csv.writer(f)
-            
-            # Write timestamp and header if file is empty
-            if f.tell() == 0:
-                writer.writerow(['Timestamp', 'Timer Name', 'Min (ms)', 'Max (ms)', 'Avg (ms)', 'Samples'])
-            
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            for name, timer in Timer._timers.items():
-                times = timer['times']
-                if times:
-                    writer.writerow([
-                        timestamp,
-                        name,
-                        min(times),
-                        max(times),
-                        sum(times) / len(times),
-                        len(times)
-                    ])
-
-    @staticmethod
     def statistics_dict() -> Dict[str, Dict[str, float]]:
         stats = {}
         for name, timer in Timer._timers.items():
@@ -135,6 +106,24 @@ class Timer:
         os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
         payload = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timers": Timer.statistics_dict(),
+        }
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    @staticmethod
+    def save_task_statistics_json(filepath: str, task_id: str):
+        if not Timer._global_enabled:
+            return
+
+        import json
+        import os
+        from datetime import datetime
+
+        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+        payload = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "task_id": task_id,
             "timers": Timer.statistics_dict(),
         }
         with open(filepath, "w", encoding="utf-8") as f:

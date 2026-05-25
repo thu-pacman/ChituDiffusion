@@ -1,12 +1,13 @@
 # FlexCache 模块
 
-FlexCache 是 ChituDiffusion 中统一的特征复用加速模块。
+FlexCache 是 ChituDiffusion 中 TeaCache 和 PAB 的特征复用加速模块。
+DiTango 已独立到同级的 `chitu_diffusion/ditango/` 包，不再 import FlexCache 内部实现。
 
 ## 统一 API
 
 面向用户的 FlexCache 参数统一为一组：
 
-- `strategy`: `teacache`、`pab` 或 `ditango`
+- `strategy`: `teacache` 或 `pab`
 - `cache_ratio`: 必填，范围 `[0, 1]`
 - `warmup`: 必填，前 `warmup` 步始终完整计算
 - `cooldown`: 必填，后 `cooldown` 步始终完整计算
@@ -37,7 +38,7 @@ from chitu_diffusion.runtime.task import DiffusionUserParams, FlexCacheParams
 DiffusionUserParams(
     prompt="A cat walking on grass",
     flexcache_params=FlexCacheParams(
-        strategy="ditango",
+        strategy="teacache",
         cache_ratio=0.45,
         warmup=5,
         cooldown=5,
@@ -51,17 +52,15 @@ DiffusionUserParams(
 
 - `teacache` -> `teacache_thresh`
 - `pab` -> `skip_self_range`（`skip_cross_range` 在内部固定派生）
-- `ditango` -> `anchor_rel_err_threshold` + 全局 `ase_threshold` 分位
-
 其他策略细节参数默认写死，以保持接口简洁和行为稳定。
 
 ## 开发说明
 
 - 参数归一入口在 `chitu_diffusion/runtime/task.py`。
 - 策略分发与 ratio 映射在 `chitu_diffusion/runtime/generator.py`。
-- 策略实现位于 `chitu_diffusion/flex_cache/strategy/`。
-- DiTango 实现在 `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`。
-- 三种策略统一采用同一 warmup/cooldown 语义。
+- FlexCache 策略实现位于 `chitu_diffusion/flex_cache/strategy/`。
+- DiTango planner/runtime 实现在 `chitu_diffusion/ditango/`。
+- 加速策略统一采用同一 warmup/cooldown 语义。
 
 ## 参数校验规则
 

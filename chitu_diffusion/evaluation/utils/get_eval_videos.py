@@ -20,13 +20,16 @@ def collect_videos_and_prompts(args) -> Tuple[Dict[str, str], str]:
 
     logger.info(f"Found {len(completed_tasks)} completed tasks")
 
-    save_dirs = {str(Path(task.req.params.save_dir).resolve()) for task in completed_tasks}
-    if len(save_dirs) != 1:
-        raise ValueError(
-            f"Completed tasks have different save_dir values: {sorted(save_dirs)}. "
-            "VBench expects a single videos_dir. Please unify save_dir or copy videos into one folder."
-        )
-    videos_dir = next(iter(save_dirs))
+    current_results_dir = os.environ.get("CHITU_CURRENT_RESULTS_DIR", "").strip()
+    if current_results_dir:
+        videos_dir = str(Path(current_results_dir).resolve())
+    else:
+        save_dirs = {str(Path(task.req.params.save_dir).resolve()) for task in completed_tasks}
+        if len(save_dirs) != 1:
+            common = Path(os.path.commonpath(sorted(save_dirs)))
+            videos_dir = str(common.resolve())
+        else:
+            videos_dir = next(iter(save_dirs))
 
     video_prompt: Dict[str, str] = {}
     missing_files = 0
@@ -35,18 +38,22 @@ def collect_videos_and_prompts(args) -> Tuple[Dict[str, str], str]:
         prompt = task.req.get_prompt()
         save_dir = str(Path(task.req.params.save_dir).resolve())
         save_name = build_video_name_from_task(task)
-        video_path = os.path.join(save_dir, save_name)
+        video_path = Path(save_dir) / save_name
 
-        if not os.path.exists(video_path):
+        if not video_path.exists():
             missing_files += 1
             logger.warning(f"Video file not found: {video_path}")
             continue
 
-        if save_name in video_prompt:
-            logger.warning(f"Duplicate video name detected: {save_name}. Overwriting previous prompt.")
-        video_prompt[save_name] = prompt
+        try:
+            video_key = str(video_path.relative_to(Path(videos_dir)))
+        except ValueError:
+            video_key = save_name
+        if video_key in video_prompt:
+            logger.warning(f"Duplicate video key detected: {video_key}. Overwriting previous prompt.")
+        video_prompt[video_key] = prompt
 
-        logger.debug(f"Collected: {save_name} -> {prompt[:50]}...")
+        logger.debug(f"Collected: {video_key} -> {prompt[:50]}...")
 
     if not video_prompt:
         raise ValueError("No video files found for completed tasks (all missing on disk?)")

@@ -177,6 +177,7 @@ class FvdStrategy(ReferenceMetricStrategy):
             "backend": backend,
             "backend_note": backend_note,
             "num_pairs": int(valid_count),
+            "pairs": pairs,
         }
 
         result_path = self.save_result(result)

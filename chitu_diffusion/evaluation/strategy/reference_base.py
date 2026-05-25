@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from chitu_diffusion.evaluation.eval_manager import EvalStrategy
 from chitu_diffusion.evaluation.utils.get_eval_videos import collect_videos_and_prompts
 from chitu_diffusion.runtime.output_naming import parse_video_name, slugify_prompt
+from chitu_diffusion.runtime.output_layout import write_json
 
 logger = getLogger(__name__)
 
@@ -73,10 +74,13 @@ class ReferenceMetricStrategy(EvalStrategy):
         ref_triplet_map.update(_load_sidecar_triplets(reference_base))
 
         pairs: List[Dict[str, str]] = []
-        used_reference: set[str] = set()
-        for video_name in video_prompt.keys():
-            generated_path = generated_base / video_name
-            reference_path = reference_base / video_name
+        for video_key in video_prompt.keys():
+            generated_path = generated_base / video_key
+            video_name = generated_path.name
+            task_id = generated_path.parent.name if generated_path.parent != generated_base else None
+            reference_path = reference_base / video_key
+            if not reference_path.exists():
+                reference_path = reference_base / video_name
             if not generated_path.exists():
                 continue
 
@@ -88,20 +92,21 @@ class ReferenceMetricStrategy(EvalStrategy):
                 if triplet is not None:
                     matched_reference = ref_triplet_map.get(triplet)
 
-            if matched_reference is not None and str(matched_reference.resolve()) not in used_reference:
+            if matched_reference is not None:
                 pairs.append(
                     {
+                        "task_id": task_id,
                         "video_name": video_name,
+                        "video_key": video_key,
                         "generated": str(generated_path.resolve()),
                         "reference": str(matched_reference.resolve()),
                     }
                 )
-                used_reference.add(str(matched_reference.resolve()))
 
         if pairs:
             return pairs
 
-        generated_files = sorted(generated_base.glob("*.mp4"))
+        generated_files = sorted(generated_base.rglob("*.mp4"))
         reference_files = sorted(reference_base.glob("*.mp4"))
         n = min(len(generated_files), len(reference_files))
         if n == 0:
@@ -111,9 +116,12 @@ class ReferenceMetricStrategy(EvalStrategy):
             "No same-name match found in reference_path, fallback to sorted pairing by index."
         )
         for idx in range(n):
+            task_id = generated_files[idx].parent.name if generated_files[idx].parent != generated_base else None
             pairs.append(
                 {
+                    "task_id": task_id,
                     "video_name": generated_files[idx].name,
+                    "video_key": str(generated_files[idx].relative_to(generated_base)),
                     "generated": str(generated_files[idx].resolve()),
                     "reference": str(reference_files[idx].resolve()),
                 }
@@ -165,6 +173,43 @@ class ReferenceMetricStrategy(EvalStrategy):
     def save_result(self, result: Dict[str, Any]):
         os.makedirs(self.output_dir, exist_ok=True)
         out_path = os.path.join(self.output_dir, f"{self.run_name}_eval_results.json")
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
+        write_json(out_path, self._with_task_groups(result))
         return out_path
+
+    def _with_task_groups(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        per_video = result.get("per_video")
+        if not isinstance(per_video, list):
+            pairs = result.get("pairs")
+            if isinstance(pairs, list):
+                grouped: Dict[str, Dict[str, Any]] = {}
+                for pair in pairs:
+                    if not isinstance(pair, dict):
+                        continue
+                    task_id = str(pair.get("task_id") or "unknown")
+                    grouped.setdefault(task_id, {"pairs": []})["pairs"].append(pair)
+                for group in grouped.values():
+                    group["num_pairs"] = len(group["pairs"])
+                    if "score" in result:
+                        group["score"] = result["score"]
+                result["by_task_id"] = grouped
+            return result
+
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for item in per_video:
+            if not isinstance(item, dict):
+                continue
+            task_id = str(item.get("task_id") or "unknown")
+            grouped.setdefault(task_id, {"items": []})["items"].append(item)
+
+        for task_id, group in grouped.items():
+            scores = [
+                float(item["score"])
+                for item in group["items"]
+                if isinstance(item, dict) and "score" in item
+            ]
+            group["num_videos"] = len(group["items"])
+            if scores:
+                group["mean_score"] = sum(scores) / len(scores)
+
+        result["by_task_id"] = grouped
+        return result

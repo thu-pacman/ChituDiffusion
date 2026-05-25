@@ -30,6 +30,8 @@ def ensure_run_layout(run_output_dir: str) -> dict[str, str]:
         "root": run_output_dir,
         "results": os.path.join(run_output_dir, "results"),
         "metrics": os.path.join(run_output_dir, "metrics"),
+        "timing_metrics": os.path.join(run_output_dir, "metrics", "timing"),
+        "memory_metrics": os.path.join(run_output_dir, "metrics", "memory"),
         "quality_metrics": os.path.join(run_output_dir, "metrics", "quality"),
         "logs": os.path.join(run_output_dir, "logs"),
     }
@@ -42,8 +44,20 @@ def results_dir(run_output_dir: str) -> str:
     return os.path.join(run_output_dir, "results")
 
 
+def task_results_dir(run_output_dir: str, task_id: str) -> str:
+    return os.path.join(results_dir(run_output_dir), slugify_run_part(task_id, fallback="task", max_len=64))
+
+
 def metrics_dir(run_output_dir: str) -> str:
     return os.path.join(run_output_dir, "metrics")
+
+
+def timing_metrics_dir(run_output_dir: str) -> str:
+    return os.path.join(metrics_dir(run_output_dir), "timing")
+
+
+def memory_metrics_dir(run_output_dir: str) -> str:
+    return os.path.join(metrics_dir(run_output_dir), "memory")
 
 
 def quality_metrics_dir(run_output_dir: str) -> str:
@@ -52,6 +66,10 @@ def quality_metrics_dir(run_output_dir: str) -> str:
 
 def logs_dir(run_output_dir: str) -> str:
     return os.path.join(run_output_dir, "logs")
+
+
+def task_logs_dir(run_output_dir: str, task_id: str) -> str:
+    return os.path.join(logs_dir(run_output_dir), slugify_run_part(task_id, fallback="task", max_len=64))
 
 
 def debug_output_dir(run_output_dir: str) -> str:

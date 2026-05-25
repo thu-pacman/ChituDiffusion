@@ -47,7 +47,9 @@ class SsimStrategy(ReferenceMetricStrategy):
             if frame_scores:
                 per_video.append(
                     {
+                        "task_id": pair.get("task_id"),
                         "video_name": pair["video_name"],
+                        "video_key": pair.get("video_key", pair["video_name"]),
                         "score": float(np.mean(frame_scores)),
                         "num_frames": len(frame_scores),
                     }

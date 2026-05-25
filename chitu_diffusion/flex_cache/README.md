@@ -1,12 +1,14 @@
 # FlexCache Module
 
-FlexCache is the unified feature reuse acceleration module for ChituDiffusion.
+FlexCache is the feature reuse acceleration module for TeaCache and PAB.
+DiTango now lives in the sibling `chitu_diffusion/ditango/` package and does not
+import FlexCache internals.
 
 ## Unified API
 
 User-facing FlexCache parameters are normalized into one group:
 
-- `strategy`: `teacache`, `pab`, or `ditango`
+- `strategy`: `teacache` or `pab`
 - `cache_ratio`: required, range `[0, 1]`
 - `warmup`: required, first `warmup` denoising steps always run full compute
 - `cooldown`: required, last `cooldown` denoising steps always run full compute
@@ -37,7 +39,7 @@ from chitu_diffusion.runtime.task import DiffusionUserParams, FlexCacheParams
 DiffusionUserParams(
     prompt="A cat walking on grass",
     flexcache_params=FlexCacheParams(
-        strategy="ditango",
+        strategy="teacache",
         cache_ratio=0.45,
         warmup=5,
         cooldown=5,
@@ -51,17 +53,15 @@ DiffusionUserParams(
 
 - `teacache` -> `teacache_thresh`
 - `pab` -> `skip_self_range` (`skip_cross_range` is derived internally)
-- `ditango` -> `anchor_rel_err_threshold` + global `ase_threshold` quantile
-
 Other strategy internals are intentionally fixed to keep API compact and predictable.
 
 ## Notes for Developers
 
 - Parameter normalization happens in `chitu_diffusion/runtime/task.py`.
 - Strategy assembly and ratio mapping happen in `chitu_diffusion/runtime/generator.py`.
-- Strategy implementations are in `chitu_diffusion/flex_cache/strategy/`.
-- DiTango implementation is in `chitu_diffusion/flex_cache/strategy/ditango/ditango.py`.
-- All strategies now follow the same warmup/cooldown semantics.
+- FlexCache strategy implementations are in `chitu_diffusion/flex_cache/strategy/`.
+- DiTango planner/runtime code is in `chitu_diffusion/ditango/`.
+- Acceleration strategies follow the same warmup/cooldown semantics.
 
 ## Validation Rules
 

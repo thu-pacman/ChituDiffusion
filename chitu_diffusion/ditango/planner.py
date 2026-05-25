@@ -1,22 +1,15 @@
 import torch
 import os
-from dataclasses import dataclass
 from logging import getLogger
 from typing import Any, Dict, Optional, Tuple
 
-from chitu_diffusion.core.distributed.parallel_state import get_cfg_group, get_cp_group, get_up_group, get_world_group
+from chitu_diffusion.core.distributed.parallel_state import get_cfg_group, get_cp_group, get_world_group
 from chitu_diffusion.core.logging_utils import should_log_info_on_rank
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
-from chitu_diffusion.runtime.output_layout import debug_output_dir
-from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
-from chitu_diffusion.flex_cache.strategy.ditango.ppm_visualizer import save_ditango_decision_ppm
+from chitu_diffusion.runtime.output_layout import debug_output_dir, task_logs_dir
+from chitu_diffusion.ditango.ppm_visualizer import save_ditango_decision_ppm
+from chitu_diffusion.ditango.state import AttentionState
 from chitu_diffusion.runtime.task import DiffusionTask
-from chitu_diffusion.runtime.parallel_utils import (
-    async_ring_p2p_commit,
-    async_ring_p2p_wait_and_update,
-    squeeze_and_transpose,
-    update_out_and_lse,
-)
 from chitu_diffusion.observability.timer import Timer
 
 logger = getLogger(__name__)
@@ -25,26 +18,7 @@ def get_timestep() -> int:
     return DiffusionBackend.generator.current_task.buffer.current_step
 
 
-@dataclass
-class AttentionState:
-    out: Optional[torch.Tensor] = None  # [b,s,n,d]
-    lse: Optional[torch.Tensor] = None  # [b,s,n,1]
-
-    def is_empty(self) -> bool:
-        return self.lse is None
-
-    def update(self, block_out: torch.Tensor, block_lse: torch.Tensor):
-        self.out, self.lse = update_out_and_lse(self.out, self.lse, block_out, block_lse)
-
-    @staticmethod
-    def merge(state1: "AttentionState", state2: "AttentionState") -> "AttentionState":
-        if state2.is_empty():
-            return state1
-        input_lse = squeeze_and_transpose(state2.lse)
-        state1.update(state2.out, input_lse)
-        return state1
-
-class DiTangoV3Strategy(FlexCacheStrategy):
+class DiTangoV3Planner:
     """
     DiTango v3 strategy:
     - Partition CP ranks into groups.
@@ -78,7 +52,6 @@ class DiTangoV3Strategy(FlexCacheStrategy):
         warmup_steps: Optional[int] = None,
         cooldown_steps: Optional[int] = None,
     ):
-        super().__init__()
         if ase_threshold is None:
             ase_threshold = self.DEFAULT_ASE_THRESHOLD
         if anchor_interval is None:
@@ -99,6 +72,7 @@ class DiTangoV3Strategy(FlexCacheStrategy):
         self.type = "ditango"
         self.tradeoff_score = float(ase_threshold)
         self.task = task
+        self.task_id = getattr(task, "task_id", None)
         self.cache_ratio = float(max(0.0, min(1.0, cache_ratio)))
 
         self.anchor_interval = max(1, int(anchor_interval))
@@ -114,6 +88,7 @@ class DiTangoV3Strategy(FlexCacheStrategy):
         self.ref_local_state_compress: Dict[str, torch.Tensor] = {}
         self.anchor_local_state_compress: Dict[str, torch.Tensor] = {}
         self.curr_local_state_compress: Dict[str, torch.Tensor] = {}
+        self.state_cache: Dict[str, AttentionState] = {}
         self.group_num = get_cp_group().group_size // self.intra_group_size_limit
         self.ditango_plan: Dict[str, torch.Tensor] = {} # {branch_key, tensor[layer_num, group_num]: bool}
 
@@ -148,9 +123,7 @@ class DiTangoV3Strategy(FlexCacheStrategy):
         self._decision_vis_max_step: int = -1
         self._step_fallback_counts: Dict[str, Dict[Tuple[int, int], int]] = {"pos": {}, "neg": {}}
 
-
-        if DiffusionBackend.flexcache is not None:
-            DiffusionBackend.flexcache.cache.clear()
+        self.state_cache.clear()
         logger.debug("DiTango v3 state reset")
 
 
@@ -165,6 +138,8 @@ class DiTangoV3Strategy(FlexCacheStrategy):
     def _get_output_dir(self) -> str:
         env_output = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
         if env_output:
+            if self.task_id:
+                return task_logs_dir(env_output, self.task_id)
             return debug_output_dir(env_output)
 
         task = DiffusionBackend.generator.current_task
@@ -186,13 +161,13 @@ class DiTangoV3Strategy(FlexCacheStrategy):
     def _merge_decision_code(prev: int, curr: int) -> int:
         if prev == curr:
             return prev
-        if prev == DiTangoV3Strategy.DECISION_CODE_ANCHOR or curr == DiTangoV3Strategy.DECISION_CODE_ANCHOR:
-            return DiTangoV3Strategy.DECISION_CODE_ANCHOR
-        if prev == DiTangoV3Strategy.DECISION_CODE_WARMUP_COOLDOWN or curr == DiTangoV3Strategy.DECISION_CODE_WARMUP_COOLDOWN:
-            return DiTangoV3Strategy.DECISION_CODE_WARMUP_COOLDOWN
-        if prev == DiTangoV3Strategy.DECISION_CODE_COMPUTE or curr == DiTangoV3Strategy.DECISION_CODE_COMPUTE:
-            return DiTangoV3Strategy.DECISION_CODE_COMPUTE
-        return DiTangoV3Strategy.DECISION_CODE_REUSE
+        if prev == DiTangoV3Planner.DECISION_CODE_ANCHOR or curr == DiTangoV3Planner.DECISION_CODE_ANCHOR:
+            return DiTangoV3Planner.DECISION_CODE_ANCHOR
+        if prev == DiTangoV3Planner.DECISION_CODE_WARMUP_COOLDOWN or curr == DiTangoV3Planner.DECISION_CODE_WARMUP_COOLDOWN:
+            return DiTangoV3Planner.DECISION_CODE_WARMUP_COOLDOWN
+        if prev == DiTangoV3Planner.DECISION_CODE_COMPUTE or curr == DiTangoV3Planner.DECISION_CODE_COMPUTE:
+            return DiTangoV3Planner.DECISION_CODE_COMPUTE
+        return DiTangoV3Planner.DECISION_CODE_REUSE
 
     def record_group_decision(self, layer_id: int, group_id: int, decision_code: int) -> None:
         if self.total_layers is None:
@@ -669,8 +644,8 @@ class DiTangoV3Strategy(FlexCacheStrategy):
 
     def reuse(self, layer_id: int, group_id: int = 0, **kwargs) -> AttentionState:
         key = self.get_reuse_key(layer_id, group_id=group_id)
-        if key in DiffusionBackend.flexcache.cache:
-            state = DiffusionBackend.flexcache.cache[key]
+        if key in self.state_cache:
+            state = self.state_cache[key]
             # logger.info(f"Reuse hit for {key} at t{get_timestep()}l{layer_id} | {self._state_digest(state)}")
             return state
 
@@ -688,11 +663,13 @@ class DiTangoV3Strategy(FlexCacheStrategy):
             return
 
         key = self.get_store_key(layer_id, group_id=group_id)
-        DiffusionBackend.flexcache.cache[key] = group_state
+        self.state_cache[key] = group_state
         self.group_meta.setdefault(key, {})["last_compute_step"] = step
 
    
     def wrap_module_with_strategy(self, module: torch.nn.Module) -> None:
+        from chitu_diffusion.ditango.runtime import DitangoV3Attention
+
         if not hasattr(module, "_original_attn"):
             module._original_attn = module.blocks[0].self_attn.attn_func
 
@@ -710,331 +687,3 @@ class DiTangoV3Strategy(FlexCacheStrategy):
             delattr(module, "_original_attn")
         self.dump_compute_reuse_visualization()
         logger.info(f"Module {module.__class__.__name__} unwrapped")
-
-class DitangoV3Attention:
-    def __init__(self, layer_id: int):
-        self.attn_backend = DiffusionBackend.attn
-        self.group = get_cp_group()
-        self.cp_size = self.group.group_size
-        self.global_rank = torch.distributed.get_rank()
-        self.rank_in_cp = self.group.rank_in_group
-        self.layer_id = layer_id
-
-        strategy: DiTangoV3Strategy = DiffusionBackend.flexcache.strategy
-        self.intra_group_size = min(self.cp_size, strategy.intra_group_size_limit)
-        self.ulysses_size = min(DiffusionBackend.args.infer.diffusion.up_limit, self.cp_size, self.intra_group_size)
-        self.enable_cfg_parallel = DiffusionBackend.args.infer.diffusion.cfg_size > 1
-
-        assert self.cp_size <= self.intra_group_size or self.cp_size % self.intra_group_size == 0
-
-        if self.global_rank == 0:
-            logger.info(f"L{layer_id} | Using Ditango Attn v3 (group selective).")
-
-    def _print_layer0(self, message: str) -> None:
-        if self.global_rank == 0 and self.layer_id == 0:
-            logger.info(message)
-        
-
-    @staticmethod
-    def _is_local_partition_step(outer_step: int, inner_step: int) -> bool:
-        """In the rotated view, local partition is always the first block."""
-        return (outer_step == 0) and (inner_step == 0)
-
-    def _is_varlen_mode(
-        self,
-        cu_seqlens_q: Optional[torch.Tensor],
-        cu_seqlens_k: Optional[torch.Tensor],
-        max_seqlen_q: Optional[int],
-        max_seqlen_k: Optional[int],
-    ) -> bool:
-        return (
-            cu_seqlens_q is not None
-            and cu_seqlens_k is not None
-            and max_seqlen_q is not None
-            and max_seqlen_k is not None
-        )
-
-    def _generate_selective_comm_pattern(self, group_plan: torch.Tensor): 
-
-        comm_list = []
-        plan_list = group_plan.bool().tolist()
-        outer_loop_size = self.cp_size // self.intra_group_size
-
-        inner_offset = self.rank_in_cp // self.intra_group_size * self.intra_group_size
-        inner_loop_size = self.intra_group_size // self.ulysses_size
-        inner_loop_next_rank = (self.rank_in_cp - self.ulysses_size) % self.intra_group_size + inner_offset
-        inner_loop_prev_rank = (self.rank_in_cp + self.ulysses_size) % self.intra_group_size + inner_offset
-
-        skip_group_range = 0
-
-        for group_id, should_compute in enumerate(plan_list):
-            if should_compute: 
-                if group_id != 0:
-                    # 非本地group，需要先获取远端头kv
-                    outer_loop_next_rank = (self.rank_in_cp - self.intra_group_size * (skip_group_range + 1)) % self.cp_size
-                    outer_loop_prev_rank = (self.rank_in_cp + self.intra_group_size * (skip_group_range + 1)) % self.cp_size
-                    comm_list.append((outer_loop_prev_rank, outer_loop_next_rank))
-                # 组内ring通信
-                for _ in range(inner_loop_size - 1):
-                    comm_list.append((inner_loop_prev_rank, inner_loop_next_rank))
-            else:
-                if group_id != 0:
-                    skip_group_range += 1
-
-        # ogger.info(f"Generated selective comm pattern for group plan {plan_list}: {comm_list}")
-        return outer_loop_size, inner_loop_size, comm_list
-
-
-       
-
-
-    def __call__(
-        self,
-        q: torch.Tensor,
-        k: torch.Tensor,
-        v: torch.Tensor,
-        cu_seqlens_q: Optional[torch.Tensor] = None,
-        cu_seqlens_k: Optional[torch.Tensor] = None,
-        max_seqlen_q: Optional[int] = None,
-        max_seqlen_k: Optional[int] = None,
-        dropout_p: float = 0,
-        softmax_scale: Optional[float] = None,
-        causal: bool = False,
-        window_size: Tuple[int, int] = (-1, -1),
-        deterministic: bool = False,
-        return_attn_probs: bool = False,
-    ) -> Tuple[torch.Tensor, None, None]:
-        is_varlen = self._is_varlen_mode(cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k)
-        seq_dim, head_dim = (0, 1) if is_varlen else (1, 2)
-        strategy: DiTangoV3Strategy = DiffusionBackend.flexcache.strategy
-
-        attn_kwargs = {
-            "cu_seqlens_q": cu_seqlens_q,
-            "cu_seqlens_k": cu_seqlens_k,
-            "max_seqlen_q": max_seqlen_q,
-            "max_seqlen_k": max_seqlen_k,
-            "dropout_p": dropout_p,
-            "softmax_scale": softmax_scale,
-            "causal": causal,
-            "window_size": window_size,
-            "deterministic": deterministic,
-            "return_attn_probs": True,
-        }
-
-        if self.ulysses_size > 1:
-            ulysses_group = get_up_group(self.ulysses_size)
-            q = ulysses_group.all_to_all(q, head_dim, seq_dim)
-            k = ulysses_group.all_to_all(k, head_dim, seq_dim)
-            v = ulysses_group.all_to_all(v, head_dim, seq_dim)
-
-        warmup_cooldown = strategy.is_warmup_or_cooldown_step()
-        is_anchor = strategy.is_anchor_step() 
-
-        if get_cp_group().rank_in_group == 0 and self.layer_id == 0:
-            Attn_name = "warmup/cooldown" if warmup_cooldown else ("anchor" if is_anchor else "selective")
-            print("" + "=" * 20 + f" T{get_timestep()}-{Attn_name} " + "=" * 20, flush=True)
-
-        if warmup_cooldown or is_anchor:
-            final_state, group_states, local_state = self._anchor_step_attn(q, k, v, is_varlen, is_anchor, **attn_kwargs)
-        else:
-            final_state, group_states, local_state = self._selective_group_attn(
-                q, k, v, is_varlen, **attn_kwargs
-            )
-        if self.ulysses_size > 1:
-            out = ulysses_group.all_to_all(final_state.out, seq_dim, head_dim)
-        else:
-            out = final_state.out
-
-        if is_anchor: # 所有层full compute
-            # Per-rank logical local group is always 0 in this rotated loop.
-            strategy.update_anchor_stats(self.layer_id, group_states, local_state)
-
-        strategy.run_ditango_planner(self.layer_id)
-
-        return out, None, None
-
-    @Timer.get_timer("anchor_attn")
-    def _anchor_step_attn(
-        self,
-        q: torch.Tensor,
-        k: torch.Tensor,
-        v: torch.Tensor,
-        is_varlen: bool,
-        is_anchor: bool,
-        **kwargs,
-    ) -> Tuple[AttentionState, Dict[int, AttentionState], AttentionState]:
-        """Anchor step: compute all group attention states and cache them."""
-        strategy: DiTangoV3Strategy = DiffusionBackend.flexcache.strategy
-        outer_loop_size = self.cp_size // self.intra_group_size
-        inner_loop_size = self.intra_group_size // self.ulysses_size
-        outer_loop_prev_rank = (self.rank_in_cp + self.intra_group_size) % self.cp_size
-        outer_loop_next_rank = (self.rank_in_cp - self.intra_group_size) % self.cp_size
-        inner_offset = self.rank_in_cp // self.intra_group_size * self.intra_group_size
-        inner_loop_prev_rank = (self.rank_in_cp + self.ulysses_size) % self.intra_group_size + inner_offset
-        inner_loop_next_rank = (self.rank_in_cp - self.ulysses_size) % self.intra_group_size + inner_offset
-                                
-        final_state = AttentionState()
-        computed_group_states: Dict[int, AttentionState] = {}
-        local_partition_state = AttentionState()
-
-        current_group_id = 0
-        for outer_step in range(outer_loop_size):
-            group_state = AttentionState()
-            decision_code = (
-                strategy.DECISION_CODE_ANCHOR
-                if is_anchor
-                else strategy.DECISION_CODE_WARMUP_COOLDOWN
-            )
-
-            for inner_step in range(inner_loop_size):
-                if is_varlen:
-                    cu_seqlens_k = kwargs.get("cu_seqlens_k", None)
-                    data_pack = (k, v, cu_seqlens_k)
-                else:
-                    data_pack = (k, v)
-
-                if inner_step + 1 != inner_loop_size:
-                    nxt_data_pack = async_ring_p2p_commit(
-                        self.group,
-                        data_pack,
-                        src_rank=inner_loop_prev_rank,
-                        dst_rank=inner_loop_next_rank,
-                    )
-                elif outer_step + 1 != outer_loop_size:
-                    nxt_data_pack = async_ring_p2p_commit(
-                        self.group,
-                        data_pack,
-                        src_rank=outer_loop_prev_rank,
-                        dst_rank=outer_loop_next_rank,
-                    )
-
-                block_out, block_lse, _ = self.attn_backend(q, k, v, **kwargs)
-
-                is_local_partition = self._is_local_partition_step(outer_step, inner_step)
-                if is_local_partition:
-                    local_partition_state.update(block_out, block_lse)
-                    final_state = AttentionState.merge(final_state, local_partition_state)
-                    if is_anchor:
-                        strategy.set_curr_local_state_compress(self.layer_id, local_partition_state)
-                else:
-                    group_state.update(block_out, block_lse)
-
-                if (inner_step + 1 != inner_loop_size) or (outer_step + 1 != outer_loop_size):
-                    if is_varlen:
-                        k, v, cu_seqlens_k = async_ring_p2p_wait_and_update(self.group, nxt_data_pack)
-                    else:
-                        k, v = async_ring_p2p_wait_and_update(self.group, nxt_data_pack)
-
-            if not group_state.is_empty():
-                if is_anchor:
-                    computed_group_states[current_group_id] = group_state
-                    strategy.store(self.layer_id, group_id=current_group_id, group_state=group_state)
-                    strategy._update_group_local_ref_compress(self.layer_id, current_group_id)
-                final_state = AttentionState.merge(final_state, group_state)
-
-            strategy.record_group_decision(self.layer_id, current_group_id, decision_code)
-
-            current_group_id = (current_group_id + 1) % outer_loop_size
-
-        return final_state, computed_group_states, local_partition_state
-
-    def _selective_group_attn(
-        self,
-        q: torch.Tensor,
-        k: torch.Tensor,
-        v: torch.Tensor,
-        is_varlen: bool,
-        **kwargs,
-    ) -> Tuple[AttentionState, Dict[int, AttentionState], AttentionState]:
-        strategy: DiTangoV3Strategy = DiffusionBackend.flexcache.strategy
-        final_state = AttentionState()
-        computed_group_states: Dict[int, AttentionState] = {}
-        local_partition_state = AttentionState()
-        num_groups = self.cp_size // self.intra_group_size
-        fallback_count = 0
-        current_group_id = 0
-        branch_key = strategy._branch_key()
-        branch_plan = strategy.ditango_plan.get(branch_key, None)
-        if branch_plan is None:
-            group_plan = torch.ones((num_groups,), dtype=torch.bool, device=self.group.device)
-        else:
-            group_plan = branch_plan[self.layer_id]
-        if strategy._should_log_summary() and self.layer_id == 0:
-            logger.info(f"[Selective Attn t{get_timestep()}l{self.layer_id}b{branch_key}] {group_plan=}")
-        # outer step: group-level rotation - selective compute or reuse ; inner step: intra-group rotation
-
-        compute_group = group_plan.bool().tolist().count(True)
-        with Timer.get_timer(f"sele_attn_{compute_group}"):
-            outer_loop_size, group_size, comm_list = self._generate_selective_comm_pattern(group_plan)
-
-            for outer_step in range(outer_loop_size):
-                should_compute = bool(group_plan[current_group_id].item())
-                group_state = AttentionState()
-                inner_loop_size = group_size if should_compute else 1
-
-                for inner_step in range(inner_loop_size):
-                    if is_varlen:
-                        cu_seqlens_k = kwargs.get("cu_seqlens_k", None)
-                        data_pack = (k, v, cu_seqlens_k)
-                    else:
-                        data_pack = (k, v)
-
-                    if comm_list:
-                        next_rank, prev_rank = comm_list.pop(0)
-                        should_comm = True
-                    else:
-                        next_rank, prev_rank = None, None
-                        should_comm = False
-                    if should_comm:
-                        nxt_data_pack = async_ring_p2p_commit(
-                            self.group,
-                            data_pack,
-                            src_rank=prev_rank,
-                            dst_rank=next_rank,
-                        )
-
-                    is_local_partition = self._is_local_partition_step(outer_step, inner_step)
-                    # Local partition must always be computed and merged into final_state only.
-                    if is_local_partition:
-                        block_out, block_lse, _ = self.attn_backend(q, k, v, **kwargs)
-                        local_partition_state.update(block_out, block_lse)
-                        strategy.set_curr_local_state_compress(self.layer_id, local_partition_state)
-                        final_state = AttentionState.merge(final_state, local_partition_state)
-                    elif should_compute:
-                        block_out, block_lse, _ = self.attn_backend(q, k, v, **kwargs)
-                        group_state.update(block_out, block_lse)
-
-                    if not should_compute:
-                        reused_state = strategy.reuse(self.layer_id, group_id=current_group_id)
-                        assert not reused_state.is_empty(), f"Group {current_group_id} reuse miss at t{get_timestep()}l{self.layer_id}"
-                        # logger.info(f"Reuse group {current_group_id} at t{get_timestep()}l{self.layer_id} | {strategy._state_digest(reused_state)}")
-
-                    if should_comm:
-                        if is_varlen:
-                            k, v, cu_seqlens_k = async_ring_p2p_wait_and_update(self.group, nxt_data_pack)
-                        else:
-                            k, v = async_ring_p2p_wait_and_update(self.group, nxt_data_pack)
-
-                if should_compute:
-                    if not group_state.is_empty():
-                        strategy.store(self.layer_id, group_id=current_group_id, group_state=group_state)
-                        strategy._update_group_local_ref_compress(self.layer_id, current_group_id)
-                        computed_group_states[current_group_id] = group_state
-                        final_state = AttentionState.merge(final_state, group_state)
-                    strategy.record_group_decision(
-                        self.layer_id,
-                        current_group_id,
-                        strategy.DECISION_CODE_COMPUTE,
-                    )
-                else:
-                    final_state = AttentionState.merge(final_state, reused_state)
-                    strategy.record_group_decision(
-                        self.layer_id,
-                        current_group_id,
-                        strategy.DECISION_CODE_REUSE,
-                    )
-
-                current_group_id = (current_group_id + 1) % num_groups
-
-        strategy.record_step_fallback(self.layer_id, fallback_count)
-        return final_state, computed_group_states, local_partition_state

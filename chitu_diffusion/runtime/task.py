@@ -47,7 +47,7 @@ class DiffusionTaskStatus(Enum):
 
 @dataclass
 class FlexCacheParams:
-    """统一的 FlexCache 用户参数。"""
+    """Unified acceleration parameters. Name kept for request compatibility."""
     strategy: Optional[str] = None
     cache_ratio: float = 0.5
     warmup: int = 5
@@ -68,9 +68,9 @@ class DiffusionUserParams:
     num_inference_steps: int = None
     # 其他参数
     save_dir: Optional[str] = "./output"  # 输出保存路径
-    # FlexCache 兼容字段: 仅指定策略名
+    # Acceleration compatibility field: only specify a strategy name.
     flexcache: Optional[str] = None
-    # FlexCache 统一参数对象
+    # Unified acceleration parameter object.
     flexcache_params: Optional[Union[FlexCacheParams, Dict[str, Any]]] = None
 
     def __post_init__(self):
@@ -79,8 +79,8 @@ class DiffusionUserParams:
 
     def resolve_flexcache_params(self) -> Optional[FlexCacheParams]:
         """
-        统一 FlexCache 参数入口。
-        优先使用 flexcache_params，缺省时回退到 legacy 字段 flexcache。
+        Unified acceleration parameter entry.
+        Prefer flexcache_params, falling back to the legacy flexcache field.
         """
         params = self.flexcache_params
 
@@ -96,20 +96,20 @@ class DiffusionUserParams:
 
         if strategy not in {"teacache", "pab", "ditango"}:
             raise ValueError(
-                f"Unsupported flexcache strategy '{params.strategy}'. "
+                f"Unsupported acceleration strategy '{params.strategy}'. "
                 "Supported strategies are: teacache, pab, ditango."
             )
 
         cache_ratio = float(params.cache_ratio)
         if cache_ratio < 0.0 or cache_ratio > 1.0:
-            raise ValueError(f"flexcache cache_ratio must be in [0, 1], got {cache_ratio}.")
+            raise ValueError(f"acceleration cache_ratio must be in [0, 1], got {cache_ratio}.")
 
         warmup = int(params.warmup)
         cooldown = int(params.cooldown)
         if warmup < 0:
-            raise ValueError(f"flexcache warmup must be >= 0, got {warmup}.")
+            raise ValueError(f"acceleration warmup must be >= 0, got {warmup}.")
         if cooldown < 0:
-            raise ValueError(f"flexcache cooldown must be >= 0, got {cooldown}.")
+            raise ValueError(f"acceleration cooldown must be >= 0, got {cooldown}.")
 
         return FlexCacheParams(
             strategy=strategy,

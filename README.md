@@ -2,7 +2,7 @@
 
 ChituDiffusion is a high-performance diffusion inference framework focused on
 video generation workloads. It provides a compact runtime for distributed
-inference, multiple attention backends, FlexCache acceleration strategies, and
+inference, multiple attention backends, FlexCache and DiTango acceleration, and
 optional evaluation utilities.
 
 The project is under active development. The current public interface is the
@@ -13,7 +13,8 @@ repository launcher in `run.sh` plus the configuration in `system_config.yaml`.
 - Distributed diffusion inference with context parallelism and CFG parallelism.
 - Attention backend selection for FlashAttention, SageAttention, and
   SpargeAttention.
-- FlexCache strategies including TeaCache, PAB, and DiTango.
+- FlexCache strategies including TeaCache and PAB, plus independent DiTango
+  planner/runtime acceleration.
 - Optional low-memory execution modes.
 - Built-in timing, logging, output naming, and evaluation helpers.
 - Initial model support for Wan text-to-video models.
@@ -76,7 +77,7 @@ parallel:
 
 infer:
   attn_type: flash_attn
-  enable_flexcache: true
+  enable_flexcache: true  # required for TeaCache/PAB; DiTango is independent
 ```
 
 The most important field is `model.ckpt_dir`; it must point to a local model
@@ -117,11 +118,12 @@ configuration under the project config directory.
 chitu_diffusion/core/            Configuration, schemas, distributed utilities, registry
 chitu_diffusion/runtime/         Backend, generator, scheduler, task, main runtime API
 chitu_diffusion/modules/         Model-specific and reusable diffusion modules
-chitu_diffusion/flex_cache/      FlexCache strategies
+chitu_diffusion/flex_cache/      FlexCache strategies (TeaCache, PAB)
+chitu_diffusion/ditango/         DiTango planner, runtime attention, visualization
 chitu_diffusion/evaluation/      Evaluation manager, strategies, metric helpers
 chitu_diffusion/observability/   Timing and magnitude logging helpers
 script/                         Launch helpers for local and Slurm execution
-test/                           Generation and FlexCache test entry points
+test/                           Generation and acceleration test entry points
 system_config.yaml              Default runtime configuration
 run.sh                          Main launch entry point
 ```
@@ -155,20 +157,31 @@ outputs/<tag>-<YYYYMMDD_HHMMSS>-<taskid>/
   system_params.json
   run_config.yaml
   results/
+    <task_id>/
+      *.mp4
+      *.json
   metrics/
-    summary.json
-    timing.csv
-    timing.json
+    timing/
+      summary.json
+      <task_id>.json
+    memory/
+      model_loaded_rank<N>.json
+      final_rank<N>.json
+      <task_id>.json
     quality/
+      summary.json
   logs/
     command.log
     run.log
     run.rank<N>.log
+    <task_id>/
+      *.ppm
 ```
 
-`results/` contains generated media and sidecar metadata. `metrics/` contains
-timing, memory, and quality evaluation files. `logs/` contains process logs and
-debug visualizations. `command.log` captures the full launch command output,
+`results/<task_id>/` contains generated media and sidecar metadata. `metrics/`
+contains JSON-only timing, memory, and quality files in separate subdirectories.
+Quality JSON includes `by_task_id` groups for multi-request runs. `logs/` contains process logs and
+per-task debug visualizations. `command.log` captures the full launch command output,
 including `run.sh`, `srun`, wrapper output, and Python stdout/stderr.
 
 ## Development

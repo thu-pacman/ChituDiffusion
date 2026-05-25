@@ -37,7 +37,7 @@ from chitu_diffusion.modules.wan.utils import cache_video
 from chitu_diffusion.runtime.parallel_utils import SequencePadder
 from chitu_diffusion.observability import Timer, MagLogger
 from chitu_diffusion.runtime.output_naming import build_video_name_from_task
-from chitu_diffusion.runtime.output_layout import metrics_dir, write_json
+from chitu_diffusion.runtime.output_layout import memory_metrics_dir, task_results_dir, timing_metrics_dir, write_json
 from chitu_diffusion.modules.flux.utils import (
     batched_prc_img,
     batched_prc_txt,
@@ -275,6 +275,7 @@ class Generator:
         self._emit_stage_start_if_needed(task)
 
         if task_type == DiffusionTaskType.Terminate:
+            self._clear_ditango_planner()
             self._clear_flexcache_strategy()
             DiffusionBackend.state = BackendState.Terminated
             task.status = DiffusionTaskStatus.Completed
@@ -444,14 +445,16 @@ class Generator:
             self._save_video(task, video)
             # save_time_stats
             run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
-            stats_dir = metrics_dir(run_output_dir) if run_output_dir else task.req.params.save_dir
+            timing_dir = timing_metrics_dir(run_output_dir) if run_output_dir else task.req.params.save_dir
+            memory_dir = memory_metrics_dir(run_output_dir) if run_output_dir else task.req.params.save_dir
             Timer.print_statistics()
-            Timer.save_statistics(os.path.join(stats_dir, f"timing_{task.task_id}.csv"))
+            Timer.save_task_statistics_json(os.path.join(timing_dir, f"{task.task_id}.json"), task.task_id)
             if torch.cuda.is_available():
                 write_json(
-                    os.path.join(stats_dir, f"memory_{task.task_id}.json"),
+                    os.path.join(memory_dir, f"{task.task_id}.json"),
                     {
                         "task_id": task.task_id,
+                        "stage": "task_complete",
                         "gpu_allocated_gb": torch.cuda.memory_allocated() / 1024**3,
                         "gpu_max_allocated_gb": torch.cuda.max_memory_allocated() / 1024**3,
                         "gpu_reserved_gb": torch.cuda.memory_reserved() / 1024**3,
@@ -462,6 +465,10 @@ class Generator:
 
     # TODO: CPU/GPU overlap
     def _save_video(self, task: DiffusionTask, video: torch.Tensor):
+        run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if run_output_dir:
+            task.req.params.save_dir = task_results_dir(run_output_dir, task.task_id)
+
         os.makedirs(task.req.params.save_dir, exist_ok=True)
         save_name = build_video_name_from_task(task)
         save_path = os.path.join(task.req.params.save_dir, save_name)
@@ -477,6 +484,7 @@ class Generator:
         sidecar_path = os.path.splitext(save_path)[0] + ".json"
         metadata = {
             "filename": os.path.basename(save_path),
+            "relative_path": os.path.join(os.path.basename(task.req.params.save_dir), os.path.basename(save_path)),
             "prompt": task.req.get_prompt(),
             "seed": getattr(task.req.params, "seed", None),
             "step": getattr(task.req.params, "num_inference_steps", None),
@@ -489,6 +497,10 @@ class Generator:
     
     # TODO: CPU/GPU overlap
     def _save_image(self, task: DiffusionTask, img: torch.Tensor):
+        run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if run_output_dir:
+            task.req.params.save_dir = task_results_dir(run_output_dir, task.task_id)
+
         os.makedirs(task.req.params.save_dir, exist_ok=True)
         save_name = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "") \
                     + f"_{task.task_id}.png"
@@ -530,6 +542,21 @@ class Generator:
         manager.strategy = None
         manager.cache.clear()
 
+    def _clear_ditango_planner(self):
+        """Safely remove current DiTango planner wrappers from active model."""
+        planner = DiffusionBackend.ditango
+        if planner is None:
+            return
+
+        model = DiffusionBackend.active_model
+        if model is not None:
+            try:
+                planner.unwrap_module(model)
+            except Exception as e:
+                logger.warning(f"Failed to unwrap DiTango planner cleanly: {e}")
+
+        DiffusionBackend.ditango = None
+
     @staticmethod
     def _teacache_threshold_from_ratio(cache_ratio: float, model_name: str) -> float:
         # 0 -> quality first (smaller thresh), 1 -> speed first (larger thresh)
@@ -559,7 +586,7 @@ class Generator:
         total_steps = int(task.req.params.num_inference_steps)
         if spec.warmup + spec.cooldown >= total_steps:
             raise ValueError(
-                "Invalid flexcache warmup/cooldown: "
+                "Invalid acceleration warmup/cooldown: "
                 f"warmup({spec.warmup}) + cooldown({spec.cooldown}) must be < num_inference_steps({total_steps})."
             )
         return spec
@@ -595,19 +622,20 @@ class Generator:
                 skip_cross_range=skip_cross_range,
             )
 
-        if strategy == "ditango":
-            from chitu_diffusion.flex_cache.strategy.ditango.ditango import DiTangoV3Strategy
-
-            ase_threshold = self._ditango_ase_from_ratio(cache_ratio)
-            return DiTangoV3Strategy(
-                task=task,
-                cache_ratio=cache_ratio,
-                ase_threshold=ase_threshold,
-                warmup_steps=warmup_steps,
-                cooldown_steps=cooldown_steps,
-            )
-
         raise ValueError(f"Unknown flexcache strategy '{strategy}'.")
+
+    def _build_ditango_planner(self, task: DiffusionTask, spec: FlexCacheParams):
+        from chitu_diffusion.ditango.planner import DiTangoV3Planner
+
+        cache_ratio = spec.cache_ratio
+        ase_threshold = self._ditango_ase_from_ratio(cache_ratio)
+        return DiTangoV3Planner(
+            task=task,
+            cache_ratio=cache_ratio,
+            ase_threshold=ase_threshold,
+            warmup_steps=spec.warmup,
+            cooldown_steps=spec.cooldown,
+        )
 
     @staticmethod
     def _flexcache_strategy_name(strategy: str) -> str:
@@ -714,13 +742,38 @@ class Generator:
         
         DiffusionBackend.switch_active_model(flush=True)
 
-        # Configure flexcache strategy for this task.
+        # Configure acceleration strategy for this task.
         spec = self._resolve_flexcache_spec(task)
 
         if spec is None:
+            if DiffusionBackend.ditango is not None:
+                self._clear_ditango_planner()
+                logger.info("DiTango disabled for current task; cleared previous planner wrappers.")
             if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
                 self._clear_flexcache_strategy()
                 logger.info("Flexcache disabled for current task; cleared previous strategy wrappers.")
+            return
+
+        if spec.strategy == "ditango":
+            if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
+                self._clear_flexcache_strategy()
+            if DiffusionBackend.ditango is not None:
+                self._clear_ditango_planner()
+
+            planner = self._build_ditango_planner(task, spec)
+            DiffusionBackend.ditango = planner
+            planner.wrap_module_with_strategy(DiffusionBackend.active_model)
+
+            resolved_log: Dict[str, Any] = {
+                "strategy": spec.strategy,
+                "cache_ratio": spec.cache_ratio,
+                "warmup": spec.warmup,
+                "cooldown": spec.cooldown,
+                "ase_threshold": planner.ase_threshold,
+            }
+            logger.info(
+                f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
+            )
             return
 
         if DiffusionBackend.flexcache is None:
@@ -729,6 +782,9 @@ class Generator:
                 "but infer.diffusion.enable_flexcache is False. Strategy will be ignored."
             )
             return
+
+        if DiffusionBackend.ditango is not None:
+            self._clear_ditango_planner()
 
         # Always clear any previous strategy before (re)applying current task strategy.
         if DiffusionBackend.flexcache.strategy is not None:
@@ -749,9 +805,6 @@ class Generator:
         elif spec.strategy == "pab":
             resolved_log["skip_self_range"] = cache_strategy.skip_self_range
             resolved_log["skip_cross_range"] = cache_strategy.skip_cross_range
-        elif spec.strategy == "ditango":
-            resolved_log["ase_threshold"] = cache_strategy.ase_threshold
-
         logger.info(
             f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
         )
@@ -856,6 +909,7 @@ class Generator:
             task.buffer.generated_image = tokens  # 保存最终生成的图像
             self._post_vae_decode(task, tokens)
             self._emit_stage_end(DiffusionTaskType.VAEDecode, task.task_id)
+            self._clear_ditango_planner()
             self._clear_flexcache_strategy()
             if is_main_process:
                 logger.debug(f"Task {task.task_id} completed all stages")
