@@ -63,42 +63,42 @@ class EvalManager():
         return [value]
 
     def _build_vbench(self, output_dir: Optional[str] = None) -> EvalStrategy:
-        from chitu_diffusion.evaluation.strategy.Vbench import VbenchStrategy
+        from chitu_diffusion.evaluation.strategy.vbench import VbenchStrategy
 
         if output_dir:
             return VbenchStrategy(output_dir=output_dir)
         return VbenchStrategy()
 
     def _build_fid(self, output_dir: Optional[str] = None) -> EvalStrategy:
-        from chitu_diffusion.evaluation.strategy.Fid import FidStrategy
+        from chitu_diffusion.evaluation.strategy.fid import FidStrategy
 
         if output_dir:
             return FidStrategy(output_dir=output_dir)
         return FidStrategy()
 
     def _build_fvd(self, output_dir: Optional[str] = None) -> EvalStrategy:
-        from chitu_diffusion.evaluation.strategy.Fvd import FvdStrategy
+        from chitu_diffusion.evaluation.strategy.fvd import FvdStrategy
 
         if output_dir:
             return FvdStrategy(output_dir=output_dir)
         return FvdStrategy()
 
     def _build_psnr(self, output_dir: Optional[str] = None) -> EvalStrategy:
-        from chitu_diffusion.evaluation.strategy.Psnr import PsnrStrategy
+        from chitu_diffusion.evaluation.strategy.psnr import PsnrStrategy
 
         if output_dir:
             return PsnrStrategy(output_dir=output_dir)
         return PsnrStrategy()
 
     def _build_ssim(self, output_dir: Optional[str] = None) -> EvalStrategy:
-        from chitu_diffusion.evaluation.strategy.Ssim import SsimStrategy
+        from chitu_diffusion.evaluation.strategy.ssim import SsimStrategy
 
         if output_dir:
             return SsimStrategy(output_dir=output_dir)
         return SsimStrategy()
 
     def _build_lpips(self, output_dir: Optional[str] = None) -> EvalStrategy:
-        from chitu_diffusion.evaluation.strategy.Lpips import LpipsStrategy
+        from chitu_diffusion.evaluation.strategy.lpips import LpipsStrategy
 
         if output_dir:
             return LpipsStrategy(output_dir=output_dir)
@@ -208,4 +208,3 @@ class EvalManager():
             logger.info("Evaluation summary saved to %s", summary_path)
 
         return self.eval_result
-

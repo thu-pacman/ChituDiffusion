@@ -583,7 +583,7 @@ class Generator:
             )
 
         if strategy == "pab":
-            from chitu_diffusion.flex_cache.strategy.PAB import PABStrategy
+            from chitu_diffusion.flex_cache.strategy.pab import PABStrategy
 
             skip_self_range = self._pab_skip_self_from_ratio(cache_ratio)
             skip_cross_range = int(round(skip_self_range * 5 / 3))
