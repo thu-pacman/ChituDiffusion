@@ -18,7 +18,14 @@ from tqdm import tqdm
 
 from logging import getLogger
 from chitu_diffusion.core.global_vars import get_global_args, get_slot_handle
-from chitu_diffusion.core.logging_utils import log_stage, log_progress, log_result, log_perf, should_log_info_on_rank
+from chitu_diffusion.core.logging_utils import (
+    log_stage,
+    log_progress,
+    log_result,
+    log_perf,
+    should_log_info_on_rank,
+    should_log_on_rank,
+)
 from chitu_diffusion.runtime.backend import BackendState, CFGType, DiffusionBackend
 from chitu_diffusion.runtime.task import DiffusionTask, DiffusionTaskType, DiffusionTaskPool, DiffusionTaskStatus, FlexCacheParams
 from chitu_diffusion.core.distributed.parallel_state import (
@@ -37,7 +44,13 @@ from chitu_diffusion.modules.wan.utils import cache_video
 from chitu_diffusion.runtime.parallel_utils import SequencePadder
 from chitu_diffusion.observability import Timer, MagLogger
 from chitu_diffusion.runtime.output_naming import build_video_name_from_task
-from chitu_diffusion.runtime.output_layout import memory_metrics_dir, task_results_dir, timing_metrics_dir, write_json
+from chitu_diffusion.runtime.output_layout import (
+    append_json_list_item,
+    memory_metrics_dir,
+    task_results_dir,
+    timing_metrics_dir,
+    write_json,
+)
 from chitu_diffusion.modules.flux.utils import (
     batched_prc_img,
     batched_prc_txt,
@@ -223,8 +236,55 @@ class Generator:
         self.current_task = None # 通过这个储存当前任务的中间状态
         self._last_logged_stage = {}
         self.denoise_progress_interval = max(1, int(os.getenv("CHITU_PROGRESS_INTERVAL", "5")))
-        self.enable_stage_perf = bool(getattr(args.output, "enable_timer_dump", False))
+        self.enable_stage_perf = bool(getattr(args.output, "timer", False))
         self._stage_start_time = {}
+        self._dit_forward_step_elapsed_ms = {}
+
+    def _run_dit_forward(self, task: DiffusionTask, branch: str, *args, **kwargs):
+        step_index = int(task.buffer.current_step)
+        timestep = None
+        if task.buffer.timesteps is not None and step_index < len(task.buffer.timesteps):
+            raw_timestep = task.buffer.timesteps[step_index]
+            timestep = float(raw_timestep.item()) if hasattr(raw_timestep, "item") else float(raw_timestep)
+
+        forward_call_index = getattr(task.buffer, "_dit_forward_call_index", 0)
+        setattr(task.buffer, "_dit_forward_call_index", forward_call_index + 1)
+
+        output, elapsed_ms = Timer.time_call("dit_forward", DiffusionBackend.active_model, *args, **kwargs)
+        Timer.record_event(
+            "dit_forward",
+            {
+                "task_id": task.task_id,
+                "step_index": step_index,
+                "timestep": timestep,
+                "branch": branch,
+                "call_index": forward_call_index,
+                "rank": self.rank,
+                "elapsed_ms": elapsed_ms,
+            },
+        )
+        step_key = (task.task_id, step_index)
+        self._dit_forward_step_elapsed_ms[step_key] = self._dit_forward_step_elapsed_ms.get(step_key, 0.0) + elapsed_ms
+        return output
+
+    def _record_dit_forward_step_summary(self, task: DiffusionTask) -> None:
+        step_index = int(task.buffer.current_step)
+        step_key = (task.task_id, step_index)
+        elapsed_ms = self._dit_forward_step_elapsed_ms.pop(step_key, 0.0)
+        timestep = None
+        if task.buffer.timesteps is not None and step_index < len(task.buffer.timesteps):
+            raw_timestep = task.buffer.timesteps[step_index]
+            timestep = float(raw_timestep.item()) if hasattr(raw_timestep, "item") else float(raw_timestep)
+        Timer.record_event(
+            "dit_forward_step",
+            {
+                "task_id": task.task_id,
+                "step_index": step_index,
+                "timestep": timestep,
+                "rank": self.rank,
+                "elapsed_ms": elapsed_ms,
+            },
+        )
 
     def _emit_stage_start_if_needed(self, task: DiffusionTask):
         stage = task.task_type.name
@@ -339,6 +399,7 @@ class Generator:
     @torch.no_grad()
     def denoise_step(self, task: DiffusionTask):
         assert task.buffer.latents is not None and task.buffer.timesteps is not None
+        setattr(task.buffer, "_dit_forward_call_index", 0)
 
         if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
             """Single Euler denoising step for FLUX2 (guidance-distilled, no CFG)."""
@@ -348,7 +409,9 @@ class Generator:
 
             t_vec = torch.full((x.shape[0],), t_curr, dtype=x.dtype, device=x.device)
 
-            pred = DiffusionBackend.active_model(
+            pred = self._run_dit_forward(
+                task,
+                "pos",
                 x=x,
                 x_ids=task.buffer.x_ids,
                 timesteps=t_vec,
@@ -358,6 +421,7 @@ class Generator:
             )
 
             sampled_latents = x + (t_prev - t_curr) * pred
+            self._record_dit_forward_step_summary(task)
             return sampled_latents
 
         latent_model_input = task.buffer.latents
@@ -372,7 +436,10 @@ class Generator:
                     context = task.buffer.negative_embeddings
                     DiffusionBackend.cfg_type = CFGType.NEG
 
-                cfg_partial_noise_pred = DiffusionBackend.active_model(
+                cfg_branch = "pos" if DiffusionBackend.cfg_type == CFGType.POS else "neg"
+                cfg_partial_noise_pred = self._run_dit_forward(
+                    task,
+                    cfg_branch,
                     latent_model_input,
                     t=timestep,
                     context=context,
@@ -381,14 +448,18 @@ class Generator:
                 noise_pred_cond, noise_pred_uncond = self.cfg_dispatcher.all_gather_cfg_noise_preds(cfg_partial_noise_pred)
             else:
                 DiffusionBackend.cfg_type = CFGType.POS
-                noise_pred_cond = DiffusionBackend.active_model(
+                noise_pred_cond = self._run_dit_forward(
+                    task,
+                    "pos",
                     latent_model_input,
                     t=timestep,
                     context=task.buffer.text_embeddings,
                     seq_len=task.buffer.seq_len
                 )
                 DiffusionBackend.cfg_type = CFGType.NEG
-                noise_pred_uncond = DiffusionBackend.active_model(
+                noise_pred_uncond = self._run_dit_forward(
+                    task,
+                    "neg",
                     latent_model_input,
                     t=timestep,
                     context=task.buffer.negative_embeddings,
@@ -398,7 +469,9 @@ class Generator:
                 DiffusionBackend.guidance_scale * (noise_pred_cond - noise_pred_uncond)
         else:
             DiffusionBackend.cfg_type = CFGType.POS
-            noise_pred = DiffusionBackend.active_model(
+            noise_pred = self._run_dit_forward(
+                task,
+                "pos",
                 latent_model_input,
                 t=timestep,
                 context=task.buffer.text_embeddings,
@@ -413,6 +486,7 @@ class Generator:
             generator=task.buffer.seed_g
         )[0].squeeze(0)
 
+        self._record_dit_forward_step_summary(task)
         return sampled_latents
 
         
@@ -449,16 +523,22 @@ class Generator:
             memory_dir = memory_metrics_dir(run_output_dir) if run_output_dir else task.req.params.save_dir
             Timer.print_statistics()
             Timer.save_task_statistics_json(os.path.join(timing_dir, f"{task.task_id}.json"), task.task_id)
-            if torch.cuda.is_available():
-                write_json(
-                    os.path.join(memory_dir, f"{task.task_id}.json"),
+            rank = torch.distributed.get_rank()
+            args = get_global_args()
+            record_memory = bool(getattr(args.output, "memory", True)) if args is not None else True
+            if record_memory and torch.cuda.is_available() and should_log_on_rank(rank):
+                append_json_list_item(
+                    os.path.join(memory_dir, f"rank{rank}.json"),
+                    "events",
                     {
                         "task_id": task.task_id,
                         "stage": "task_complete",
+                        "rank": rank,
                         "gpu_allocated_gb": torch.cuda.memory_allocated() / 1024**3,
                         "gpu_max_allocated_gb": torch.cuda.max_memory_allocated() / 1024**3,
                         "gpu_reserved_gb": torch.cuda.memory_reserved() / 1024**3,
                     },
+                    base_payload={"rank": rank},
                 )
             # Magnitiude experiments
             # MagLogger.save_to_csv(save_dir=f"./experiments/{task.task_id}")

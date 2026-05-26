@@ -92,3 +92,23 @@ def write_json(path: str, payload: Any) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(to_plain_data(payload), f, ensure_ascii=False, indent=2)
+
+
+def append_json_list_item(path: str, key: str, item: Any, base_payload: dict[str, Any] | None = None) -> None:
+    payload: dict[str, Any] = {}
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+        if isinstance(loaded, dict):
+            payload = loaded
+
+    if base_payload:
+        for base_key, base_value in base_payload.items():
+            payload.setdefault(base_key, to_plain_data(base_value))
+
+    values = payload.setdefault(key, [])
+    if not isinstance(values, list):
+        values = []
+        payload[key] = values
+    values.append(to_plain_data(item))
+    write_json(path, payload)

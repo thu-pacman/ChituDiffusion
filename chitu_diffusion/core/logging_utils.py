@@ -54,12 +54,48 @@ def _get_bool_env(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on", "y"}
 
 
+def _current_rank() -> int:
+    if IS_DIST and dist.is_available() and dist.is_initialized():
+        return dist.get_rank()
+    return int(os.getenv("RANK", "0"))
+
+
+def _parse_rank_list(raw: str | None) -> set[int] | None:
+    if raw is None:
+        return {0}
+    text = raw.strip()
+    if not text:
+        return {0}
+    if text.lower() in {"all", "*"}:
+        return None
+
+    ranks: set[int] = set()
+    for item in text.replace(";", ",").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        ranks.add(int(item))
+    return ranks
+
+
+def get_log_ranks() -> set[int] | None:
+    return _parse_rank_list(os.getenv("CHITU_LOG_RANKS"))
+
+
+def should_log_on_rank(rank: int | None = None) -> bool:
+    ranks = get_log_ranks()
+    if ranks is None:
+        return True
+    rank = _current_rank() if rank is None else rank
+    return rank in ranks
+
+
 def should_log_info_on_rank() -> bool:
+    if "CHITU_LOG_RANKS" in os.environ:
+        return should_log_on_rank()
     if not _get_bool_env("CHITU_LOG_RANK0_ONLY", True):
         return True
-    if IS_DIST and dist.is_initialized():
-        return dist.get_rank() == 0
-    return True
+    return should_log_on_rank()
 
 
 def should_emit_progress(step: int, total: int, interval: int) -> bool:
@@ -131,6 +167,11 @@ def log_perf(logger: logging.Logger, task_id: str, stage_name: str, elapsed_ms: 
     )
 
 
+class RankFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return should_log_on_rank()
+
+
 class ChituFormatter(logging.Formatter):
 
     def __init__(self, fmt=None, datefmt=None, style="%"):
@@ -140,7 +181,7 @@ class ChituFormatter(logging.Formatter):
         original_msg = record.getMessage()
 
         if IS_DIST and dist.is_initialized():
-            rank = dist.get_rank()
+            rank = _current_rank()
             record.rank = f"[Rank {rank}]"
         else:
             record.rank = ""
@@ -167,11 +208,17 @@ DEFAULT_CHITU_LOGGING_CONFIG = {
             "datefmt": _DATE_FORMAT,
         },
     },
+    "filters": {
+        "rank": {
+            "()": "chitu_diffusion.core.logging_utils.RankFilter",
+        },
+    },
     "handlers": {
         "chitu": {
             "class": "logging.StreamHandler",
             "formatter": "chitu",
             "level": CHITU_LOGGING_LEVEL,
+            "filters": ["rank"],
             "stream": "ext://sys.stdout",
         },
     },

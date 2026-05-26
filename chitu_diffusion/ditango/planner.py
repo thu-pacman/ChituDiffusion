@@ -28,11 +28,11 @@ class DiTangoV3Planner:
     DEFAULT_ASE_THRESHOLD = 0.02
     DEFAULT_ANCHOR_INTERVAL = 5
     DEFAULT_TAU_MAX = 8
-    DEFAULT_INTRA_GROUP_SIZE_LIMIT = 2
+    DEFAULT_INTRA_GROUP_SIZE_LIMIT = min(get_cp_group().group_size // 2, 8) # Groupsize < gpus_per_node for better performance
     DEFAULT_ENABLE_DYNAMIC_COMPOSE = False
     DEFAULT_WARMUP_STEPS = 5
     DEFAULT_COOLDOWN_STEPS = 5
-    DEFAULT_ANCHOR_LOG_LAYERS = (28,)
+    DEFAULT_ANCHOR_LOG_LAYERS = ()
     DECISION_CODE_WARMUP_COOLDOWN = 0
     DECISION_CODE_ANCHOR = 1
     DECISION_CODE_COMPUTE = 2
@@ -100,6 +100,12 @@ class DiTangoV3Planner:
         
 
         self.reset_state()
+
+    def is_full_compute_mode(self) -> bool:
+        return self.cache_ratio <= 0.0
+
+    def is_max_cache_mode(self) -> bool:
+        return self.cache_ratio >= 1.0
 
     def reset_state(self) -> None:
         self.curr_local_state_compress = {}
@@ -274,14 +280,12 @@ class DiTangoV3Planner:
     def _branch_local_key(self, layer_id: int) -> str:
         return f"{self._branch_key()}_{layer_id}_local"
     
-
     def set_curr_local_state_compress(self, layer_id: int, local_state: AttentionState) -> None:
         """Update compressed local state used by planner drift estimation."""
         assert local_state is not None and not local_state.is_empty()
         local_key = self._branch_local_key(layer_id)
         comp = local_state.out.float().mean(dim=-1)
         self.curr_local_state_compress[local_key] = comp.clone()
-
 
     def _update_group_local_ref_compress(self, layer_id: int, group_id: int) -> None:
         local_key = self._branch_local_key(layer_id)
@@ -322,7 +326,6 @@ class DiTangoV3Planner:
         if group_id == 0 and self.effective_group_size == 1:
             return True
         return False
-
 
     def is_anchor_step(self) -> bool:
         curr_step = get_timestep()
@@ -397,7 +400,11 @@ class DiTangoV3Planner:
                     ase_list.append(ase)
         ase_sort = sorted(ase_list)
         # 取 cache ratio 分位
-        if ase_sort:
+        if self.is_full_compute_mode():
+            self.ase_threshold = float("-inf")
+        elif self.is_max_cache_mode():
+            self.ase_threshold = float("inf")
+        elif ase_sort:
             idx = min(len(ase_sort) - 1, int(len(ase_sort) * self.cache_ratio))
             self.ase_threshold = ase_sort[idx]
         else:
@@ -459,7 +466,11 @@ class DiTangoV3Planner:
             ase_list.extend(values)
 
         ase_sort = sorted(ase_list)
-        if ase_sort:
+        if self.is_full_compute_mode():
+            ase_threshold = float("-inf")
+        elif self.is_max_cache_mode():
+            ase_threshold = float("inf")
+        elif ase_sort:
             idx = min(len(ase_sort) - 1, int(len(ase_sort) * self.cache_ratio))
             ase_threshold = float(ase_sort[idx])
         else:
@@ -470,6 +481,8 @@ class DiTangoV3Planner:
         return ase_threshold
 
     def _apply_anchor_decision_from_rel(self, rel_vec: torch.Tensor, step: int, target_branches: Tuple[str, ...]) -> None:
+        if self.is_full_compute_mode():
+            return
         if self.is_anchor_step() or self.is_warmup_or_cooldown_step():
             return
 
@@ -500,6 +513,12 @@ class DiTangoV3Planner:
             # ase_log += "Anchor step - full compute, full reuse next step.\n"
             if self._is_local_partition(0):
                 self.ditango_plan[branch_key][:, 0] = True
+        elif self.is_full_compute_mode():
+            self.ditango_plan[branch_key][:, :] = True
+        elif self.is_max_cache_mode():
+            for group_id in range(self.group_num):
+                if self._is_local_partition(group_id):
+                    self.ditango_plan[branch_key][:, group_id] = True
         else:
             for layer in range(self.total_layers):
                 # ase_log += f"L{layer} |"

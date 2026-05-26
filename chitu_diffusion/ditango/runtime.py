@@ -133,13 +133,14 @@ class DitangoV3Attention:
             v = ulysses_group.all_to_all(v, head_dim, seq_dim)
 
         warmup_cooldown = strategy.is_warmup_or_cooldown_step()
-        is_anchor = strategy.is_anchor_step() 
+        is_anchor = strategy.is_anchor_step()
+        full_compute = strategy.is_full_compute_mode()
 
         if get_cp_group().rank_in_group == 0 and self.layer_id == 0:
-            Attn_name = "warmup/cooldown" if warmup_cooldown else ("anchor" if is_anchor else "selective")
+            Attn_name = "full-compute" if full_compute else ("warmup/cooldown" if warmup_cooldown else ("anchor" if is_anchor else "selective"))
             print("" + "=" * 20 + f" T{get_timestep()}-{Attn_name} " + "=" * 20, flush=True)
 
-        if warmup_cooldown or is_anchor:
+        if full_compute or warmup_cooldown or is_anchor:
             final_state, group_states, local_state = self._anchor_step_attn(q, k, v, is_varlen, is_anchor, **attn_kwargs)
         else:
             final_state, group_states, local_state = self._selective_group_attn(

@@ -104,10 +104,24 @@ values = {
     "ENABLE_FLEXCACHE": bool(get("infer.enable_flexcache", False)),
     "EVAL_REFERENCE_PATH": get("eval.reference_path", None),
     "OUTPUT_ROOT_DIR": str(get("output.root_dir", "outputs")),
-    "OUTPUT_ENABLE_RUN_LOG": bool(get("output.enable_run_log", True)),
-    "OUTPUT_ENABLE_TIMER_DUMP": bool(get("output.enable_timer_dump", False)),
+    "OUTPUT_ENABLE_RUN_LOG": bool(get("output.run_log", True)),
+    "OUTPUT_ENABLE_MEMORY": bool(get("output.memory", True)),
+    "OUTPUT_ENABLE_TIMER_DUMP": bool(get("output.timer", False)),
     "OUTPUT_ENABLE_LAUNCH_LOG": bool(get("launch.enable_launch_log", False)),
 }
+
+raw_log_ranks = get("output.log_ranks", [0])
+if isinstance(raw_log_ranks, str):
+    log_rank_text = raw_log_ranks.strip().lower()
+    if not log_rank_text:
+        log_rank_text = "0"
+    log_rank_override = log_rank_text
+elif isinstance(raw_log_ranks, (list, tuple)):
+    log_rank_items = [str(int(item)) for item in raw_log_ranks]
+    log_rank_text = ",".join(log_rank_items)
+    log_rank_override = "[" + ",".join(log_rank_items) + "]"
+else:
+    raise ValueError("output.log_ranks must be a list of ranks or 'all'")
 
 raw_eval_type = get("eval.eval_type", [])
 if raw_eval_type is None:
@@ -147,6 +161,8 @@ for key, value in values.items():
     print(f"{key}={shlex.quote(out)}")
 
 print(f"EVAL_TYPE_OVERRIDE={shlex.quote(eval_type_override)}")
+print(f"OUTPUT_LOG_RANKS={shlex.quote(log_rank_text)}")
+print(f"OUTPUT_LOG_RANKS_OVERRIDE={shlex.quote(log_rank_override)}")
 
 print("EXTRA_OVERRIDES=" + shlex.quote(" ".join(str(x) for x in extra_overrides)))
 PY
@@ -246,6 +262,7 @@ CHITU_RUN_TAG_SLUG="$(slugify_run_part "$RUN_TAG" "run")"
 CHITU_RUN_TASK_ID_SLUG="$(slugify_run_part "$CHITU_RUN_TASK_ID" "task")"
 export CHITU_RUN_DIR="$OUTPUT_ROOT_DIR/$CHITU_RUN_TAG_SLUG-$CHITU_RUN_TIMESTAMP-$CHITU_RUN_TASK_ID_SLUG"
 export CHITU_COMMAND_LOG="$CHITU_RUN_DIR/logs/command.log"
+export CHITU_LOG_RANKS="$OUTPUT_LOG_RANKS"
 export CHITU_PYTHON_BIN="$RUNTIME_PYTHON_BIN"
 export CHITU_PROJECT_ROOT="$PROJECT_ROOT"
 if [ -n "${PYTHONPATH:-}" ]; then
@@ -294,8 +311,10 @@ BASE_OVERRIDES=(
     "eval.eval_type=$EVAL_TYPE_OVERRIDE"
     "eval.reference_path=$EVAL_REFERENCE_PATH"
     "output.root_dir=$OUTPUT_ROOT_DIR"
-    "output.enable_run_log=$OUTPUT_ENABLE_RUN_LOG"
-    "output.enable_timer_dump=$OUTPUT_ENABLE_TIMER_DUMP"
+    "output.run_log=$OUTPUT_ENABLE_RUN_LOG"
+    "output.memory=$OUTPUT_ENABLE_MEMORY"
+    "output.timer=$OUTPUT_ENABLE_TIMER_DUMP"
+    "output.log_ranks=$OUTPUT_LOG_RANKS_OVERRIDE"
 )
 
 if [ -n "${EXTRA_OVERRIDES:-}" ]; then
@@ -325,13 +344,14 @@ echo "model: $MODEL_NAME"
 echo "ckpt_dir: $MODEL_CKPT_DIR"
 echo "python_script: $PYTHON_SCRIPT"
 echo "runtime_python: $CHITU_PYTHON_BIN"
+echo "log_ranks: $OUTPUT_LOG_RANKS"
 if [ -n "$RUN_TAG" ]; then
     echo "run_tag: $RUN_TAG"
 fi
 if [ -n "$LOG_FILE" ]; then
     echo "log_file: $LOG_FILE"
 else
-    echo "log_file: disabled (output.enable_run_log=false)"
+    echo "log_file: disabled (output.run_log=false)"
 fi
 echo "===================================="
 echo "Executing: ${CMD[*]}"

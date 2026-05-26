@@ -80,8 +80,10 @@ class EvalConfig:
 @dataclass
 class OutputConfig:
     root_dir: str = "outputs"
-    enable_run_log: bool = True
-    enable_timer_dump: bool = False
+    run_log: bool = True
+    memory: bool = True
+    timer: bool = False
+    log_ranks: Union[list[int], str] = field(default_factory=lambda: [0])
 
 
 @dataclass

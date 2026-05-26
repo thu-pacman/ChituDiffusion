@@ -50,8 +50,10 @@ eval:
 
 output:
   root_dir: outputs
-  enable_run_log: true
-  enable_timer_dump: false
+  run_log: true
+  memory: true
+  timer: false
+  log_ranks: [0] # list of ranks, or "all"
 
 request: # for testing in single_req_test.py, NOT affecting the real serving
   prompt_tokens_len: -1 # use for performance testing, -1 means use real requests.

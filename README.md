@@ -165,9 +165,7 @@ outputs/<tag>-<YYYYMMDD_HHMMSS>-<taskid>/
       summary.json
       <task_id>.json
     memory/
-      model_loaded_rank<N>.json
-      final_rank<N>.json
-      <task_id>.json
+      rank<N>.json
     quality/
       summary.json
   logs/
@@ -180,8 +178,14 @@ outputs/<tag>-<YYYYMMDD_HHMMSS>-<taskid>/
 
 `results/<task_id>/` contains generated media and sidecar metadata. `metrics/`
 contains JSON-only timing, memory, and quality files in separate subdirectories.
-Quality JSON includes `by_task_id` groups for multi-request runs. `logs/` contains process logs and
-per-task debug visualizations. `command.log` captures the full launch command output,
+Timing JSON includes aggregate timer stats; `timers.dit_forward.total_ms` is the
+overall DiT forward time, and `records.dit_forward_step` stores per-timestep DiT
+forward times. Memory JSON is grouped by rank, so `model_loaded`,
+`task_complete`, and `final` events for the same rank live in one file.
+`output.memory` toggles memory metrics. `output.log_ranks` controls which ranks
+write memory metrics and Python logs. Quality JSON includes `by_task_id` groups
+for multi-request runs. `logs/` contains process logs and per-task debug
+visualizations. `command.log` captures the full launch command output,
 including `run.sh`, `srun`, wrapper output, and Python stdout/stderr.
 
 ## Development

@@ -152,7 +152,23 @@ def validate_config(config: DictConfig) -> None:
     if not output_root:
         raise ValueError("output.root_dir must be a non-empty path")
 
-    if not isinstance(config.output.enable_timer_dump, bool):
-        raise ValueError("output.enable_timer_dump must be bool")
-    if not isinstance(config.output.enable_run_log, bool):
-        raise ValueError("output.enable_run_log must be bool")
+    if not isinstance(config.output.timer, bool):
+        raise ValueError("output.timer must be bool")
+    if not isinstance(config.output.run_log, bool):
+        raise ValueError("output.run_log must be bool")
+    if not isinstance(config.output.memory, bool):
+        raise ValueError("output.memory must be bool")
+
+    log_ranks = config.output.log_ranks
+    if isinstance(log_ranks, str):
+        if log_ranks.strip().lower() not in {"all", "*"}:
+            for item in log_ranks.replace(";", ",").split(","):
+                item = item.strip()
+                if item:
+                    int(item)
+    elif isinstance(log_ranks, (list, tuple, ListConfig)):
+        for item in log_ranks:
+            if not isinstance(item, int) or item < 0:
+                raise ValueError("output.log_ranks must contain non-negative integer ranks")
+    else:
+        raise ValueError("output.log_ranks must be a list of ranks or 'all'")

@@ -1,11 +1,12 @@
 import time
 import torch
-from typing import Dict
+from typing import Any, Callable, Dict
 from contextlib import ContextDecorator
 
 class Timer:
     """Static timer implementation with CUDA synchronization"""
     _timers: Dict[str, Dict] = {}
+    _records: Dict[str, list[Dict[str, Any]]] = {}
     _global_enabled = True
 
     @staticmethod
@@ -55,6 +56,29 @@ class Timer:
         Timer._timers[name]['times'].append(float(elapsed_ms))
 
     @staticmethod
+    def time_call(name: str, fn: Callable, *args, **kwargs):
+        """Run a callable and record its elapsed time in milliseconds."""
+        if not Timer._global_enabled:
+            return fn(*args, **kwargs), 0.0
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        start_time = time.perf_counter()
+        result = fn(*args, **kwargs)
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        Timer.record(name, elapsed_ms)
+        return result, elapsed_ms
+
+    @staticmethod
+    def record_event(name: str, payload: Dict[str, Any]):
+        """Record structured timing metadata that should be preserved in JSON."""
+        if not Timer._global_enabled:
+            return
+        Timer._records.setdefault(name, []).append(dict(payload))
+
+    @staticmethod
     def print_statistics():
         """Print timing statistics for all timers"""
         if not Timer._global_enabled:
@@ -90,9 +114,23 @@ class Timer:
                 "min_ms": min(times),
                 "max_ms": max(times),
                 "avg_ms": sum(times) / len(times),
+                "total_ms": sum(times),
                 "samples": len(times),
             }
         return stats
+
+    @staticmethod
+    def records_dict() -> Dict[str, list[Dict[str, Any]]]:
+        return {name: list(records) for name, records in Timer._records.items()}
+
+    @staticmethod
+    def records_for_task(task_id: str) -> Dict[str, list[Dict[str, Any]]]:
+        task_records = {}
+        for name, records in Timer._records.items():
+            filtered = [record for record in records if record.get("task_id") == task_id]
+            if filtered:
+                task_records[name] = filtered
+        return task_records
 
     @staticmethod
     def save_statistics_json(filepath="timing_stats.json"):
@@ -107,6 +145,7 @@ class Timer:
         payload = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "timers": Timer.statistics_dict(),
+            "records": Timer.records_dict(),
         }
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -125,6 +164,7 @@ class Timer:
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "task_id": task_id,
             "timers": Timer.statistics_dict(),
+            "records": Timer.records_for_task(task_id),
         }
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -150,3 +190,4 @@ class Timer:
     def reset():
         """Reset all timers"""
         Timer._timers.clear()
+        Timer._records.clear()

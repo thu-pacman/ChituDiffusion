@@ -11,7 +11,9 @@ import torch
 from omegaconf import OmegaConf
 
 from chitu_diffusion.observability import Timer
+from chitu_diffusion.core.logging_utils import should_log_on_rank
 from chitu_diffusion.runtime.output_layout import (
+    append_json_list_item,
     build_run_output_dir,
     ensure_run_layout,
     logs_dir,
@@ -30,6 +32,24 @@ def _rank() -> int:
     if torch.distributed.is_available() and torch.distributed.is_initialized():
         return torch.distributed.get_rank()
     return int(os.getenv("RANK", "0"))
+
+
+def should_record_metrics_on_rank(rank: int | None = None) -> bool:
+    return should_log_on_rank(_rank() if rank is None else rank)
+
+
+def should_record_memory(args) -> bool:
+    return bool(getattr(args.output, "memory", True))
+
+
+def _format_log_ranks(value) -> str:
+    if isinstance(value, str):
+        return value.strip().lower() or "0"
+    if OmegaConf.is_list(value):
+        return ",".join(str(int(item)) for item in value)
+    if isinstance(value, (list, tuple)):
+        return ",".join(str(int(item)) for item in value)
+    return "0"
 
 
 def _memory_payload(stage: str, task_id: str | None = None) -> dict:
@@ -100,6 +120,7 @@ class DiffusionTestRunContext:
         self.logger = logger
         self.per_task_results = per_task_results
         self.capture_stdio_log = capture_stdio_log
+        os.environ.setdefault("CHITU_LOG_RANKS", _format_log_ranks(getattr(args.output, "log_ranks", [0])))
 
     def build_initial_run_output_dir(self) -> str:
         env_run_dir = os.getenv("CHITU_RUN_DIR", "").strip()
@@ -140,6 +161,8 @@ class DiffusionTestRunContext:
                 req.params.save_dir = run_results_dir
 
     def attach_run_log_handler(self, run_output_dir: str):
+        if not should_record_metrics_on_rank():
+            return None
         os.makedirs(logs_dir(run_output_dir), exist_ok=True)
         rank = _rank()
         log_name = "run.log" if rank == 0 else f"run.rank{rank}.log"
@@ -217,6 +240,7 @@ class DiffusionTestRunContext:
             {
                 "overall_elapsed_s": elapsed_s,
                 "timers": Timer.statistics_dict(),
+                "records": Timer.records_dict(),
             },
         )
 
@@ -228,10 +252,24 @@ class DiffusionTestRunContext:
         filename: str | None = None,
         task_id: str | None = None,
     ) -> None:
-        filename = filename or f"{stage}_rank{_rank()}.json"
-        write_json(os.path.join(memory_metrics_dir(run_output_dir), filename), _memory_payload(stage, task_id=task_id))
+        if not should_record_memory(self.args):
+            return
+        rank = _rank()
+        if not should_record_metrics_on_rank(rank):
+            return
+        filename = filename or f"rank{rank}.json"
+        append_json_list_item(
+            os.path.join(memory_metrics_dir(run_output_dir), filename),
+            "events",
+            _memory_payload(stage, task_id=task_id),
+            base_payload={"rank": rank},
+        )
 
     def log_final_memory(self) -> None:
+        if not should_record_memory(self.args):
+            return
+        if not should_record_metrics_on_rank():
+            return
         if torch.cuda.is_available():
             self.logger.info(
                 f"[Final] | GPU-Alloc:{torch.cuda.memory_allocated()/1024**3:.3f} "

@@ -22,7 +22,7 @@ from chitu_diffusion.core.schemas import ServeConfig
 from chitu_diffusion.core.config_loader import load_config_from_cli
 from chitu_diffusion.core.utils import gen_req_id
 from chitu_diffusion.observability.timer import Timer
-from run_context import DiffusionTestRunContext
+from run_context import DiffusionTestRunContext, should_record_metrics_on_rank
 
 logger = getLogger(__name__)
 
@@ -90,7 +90,7 @@ def run_normal(args, run_context: DiffusionTestRunContext):
             run_context.activate_run(run_output_dir)
 
         log_handler = None
-        if rank == 0 and getattr(args.output, "enable_run_log", True) and os.getenv("CHITU_RUN_LOG_ATTACHED", "0") != "1":
+        if rank == 0 and getattr(args.output, "run_log", True) and os.getenv("CHITU_RUN_LOG_ATTACHED", "0") != "1":
             log_handler = run_context.attach_run_log_handler(run_output_dir)
 
         if rank == 0:
@@ -120,7 +120,7 @@ def run_normal(args, run_context: DiffusionTestRunContext):
         run_context.log_final_memory()
         run_context.dump_memory_snapshot(run_output_dir, "final")
 
-        if rank == 0 and getattr(args.output, "enable_timer_dump", False):
+        if rank == 0 and getattr(args.output, "timer", False):
             Timer.print_statistics()
             run_context.dump_timing_summary(run_output_dir, elapsed_s=locals().get("elapsed_s"))
 
@@ -139,7 +139,7 @@ def main(args: ServeConfig):
     run_context.activate_run(initial_run_output_dir)
 
     early_log_handler = None
-    if os.getenv("RANK") == "0" and getattr(args.output, "enable_run_log", True):
+    if getattr(args.output, "run_log", True) and should_record_metrics_on_rank():
         early_log_handler = run_context.attach_run_log_handler(initial_run_output_dir)
         os.environ["CHITU_RUN_LOG_ATTACHED"] = "1"
 
