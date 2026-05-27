@@ -14,7 +14,7 @@ class PsnrStrategy(ReferenceMetricStrategy):
     def __init__(self, output_dir: str = "./eval_out"):
         super().__init__(metric_name="psnr", output_dir=output_dir)
 
-    def evaluate(self, payload=None, args=None, max_frames: int = 16, **kwargs):
+    def evaluate(self, payload=None, args=None, max_frames: int = -1, **kwargs):
         if get_rank() != 0:
             return None
 

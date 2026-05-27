@@ -17,7 +17,7 @@ class FidStrategy(ReferenceMetricStrategy):
     def __init__(self, output_dir: str = "./eval_out"):
         super().__init__(metric_name="fid", output_dir=output_dir)
 
-    def evaluate(self, payload=None, args=None, max_frames: int = 16, batch_size: int = 32, **kwargs):
+    def evaluate(self, payload=None, args=None, max_frames: int = -1, batch_size: int = 32, **kwargs):
         if get_rank() != 0:
             return None
 

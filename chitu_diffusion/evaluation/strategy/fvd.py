@@ -118,7 +118,7 @@ class FvdStrategy(ReferenceMetricStrategy):
             score = score.item()
         return float(score), valid_frames
 
-    def evaluate(self, payload=None, args=None, max_frames: int = 16, **kwargs):
+    def evaluate(self, payload=None, args=None, max_frames: int = -1, **kwargs):
         if get_rank() != 0:
             return None
 
