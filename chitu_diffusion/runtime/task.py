@@ -52,6 +52,8 @@ class FlexCacheParams:
     cache_ratio: float = 0.5
     warmup: int = 5
     cooldown: int = 5
+    tau_max: int = 8
+    curvature_interval_power: float = 1.0 / 3.0
 
 
 @dataclass
@@ -116,6 +118,8 @@ class DiffusionUserParams:
             cache_ratio=cache_ratio,
             warmup=warmup,
             cooldown=cooldown,
+            tau_max=int(params.tau_max),
+            curvature_interval_power=float(params.curvature_interval_power),
         )
     
 

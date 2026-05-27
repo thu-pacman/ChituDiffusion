@@ -705,16 +705,16 @@ class Generator:
         raise ValueError(f"Unknown flexcache strategy '{strategy}'.")
 
     def _build_ditango_planner(self, task: DiffusionTask, spec: FlexCacheParams):
-        from chitu_diffusion.ditango.planner import DiTangoV3Planner
-
         cache_ratio = spec.cache_ratio
-        ase_threshold = self._ditango_ase_from_ratio(cache_ratio)
-        return DiTangoV3Planner(
+        from chitu_diffusion.ditango.planner import DiTangoPlanner
+
+        return DiTangoPlanner(
             task=task,
             cache_ratio=cache_ratio,
-            ase_threshold=ase_threshold,
             warmup_steps=spec.warmup,
             cooldown_steps=spec.cooldown,
+            tau_max=spec.tau_max,
+            curvature_interval_power=spec.curvature_interval_power,
         )
 
     @staticmethod
@@ -849,7 +849,8 @@ class Generator:
                 "cache_ratio": spec.cache_ratio,
                 "warmup": spec.warmup,
                 "cooldown": spec.cooldown,
-                "ase_threshold": planner.ase_threshold,
+                "tau_max": planner.tau_max,
+                "curvature_interval_power": planner.curvature_interval_power,
             }
             logger.info(
                 f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."

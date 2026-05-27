@@ -8,8 +8,8 @@ from chitu_diffusion.runtime.parallel_utils import squeeze_and_transpose, update
 
 @dataclass
 class AttentionState:
-    out: Optional[torch.Tensor] = None  # [b,s,n,d]
-    lse: Optional[torch.Tensor] = None  # [b,s,n,1]
+    out: Optional[torch.Tensor] = None
+    lse: Optional[torch.Tensor] = None
 
     def is_empty(self) -> bool:
         return self.lse is None
@@ -24,3 +24,6 @@ class AttentionState:
         input_lse = squeeze_and_transpose(state2.lse)
         state1.update(state2.out, input_lse)
         return state1
+
+
+__all__ = ["AttentionState"]

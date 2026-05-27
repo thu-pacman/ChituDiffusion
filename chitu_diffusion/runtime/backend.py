@@ -38,7 +38,7 @@ from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheManager
 
 # from chitu_diffusion.core.distributed.moe_token_dispatcher import init_token_dispatcher
 if TYPE_CHECKING:
-    from chitu_diffusion.ditango.planner import DiTangoV3Planner
+    from chitu_diffusion.ditango.planner import DiTangoPlanner
     from chitu_diffusion.runtime.generator import Generator
     from chitu_diffusion.runtime.scheduler import DiffusionScheduler
 
@@ -100,7 +100,7 @@ class DiffusionBackend:
         boundary: Noise boundary values for multi-stage models.
         guidance_scale: CFG guidance scale values.
         flexcache (FlexCacheManager): Feature reuse cache manager.
-        ditango (DiTangoV3Planner): Independent DiTango planner/runtime state.
+        ditango (DiTangoPlanner): Independent DiTango planner/runtime state.
     """
     # init once
     model_pool = [] # In low memory mode, DiT models are offloaded to CPU in model pool
@@ -134,7 +134,7 @@ class DiffusionBackend:
     boundary = None
     guidance_scale = None
     flexcache: Optional["FlexCacheManager"] = None
-    ditango: Optional["DiTangoV3Planner"] = None
+    ditango: Optional["DiTangoPlanner"] = None
 
 
     @staticmethod
@@ -759,4 +759,3 @@ class DiffusionBackend:
         setattr(DiffusionBackend, "cache_manager", None)
         gc.collect()
         torch.cuda.empty_cache()
-
