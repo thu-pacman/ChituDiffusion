@@ -115,5 +115,8 @@ srun_wan_demo.sh
 experiments/
 vbench_out/*
 
+# Local algorithm references
+third_party/Cubic/
+
 # MkDocs
 site/
