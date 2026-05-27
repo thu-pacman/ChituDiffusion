@@ -23,8 +23,8 @@ DECISION_LABELS = {
 DECISION_COLORS = {
     0: "#9e9e9e",
     1: "#1fa34a",
-    2: "#2f6fdf",
-    3: "#e0b72f",
+    2: "#288cff",
+    3: "#ffb428",
 }
 
 

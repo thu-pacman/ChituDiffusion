@@ -504,6 +504,7 @@ class WanModel(ModelMixin, ConfigMixin):
         Returns:
             processed_tokens: 处理后的tokens
         """
+        kwargs.pop("raw_e", None)
         x = tokens
         for i, block in enumerate(self.blocks):
             x = block(x, **kwargs)
@@ -569,6 +570,7 @@ class WanModel(ModelMixin, ConfigMixin):
         # 准备主计算所需的参数
         kwargs = dict(
             e=e0,
+            raw_e=e,
             seq_lens=seq_lens,
             grid_sizes=grid_sizes,
             freqs=self.freqs,

@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 from typing import Optional, Dict, Any, Callable, Tuple, List
@@ -5,6 +6,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import functools
 from logging import getLogger
+from chitu_diffusion.core.logging_utils import should_log_on_rank
+from chitu_diffusion.runtime.output_layout import append_json_list_item, memory_metrics_dir
 
 logger = getLogger(__name__)
 
@@ -122,4 +125,60 @@ class FlexCacheManager():
     def set_strategy(self, strategy: FlexCacheStrategy):
         self.strategy = strategy
         self.strategy.reset_state()
+
+    def cache_memory_bytes(self) -> int:
+        visited = set()
+
+        def tensor_bytes(value) -> int:
+            if isinstance(value, torch.Tensor):
+                data_ptr = value.untyped_storage().data_ptr()
+                storage_nbytes = value.untyped_storage().nbytes()
+                key = (data_ptr, storage_nbytes, value.device)
+                if key in visited:
+                    return 0
+                visited.add(key)
+                return int(storage_nbytes)
+            if isinstance(value, dict):
+                return sum(tensor_bytes(item) for item in value.values())
+            if isinstance(value, (list, tuple, set)):
+                return sum(tensor_bytes(item) for item in value)
+            return 0
+
+        return tensor_bytes(self.cache)
+
+    def cache_entry_count(self) -> int:
+        return len(self.cache)
+
+    def record_cache_memory(self, stage: str, task_id: Optional[str] = None, extra: Optional[Dict[str, Any]] = None):
+        if not torch.cuda.is_available():
+            return
+        rank = torch.distributed.get_rank() if torch.distributed.is_available() and torch.distributed.is_initialized() else int(os.getenv("RANK", "0"))
+        if not should_log_on_rank(rank):
+            return
+
+        run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if not run_output_dir:
+            return
+
+        payload = {
+            "stage": stage,
+            "rank": rank,
+            "flexcache_strategy": getattr(self.strategy, "type", None),
+            "flexcache_cache_entries": self.cache_entry_count(),
+            "flexcache_cache_bytes": self.cache_memory_bytes(),
+            "flexcache_cache_gb": self.cache_memory_bytes() / 1024**3,
+            "gpu_allocated_gb": torch.cuda.memory_allocated() / 1024**3,
+            "gpu_reserved_gb": torch.cuda.memory_reserved() / 1024**3,
+        }
+        if task_id is not None:
+            payload["task_id"] = task_id
+        if extra:
+            payload.update(extra)
+
+        append_json_list_item(
+            os.path.join(memory_metrics_dir(run_output_dir), f"rank{rank}.json"),
+            "events",
+            payload,
+            base_payload={"rank": rank},
+        )
     

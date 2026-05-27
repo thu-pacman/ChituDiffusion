@@ -638,21 +638,6 @@ class Generator:
         DiffusionBackend.ditango = None
 
     @staticmethod
-    def _teacache_threshold_from_ratio(cache_ratio: float, model_name: str) -> float:
-        # 0 -> quality first (smaller thresh), 1 -> speed first (larger thresh)
-        model_name = (model_name or "").lower()
-        if "14b" in model_name:
-            min_thresh, max_thresh = 0.04, 0.20
-        else:
-            min_thresh, max_thresh = 0.08, 0.35
-        return min_thresh + cache_ratio * (max_thresh - min_thresh)
-
-    @staticmethod
-    def _pab_skip_self_from_ratio(cache_ratio: float) -> int:
-        # 0 -> quality first (recompute frequently), 1 -> speed first (reuse aggressively)
-        return int(round(cache_ratio * 10))
-
-    @staticmethod
     def _ditango_ase_from_ratio(cache_ratio: float) -> float:
         # 0 -> quality first (low threshold), 1 -> speed first (high threshold)
         min_thresh, max_thresh = 0.01, 0.08
@@ -676,31 +661,63 @@ class Generator:
         cache_ratio = spec.cache_ratio
         warmup_steps = spec.warmup
         cooldown_steps = spec.cooldown
+        baseline_params = spec.baseline_params or {}
 
         if strategy == "teacache":
-            from chitu_diffusion.flex_cache.strategy.teacache import TeaCacheStrategy
+            from chitu_diffusion.flexcache.baseline.teacache import TeaCacheStrategy
 
-            model_name = DiffusionBackend.args.name
-            teacache_thresh = self._teacache_threshold_from_ratio(cache_ratio, model_name)
+            use_ref_steps = baseline_params.get(
+                "use_ref_steps",
+                baseline_params.get("use_ret_steps", True),
+            )
             return TeaCacheStrategy(
                 task=task,
-                teacache_thresh=teacache_thresh,
-                warmup_steps=warmup_steps,
-                cooldown_steps=cooldown_steps,
+                teacache_thresh=baseline_params.get("teacache_thresh", 0.2),
+                coefficients=baseline_params.get("coefficients"),
+                warmup_steps=baseline_params.get("warmup_steps", warmup_steps),
+                cooldown_steps=baseline_params.get("cooldown_steps", cooldown_steps),
+                use_ref_steps=use_ref_steps,
             )
 
         if strategy == "pab":
-            from chitu_diffusion.flex_cache.strategy.pab import PABStrategy
+            from chitu_diffusion.flexcache.baseline.pab import PABStrategy
 
-            skip_self_range = self._pab_skip_self_from_ratio(cache_ratio)
-            skip_cross_range = int(round(skip_self_range * 5 / 3))
             return PABStrategy(
                 task=task,
-                warmup_steps=warmup_steps,
-                cooldown_steps=cooldown_steps,
-                skip_self_range=skip_self_range,
-                skip_cross_range=skip_cross_range,
+                warmup_steps=baseline_params.get("warmup_steps", warmup_steps),
+                cooldown_steps=baseline_params.get("cooldown_steps", cooldown_steps),
+                skip_self_range=baseline_params.get("skip_self_range", 2),
+                skip_cross_range=baseline_params.get("skip_cross_range", 3),
             )
+
+        common_kwargs = dict(
+            task=task,
+            cache_ratio=cache_ratio,
+            warmup_steps=warmup_steps,
+            cooldown_steps=cooldown_steps,
+            tau_max=spec.tau_max,
+            curvature_interval_power=spec.curvature_interval_power,
+        )
+
+        if strategy == "model":
+            from chitu_diffusion.flexcache.strategy.model import ModelStrategy
+
+            return ModelStrategy(**common_kwargs)
+
+        if strategy == "layer":
+            from chitu_diffusion.flexcache.strategy.layer import LayerStrategy
+
+            return LayerStrategy(**common_kwargs)
+
+        if strategy == "attn":
+            from chitu_diffusion.flexcache.strategy.attn import AttnStrategy
+
+            return AttnStrategy(**common_kwargs)
+
+        if strategy == "seq":
+            from chitu_diffusion.flexcache.strategy.seq import SeqStrategy
+
+            return SeqStrategy(**common_kwargs)
 
         raise ValueError(f"Unknown flexcache strategy '{strategy}'.")
 
@@ -720,6 +737,10 @@ class Generator:
     @staticmethod
     def _flexcache_strategy_name(strategy: str) -> str:
         names = {
+            "model": "FlexCacheModel",
+            "layer": "FlexCacheLayer",
+            "attn": "FlexCacheAttn",
+            "seq": "FlexCacheSeq",
             "teacache": "TeaCache",
             "pab": "PAB",
             "ditango": "DiTango",
@@ -886,6 +907,12 @@ class Generator:
         elif spec.strategy == "pab":
             resolved_log["skip_self_range"] = cache_strategy.skip_self_range
             resolved_log["skip_cross_range"] = cache_strategy.skip_cross_range
+        elif spec.strategy == "model":
+            resolved_log["tau_max"] = getattr(cache_strategy, "tau_max", None)
+            resolved_log["curvature_interval_power"] = getattr(cache_strategy, "curvature_interval_power", None)
+        elif spec.strategy in {"layer", "attn", "seq"}:
+            resolved_log["tau_max"] = cache_strategy.planner.tau_max
+            resolved_log["curvature_interval_power"] = cache_strategy.planner.curvature_interval_power
         logger.info(
             f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
         )

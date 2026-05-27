@@ -24,11 +24,11 @@ def _decision_color(code: int) -> Tuple[int, int, int]:
     if code == DiTangoPlanner.DECISION_CODE_WARMUP_COOLDOWN:
         return (160, 160, 160)
     if code == DiTangoPlanner.DECISION_CODE_ANCHOR:
-        return (0, 180, 0)
+        return (30, 180, 80)
     if code == DiTangoPlanner.DECISION_CODE_COMPUTE:
-        return (40, 90, 220)
+        return (40, 140, 255)
     if code == DiTangoPlanner.DECISION_CODE_REUSE:
-        return (245, 200, 40)
+        return (255, 180, 40)
     return (0, 0, 0)
 
 

@@ -118,7 +118,7 @@ configuration under the project config directory.
 chitu_diffusion/core/            Configuration, schemas, distributed utilities, registry
 chitu_diffusion/runtime/         Backend, generator, scheduler, task, main runtime API
 chitu_diffusion/modules/         Model-specific and reusable diffusion modules
-chitu_diffusion/flex_cache/      FlexCache strategies (TeaCache, PAB)
+chitu_diffusion/flexcache/       Curvature FlexCache strategies and baselines
 chitu_diffusion/ditango/         DiTango planner, runtime attention, visualization
 chitu_diffusion/evaluation/      Evaluation manager, strategies, metric helpers
 chitu_diffusion/observability/   Timing and magnitude logging helpers

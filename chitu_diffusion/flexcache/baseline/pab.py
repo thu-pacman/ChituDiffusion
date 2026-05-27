@@ -5,7 +5,7 @@ from typing import Optional, Any, Dict
 import torch.distributed as dist
 import functools
 from logging import getLogger
-from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheStrategy
+from chitu_diffusion.flexcache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.runtime.task import DiffusionTask
 from chitu_diffusion.runtime.backend import DiffusionBackend, CFGType
 from chitu_diffusion.runtime.output_layout import debug_output_dir
@@ -106,7 +106,7 @@ class PABStrategy(FlexCacheStrategy):
         if prev is None:
             self._vis_records[step] = code
         else:
-            # 优先级: full_compute(0) < periodic_compute(1) < self_reuse(2) < cross_reuse(3)
+            # warmup/cooldown(0) < compute(1) < reuse(2)
             self._vis_records[step] = max(prev, code)
         self._vis_max_step = max(self._vis_max_step, step)
 
@@ -124,14 +124,12 @@ class PABStrategy(FlexCacheStrategy):
 
         for step in range(self._vis_max_step + 1):
             code = self._vis_records.get(step, 0)
-            if code == 3:
-                color = (20, 80, 200)    # cross reuse: deep blue
-            elif code == 2:
-                color = (120, 200, 255)  # self reuse: light blue
+            if code == 2:
+                color = (255, 180, 40)   # reuse
             elif code == 1:
-                color = (255, 180, 40)   # periodic recompute
+                color = (40, 140, 255)   # compute
             else:
-                color = (160, 160, 160)  # warmup/cooldown full compute
+                color = (160, 160, 160)  # warmup/cooldown
 
             for yy in range(height):
                 for xx in range(step * cell, (step + 1) * cell):
@@ -217,8 +215,7 @@ class PABStrategy(FlexCacheStrategy):
             self._record_step_policy(current_step, 1)
             return None  # 该步需要重新计算
         else: 
-            reuse_code = 2 if attn_kind == "self" else 3
-            self._record_step_policy(current_step, reuse_code)
+            self._record_step_policy(current_step, 2)
             return branch_key  # 可以复用
         
     

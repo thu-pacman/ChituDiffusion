@@ -7,8 +7,8 @@ def _decision_to_color(decision_code: int) -> Tuple[int, int, int]:
     if decision_code == 1:
         return (30, 180, 80)  # anchor: green
     if decision_code == 2:
-        return (50, 120, 230)  # compute: blue
-    return (250, 210, 70)  # reuse: yellow
+        return (40, 140, 255)  # compute: blue
+    return (255, 180, 40)  # reuse: orange
 
 
 def save_ditango_decision_ppm(

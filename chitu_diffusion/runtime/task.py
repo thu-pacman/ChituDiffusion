@@ -54,6 +54,7 @@ class FlexCacheParams:
     cooldown: int = 5
     tau_max: int = 8
     curvature_interval_power: float = 1.0 / 3.0
+    baseline_params: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -96,10 +97,10 @@ class DiffusionUserParams:
         if strategy in {"", "none", "off", "disable", "disabled"}:
             return None
 
-        if strategy not in {"teacache", "pab", "ditango"}:
+        if strategy not in {"model", "layer", "attn", "seq", "teacache", "pab", "ditango"}:
             raise ValueError(
                 f"Unsupported acceleration strategy '{params.strategy}'. "
-                "Supported strategies are: teacache, pab, ditango."
+                "Supported strategies are: model, layer, attn, seq, teacache, pab, ditango."
             )
 
         cache_ratio = float(params.cache_ratio)
@@ -120,6 +121,7 @@ class DiffusionUserParams:
             cooldown=cooldown,
             tau_max=int(params.tau_max),
             curvature_interval_power=float(params.curvature_interval_power),
+            baseline_params=dict(params.baseline_params or {}),
         )
     
 

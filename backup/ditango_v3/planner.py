@@ -226,7 +226,7 @@ class DiTangoV3Planner:
             )
             logger.info(
                 "[DiTango] Saved decision PPM (merged) to %s | "
-                "color map: warmup/cooldown=gray, anchor=green, compute=blue, reuse=yellow",
+                "color map: warmup/cooldown=gray, anchor=green, compute=blue, reuse=orange",
                 merged_path,
             )
 

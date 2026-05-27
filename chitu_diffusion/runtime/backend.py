@@ -34,7 +34,7 @@ from chitu_diffusion.core.distributed.parallel_state import (
 from chitu_diffusion.core.models.registry import ModelType, get_model_class
 from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend, DiffusionAttention_with_CP
 
-from chitu_diffusion.flex_cache.flexcache_manager import FlexCacheManager
+from chitu_diffusion.flexcache.flexcache_manager import FlexCacheManager
 
 # from chitu_diffusion.core.distributed.moe_token_dispatcher import init_token_dispatcher
 if TYPE_CHECKING:
