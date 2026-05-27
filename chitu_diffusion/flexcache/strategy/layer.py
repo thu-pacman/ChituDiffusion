@@ -87,4 +87,4 @@ class LayerStrategy(FlexCacheStrategy):
 
     def reset_state(self):
         self.planner.reset()
-        DiffusionBackend.flexcache.cache.clear()
+        DiffusionBackend.flexcache.clear_cache()

@@ -73,7 +73,7 @@ def test_model_ratio_interval_uses_cache_ratio_directly(monkeypatch):
     assert planner.intervals["model"] == 3
 
 
-def test_model_strategy_reuses_until_accumulated_curvature_crosses_threshold(monkeypatch):
+def test_model_strategy_reuses_until_next_compute_step(monkeypatch):
     class Buffer:
         current_step = 2
 
@@ -112,11 +112,13 @@ def test_model_strategy_reuses_until_accumulated_curvature_crosses_threshold(mon
 
     assert strategy.get_reuse_key(x=x0) is None
     assert strategy.get_store_key(x=x0) == "pos"
+    strategy.planner.mark_computed("pos", x0)
 
-    Buffer.current_step = 6
+    Buffer.current_step = 3
     assert strategy.get_reuse_key(x=x1) == "pos"
 
-    Buffer.current_step = 7
+    next_step = strategy.planner.next_compute_step["pos"]
+    Buffer.current_step = next_step
     assert strategy.get_reuse_key(x=x2) is None
 
 
@@ -157,12 +159,15 @@ def test_model_strategy_keeps_cfg_branches_independent(monkeypatch):
     x0 = torch.ones(1, 2)
     assert strategy.get_reuse_key(x=x0) is None
     assert strategy.get_store_key(x=x0) == "pos"
+    strategy.planner.mark_computed("pos", x0)
 
     monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.NEG)
     assert strategy.get_reuse_key(x=x0 * 3) is None
     assert strategy.get_store_key(x=x0 * 3) == "neg"
+    strategy.planner.mark_computed("neg", x0 * 3)
 
     monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.POS)
+    Buffer.current_step = 3
     assert strategy.get_reuse_key(x=x0 * 1.01) == "pos"
 
 

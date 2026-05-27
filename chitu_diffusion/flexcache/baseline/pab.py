@@ -307,6 +307,11 @@ class PABStrategy(FlexCacheStrategy):
                 if store_key is not None:
                     cache_key = f"{store_key}_block{block_idx}_self"
                     DiffusionBackend.flexcache.cache[cache_key] = output
+                    DiffusionBackend.flexcache.record_cache_memory(
+                        "flexcache_store",
+                        task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
+                        extra={"cache_key": str(cache_key)},
+                    )
                     # 所有rank都打印存储信息（只在block 0）
                     # if block_idx == 0:
                     #     print(f"[Rank {dist.get_rank()}] STORE self-attn to key: {cache_key}, shape: {output.shape}")
@@ -348,6 +353,11 @@ class PABStrategy(FlexCacheStrategy):
                 if store_key is not None:
                     cache_key = f"{store_key}_block{block_idx}_cross"
                     DiffusionBackend.flexcache.cache[cache_key] = output
+                    DiffusionBackend.flexcache.record_cache_memory(
+                        "flexcache_store",
+                        task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
+                        extra={"cache_key": str(cache_key)},
+                    )
                     # 所有rank都打印存储信息（只在block 0）
                     # if block_idx == 0:
                     #     print(f"[Rank {dist.get_rank()}] STORE cross-attn to key: {cache_key}, shape: {output.shape}")
@@ -383,5 +393,5 @@ class PABStrategy(FlexCacheStrategy):
     
     def reset_state(self):
         """重置所有内部状态"""
-        DiffusionBackend.flexcache.cache.clear() 
+        DiffusionBackend.flexcache.clear_cache()
         logger.debug("PAB state reset")

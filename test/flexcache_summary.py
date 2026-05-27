@@ -93,13 +93,20 @@ def _memory_by_task(run_output_dir: str) -> dict[str, dict[str, float | int | No
             {
                 "flexcache_cache_gb_max": 0.0,
                 "flexcache_cache_entries_max": 0,
+                "flexcache_cache_tensors_max": 0,
                 "gpu_reserved_gb_max": 0.0,
             },
         )
         item["gpu_reserved_gb_max"] = max(float(item["gpu_reserved_gb_max"] or 0.0), float(event.get("gpu_reserved_gb") or 0.0))
-        if "flexcache_cache_gb" in event:
-            item["flexcache_cache_gb_max"] = max(float(item["flexcache_cache_gb_max"] or 0.0), float(event.get("flexcache_cache_gb") or 0.0))
-            item["flexcache_cache_entries_max"] = max(int(item["flexcache_cache_entries_max"] or 0), int(event.get("flexcache_cache_entries") or 0))
+        cache_gb = event.get("flexcache_peak_cache_gb", event.get("flexcache_cache_gb"))
+        cache_entries = event.get("flexcache_peak_cache_entries", event.get("flexcache_cache_entries"))
+        cache_tensors = event.get("flexcache_peak_cache_tensors", event.get("flexcache_cache_tensors"))
+        if cache_gb is not None:
+            item["flexcache_cache_gb_max"] = max(float(item["flexcache_cache_gb_max"] or 0.0), float(cache_gb or 0.0))
+        if cache_entries is not None:
+            item["flexcache_cache_entries_max"] = max(int(item["flexcache_cache_entries_max"] or 0), int(cache_entries or 0))
+        if cache_tensors is not None:
+            item["flexcache_cache_tensors_max"] = max(int(item["flexcache_cache_tensors_max"] or 0), int(cache_tensors or 0))
     for item in by_task.values():
         reserved = float(item.get("gpu_reserved_gb_max") or 0.0)
         cache = float(item.get("flexcache_cache_gb_max") or 0.0)

@@ -458,6 +458,11 @@ class TeaCacheStrategy(FlexCacheStrategy):
                 # 这里简化处理，实际需要在blocks循环中插入逻辑
                 residual = self.store(fresh_feature=output, x=ori_x)  # 简化
                 DiffusionBackend.flexcache.cache[store_key] = residual
+                DiffusionBackend.flexcache.record_cache_memory(
+                    "flexcache_store",
+                    task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
+                    extra={"cache_key": str(store_key)},
+                )
                 
             return output
         
@@ -487,5 +492,5 @@ class TeaCacheStrategy(FlexCacheStrategy):
         self.previous_e0_neg = None
         self.previous_residual_pos = None
         self.previous_residual_neg = None
-        DiffusionBackend.flexcache.cache.clear() 
+        DiffusionBackend.flexcache.clear_cache()
         logger.debug("TeaCache state reset")

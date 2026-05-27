@@ -1,19 +1,10 @@
 import os
 import torch
-import torch.nn as nn
-from typing import Optional, Dict, Any, Callable, Tuple, List
+from typing import Optional, Dict, Any, Tuple, List
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-import functools
-from logging import getLogger
 from chitu_diffusion.core.logging_utils import should_log_on_rank
 from chitu_diffusion.runtime.output_layout import append_json_list_item, memory_metrics_dir
 
-logger = getLogger(__name__)
-
-from abc import ABC, abstractmethod
-import torch
-from typing import Optional, Any
 
 class FlexCacheStrategy(ABC):
     """
@@ -121,38 +112,109 @@ class FlexCacheManager():
         self.current_timestep: int = 0 # 每次denoise step更新会更新次timestep
         self.strategy: FlexCacheStrategy = None
         self.cache = {} # 目前采用字典，但应该有更优的数据结构
+        self.peak_cache_bytes = 0
+        self.peak_cache_entries = 0
+        self.peak_cache_tensors = 0
     
     def set_strategy(self, strategy: FlexCacheStrategy):
         self.strategy = strategy
         self.strategy.reset_state()
 
-    def cache_memory_bytes(self) -> int:
-        visited = set()
+    def reset_cache_stats(self):
+        self.peak_cache_bytes = 0
+        self.peak_cache_entries = 0
+        self.peak_cache_tensors = 0
 
-        def tensor_bytes(value) -> int:
+    def clear_cache(self):
+        self.cache.clear()
+        self.reset_cache_stats()
+
+    def cache_tensor_stats(self) -> Dict[str, Any]:
+        tensor_count = 0
+        total_bytes = 0
+        tensors: List[Dict[str, Any]] = []
+        tensor_summary: Dict[Tuple[Tuple[int, ...], str, str], Dict[str, Any]] = {}
+
+        def visit(value, path: str):
+            nonlocal tensor_count, total_bytes
             if isinstance(value, torch.Tensor):
-                data_ptr = value.untyped_storage().data_ptr()
-                storage_nbytes = value.untyped_storage().nbytes()
-                key = (data_ptr, storage_nbytes, value.device)
-                if key in visited:
-                    return 0
-                visited.add(key)
-                return int(storage_nbytes)
+                nbytes = int(value.numel() * value.element_size())
+                shape = tuple(int(dim) for dim in value.shape)
+                dtype = str(value.dtype)
+                device = str(value.device)
+                tensor_count += 1
+                total_bytes += nbytes
+                summary_key = (shape, dtype, device)
+                summary = tensor_summary.setdefault(
+                    summary_key,
+                    {
+                        "shape": list(shape),
+                        "dtype": dtype,
+                        "device": device,
+                        "count": 0,
+                        "bytes": 0,
+                    },
+                )
+                summary["count"] += 1
+                summary["bytes"] += nbytes
+                tensors.append(
+                    {
+                        "path": path,
+                        "shape": list(shape),
+                        "dtype": dtype,
+                        "device": device,
+                        "numel": int(value.numel()),
+                        "element_size": int(value.element_size()),
+                        "bytes": nbytes,
+                    }
+                )
+                return
             if isinstance(value, dict):
-                return sum(tensor_bytes(item) for item in value.values())
+                for key, item in value.items():
+                    visit(item, f"{path}.{key}")
+                return
             if isinstance(value, (list, tuple, set)):
-                return sum(tensor_bytes(item) for item in value)
-            return 0
+                for index, item in enumerate(value):
+                    visit(item, f"{path}[{index}]")
 
-        return tensor_bytes(self.cache)
+        visit(self.cache, "cache")
+        return {
+            "entries": self.cache_entry_count(),
+            "tensors": tensor_count,
+            "bytes": total_bytes,
+            "tensor_summary": list(tensor_summary.values()),
+            "tensor_details": tensors,
+        }
+
+    def cache_memory_bytes(self) -> int:
+        return int(self.cache_tensor_stats()["bytes"])
+
+    def update_peak_cache_memory(self) -> Tuple[bool, Dict[str, Any]]:
+        stats = self.cache_tensor_stats()
+        increased = int(stats["bytes"]) > self.peak_cache_bytes
+        if increased:
+            self.peak_cache_bytes = int(stats["bytes"])
+            self.peak_cache_entries = int(stats["entries"])
+            self.peak_cache_tensors = int(stats["tensors"])
+        stats.update(
+            {
+                "peak_bytes": self.peak_cache_bytes,
+                "peak_entries": self.peak_cache_entries,
+                "peak_tensors": self.peak_cache_tensors,
+                "peak_increased": increased,
+            }
+        )
+        return increased, stats
 
     def cache_entry_count(self) -> int:
         return len(self.cache)
 
     def record_cache_memory(self, stage: str, task_id: Optional[str] = None, extra: Optional[Dict[str, Any]] = None):
+        _, cache_stats = self.update_peak_cache_memory()
+
+        rank = torch.distributed.get_rank() if torch.distributed.is_available() and torch.distributed.is_initialized() else int(os.getenv("RANK", "0"))
         if not torch.cuda.is_available():
             return
-        rank = torch.distributed.get_rank() if torch.distributed.is_available() and torch.distributed.is_initialized() else int(os.getenv("RANK", "0"))
         if not should_log_on_rank(rank):
             return
 
@@ -164,9 +226,16 @@ class FlexCacheManager():
             "stage": stage,
             "rank": rank,
             "flexcache_strategy": getattr(self.strategy, "type", None),
-            "flexcache_cache_entries": self.cache_entry_count(),
-            "flexcache_cache_bytes": self.cache_memory_bytes(),
-            "flexcache_cache_gb": self.cache_memory_bytes() / 1024**3,
+            "flexcache_cache_entries": cache_stats["entries"],
+            "flexcache_cache_tensors": cache_stats["tensors"],
+            "flexcache_cache_bytes": cache_stats["bytes"],
+            "flexcache_cache_gb": cache_stats["bytes"] / 1024**3,
+            "flexcache_peak_cache_entries": cache_stats["peak_entries"],
+            "flexcache_peak_cache_tensors": cache_stats["peak_tensors"],
+            "flexcache_peak_cache_bytes": cache_stats["peak_bytes"],
+            "flexcache_peak_cache_gb": cache_stats["peak_bytes"] / 1024**3,
+            "flexcache_peak_increased": cache_stats["peak_increased"],
+            "flexcache_cache_tensor_summary": cache_stats["tensor_summary"],
             "gpu_allocated_gb": torch.cuda.memory_allocated() / 1024**3,
             "gpu_reserved_gb": torch.cuda.memory_reserved() / 1024**3,
         }
