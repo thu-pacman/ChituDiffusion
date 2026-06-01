@@ -54,6 +54,7 @@ class FlexCacheParams:
     cooldown: int = 5
     tau_max: int = 8
     curvature_interval_power: float = 1.0 / 3.0
+    strategy_params: Dict[str, Any] = field(default_factory=dict)
     baseline_params: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -121,6 +122,7 @@ class DiffusionUserParams:
             cooldown=cooldown,
             tau_max=int(params.tau_max),
             curvature_interval_power=float(params.curvature_interval_power),
+            strategy_params=dict(params.strategy_params or params.baseline_params or {}),
             baseline_params=dict(params.baseline_params or {}),
         )
     

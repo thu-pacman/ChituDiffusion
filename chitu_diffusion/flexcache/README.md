@@ -6,10 +6,10 @@ denoising steps according to a strategy-specific policy.
 
 ## Status
 
-- `teacache`: complete baseline. It stores model-output residuals and reuses
+- `teacache`: complete strategy. It stores model-output residuals and reuses
   them when accumulated timestep-embedding change stays under the configured
   threshold.
-- `pab`: complete baseline. It stores attention outputs and reuses them at fixed
+- `pab`: complete strategy. It stores attention outputs and reuses them at fixed
   self-attention and cross-attention broadcast intervals.
 - `model`: initially usable FlexCache strategy. It stores model-output residuals
   and uses residual curvature to schedule the next compute anchor.
@@ -44,9 +44,10 @@ User-facing parameters are normalized into `FlexCacheParams`:
 - `cooldown`: last `cooldown` denoising steps always compute
 - `tau_max`: maximum next-compute interval for curvature policies
 - `curvature_interval_power`: curvature-to-interval contrast
-- `baseline_params`: explicit TeaCache/PAB options
+- `strategy_params`: strategy-specific options for TeaCache, PAB, and future
+  strategies
 
-Baseline strategies read their own controls from `baseline_params`; `cache_ratio`
+TeaCache and PAB read their own controls from `strategy_params`; `cache_ratio`
 is not translated into TeaCache or PAB parameters.
 
 ## Examples
@@ -58,7 +59,7 @@ FlexCacheParams(
     strategy="teacache",
     warmup=7,
     cooldown=3,
-    baseline_params={"teacache_thresh": 0.2},
+    strategy_params={"teacache_thresh": 0.2},
 )
 ```
 
@@ -69,7 +70,7 @@ FlexCacheParams(
     strategy="pab",
     warmup=5,
     cooldown=5,
-    baseline_params={"skip_self_range": 2, "skip_cross_range": 3},
+    strategy_params={"skip_self_range": 2, "skip_cross_range": 3},
 )
 ```
 
@@ -89,8 +90,8 @@ FlexCacheParams(
 
 - `flexcache_manager.py`: shared strategy interface, cache dictionary, and cache
   memory accounting.
-- `baseline/teacache.py`: TeaCache baseline.
-- `baseline/pab.py`: PAB baseline.
+- `strategy/teacache.py`: TeaCache strategy.
+- `strategy/pab.py`: PAB strategy.
 - `strategy/model.py`: model-output residual FlexCache strategy.
 - `strategy/layer.py`, `strategy/attn.py`, `strategy/seq.py`: experimental
   granularities.

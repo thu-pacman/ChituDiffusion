@@ -1,13 +1,13 @@
 import torch
 
 from chitu_diffusion.flexcache.core.anchor_cache import AnchorCachePlanner
-from chitu_diffusion.flexcache.baseline.teacache import TeaCacheStrategy
 from chitu_diffusion.flexcache.strategy.model import ModelStrategy
+from chitu_diffusion.flexcache.strategy.teacache import TeaCacheStrategy
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
 from chitu_diffusion.runtime.task import DiffusionUserParams, FlexCacheParams
 
 
-def test_main_and_baseline_strategies_are_accepted():
+def test_flexcache_strategies_are_accepted():
     for strategy in ("model", "layer", "attn", "seq", "teacache", "pab", "ditango"):
         params = DiffusionUserParams(
             flexcache_params=FlexCacheParams(strategy=strategy)
@@ -15,15 +15,25 @@ def test_main_and_baseline_strategies_are_accepted():
         assert params.strategy == strategy
 
 
-def test_baseline_params_are_preserved():
+def test_strategy_params_are_preserved():
     params = DiffusionUserParams(
         flexcache_params=FlexCacheParams(
             strategy="pab",
             cache_ratio=0.99,
+            strategy_params={"skip_self_range": 4, "skip_cross_range": 6},
+        )
+    ).resolve_flexcache_params()
+    assert params.strategy_params == {"skip_self_range": 4, "skip_cross_range": 6}
+
+
+def test_legacy_baseline_params_are_accepted_as_strategy_params():
+    params = DiffusionUserParams(
+        flexcache_params=FlexCacheParams(
+            strategy="pab",
             baseline_params={"skip_self_range": 4, "skip_cross_range": 6},
         )
     ).resolve_flexcache_params()
-    assert params.baseline_params == {"skip_self_range": 4, "skip_cross_range": 6}
+    assert params.strategy_params == {"skip_self_range": 4, "skip_cross_range": 6}
 
 
 def test_interval_plan_preserves_curvature_order():

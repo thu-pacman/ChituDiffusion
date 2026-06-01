@@ -661,33 +661,33 @@ class Generator:
         cache_ratio = spec.cache_ratio
         warmup_steps = spec.warmup
         cooldown_steps = spec.cooldown
-        baseline_params = spec.baseline_params or {}
+        strategy_params = spec.strategy_params or spec.baseline_params or {}
 
         if strategy == "teacache":
-            from chitu_diffusion.flexcache.baseline.teacache import TeaCacheStrategy
+            from chitu_diffusion.flexcache.strategy.teacache import TeaCacheStrategy
 
-            use_ref_steps = baseline_params.get(
+            use_ref_steps = strategy_params.get(
                 "use_ref_steps",
-                baseline_params.get("use_ret_steps", True),
+                strategy_params.get("use_ret_steps", True),
             )
             return TeaCacheStrategy(
                 task=task,
-                teacache_thresh=baseline_params.get("teacache_thresh", 0.2),
-                coefficients=baseline_params.get("coefficients"),
-                warmup_steps=baseline_params.get("warmup_steps", warmup_steps),
-                cooldown_steps=baseline_params.get("cooldown_steps", cooldown_steps),
+                teacache_thresh=strategy_params.get("teacache_thresh", 0.2),
+                coefficients=strategy_params.get("coefficients"),
+                warmup_steps=strategy_params.get("warmup_steps", warmup_steps),
+                cooldown_steps=strategy_params.get("cooldown_steps", cooldown_steps),
                 use_ref_steps=use_ref_steps,
             )
 
         if strategy == "pab":
-            from chitu_diffusion.flexcache.baseline.pab import PABStrategy
+            from chitu_diffusion.flexcache.strategy.pab import PABStrategy
 
             return PABStrategy(
                 task=task,
-                warmup_steps=baseline_params.get("warmup_steps", warmup_steps),
-                cooldown_steps=baseline_params.get("cooldown_steps", cooldown_steps),
-                skip_self_range=baseline_params.get("skip_self_range", 2),
-                skip_cross_range=baseline_params.get("skip_cross_range", 3),
+                warmup_steps=strategy_params.get("warmup_steps", warmup_steps),
+                cooldown_steps=strategy_params.get("cooldown_steps", cooldown_steps),
+                skip_self_range=strategy_params.get("skip_self_range", 2),
+                skip_cross_range=strategy_params.get("skip_cross_range", 3),
             )
 
         common_kwargs = dict(

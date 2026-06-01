@@ -38,7 +38,7 @@ def _strategy_label(params: dict[str, Any]) -> str:
     spec = params.get("flexcache_params") or {}
     strategy = spec.get("strategy") or params.get("flexcache") or "none"
     if strategy in {"teacache", "pab"}:
-        core = spec.get("baseline_params") or {}
+        core = spec.get("strategy_params") or spec.get("baseline_params") or {}
     else:
         core = {
             "cache_ratio": spec.get("cache_ratio"),

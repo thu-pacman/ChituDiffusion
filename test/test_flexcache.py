@@ -61,7 +61,7 @@ msgs = [
         sample_solver="unipc",
         flexcache_params=FlexCacheParams(
             strategy="teacache",
-            baseline_params={
+            strategy_params={
                 "warmup_steps": 7,
                 "cooldown_steps": 3,
                 "teacache_thresh": 0.2,
@@ -80,7 +80,7 @@ msgs = [
         sample_solver="unipc",
         flexcache_params=FlexCacheParams(
             strategy="pab",
-            baseline_params={
+            strategy_params={
                 "warmup_steps": 7,
                 "cooldown_steps": 3,
                 "skip_self_range": 3,
