@@ -3,7 +3,7 @@ import torch
 from typing import Optional, Dict, Any, Tuple, List
 from abc import ABC, abstractmethod
 from chitu_diffusion.core.logging_utils import should_log_on_rank
-from chitu_diffusion.runtime.output_layout import append_json_list_item, memory_metrics_dir
+from chitu_diffusion.runtime.output_layout import append_json_list_item, flexcache_metrics_dir, memory_metrics_dir
 
 
 class FlexCacheStrategy(ABC):
@@ -115,6 +115,10 @@ class FlexCacheManager():
         self.peak_cache_bytes = 0
         self.peak_cache_entries = 0
         self.peak_cache_tensors = 0
+        self.compute_baseline_units = 0.0
+        self.compute_actual_units = 0.0
+        self.compute_event_count = 0
+        self.compute_scope_units: Dict[str, Dict[str, float]] = {}
     
     def set_strategy(self, strategy: FlexCacheStrategy):
         self.strategy = strategy
@@ -125,9 +129,110 @@ class FlexCacheManager():
         self.peak_cache_entries = 0
         self.peak_cache_tensors = 0
 
+    def reset_compute_stats(self):
+        self.compute_baseline_units = 0.0
+        self.compute_actual_units = 0.0
+        self.compute_event_count = 0
+        self.compute_scope_units.clear()
+
     def clear_cache(self):
         self.cache.clear()
         self.reset_cache_stats()
+
+    def record_compute(
+        self,
+        *,
+        baseline_units: float,
+        actual_units: float,
+        task_id: Optional[str] = None,
+        scope: str = "strategy",
+        unit: str = "proxy",
+        extra: Optional[Dict[str, Any]] = None,
+    ):
+        baseline = max(0.0, float(baseline_units))
+        actual = max(0.0, min(float(actual_units), baseline)) if baseline > 0 else max(0.0, float(actual_units))
+        self.compute_baseline_units += baseline
+        self.compute_actual_units += actual
+        self.compute_event_count += 1
+        scope_item = self.compute_scope_units.setdefault(scope, {"baseline_units": 0.0, "actual_units": 0.0, "events": 0.0})
+        scope_item["baseline_units"] += baseline
+        scope_item["actual_units"] += actual
+        scope_item["events"] += 1.0
+
+        if os.getenv("CHITU_FLEXCACHE_COMPUTE_EVENTS", "").strip().lower() not in {"1", "true", "yes", "on"}:
+            return
+
+        rank = torch.distributed.get_rank() if torch.distributed.is_available() and torch.distributed.is_initialized() else int(os.getenv("RANK", "0"))
+        if not should_log_on_rank(rank):
+            return
+        run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if not run_output_dir:
+            return
+
+        payload = {
+            "stage": "compute_event",
+            "rank": rank,
+            "task_id": task_id,
+            "flexcache_strategy": getattr(self.strategy, "type", None),
+            "scope": scope,
+            "unit": unit,
+            "baseline_units": baseline,
+            "actual_units": actual,
+            "saved_units": baseline - actual,
+            "saving_ratio": None if baseline <= 0 else (baseline - actual) / baseline,
+        }
+        if extra:
+            payload.update(extra)
+        append_json_list_item(
+            os.path.join(flexcache_metrics_dir(run_output_dir), f"rank{rank}.json"),
+            "events",
+            payload,
+            base_payload={"rank": rank},
+        )
+
+    def compute_summary(self) -> Dict[str, Any]:
+        baseline = float(self.compute_baseline_units)
+        actual = float(self.compute_actual_units)
+        scope_summary = {}
+        for scope, item in self.compute_scope_units.items():
+            scope_baseline = float(item["baseline_units"])
+            scope_actual = float(item["actual_units"])
+            scope_summary[scope] = {
+                "baseline_units": scope_baseline,
+                "actual_units": scope_actual,
+                "saved_units": scope_baseline - scope_actual,
+                "saving_ratio": None if scope_baseline <= 0 else (scope_baseline - scope_actual) / scope_baseline,
+                "events": int(item["events"]),
+            }
+        return {
+            "flexcache_strategy": getattr(self.strategy, "type", None),
+            "baseline_units": baseline,
+            "actual_units": actual,
+            "saved_units": baseline - actual,
+            "saving_ratio": None if baseline <= 0 else (baseline - actual) / baseline,
+            "event_count": self.compute_event_count,
+            "scope_summary": scope_summary,
+        }
+
+    def record_compute_summary(self, task_id: Optional[str] = None):
+        rank = torch.distributed.get_rank() if torch.distributed.is_available() and torch.distributed.is_initialized() else int(os.getenv("RANK", "0"))
+        if not should_log_on_rank(rank):
+            return
+        run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if not run_output_dir:
+            return
+        payload = {
+            "stage": "task_summary",
+            "rank": rank,
+            "task_id": task_id,
+            **self.compute_summary(),
+        }
+        append_json_list_item(
+            os.path.join(flexcache_metrics_dir(run_output_dir), f"rank{rank}.json"),
+            "events",
+            payload,
+            base_payload={"rank": rank},
+        )
 
     def cache_tensor_stats(self) -> Dict[str, Any]:
         tensor_count = 0

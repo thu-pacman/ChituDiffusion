@@ -478,6 +478,16 @@ class Generator:
                 seq_len=task.buffer.seq_len
             )
 
+        cache_strategy = getattr(DiffusionBackend.flexcache, "strategy", None)
+        observe_guided_output = getattr(cache_strategy, "observe_guided_output", None)
+        if observe_guided_output is not None:
+            observe_guided_output(
+                x=latent_model_input,
+                output=noise_pred,
+                t=timestep,
+                step=int(task.buffer.current_step),
+            )
+
         sampled_latents = task.buffer.sampler.step(
             noise_pred.unsqueeze(0),
             timestep,
@@ -525,6 +535,8 @@ class Generator:
             Timer.save_task_statistics_json(os.path.join(timing_dir, f"{task.task_id}.json"), task.task_id)
             rank = torch.distributed.get_rank()
             args = get_global_args()
+            if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
+                DiffusionBackend.flexcache.record_compute_summary(task_id=task.task_id)
             record_memory = bool(getattr(args.output, "memory", True)) if args is not None else True
             if record_memory and torch.cuda.is_available() and should_log_on_rank(rank):
                 append_json_list_item(
@@ -719,6 +731,40 @@ class Generator:
 
             return SeqStrategy(**common_kwargs)
 
+        if strategy == "cubic":
+            from chitu_diffusion.flexcache.strategy.cubic import CubicStrategy
+
+            if self.cp_size != 1:
+                raise ValueError("FlexCache Cubic currently supports cp_size=1 only.")
+            total_steps = int(task.req.params.num_inference_steps)
+            patch_size = tuple(getattr(DiffusionBackend.active_model, "patch_size", (1, 2, 2)))
+            num_layers = int(
+                getattr(
+                    DiffusionBackend.active_model,
+                    "num_layers",
+                    len(getattr(DiffusionBackend.active_model, "blocks", [])),
+                )
+            )
+            return CubicStrategy(
+                **common_kwargs,
+                patch_size=strategy_params.get("patch_size", patch_size),
+                num_layers=strategy_params.get("num_layers", num_layers),
+                target_speedup=strategy_params.get(
+                    "target_speedup",
+                    max(1.0, 1.0 / max(1.0 - cache_ratio, 1e-6)),
+                ),
+                warmup_fraction=strategy_params.get("warmup_fraction", warmup_steps / max(total_steps, 1)),
+                cooldown_fraction=strategy_params.get("cooldown_fraction", cooldown_steps / max(total_steps, 1)),
+                anchor_interval=strategy_params.get("anchor_interval", spec.tau_max),
+                partition_mode=strategy_params.get("partition_mode", "wan13_832x480_uniform"),
+                min_block_size=strategy_params.get("min_block_size", 2),
+                max_block_size=strategy_params.get("max_block_size", 16),
+                cv_threshold=strategy_params.get("cv_threshold", 0.5),
+                alpha=strategy_params.get("alpha", 1.0),
+                beta=strategy_params.get("beta", 2.0),
+                curvature_contrast_gamma=strategy_params.get("curvature_contrast_gamma", 1.0),
+            )
+
         raise ValueError(f"Unknown flexcache strategy '{strategy}'.")
 
     def _build_ditango_planner(self, task: DiffusionTask, spec: FlexCacheParams):
@@ -741,6 +787,7 @@ class Generator:
             "layer": "FlexCacheLayer",
             "attn": "FlexCacheAttn",
             "seq": "FlexCacheSeq",
+            "cubic": "FlexCacheCubic",
             "teacache": "TeaCache",
             "pab": "PAB",
             "ditango": "DiTango",
@@ -885,6 +932,8 @@ class Generator:
             )
             return
 
+        DiffusionBackend.flexcache.reset_compute_stats()
+
         if DiffusionBackend.ditango is not None:
             self._clear_ditango_planner()
 
@@ -913,6 +962,10 @@ class Generator:
         elif spec.strategy in {"layer", "attn", "seq"}:
             resolved_log["tau_max"] = cache_strategy.planner.tau_max
             resolved_log["curvature_interval_power"] = cache_strategy.planner.curvature_interval_power
+        elif spec.strategy == "cubic":
+            resolved_log["target_speedup"] = cache_strategy.config.target_speedup
+            resolved_log["anchor_interval"] = cache_strategy.config.anchor_interval
+            resolved_log["partition_mode"] = cache_strategy.config.partition_mode
         logger.info(
             f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
         )

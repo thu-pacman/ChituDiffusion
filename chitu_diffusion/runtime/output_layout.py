@@ -60,6 +60,10 @@ def memory_metrics_dir(run_output_dir: str) -> str:
     return os.path.join(metrics_dir(run_output_dir), "memory")
 
 
+def flexcache_metrics_dir(run_output_dir: str) -> str:
+    return os.path.join(metrics_dir(run_output_dir), "flexcache")
+
+
 def quality_metrics_dir(run_output_dir: str) -> str:
     return os.path.join(run_output_dir, "metrics", "quality")
 

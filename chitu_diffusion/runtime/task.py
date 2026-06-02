@@ -98,10 +98,10 @@ class DiffusionUserParams:
         if strategy in {"", "none", "off", "disable", "disabled"}:
             return None
 
-        if strategy not in {"model", "layer", "attn", "seq", "teacache", "pab", "ditango"}:
+        if strategy not in {"model", "layer", "attn", "seq", "teacache", "pab", "cubic", "ditango"}:
             raise ValueError(
                 f"Unsupported acceleration strategy '{params.strategy}'. "
-                "Supported strategies are: model, layer, attn, seq, teacache, pab, ditango."
+                "Supported strategies are: model, layer, attn, seq, teacache, pab, cubic, ditango."
             )
 
         cache_ratio = float(params.cache_ratio)

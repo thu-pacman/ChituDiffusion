@@ -8,7 +8,7 @@ from chitu_diffusion.runtime.task import DiffusionUserParams, FlexCacheParams
 
 
 def test_flexcache_strategies_are_accepted():
-    for strategy in ("model", "layer", "attn", "seq", "teacache", "pab", "ditango"):
+    for strategy in ("model", "layer", "attn", "seq", "teacache", "pab", "cubic", "ditango"):
         params = DiffusionUserParams(
             flexcache_params=FlexCacheParams(strategy=strategy)
         ).resolve_flexcache_params()
