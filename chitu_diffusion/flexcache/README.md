@@ -17,6 +17,9 @@ denoising steps according to a strategy-specific policy.
   partition: latent-space `64x60` blocks, mapped to token-space `32x30`
   blocks for Wan's `(1, 2, 2)` patch size. It then applies Cubic's
   update-frequency optimizer and selective token forward for Wan T2V.
+- `taylorseer`: TaylorSeer-Wan strategy. It caches per-block self-attention,
+  cross-attention, and FFN outputs, stores first-order Taylor factors on full
+  refresh steps, and predicts skipped steps with the Taylor expansion.
 - `layer`, `attn`, `seq`: under construction. These entrypoints are kept for
   routing and experiments, but their quality/latency behavior is not finalized.
 
@@ -34,6 +37,8 @@ and peak bytes recorded after store events.
   output.
 - Cubic: keeps per-branch per-layer self-attention K/V caches plus hidden-state
   residual caches for frozen token reuse.
+- TaylorSeer: caches per-branch per-layer module Taylor factors for
+  self-attention, cross-attention, and FFN outputs.
 - `layer` and `attn`: cache block or attention-module outputs directly. These
   granularities are still experimental.
 
@@ -62,7 +67,8 @@ strategy-specific side outputs.
 
 User-facing parameters are normalized into `FlexCacheParams`:
 
-- `strategy`: `teacache`, `pab`, `model`, `layer`, `attn`, `seq`, or `cubic`
+- `strategy`: `teacache`, `pab`, `model`, `layer`, `attn`, `seq`, `cubic`, or
+  `taylorseer`
 - `cache_ratio`: `[0, 1]`, used by FlexCache strategies such as `model`
 - `warmup`: first `warmup` denoising steps always compute
 - `cooldown`: last `cooldown` denoising steps always compute
@@ -123,6 +129,17 @@ FlexCacheParams(
 )
 ```
 
+TaylorSeer-WAN:
+
+```python
+FlexCacheParams(
+    strategy="taylorseer",
+    warmup=7,
+    cooldown=3,
+    strategy_params={"fresh_threshold": 5, "max_order": 1, "first_enhance": 1},
+)
+```
+
 ## Files
 
 - `flexcache_manager.py`: shared strategy interface, cache dictionary, and cache
@@ -131,6 +148,7 @@ FlexCacheParams(
 - `strategy/pab.py`: PAB strategy.
 - `strategy/model.py`: model-output residual FlexCache strategy.
 - `strategy/cubic.py`: Cubic-WAN strategy wrapper and selective forward adapter.
+- `strategy/taylorseer.py`: TaylorSeer-Wan block-cache adapter.
 - `strategy/layer.py`, `strategy/attn.py`, `strategy/seq.py`: experimental
   granularities.
 - `core/anchor_cache.py`: shared anchor/cache-ratio planner and PPM policy

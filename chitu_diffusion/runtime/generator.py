@@ -765,6 +765,18 @@ class Generator:
                 curvature_contrast_gamma=strategy_params.get("curvature_contrast_gamma", 1.0),
             )
 
+        if strategy == "taylorseer":
+            from chitu_diffusion.flexcache.strategy.taylorseer import TaylorSeerStrategy
+
+            return TaylorSeerStrategy(
+                task=task,
+                fresh_threshold=strategy_params.get("fresh_threshold", 5),
+                max_order=strategy_params.get("max_order", 1),
+                first_enhance=strategy_params.get("first_enhance", 1),
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+            )
+
         raise ValueError(f"Unknown flexcache strategy '{strategy}'.")
 
     def _build_ditango_planner(self, task: DiffusionTask, spec: FlexCacheParams):
@@ -966,6 +978,10 @@ class Generator:
             resolved_log["target_speedup"] = cache_strategy.config.target_speedup
             resolved_log["anchor_interval"] = cache_strategy.config.anchor_interval
             resolved_log["partition_mode"] = cache_strategy.config.partition_mode
+        elif spec.strategy == "taylorseer":
+            resolved_log["fresh_threshold"] = cache_strategy.fresh_threshold
+            resolved_log["max_order"] = cache_strategy.max_order
+            resolved_log["first_enhance"] = cache_strategy.first_enhance
         logger.info(
             f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
         )
