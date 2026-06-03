@@ -1,8 +1,8 @@
 launch:
-  tag: taylor
+  tag: flux1-flexcache
   num_nodes: 1
-  gpus_per_node: 2
-  python_script: test/test_flexcache.py
+  gpus_per_node: 1
+  python_script: test/test_flux1_flexcache.py
   srun:
     partition: debug
     cpus_per_gpu: 24
@@ -13,12 +13,12 @@ runtime:
   cuda_launch_blocking: false
 
 model:
-  name: Wan2.1-T2V-1.3B
-  ckpt_dir: /home/chenyy/WORK/models/Wan2.1-T2V-1.3B
+  name: FLUX.1-dev
+  ckpt_dir: /home/chenyy/WORK/models/Flux-1
 
 parallel:
   # cfg-parallel factor: only 1 or 2.
-  cfp: 2
+  cfp: 1
 
 infer:
   attn_type: flash_attn
@@ -27,8 +27,8 @@ infer:
   up_limit: 1
 
 eval:
-  eval_type: [psnr,lpips]
-  reference_path: /home/chenyy/WORK/cyy/ChituDiffusion/outputs/origin/origin-20260602_105824-0db83df4
+  eval_type: []
+  reference_path: null
 
 output:
   root_dir: outputs
