@@ -440,7 +440,7 @@ class DiffusionBackend:
         non_expert_data_parallel_size = 1 # TODO: support batch generation with data parallelism
 
         # FIXME: a better cfg worldsize decision
-        if args.models.name in ["FLUX.2-klein-4B"]:
+        if args.models.name in ["FLUX.1-dev", "FLUX.2-klein-4B"]:
             DiffusionBackend.do_cfg = False
         else:
             DiffusionBackend.do_cfg = all(x > 0 for x in args.models.sampler.guidance_scale)
@@ -515,15 +515,26 @@ class DiffusionBackend:
                     tokenizer_path=os.path.join(args.models.ckpt_dir, args.models.encoder.t5_tokenizer),
                 )
             logger.info(f"Initialized T5 encoder for {args.models.name}")
-        elif "FLUX" in args.models.name:
-            from chitu_diffusion.modules.encoders.qwen3 import Qwen3Embedder
-            logger.info(f"Initializing T5 encoder for {args.models.name}")
+        elif args.models.name in ["FLUX.1-dev"]:
+            from chitu_diffusion.modules.encoders.clip_t5 import CLIPT5TextEncoder
 
-            text_encoder = Qwen3Embedder(
-                    model_spec=args.models.encoder.ckpt_dir,
-                    device = init_device,
-                )
-            logger.info(f"Initialized T5 encoder for {args.models.name}")
+            logger.info(f"Initializing CLIP+T5 text encoders for {args.models.name}")
+            text_encoder = CLIPT5TextEncoder(
+                model_path=args.models.ckpt_dir,
+                device=init_device,
+                dtype=torch.bfloat16,
+            )
+            logger.info(f"Initialized CLIP+T5 text encoders for {args.models.name}")
+        elif args.models.name in ["FLUX.2-klein-4B"]:
+            from chitu_diffusion.modules.encoders.qwen3 import Qwen3CausalLMTextEncoder
+
+            logger.info(f"Initializing Qwen3 text encoder for {args.models.name}")
+            text_encoder = Qwen3CausalLMTextEncoder(
+                model_path=args.models.ckpt_dir,
+                device=init_device,
+                dtype=torch.bfloat16,
+            )
+            logger.info(f"Initialized Qwen3 text encoder for {args.models.name}")
         else:
             text_encoder = None
 
@@ -552,17 +563,28 @@ class DiffusionBackend:
                     device = init_device,
                 )
             logger.info(f"Initialized Wan VAE for {args.models.name}")
-        elif "FLUX" in args.models.name:
+        elif args.models.name in ["FLUX.1-dev"]:
             from diffusers import AutoencoderKL
-            logger.info(f"Initializing VAE for {args.models.name}")
 
-            from chitu_diffusion.modules.vaes.flux_vae import FLUX2VAE
-            vae = FLUX2VAE(
-                    vae_path=args.models.vae.checkpoint,
-                    device = init_device,
-                )
+            logger.info(f"Initializing Flux.1 VAE for {args.models.name}")
+            vae = AutoencoderKL.from_pretrained(
+                args.models.ckpt_dir,
+                subfolder=args.models.vae.checkpoint,
+                torch_dtype=torch.bfloat16,
+            ).to(init_device)
+            vae.eval().requires_grad_(False)
+            logger.info(f"Initialized Flux.1 VAE for {args.models.name}")
+        elif args.models.name in ["FLUX.2-klein-4B"]:
+            from diffusers.models import AutoencoderKLFlux2
 
-            logger.info(f"Initialized VAE for {args.models.name}")
+            logger.info(f"Initializing Flux2-klein VAE for {args.models.name}")
+            vae = AutoencoderKLFlux2.from_pretrained(
+                args.models.ckpt_dir,
+                subfolder=args.models.vae.checkpoint,
+                torch_dtype=torch.bfloat16,
+            ).to(init_device)
+            vae.eval().requires_grad_(False)
+            logger.info(f"Initialized Flux2-klein VAE for {args.models.name}")
         else:
             # 将来其他vae优先支持slicing和tiling
             vae = None
@@ -620,7 +642,7 @@ class DiffusionBackend:
             callable or None: RoPE implementation function, or None for default.
         """
         if args.infer.diffusion.cp_size > 1:
-            from chitu_diffusion.modules.wan.utils import rope_apply_with_cp
+            from chitu_diffusion.modules.utils.wan import rope_apply_with_cp
             return partial(rope_apply_with_cp, cp_size=get_cp_group().group_size, cp_rank=get_cp_group().rank_in_group)
         
         return None
@@ -669,8 +691,17 @@ class DiffusionBackend:
                 rope_impl
             )
             DiffusionBackend.model_pool = [high_noise_model, low_noise_model]
+        elif args.models.name in ["FLUX.1-dev"]:
+            ckpt_path = os.path.join(args.models.ckpt_dir, "transformer")
+            model = DiffusionBackend._build_and_setup_single_model(
+                args,
+                ckpt_path,
+                attn_backend,
+                rope_impl,
+            )
+            DiffusionBackend.model_pool.append(model)
         elif args.models.name in ["FLUX.2-klein-4B"]:
-            ckpt_path = os.path.join(args.models.ckpt_dir, "flux-2-klein-4b.safetensors")
+            ckpt_path = os.path.join(args.models.ckpt_dir, args.models.transformer_checkpoint)
             model = DiffusionBackend._build_and_setup_single_model(
                 args,
                 ckpt_path,

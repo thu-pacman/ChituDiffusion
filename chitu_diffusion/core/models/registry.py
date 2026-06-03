@@ -20,12 +20,13 @@ class ModelType(str, Enum):
     HF_QWEN3_NEXT = "hf-qwen3-next"
     # Diffusion models
     WAN_DIT="diffusion-wan"
+    FLUX1_DEV="flux1-dev"
     FLUX2_KLEIN="flux2-klein"
 
 
 def register_model(name: str | ModelType):
     def decorator(cls):
-        name_str = str(name)
+        name_str = name.value if isinstance(name, ModelType) else str(name)
         if name_str in _model_registry:
             print(f"Warning: Model with name '{name_str}' is being re-registered.")
         _model_registry[name_str] = cls
@@ -35,7 +36,7 @@ def register_model(name: str | ModelType):
 
 
 def get_model_class(name: str | ModelType):
-    name_str = str(name)
+    name_str = name.value if isinstance(name, ModelType) else str(name)
     model_class = _model_registry.get(name_str)
     if model_class is None:
         raise ValueError(

@@ -10,7 +10,7 @@ import torchvision
 
 import torch.cuda.amp as amp
 
-__all__ = ['cache_video', 'cache_image', 'str2bool']
+__all__ = ["cache_video", "cache_image", "str2bool", "rope_apply_with_cp"]
 
 
 

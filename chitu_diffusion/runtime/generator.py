@@ -46,7 +46,7 @@ from chitu_diffusion.modules.samplers.fm_solvers import (
     retrieve_timesteps,
 )
 from chitu_diffusion.modules.samplers.fm_solvers_unipc import FlowUniPCMultistepScheduler
-from chitu_diffusion.modules.wan.utils import cache_video
+from chitu_diffusion.modules.utils.wan import cache_video
 from chitu_diffusion.runtime.parallel_utils import SequencePadder
 from chitu_diffusion.observability import Timer, MagLogger
 from chitu_diffusion.runtime.output_naming import build_video_name_from_task
@@ -57,13 +57,18 @@ from chitu_diffusion.runtime.output_layout import (
     timing_metrics_dir,
     write_json,
 )
-from chitu_diffusion.modules.flux.utils import (
-    batched_prc_img,
-    batched_prc_txt,
-    get_schedule,
-    scatter_ids,
-    save_image_as_png,
+from chitu_diffusion.modules.utils.flux import (
+    calculate_flux1_shift,
+    compute_flux2_empirical_mu,
+    flowmatch_sigmas,
+    prepare_flux1_latents,
+    prepare_flux2_latents,
+    retrieve_timesteps as retrieve_flowmatch_timesteps,
+    unpack_flux1_latents,
+    unpack_flux2_latents_with_ids,
+    unpatchify_flux2_latents,
 )
+from chitu_diffusion.runtime.image_output import save_image_as_png
 
 
 logger = getLogger(__name__)
@@ -383,13 +388,39 @@ class Generator:
 
         logger.debug(f"[text_encode_step] task_id={task.task_id}, prompt_len={len(payload)}")
 
+        if DiffusionBackend.args.models.name in ["FLUX.1-dev"]:
+            with device_scope(DiffusionBackend.text_encoder):
+                prompt_embeds, pooled_prompt_embeds, text_ids = DiffusionBackend.text_encoder.encode(
+                    payload,
+                    max_sequence_length=getattr(DiffusionBackend.args.models.encoder, "max_sequence_length", 512),
+                    device=torch.device(torch.cuda.current_device()),
+                )
+            task.buffer.pooled_prompt_embeds = pooled_prompt_embeds
+            task.buffer.text_ids = text_ids
+            logger.info(
+                "[text_encode_step] FLUX1 prompt_embeds=%s pooled=%s text_ids=%s",
+                tuple(prompt_embeds.shape),
+                tuple(pooled_prompt_embeds.shape),
+                tuple(text_ids.shape),
+            )
+            return prompt_embeds
+
         if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
-            with device_scope(DiffusionBackend.text_encoder.model):
-                out = DiffusionBackend.text_encoder([payload])
-            ctx, ctx_ids = batched_prc_txt(out.to(torch.bfloat16))
-            task.buffer.ctx_ids = ctx_ids
-            logger.info(f"[text_encode_step] FLUX2 ctx shape: {ctx.shape}, ctx_ids shape: {ctx_ids.shape}")
-            return ctx
+            layers = tuple(getattr(DiffusionBackend.args.models.encoder, "hidden_states_layers", (9, 18, 27)))
+            with device_scope(DiffusionBackend.text_encoder):
+                prompt_embeds, text_ids = DiffusionBackend.text_encoder.encode(
+                    payload,
+                    max_sequence_length=getattr(DiffusionBackend.args.models.encoder, "max_sequence_length", 512),
+                    hidden_states_layers=layers,
+                    device=torch.device(torch.cuda.current_device()),
+                )
+            task.buffer.text_ids = text_ids
+            logger.info(
+                "[text_encode_step] FLUX2 prompt_embeds=%s text_ids=%s",
+                tuple(prompt_embeds.shape),
+                tuple(text_ids.shape),
+            )
+            return prompt_embeds
         
         with device_scope(DiffusionBackend.text_encoder.model):        
             out = DiffusionBackend.text_encoder(payload, torch.cuda.current_device())
@@ -407,26 +438,51 @@ class Generator:
         assert task.buffer.latents is not None and task.buffer.timesteps is not None
         setattr(task.buffer, "_dit_forward_call_index", 0)
 
-        if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
-            """Single Euler denoising step for FLUX2 (guidance-distilled, no CFG)."""
-            x = task.buffer.latents
-            t_curr = task.buffer.timesteps[task.buffer.current_step]
-            t_prev = task.buffer.timesteps[task.buffer.current_step + 1]
+        if DiffusionBackend.args.models.name in ["FLUX.1-dev"]:
+            latents = task.buffer.latents
+            timestep = task.buffer.timesteps[task.buffer.current_step]
+            guidance = task.buffer.guidance_vec
+            if guidance is not None:
+                guidance = guidance.to(device=latents.device, dtype=torch.float32)
+            timestep_vec = timestep.expand(latents.shape[0]).to(latents.dtype)
 
-            t_vec = torch.full((x.shape[0],), t_curr, dtype=x.dtype, device=x.device)
+            noise_pred = self._run_dit_forward(
+                task,
+                "pos",
+                hidden_states=latents,
+                timestep=timestep_vec / 1000,
+                guidance=guidance,
+                pooled_projections=task.buffer.pooled_prompt_embeds,
+                encoder_hidden_states=task.buffer.text_embeddings,
+                txt_ids=task.buffer.text_ids,
+                img_ids=task.buffer.latent_image_ids,
+                joint_attention_kwargs=None,
+                return_dict=False,
+            )[0]
+            sampled_latents = task.buffer.sampler.step(noise_pred, timestep, latents, return_dict=False)[0]
+            self._record_dit_forward_step_summary(task)
+            return sampled_latents
+
+        if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
+            x = task.buffer.latents.to(DiffusionBackend.active_model.dtype)
+            t_curr = task.buffer.timesteps[task.buffer.current_step]
+            t_vec = t_curr.expand(x.shape[0]).to(x.dtype)
 
             pred = self._run_dit_forward(
                 task,
                 "pos",
-                x=x,
-                x_ids=task.buffer.x_ids,
-                timesteps=t_vec,
-                ctx=task.buffer.text_embeddings,
-                ctx_ids=task.buffer.ctx_ids,
-                guidance=task.buffer.guidance_vec,
-            )
+                hidden_states=x,
+                timestep=t_vec / 1000,
+                guidance=None,
+                encoder_hidden_states=task.buffer.text_embeddings,
+                txt_ids=task.buffer.text_ids,
+                img_ids=task.buffer.latent_image_ids,
+                joint_attention_kwargs=None,
+                return_dict=False,
+            )[0]
 
-            sampled_latents = x + (t_prev - t_curr) * pred
+            pred = pred[:, : task.buffer.latents.size(1)]
+            sampled_latents = task.buffer.sampler.step(pred, t_curr, task.buffer.latents, return_dict=False)[0]
             self._record_dit_forward_step_summary(task)
             return sampled_latents
 
@@ -513,10 +569,30 @@ class Generator:
         if torch.distributed.get_rank() == target_decode_device:
             payload = [task.buffer.latents]
 
+            if DiffusionBackend.args.models.name in ["FLUX.1-dev"]:
+                width, height = task.buffer.image_size or task.req.params.size
+                latents = unpack_flux1_latents(
+                    task.buffer.latents,
+                    height=height,
+                    width=width,
+                    vae_scale_factor=16,
+                )
+                latents = (latents / DiffusionBackend.vae.config.scaling_factor) + DiffusionBackend.vae.config.shift_factor
+                with device_scope(DiffusionBackend.vae):
+                    image = DiffusionBackend.vae.decode(latents, return_dict=False)[0]
+                self._save_image(task, image)
+                return image
+
             if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
-                x = torch.cat(scatter_ids(task.buffer.latents, task.buffer.x_ids)).squeeze(2).float()
-                with device_scope(DiffusionBackend.vae.model):
-                    img = DiffusionBackend.vae.decode(x).float()
+                latents = unpack_flux2_latents_with_ids(task.buffer.latents, task.buffer.latent_image_ids)
+                latents_bn_mean = DiffusionBackend.vae.bn.running_mean.view(1, -1, 1, 1).to(latents.device, latents.dtype)
+                latents_bn_std = torch.sqrt(
+                    DiffusionBackend.vae.bn.running_var.view(1, -1, 1, 1) + DiffusionBackend.vae.config.batch_norm_eps
+                ).to(latents.device, latents.dtype)
+                latents = latents * latents_bn_std + latents_bn_mean
+                latents = unpatchify_flux2_latents(latents)
+                with device_scope(DiffusionBackend.vae):
+                    img = DiffusionBackend.vae.decode(latents, return_dict=False)[0]
                 self._save_image(task, img)
                 return img
               
@@ -532,7 +608,10 @@ class Generator:
             if video is None:
                 logger.warning(f"task_id={task.task_id} VAE decode returned None; skip saving video")
                 return
-            self._save_video(task, video)
+            if DiffusionBackend.args.models.name in ["FLUX.1-dev", "FLUX.2-klein-4B"]:
+                logger.debug("task_id=%s image task already saved during VAE decode", task.task_id)
+            else:
+                self._save_video(task, video)
             # save_time_stats
             run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
             timing_dir = timing_metrics_dir(run_output_dir) if run_output_dir else task.req.params.save_dir
@@ -623,20 +702,6 @@ class Generator:
                 strategy.unwrap_module(model)
             except Exception as e:
                 logger.warning(f"Failed to unwrap flexcache strategy cleanly: {e}")
-
-        # Defensive cleanup in case wrapper metadata remains unexpectedly.
-        if model is not None and hasattr(model, '_original_forward'):
-            model.model_compute = model._original_forward
-            delattr(model, '_original_forward')
-
-        if model is not None and hasattr(model, 'blocks'):
-            for block in model.blocks:
-                if hasattr(block.self_attn, '_original_forward'):
-                    block.self_attn.forward = block.self_attn._original_forward
-                    delattr(block.self_attn, '_original_forward')
-                if hasattr(block.cross_attn, '_original_forward'):
-                    block.cross_attn.forward = block.cross_attn._original_forward
-                    delattr(block.cross_attn, '_original_forward')
 
         manager.strategy = None
         manager.cache.clear()
@@ -793,6 +858,88 @@ class Generator:
             "ditango": "DiTango",
         }
         return names.get(strategy, strategy)
+
+    def _configure_flexcache_for_task(self, task: DiffusionTask):
+        spec = self._resolve_flexcache_spec(task)
+
+        if spec is None:
+            if DiffusionBackend.ditango is not None:
+                self._clear_ditango_planner()
+                logger.info("DiTango disabled for current task; cleared previous planner wrappers.")
+            if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
+                self._clear_flexcache_strategy()
+                logger.info("Flexcache disabled for current task; cleared previous strategy wrappers.")
+            return
+
+        if spec.strategy == "ditango":
+            if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
+                self._clear_flexcache_strategy()
+            if DiffusionBackend.ditango is not None:
+                self._clear_ditango_planner()
+
+            planner = self._build_ditango_planner(task, spec)
+            DiffusionBackend.ditango = planner
+            planner.wrap_module_with_strategy(DiffusionBackend.active_model)
+
+            resolved_log: Dict[str, Any] = {
+                "strategy": spec.strategy,
+                "cache_ratio": spec.cache_ratio,
+                "warmup": spec.warmup,
+                "cooldown": spec.cooldown,
+                "tau_max": planner.tau_max,
+                "curvature_interval_power": planner.curvature_interval_power,
+            }
+            logger.info(
+                f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
+            )
+            return
+
+        if DiffusionBackend.flexcache is None:
+            logger.warning(
+                f"Flexcache strategy '{spec.strategy}' is requested, "
+                "but infer.diffusion.enable_flexcache is False. Strategy will be ignored."
+            )
+            return
+
+        DiffusionBackend.flexcache.reset_compute_stats()
+
+        if DiffusionBackend.ditango is not None:
+            self._clear_ditango_planner()
+
+        if DiffusionBackend.flexcache.strategy is not None:
+            self._clear_flexcache_strategy()
+
+        cache_strategy = self._build_flexcache_strategy(task, spec)
+        DiffusionBackend.flexcache.set_strategy(cache_strategy)
+        DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
+
+        resolved_log: Dict[str, Any] = {
+            "strategy": spec.strategy,
+            "warmup": spec.warmup,
+            "cooldown": spec.cooldown,
+        }
+        if spec.strategy == "teacache":
+            resolved_log["teacache_thresh"] = cache_strategy.teacache_thresh
+        elif spec.strategy == "pab":
+            resolved_log["skip_self_range"] = cache_strategy.skip_self_range
+            resolved_log["skip_cross_range"] = cache_strategy.skip_cross_range
+        elif spec.strategy == "blockdance":
+            resolved_log["boundary_block"] = cache_strategy.boundary_block
+            resolved_log["group_size"] = cache_strategy.group_size
+            resolved_log["start_step"] = cache_strategy.start_step
+            resolved_log["end_step"] = cache_strategy.end_step
+        elif spec.strategy == "cubic":
+            resolved_log["cache_ratio"] = spec.cache_ratio
+            resolved_log["target_speedup"] = cache_strategy.config.target_speedup
+            resolved_log["anchor_interval"] = cache_strategy.config.anchor_interval
+            resolved_log["partition_mode"] = cache_strategy.config.partition_mode
+        elif spec.strategy == "taylorseer":
+            resolved_log["fresh_threshold"] = cache_strategy.fresh_threshold
+            resolved_log["max_order"] = cache_strategy.max_order
+            resolved_log["first_enhance"] = cache_strategy.first_enhance
+        logger.info(
+            f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
+        )
         
     def _pre_denoising(self, task: DiffusionTask):
         """
@@ -802,32 +949,114 @@ class Generator:
 
         device = torch.cuda.current_device()
 
-        if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
-            """Prepare FLUX2 latents (packed 2D), Euler schedule, and guidance vector."""
+        if DiffusionBackend.args.models.name in ["FLUX.1-dev"]:
+            from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
 
             width, height = task.req.params.size
-            shape = (1, 128, height // 16, width // 16)
-
             seed_g = torch.Generator(device=device)
             seed_g.manual_seed(task.req.params.seed)
-
-            randn = torch.randn(shape, generator=seed_g, dtype=torch.bfloat16, device=device)
-            x, x_ids = batched_prc_img(randn)
-
-            timesteps = get_schedule(task.req.params.num_inference_steps, x.shape[1])
-
+            latents, latent_image_ids = prepare_flux1_latents(
+                batch_size=1,
+                num_channels_latents=DiffusionBackend.args.models.transformer.in_channels // 4,
+                height=height,
+                width=width,
+                vae_scale_factor=16,
+                dtype=task.buffer.text_embeddings.dtype,
+                device=device,
+                generator=seed_g,
+            )
+            scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                DiffusionBackend.args.models.ckpt_dir,
+                subfolder="scheduler",
+            )
+            sigmas = flowmatch_sigmas(task.req.params.num_inference_steps)
+            mu = calculate_flux1_shift(
+                latents.shape[1],
+                scheduler.config.base_image_seq_len,
+                scheduler.config.max_image_seq_len,
+                scheduler.config.base_shift,
+                scheduler.config.max_shift,
+            )
+            timesteps, _ = retrieve_flowmatch_timesteps(
+                scheduler,
+                task.req.params.num_inference_steps,
+                device,
+                sigmas=sigmas,
+                mu=mu,
+            )
             guidance = DiffusionBackend.args.models.sampler.guidance_scale[0]
-            guidance_vec = torch.full((x.shape[0],), guidance, device=device, dtype=x.dtype)
+            guidance_vec = torch.full((latents.shape[0],), guidance, device=device, dtype=torch.float32)
 
             task.buffer.seed_g = seed_g
-            task.buffer.latents = x
-            task.buffer.x_ids = x_ids
+            task.buffer.sampler = scheduler
+            task.buffer.latents = latents
+            task.buffer.latent_image_ids = latent_image_ids
             task.buffer.timesteps = timesteps
             task.buffer.guidance_vec = guidance_vec
+            task.buffer.image_size = (width, height)
 
             DiffusionBackend.switch_active_model(flush=True)
-            logger.info(f"[Pre Denoise FLUX2] x={x.shape}, x_ids={x_ids.shape}, "
-                        f"timesteps={len(timesteps)} steps, guidance={guidance}")
+            logger.info(
+                "[Pre Denoise FLUX1] latents=%s img_ids=%s steps=%s guidance=%s",
+                tuple(latents.shape),
+                tuple(latent_image_ids.shape),
+                len(timesteps),
+                guidance,
+            )
+            self._configure_flexcache_for_task(task)
+            return
+
+        if DiffusionBackend.args.models.name in ["FLUX.2-klein-4B"]:
+            from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
+
+            width, height = task.req.params.size
+            seed_g = torch.Generator(device=device)
+            seed_g.manual_seed(task.req.params.seed)
+            latents, latent_ids = prepare_flux2_latents(
+                batch_size=1,
+                num_latents_channels=DiffusionBackend.args.models.transformer.in_channels // 4,
+                height=height,
+                width=width,
+                vae_scale_factor=int(getattr(DiffusionBackend.args.models.vae, "scale_factor", 8)),
+                dtype=task.buffer.text_embeddings.dtype,
+                device=device,
+                generator=seed_g,
+            )
+            scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                DiffusionBackend.args.models.ckpt_dir,
+                subfolder="scheduler",
+            )
+            sigmas = flowmatch_sigmas(task.req.params.num_inference_steps)
+            if hasattr(scheduler.config, "use_flow_sigmas") and scheduler.config.use_flow_sigmas:
+                sigmas = None
+            mu = compute_flux2_empirical_mu(
+                image_seq_len=latents.shape[1],
+                num_steps=task.req.params.num_inference_steps,
+            )
+            timesteps, _ = retrieve_flowmatch_timesteps(
+                scheduler,
+                task.req.params.num_inference_steps,
+                device,
+                sigmas=sigmas,
+                mu=mu,
+            )
+            scheduler.set_begin_index(0)
+
+            task.buffer.seed_g = seed_g
+            task.buffer.sampler = scheduler
+            task.buffer.latents = latents
+            task.buffer.latent_image_ids = latent_ids
+            task.buffer.timesteps = timesteps
+            task.buffer.image_size = (width, height)
+
+            DiffusionBackend.switch_active_model(flush=True)
+            logger.info(
+                "[Pre Denoise FLUX2] latents=%s latent_ids=%s steps=%s mu=%.4f",
+                tuple(latents.shape),
+                tuple(latent_ids.shape),
+                len(timesteps),
+                mu,
+            )
             return
 
         # Prepare latents on rank 0, only data in rank 0 would be used.
@@ -890,88 +1119,7 @@ class Generator:
         
         DiffusionBackend.switch_active_model(flush=True)
 
-        # Configure acceleration strategy for this task.
-        spec = self._resolve_flexcache_spec(task)
-
-        if spec is None:
-            if DiffusionBackend.ditango is not None:
-                self._clear_ditango_planner()
-                logger.info("DiTango disabled for current task; cleared previous planner wrappers.")
-            if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
-                self._clear_flexcache_strategy()
-                logger.info("Flexcache disabled for current task; cleared previous strategy wrappers.")
-            return
-
-        if spec.strategy == "ditango":
-            if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
-                self._clear_flexcache_strategy()
-            if DiffusionBackend.ditango is not None:
-                self._clear_ditango_planner()
-
-            planner = self._build_ditango_planner(task, spec)
-            DiffusionBackend.ditango = planner
-            planner.wrap_module_with_strategy(DiffusionBackend.active_model)
-
-            resolved_log: Dict[str, Any] = {
-                "strategy": spec.strategy,
-                "cache_ratio": spec.cache_ratio,
-                "warmup": spec.warmup,
-                "cooldown": spec.cooldown,
-                "tau_max": planner.tau_max,
-                "curvature_interval_power": planner.curvature_interval_power,
-            }
-            logger.info(
-                f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
-            )
-            return
-
-        if DiffusionBackend.flexcache is None:
-            logger.warning(
-                f"Flexcache strategy '{spec.strategy}' is requested, "
-                "but infer.diffusion.enable_flexcache is False. Strategy will be ignored."
-            )
-            return
-
-        DiffusionBackend.flexcache.reset_compute_stats()
-
-        if DiffusionBackend.ditango is not None:
-            self._clear_ditango_planner()
-
-        # Always clear any previous strategy before (re)applying current task strategy.
-        if DiffusionBackend.flexcache.strategy is not None:
-            self._clear_flexcache_strategy()
-
-        cache_strategy = self._build_flexcache_strategy(task, spec)
-        DiffusionBackend.flexcache.set_strategy(cache_strategy)
-        DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
-
-        resolved_log: Dict[str, Any] = {
-            "strategy": spec.strategy,
-            "warmup": spec.warmup,
-            "cooldown": spec.cooldown,
-        }
-        if spec.strategy == "teacache":
-            resolved_log["teacache_thresh"] = cache_strategy.teacache_thresh
-        elif spec.strategy == "pab":
-            resolved_log["skip_self_range"] = cache_strategy.skip_self_range
-            resolved_log["skip_cross_range"] = cache_strategy.skip_cross_range
-        elif spec.strategy == "blockdance":
-            resolved_log["boundary_block"] = cache_strategy.boundary_block
-            resolved_log["group_size"] = cache_strategy.group_size
-            resolved_log["start_step"] = cache_strategy.start_step
-            resolved_log["end_step"] = cache_strategy.end_step
-        elif spec.strategy == "cubic":
-            resolved_log["cache_ratio"] = spec.cache_ratio
-            resolved_log["target_speedup"] = cache_strategy.config.target_speedup
-            resolved_log["anchor_interval"] = cache_strategy.config.anchor_interval
-            resolved_log["partition_mode"] = cache_strategy.config.partition_mode
-        elif spec.strategy == "taylorseer":
-            resolved_log["fresh_threshold"] = cache_strategy.fresh_threshold
-            resolved_log["max_order"] = cache_strategy.max_order
-            resolved_log["first_enhance"] = cache_strategy.first_enhance
-        logger.info(
-            f"{self._flexcache_strategy_name(spec.strategy)}: Successfully wrapped models with resolved params {resolved_log}."
-        )
+        self._configure_flexcache_for_task(task)
 
     def _update_task_stage_and_buffer(self, task: DiffusionTask, tokens: torch.Tensor):
 

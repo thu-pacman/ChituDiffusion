@@ -13,7 +13,7 @@ from chitu_diffusion.modules.attention.wan_attention import flash_attention
 
 logger = getLogger(__name__)
 
-__all__ = ['WanModel']
+__all__ = ["WanModel"]
 
 T5_CONTEXT_TOKEN_NUMBER = 512
 FIRST_LAST_FRAME_CONTEXT_TOKEN_NUMBER = 257 * 2

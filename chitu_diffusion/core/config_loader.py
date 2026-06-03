@@ -115,15 +115,24 @@ def validate_config(config: DictConfig) -> None:
         raise ValueError(f"infer.num_blocks must be positive or -1, got {num_blocks}")
 
     attn_type = str(config.infer.attn_type)
-    allowed_attn = {"auto", "flash_attn", "flash_mla", "flash_infer", "triton", "npu", "ref", "sage", "sparge"}
+    allowed_attn = {
+        "auto",
+        "flash_attn",
+        "flash",
+        "flash2",
+        "flash_v2",
+        "fa2",
+        "sage",
+        "sparge",
+        "sparse",
+        "spas_sage",
+        "torch_sdpa",
+        "sdpa",
+        "torch",
+        "ref",
+    }
     if attn_type not in allowed_attn:
         raise ValueError(f"infer.attn_type must be one of {sorted(allowed_attn)}, got {attn_type}")
-
-    if attn_type == "npu":
-        try:
-            import torch_npu  # noqa: F401
-        except ImportError as exc:
-            raise ValueError("torch-npu is required for infer.attn_type=npu") from exc
 
     tokenizer_type = str(config.models.tokenizer_type)
     if tokenizer_type not in {"hf", "tiktoken"}:

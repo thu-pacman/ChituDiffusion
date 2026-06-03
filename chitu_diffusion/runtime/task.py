@@ -188,6 +188,10 @@ class DiffusionTaskBuffer:
     ctx_ids: Optional[torch.Tensor] = field(default=None)
     x_ids: Optional[torch.Tensor] = field(default=None)
     guidance_vec: Optional[torch.Tensor] = field(default=None)
+    pooled_prompt_embeds: Optional[torch.Tensor] = field(default=None)
+    text_ids: Optional[torch.Tensor] = field(default=None)
+    latent_image_ids: Optional[torch.Tensor] = field(default=None)
+    image_size: Optional[tuple[int, int]] = field(default=None)
 
 class DiffusionTask:
     

@@ -42,35 +42,72 @@ class DiffusionAttnBackend:
     2. Fallback to Flash Attention v3/v2 as default
     
     Supported types:
-    - flash: Flash Attention (v3/v2)
-    - sage: SAGE Attention
-    - sparse: Sparse SAGE Attention
+    - auto: prefer sparge, then sage, then flash_attn, then torch_sdpa
+    - flash_attn: Flash Attention v2
+    - sage: SageAttention
+    - sparge: Sparge/Sparse SageAttention
+    - torch_sdpa: PyTorch scaled_dot_product_attention
     """
 
     def __init__(self, attn_type: str = "auto") -> None:
         self.impl = None
-        
-        # Try user specified attention type first
-        if attn_type in ["sparge", "auto"] and SPAS_SAGE_ATTN_AVAILABLE:
-            self.impl = "sparge"
-            self.topk = 0.5  # Sparsity ratio
-        elif attn_type in ["sage", "auto"] and SAGE_ATTENTION_AVAILABLE:
-            self.impl = "sage"
-        
-        # Fallback to Flash Attention if user specified type is unavailable
-        # or flash attention is explicitly requested
-        if self.impl is None:
-            if FLASH_ATTN_3_AVAILABLE:
-                self.impl = "flash_v3"
-            elif FLASH_ATTN_2_AVAILABLE:
-                self.impl = "flash_v2"
-            else:
+        self.topk = 0.5
+        requested = self._normalize_attn_type(attn_type)
+
+        if requested == "auto":
+            for candidate in ("sparge", "sage", "flash_attn", "torch_sdpa"):
+                if self._is_available(candidate):
+                    self.impl = candidate
+                    break
+        else:
+            if not self._is_available(requested):
                 raise RuntimeError(
-                    "No attention implementation available. "
-                    "Please install Flash Attention, SAGE Attention, or Sparse SAGE Attention."
+                    f"Requested attention backend '{requested}' is not available. "
+                    f"Availability: {self.availability_report()}."
                 )
-        
-        logger.info(f"Using {self.impl} attention backend")
+            self.impl = requested
+
+        if self.impl is None:
+            raise RuntimeError(f"No attention backend available. Availability: {self.availability_report()}.")
+
+        logger.info("Using %s attention backend", self.impl)
+
+    @staticmethod
+    def _normalize_attn_type(attn_type: str) -> str:
+        name = str(attn_type or "auto").strip().lower()
+        aliases = {
+            "flash": "flash_attn",
+            "flash2": "flash_attn",
+            "flash_v2": "flash_attn",
+            "fa2": "flash_attn",
+            "sdpa": "torch_sdpa",
+            "torch": "torch_sdpa",
+            "ref": "torch_sdpa",
+            "sparse": "sparge",
+            "spas_sage": "sparge",
+        }
+        return aliases.get(name, name)
+
+    @staticmethod
+    def _is_available(backend: str) -> bool:
+        if backend == "flash_attn":
+            return FLASH_ATTN_2_AVAILABLE
+        if backend == "sage":
+            return SAGE_ATTENTION_AVAILABLE
+        if backend == "sparge":
+            return SPAS_SAGE_ATTN_AVAILABLE
+        if backend == "torch_sdpa":
+            return hasattr(torch.nn.functional, "scaled_dot_product_attention")
+        return False
+
+    @staticmethod
+    def availability_report() -> str:
+        return (
+            f"flash_attn={FLASH_ATTN_2_AVAILABLE}, "
+            f"sage={SAGE_ATTENTION_AVAILABLE}, "
+            f"sparge={SPAS_SAGE_ATTN_AVAILABLE}, "
+            f"torch_sdpa={hasattr(torch.nn.functional, 'scaled_dot_product_attention')}"
+        )
 
     # ------------- 统一入口 -------------
     def __call__(
@@ -98,7 +135,7 @@ class DiffusionAttnBackend:
         """
         use_varlen = cu_seqlens_q is not None
 
-        if self.impl == "spas_sage":
+        if self.impl == "sparge":
             return self._fwd_sparge(
                 q, k, v,
                 cu_seqlens_q, cu_seqlens_k,
@@ -119,17 +156,7 @@ class DiffusionAttnBackend:
                 use_varlen,
             )
 
-        elif self.impl == "v3":
-            return self._fwd_v3(
-                q, k, v,
-                cu_seqlens_q, cu_seqlens_k,
-                max_seqlen_q, max_seqlen_k,
-                dropout_p, softmax_scale,
-                causal, window_size,
-                deterministic,return_attn_probs,
-                use_varlen,
-            )
-        else:  # v2
+        elif self.impl == "flash_attn":
             return self._fwd_v2(
                 q, k, v,
                 cu_seqlens_q, cu_seqlens_k,
@@ -139,22 +166,17 @@ class DiffusionAttnBackend:
                 deterministic, return_attn_probs,
                 use_varlen,
             )
+        elif self.impl == "torch_sdpa":
+            return self._fwd_torch_sdpa(
+                q, k, v,
+                cu_seqlens_q, cu_seqlens_k,
+                max_seqlen_q, max_seqlen_k,
+                dropout_p, softmax_scale,
+                causal,
+                use_varlen,
+            )
+        raise RuntimeError(f"Unknown attention backend implementation '{self.impl}'.")
 
-    # ------------- v3 分支 -------------
-    def _fwd_v3(
-        self,
-        q, k, v,
-        cu_seqlens_q, cu_seqlens_k,
-        max_seqlen_q, max_seqlen_k,
-        dropout_p, softmax_scale,
-        causal, window_size, softcap,
-        alibi_slopes, deterministic,
-        return_attn_probs, block_table,
-        use_varlen: bool,
-    ):
-        # FIXME: support FA3
-        pass
-    
     def _fwd_sparge(
         self,
         q, k, v,
@@ -205,6 +227,32 @@ class DiffusionAttnBackend:
        
             
         return out, lse, None
+
+    def _fwd_torch_sdpa(
+        self,
+        q, k, v,
+        cu_seqlens_q, cu_seqlens_k,
+        max_seqlen_q, max_seqlen_k,
+        dropout_p,
+        softmax_scale,
+        causal,
+        use_varlen: bool,
+    ):
+        if use_varlen:
+            raise NotImplementedError("torch_sdpa backend does not support varlen attention in ChituDiffusion.")
+        q_in = q.transpose(1, 2)
+        k_in = k.transpose(1, 2)
+        v_in = v.transpose(1, 2)
+        out = torch.nn.functional.scaled_dot_product_attention(
+            q_in,
+            k_in,
+            v_in,
+            attn_mask=None,
+            dropout_p=dropout_p,
+            is_causal=causal,
+            scale=softmax_scale,
+        )
+        return out.transpose(1, 2).contiguous(), None, None
 
     # ------------- v2 分支 -------------
     def _fwd_v2(
