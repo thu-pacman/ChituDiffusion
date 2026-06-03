@@ -439,6 +439,14 @@ class TeaCacheStrategy(FlexCacheStrategy):
                 cached_residual = DiffusionBackend.flexcache.cache[reuse_key]
                 if _is_main_process():
                     logger.debug(f"[TeaCache] reuse key={reuse_key} residual_shape={cached_residual.shape}")
+                DiffusionBackend.flexcache.record_compute(
+                    baseline_units=1.0,
+                    actual_units=0.0,
+                    task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
+                    scope="model_compute",
+                    unit="model_forward",
+                    extra={"decision": "reuse"},
+                )
                 x_with_residual = self.reuse(
                     cached_feature=cached_residual,
                     x=x,
@@ -450,6 +458,14 @@ class TeaCacheStrategy(FlexCacheStrategy):
             
             # 调用原始forward的核心逻辑
             output = module._original_forward(x, **kwargs)
+            DiffusionBackend.flexcache.record_compute(
+                baseline_units=1.0,
+                actual_units=1.0,
+                task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
+                scope="model_compute",
+                unit="model_forward",
+                extra={"decision": "compute"},
+            )
             
             # 存储缓存
             store_key = self.get_store_key(x=ori_x, output=output, e0=e0, raw_e=raw_e)

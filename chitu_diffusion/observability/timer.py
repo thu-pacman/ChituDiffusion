@@ -107,17 +107,22 @@ class Timer:
     def statistics_dict() -> Dict[str, Dict[str, float]]:
         stats = {}
         for name, timer in Timer._timers.items():
-            times = timer['times']
-            if not times:
-                continue
-            stats[name] = {
-                "min_ms": min(times),
-                "max_ms": max(times),
-                "avg_ms": sum(times) / len(times),
-                "total_ms": sum(times),
-                "samples": len(times),
-            }
+            item = Timer._statistics_from_times(timer['times'])
+            if item is not None:
+                stats[name] = item
         return stats
+
+    @staticmethod
+    def _statistics_from_times(times: list[float]) -> Dict[str, float] | None:
+        if not times:
+            return None
+        return {
+            "min_ms": min(times),
+            "max_ms": max(times),
+            "avg_ms": sum(times) / len(times),
+            "total_ms": sum(times),
+            "samples": len(times),
+        }
 
     @staticmethod
     def records_dict() -> Dict[str, list[Dict[str, Any]]]:
@@ -131,6 +136,20 @@ class Timer:
             if filtered:
                 task_records[name] = filtered
         return task_records
+
+    @staticmethod
+    def task_statistics_dict(task_id: str) -> Dict[str, Dict[str, float]]:
+        stats = {}
+        for name, records in Timer.records_for_task(task_id).items():
+            times = [
+                float(record["elapsed_ms"])
+                for record in records
+                if isinstance(record.get("elapsed_ms"), (int, float))
+            ]
+            item = Timer._statistics_from_times(times)
+            if item is not None:
+                stats[name] = item
+        return stats
 
     @staticmethod
     def save_statistics_json(filepath="timing_stats.json"):
@@ -163,7 +182,7 @@ class Timer:
         payload = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "task_id": task_id,
-            "timers": Timer.statistics_dict(),
+            "timers": Timer.task_statistics_dict(task_id),
             "records": Timer.records_for_task(task_id),
         }
         with open(filepath, "w", encoding="utf-8") as f:

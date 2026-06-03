@@ -115,6 +115,8 @@ class FlexCacheManager():
         self.peak_cache_bytes = 0
         self.peak_cache_entries = 0
         self.peak_cache_tensors = 0
+        self.cache_memory_events: List[Dict[str, Any]] = []
+        self.cache_memory_seen_keys = set()
         self.compute_baseline_units = 0.0
         self.compute_actual_units = 0.0
         self.compute_event_count = 0
@@ -128,6 +130,8 @@ class FlexCacheManager():
         self.peak_cache_bytes = 0
         self.peak_cache_entries = 0
         self.peak_cache_tensors = 0
+        self.cache_memory_events.clear()
+        self.cache_memory_seen_keys.clear()
 
     def reset_compute_stats(self):
         self.compute_baseline_units = 0.0
@@ -234,6 +238,22 @@ class FlexCacheManager():
             base_payload={"rank": rank},
         )
 
+    def flush_cache_memory_events(self):
+        if not self.cache_memory_events:
+            return
+
+        rank = torch.distributed.get_rank() if torch.distributed.is_available() and torch.distributed.is_initialized() else int(os.getenv("RANK", "0"))
+        if not should_log_on_rank(rank):
+            return
+        run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if not run_output_dir:
+            return
+
+        path = os.path.join(memory_metrics_dir(run_output_dir), f"rank{rank}.json")
+        for payload in self.cache_memory_events:
+            append_json_list_item(path, "events", payload, base_payload={"rank": rank})
+        self.cache_memory_events.clear()
+
     def cache_tensor_stats(self) -> Dict[str, Any]:
         tensor_count = 0
         total_bytes = 0
@@ -315,7 +335,16 @@ class FlexCacheManager():
         return len(self.cache)
 
     def record_cache_memory(self, stage: str, task_id: Optional[str] = None, extra: Optional[Dict[str, Any]] = None):
-        _, cache_stats = self.update_peak_cache_memory()
+        cache_key = None if not extra else extra.get("cache_key")
+        if cache_key is not None:
+            cache_key = str(cache_key)
+            if cache_key in self.cache_memory_seen_keys:
+                return
+            self.cache_memory_seen_keys.add(cache_key)
+
+        peak_increased, cache_stats = self.update_peak_cache_memory()
+        if not peak_increased:
+            return
 
         rank = torch.distributed.get_rank() if torch.distributed.is_available() and torch.distributed.is_initialized() else int(os.getenv("RANK", "0"))
         if not torch.cuda.is_available():
@@ -349,10 +378,5 @@ class FlexCacheManager():
         if extra:
             payload.update(extra)
 
-        append_json_list_item(
-            os.path.join(memory_metrics_dir(run_output_dir), f"rank{rank}.json"),
-            "events",
-            payload,
-            base_payload={"rank": rank},
-        )
+        self.cache_memory_events.append(payload)
     

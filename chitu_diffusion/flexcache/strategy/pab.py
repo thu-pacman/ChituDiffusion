@@ -294,6 +294,14 @@ class PABStrategy(FlexCacheStrategy):
                     
                     if cache_key in DiffusionBackend.flexcache.cache:
                         cached_output = DiffusionBackend.flexcache.cache[cache_key]
+                        DiffusionBackend.flexcache.record_compute(
+                            baseline_units=1.0,
+                            actual_units=0.0,
+                            task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
+                            scope="self_attn",
+                            unit="attention_module",
+                            extra={"decision": "reuse", "block_idx": block_idx},
+                        )
                         # 所有rank都打印读取信息（只在block 0）
                         # if block_idx == 0:
                         #     print(f"[Rank {dist.get_rank()}] REUSE self-attn from key: {cache_key}, shape: {cached_output.shape}")
@@ -301,6 +309,14 @@ class PABStrategy(FlexCacheStrategy):
                 
                 # 完整计算 - 使用捕获的原始函数
                 output = original_fn(*args, **kwargs)
+                DiffusionBackend.flexcache.record_compute(
+                    baseline_units=1.0,
+                    actual_units=1.0,
+                    task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
+                    scope="self_attn",
+                    unit="attention_module",
+                    extra={"decision": "compute", "block_idx": block_idx},
+                )
                 
                 # 存储缓存
                 store_key = self.get_store_key()
@@ -340,6 +356,14 @@ class PABStrategy(FlexCacheStrategy):
                     
                     if cache_key in DiffusionBackend.flexcache.cache:
                         cached_output = DiffusionBackend.flexcache.cache[cache_key]
+                        DiffusionBackend.flexcache.record_compute(
+                            baseline_units=1.0,
+                            actual_units=0.0,
+                            task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
+                            scope="cross_attn",
+                            unit="attention_module",
+                            extra={"decision": "reuse", "block_idx": block_idx},
+                        )
                         # 所有rank都打印读取信息（只在block 0）
                         # if block_idx == 0:
                         #     print(f"[Rank {dist.get_rank()}] REUSE cross-attn from key: {cache_key}, shape: {cached_output.shape}")
@@ -347,6 +371,14 @@ class PABStrategy(FlexCacheStrategy):
                 
                 # 完整计算 - 使用捕获的原始函数
                 output = original_fn(*args, **kwargs)
+                DiffusionBackend.flexcache.record_compute(
+                    baseline_units=1.0,
+                    actual_units=1.0,
+                    task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
+                    scope="cross_attn",
+                    unit="attention_module",
+                    extra={"decision": "compute", "block_idx": block_idx},
+                )
                 
                 # 存储缓存
                 store_key = self.get_store_key()
@@ -388,6 +420,7 @@ class PABStrategy(FlexCacheStrategy):
                 delattr(block.cross_attn, '_original_forward')
 
         self._save_policy_ppm()
+        DiffusionBackend.flexcache.flush_cache_memory_events()
         
         logger.info(f"Module {module.__class__.__name__} unwrapped from PAB strategy")
     

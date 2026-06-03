@@ -24,6 +24,10 @@ def _memory_metrics_dir(run_output_dir: str) -> str:
     return os.path.join(_metrics_dir(run_output_dir), "memory")
 
 
+def _flexcache_metrics_dir(run_output_dir: str) -> str:
+    return os.path.join(_metrics_dir(run_output_dir), "flexcache")
+
+
 def _quality_metrics_dir(run_output_dir: str) -> str:
     return os.path.join(_metrics_dir(run_output_dir), "quality")
 
@@ -37,16 +41,18 @@ def _write_json(path: str, payload: Any) -> None:
 def _strategy_label(params: dict[str, Any]) -> str:
     spec = params.get("flexcache_params") or {}
     strategy = spec.get("strategy") or params.get("flexcache") or "none"
-    if strategy in {"teacache", "pab"}:
-        core = spec.get("strategy_params") or spec.get("baseline_params") or {}
-    else:
-        core = {
-            "cache_ratio": spec.get("cache_ratio"),
-            "warmup": spec.get("warmup"),
-            "cooldown": spec.get("cooldown"),
-            "tau_max": spec.get("tau_max"),
-            "power": spec.get("curvature_interval_power"),
-        }
+    fields_by_strategy = {
+        "teacache": ("warmup", "cooldown", "teacache_thresh", "use_ref_steps"),
+        "pab": ("warmup", "cooldown", "skip_self_range", "skip_cross_range"),
+        "blockdance": ("warmup", "cooldown", "boundary_block", "group_size", "start_fraction", "end_fraction"),
+        "cubic": ("cache_ratio", "warmup", "cooldown", "tau_max", "target_speedup", "anchor_interval", "partition_mode"),
+        "taylorseer": ("warmup", "cooldown", "fresh_threshold", "max_order", "first_enhance"),
+        "ditango": ("cache_ratio", "warmup", "cooldown", "tau_max", "curvature_interval_power"),
+    }
+    names = fields_by_strategy.get(strategy, tuple(key for key in spec.keys() if key != "strategy"))
+    core = {key: spec.get(key) for key in names}
+    if "curvature_interval_power" in core:
+        core["power"] = core.pop("curvature_interval_power")
     compact = ", ".join(f"{key}={value}" for key, value in core.items() if value is not None)
     return f"{strategy} ({compact})" if compact else str(strategy)
 
@@ -114,12 +120,33 @@ def _memory_by_task(run_output_dir: str) -> dict[str, dict[str, float | int | No
     return by_task
 
 
+def _compute_by_task(run_output_dir: str) -> dict[str, dict[str, Any]]:
+    path = os.path.join(_flexcache_metrics_dir(run_output_dir), "rank0.json")
+    if not os.path.exists(path):
+        return {}
+    payload = _read_json(path)
+    by_task: dict[str, dict[str, Any]] = {}
+    for event in payload.get("events", []):
+        if event.get("stage") != "task_summary":
+            continue
+        task_id = event.get("task_id")
+        if not task_id:
+            continue
+        by_task[task_id] = {
+            "baseline_units": event.get("baseline_units"),
+            "actual_units": event.get("actual_units"),
+            "saved_units": event.get("saved_units"),
+            "saving_ratio": event.get("saving_ratio"),
+            "event_count": event.get("event_count"),
+            "scope_summary": event.get("scope_summary") or {},
+        }
+    return by_task
+
+
 def _policy_paths(run_output_dir: str) -> dict[str, str]:
     log_dir = _logs_dir(run_output_dir)
     candidates = {
-        "model": "flexcache_model_policy.ppm",
-        "layer": "flexcache_layer_policy.ppm",
-        "attn": "flexcache_attn_policy.ppm",
+        "blockdance": "flexcache_blockdance_policy.ppm",
         "teacache": "teacache_policy_timestep_pos.ppm",
         "pab": "pab_policy_timestep_pos.ppm",
     }
@@ -146,6 +173,7 @@ def write_flexcache_comparison(run_output_dir: str) -> None:
     requests = _read_json(request_path).get("requests", [])
     quality = _quality_by_task(run_output_dir)
     memory = _memory_by_task(run_output_dir)
+    compute = _compute_by_task(run_output_dir)
     policies = _policy_paths(run_output_dir)
 
     rows = []
@@ -161,6 +189,7 @@ def write_flexcache_comparison(run_output_dir: str) -> None:
             baseline_dit_ms = float(dit_ms)
         speedup = None if not baseline_dit_ms or not dit_ms else baseline_dit_ms / float(dit_ms)
         mem = memory.get(task_id, {})
+        comp = compute.get(task_id, {})
         row = {
             "task_id": task_id,
             "strategy": strategy,
@@ -170,6 +199,10 @@ def write_flexcache_comparison(run_output_dir: str) -> None:
             "quality": quality.get(task_id, {}),
             "flexcache_cache_gb_max": mem.get("flexcache_cache_gb_max"),
             "flexcache_memory_reserved_pct": mem.get("flexcache_memory_reserved_pct"),
+            "compute_saving_ratio": comp.get("saving_ratio"),
+            "compute_saved_units": comp.get("saved_units"),
+            "compute_baseline_units": comp.get("baseline_units"),
+            "compute_unit_note": "runtime proxy units from metrics/flexcache",
             "policy_ppm": policies.get(strategy),
         }
         rows.append(row)
@@ -194,6 +227,8 @@ def _write_markdown(run_output_dir: str, rows: list[dict[str, Any]]) -> None:
         *metric_names,
         "cache_gb",
         "cache/reserved",
+        "compute_saved",
+        "saved_units",
         "policy",
     ]
     lines = [
@@ -215,11 +250,14 @@ def _write_markdown(run_output_dir: str, rows: list[dict[str, Any]]) -> None:
             *[_fmt(quality.get(name)) for name in metric_names],
             _fmt(row.get("flexcache_cache_gb_max")),
             "-" if row.get("flexcache_memory_reserved_pct") is None else f"{row['flexcache_memory_reserved_pct']:.2f}%",
+            "-" if row.get("compute_saving_ratio") is None else f"{row['compute_saving_ratio'] * 100.0:.2f}%",
+            _fmt(row.get("compute_saved_units"), digits=1),
             policy_cell,
         ]
         lines.append("| " + " | ".join(str(cell) for cell in cells) + " |")
     lines.append("")
     lines.append("Speedup is computed against the first request in `request_params.json`.")
+    lines.append("Compute_saved is a runtime FlexCache metric: strategies report baseline proxy units and actual computed units during inference.")
 
     path = os.path.join(_metrics_dir(run_output_dir), "flexcache_comparison.md")
     with open(path, "w", encoding="utf-8") as f:
