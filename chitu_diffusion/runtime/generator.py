@@ -27,7 +27,13 @@ from chitu_diffusion.core.logging_utils import (
     should_log_on_rank,
 )
 from chitu_diffusion.runtime.backend import BackendState, CFGType, DiffusionBackend
-from chitu_diffusion.runtime.task import DiffusionTask, DiffusionTaskType, DiffusionTaskPool, DiffusionTaskStatus, FlexCacheParams
+from chitu_diffusion.flexcache.params import CubicParams, DiTangoParams, FlexCacheParams
+from chitu_diffusion.runtime.task import (
+    DiffusionTask,
+    DiffusionTaskType,
+    DiffusionTaskPool,
+    DiffusionTaskStatus,
+)
 from chitu_diffusion.core.distributed.parallel_state import (
     get_cfg_group,
     get_cp_group,
@@ -537,6 +543,7 @@ class Generator:
             args = get_global_args()
             if DiffusionBackend.flexcache is not None and DiffusionBackend.flexcache.strategy is not None:
                 DiffusionBackend.flexcache.record_compute_summary(task_id=task.task_id)
+                DiffusionBackend.flexcache.flush_cache_memory_events()
             record_memory = bool(getattr(args.output, "memory", True)) if args is not None else True
             if record_memory and torch.cuda.is_available() and should_log_on_rank(rank):
                 append_json_list_item(
@@ -670,25 +677,19 @@ class Generator:
 
     def _build_flexcache_strategy(self, task: DiffusionTask, spec: FlexCacheParams):
         strategy = spec.strategy
-        cache_ratio = spec.cache_ratio
         warmup_steps = spec.warmup
         cooldown_steps = spec.cooldown
-        strategy_params = spec.strategy_params or spec.baseline_params or {}
 
         if strategy == "teacache":
             from chitu_diffusion.flexcache.strategy.teacache import TeaCacheStrategy
 
-            use_ref_steps = strategy_params.get(
-                "use_ref_steps",
-                strategy_params.get("use_ret_steps", True),
-            )
             return TeaCacheStrategy(
                 task=task,
-                teacache_thresh=strategy_params.get("teacache_thresh", 0.2),
-                coefficients=strategy_params.get("coefficients"),
-                warmup_steps=strategy_params.get("warmup_steps", warmup_steps),
-                cooldown_steps=strategy_params.get("cooldown_steps", cooldown_steps),
-                use_ref_steps=use_ref_steps,
+                teacache_thresh=getattr(spec, "teacache_thresh", 0.2),
+                coefficients=getattr(spec, "coefficients", None),
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+                use_ref_steps=getattr(spec, "use_ref_steps", True),
             )
 
         if strategy == "pab":
@@ -696,73 +697,62 @@ class Generator:
 
             return PABStrategy(
                 task=task,
-                warmup_steps=strategy_params.get("warmup_steps", warmup_steps),
-                cooldown_steps=strategy_params.get("cooldown_steps", cooldown_steps),
-                skip_self_range=strategy_params.get("skip_self_range", 2),
-                skip_cross_range=strategy_params.get("skip_cross_range", 3),
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+                skip_self_range=getattr(spec, "skip_self_range", 2),
+                skip_cross_range=getattr(spec, "skip_cross_range", 3),
             )
 
-        common_kwargs = dict(
-            task=task,
-            cache_ratio=cache_ratio,
-            warmup_steps=warmup_steps,
-            cooldown_steps=cooldown_steps,
-            tau_max=spec.tau_max,
-            curvature_interval_power=spec.curvature_interval_power,
-        )
+        if strategy == "blockdance":
+            from chitu_diffusion.flexcache.strategy.blockdance import BlockDanceStrategy
 
-        if strategy == "model":
-            from chitu_diffusion.flexcache.strategy.model import ModelStrategy
-
-            return ModelStrategy(**common_kwargs)
-
-        if strategy == "layer":
-            from chitu_diffusion.flexcache.strategy.layer import LayerStrategy
-
-            return LayerStrategy(**common_kwargs)
-
-        if strategy == "attn":
-            from chitu_diffusion.flexcache.strategy.attn import AttnStrategy
-
-            return AttnStrategy(**common_kwargs)
-
-        if strategy == "seq":
-            from chitu_diffusion.flexcache.strategy.seq import SeqStrategy
-
-            return SeqStrategy(**common_kwargs)
+            return BlockDanceStrategy(
+                task=task,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+                boundary_block=getattr(spec, "boundary_block", 20),
+                group_size=getattr(spec, "group_size", 2),
+                start_fraction=getattr(spec, "start_fraction", 0.40),
+                end_fraction=getattr(spec, "end_fraction", 0.95),
+            )
 
         if strategy == "cubic":
             from chitu_diffusion.flexcache.strategy.cubic import CubicStrategy
 
+            if not isinstance(spec, CubicParams):
+                raise TypeError("FlexCache cubic requires CubicParams.")
             if self.cp_size != 1:
                 raise ValueError("FlexCache Cubic currently supports cp_size=1 only.")
             total_steps = int(task.req.params.num_inference_steps)
-            patch_size = tuple(getattr(DiffusionBackend.active_model, "patch_size", (1, 2, 2)))
+            patch_size = tuple(spec.patch_size or getattr(DiffusionBackend.active_model, "patch_size", (1, 2, 2)))
             num_layers = int(
-                getattr(
+                spec.num_layers
+                if spec.num_layers is not None
+                else getattr(
                     DiffusionBackend.active_model,
                     "num_layers",
                     len(getattr(DiffusionBackend.active_model, "blocks", [])),
                 )
             )
             return CubicStrategy(
-                **common_kwargs,
-                patch_size=strategy_params.get("patch_size", patch_size),
-                num_layers=strategy_params.get("num_layers", num_layers),
-                target_speedup=strategy_params.get(
-                    "target_speedup",
-                    max(1.0, 1.0 / max(1.0 - cache_ratio, 1e-6)),
-                ),
-                warmup_fraction=strategy_params.get("warmup_fraction", warmup_steps / max(total_steps, 1)),
-                cooldown_fraction=strategy_params.get("cooldown_fraction", cooldown_steps / max(total_steps, 1)),
-                anchor_interval=strategy_params.get("anchor_interval", spec.tau_max),
-                partition_mode=strategy_params.get("partition_mode", "wan13_832x480_uniform"),
-                min_block_size=strategy_params.get("min_block_size", 2),
-                max_block_size=strategy_params.get("max_block_size", 16),
-                cv_threshold=strategy_params.get("cv_threshold", 0.5),
-                alpha=strategy_params.get("alpha", 1.0),
-                beta=strategy_params.get("beta", 2.0),
-                curvature_contrast_gamma=strategy_params.get("curvature_contrast_gamma", 1.0),
+                task=task,
+                cache_ratio=spec.cache_ratio,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+                tau_max=spec.tau_max,
+                patch_size=patch_size,
+                num_layers=num_layers,
+                target_speedup=spec.target_speedup or max(1.0, 1.0 / max(1.0 - spec.cache_ratio, 1e-6)),
+                warmup_fraction=spec.warmup_fraction if spec.warmup_fraction is not None else warmup_steps / max(total_steps, 1),
+                cooldown_fraction=spec.cooldown_fraction if spec.cooldown_fraction is not None else cooldown_steps / max(total_steps, 1),
+                anchor_interval=spec.anchor_interval or spec.tau_max,
+                partition_mode=spec.partition_mode,
+                min_block_size=spec.min_block_size,
+                max_block_size=spec.max_block_size,
+                cv_threshold=spec.cv_threshold,
+                alpha=spec.alpha,
+                beta=spec.beta,
+                curvature_contrast_gamma=spec.curvature_contrast_gamma,
             )
 
         if strategy == "taylorseer":
@@ -770,9 +760,9 @@ class Generator:
 
             return TaylorSeerStrategy(
                 task=task,
-                fresh_threshold=strategy_params.get("fresh_threshold", 5),
-                max_order=strategy_params.get("max_order", 1),
-                first_enhance=strategy_params.get("first_enhance", 1),
+                fresh_threshold=getattr(spec, "fresh_threshold", 5),
+                max_order=getattr(spec, "max_order", 1),
+                first_enhance=getattr(spec, "first_enhance", 1),
                 warmup_steps=warmup_steps,
                 cooldown_steps=cooldown_steps,
             )
@@ -780,12 +770,13 @@ class Generator:
         raise ValueError(f"Unknown flexcache strategy '{strategy}'.")
 
     def _build_ditango_planner(self, task: DiffusionTask, spec: FlexCacheParams):
-        cache_ratio = spec.cache_ratio
+        if not isinstance(spec, DiTangoParams):
+            raise TypeError("DiTango requires DiTangoParams.")
         from chitu_diffusion.ditango.planner import DiTangoPlanner
 
         return DiTangoPlanner(
             task=task,
-            cache_ratio=cache_ratio,
+            cache_ratio=spec.cache_ratio,
             warmup_steps=spec.warmup,
             cooldown_steps=spec.cooldown,
             tau_max=spec.tau_max,
@@ -795,10 +786,7 @@ class Generator:
     @staticmethod
     def _flexcache_strategy_name(strategy: str) -> str:
         names = {
-            "model": "FlexCacheModel",
-            "layer": "FlexCacheLayer",
-            "attn": "FlexCacheAttn",
-            "seq": "FlexCacheSeq",
+            "blockdance": "BlockDance",
             "cubic": "FlexCacheCubic",
             "teacache": "TeaCache",
             "pab": "PAB",
@@ -959,7 +947,6 @@ class Generator:
 
         resolved_log: Dict[str, Any] = {
             "strategy": spec.strategy,
-            "cache_ratio": spec.cache_ratio,
             "warmup": spec.warmup,
             "cooldown": spec.cooldown,
         }
@@ -968,13 +955,13 @@ class Generator:
         elif spec.strategy == "pab":
             resolved_log["skip_self_range"] = cache_strategy.skip_self_range
             resolved_log["skip_cross_range"] = cache_strategy.skip_cross_range
-        elif spec.strategy == "model":
-            resolved_log["tau_max"] = getattr(cache_strategy, "tau_max", None)
-            resolved_log["curvature_interval_power"] = getattr(cache_strategy, "curvature_interval_power", None)
-        elif spec.strategy in {"layer", "attn", "seq"}:
-            resolved_log["tau_max"] = cache_strategy.planner.tau_max
-            resolved_log["curvature_interval_power"] = cache_strategy.planner.curvature_interval_power
+        elif spec.strategy == "blockdance":
+            resolved_log["boundary_block"] = cache_strategy.boundary_block
+            resolved_log["group_size"] = cache_strategy.group_size
+            resolved_log["start_step"] = cache_strategy.start_step
+            resolved_log["end_step"] = cache_strategy.end_step
         elif spec.strategy == "cubic":
+            resolved_log["cache_ratio"] = spec.cache_ratio
             resolved_log["target_speedup"] = cache_strategy.config.target_speedup
             resolved_log["anchor_interval"] = cache_strategy.config.anchor_interval
             resolved_log["partition_mode"] = cache_strategy.config.partition_mode

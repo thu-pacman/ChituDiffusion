@@ -10,12 +10,13 @@ import pickle
 from dataclasses import dataclass, field, asdict, fields
 from enum import Enum
 from logging import getLogger
-from typing import Any, Optional, Union, Dict, List, Deque, Tuple
+from typing import Any, Optional, Union, Dict, List, Deque
 from pathlib import Path
 from collections import deque
 
 from chitu_diffusion.runtime.backend import DiffusionBackend
 from chitu_diffusion.core.distributed.parallel_state import get_cfg_group
+from chitu_diffusion.flexcache.params import FLEXCACHE_PARAM_CLASSES, FlexCacheParams
 
 logger = getLogger(__name__)
 
@@ -46,19 +47,6 @@ class DiffusionTaskStatus(Enum):
 
 
 @dataclass
-class FlexCacheParams:
-    """Unified acceleration parameters. Name kept for request compatibility."""
-    strategy: Optional[str] = None
-    cache_ratio: float = 0.5
-    warmup: int = 5
-    cooldown: int = 5
-    tau_max: int = 8
-    curvature_interval_power: float = 1.0 / 3.0
-    strategy_params: Dict[str, Any] = field(default_factory=dict)
-    baseline_params: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
 class DiffusionUserParams:
     """Diffusion生成参数"""
     role: str = "user"
@@ -79,7 +67,11 @@ class DiffusionUserParams:
 
     def __post_init__(self):
         if isinstance(self.flexcache_params, dict):
-            self.flexcache_params = FlexCacheParams(**self.flexcache_params)
+            strategy = (self.flexcache_params.get("strategy") or "").strip().lower()
+            cls = FLEXCACHE_PARAM_CLASSES.get(strategy)
+            if cls is None:
+                raise ValueError(f"Unsupported acceleration strategy '{self.flexcache_params.get('strategy')}'.")
+            self.flexcache_params = cls(**self.flexcache_params)
 
     def resolve_flexcache_params(self) -> Optional[FlexCacheParams]:
         """
@@ -89,24 +81,26 @@ class DiffusionUserParams:
         params = self.flexcache_params
 
         if params is None:
-            strategy = (self.flexcache or "").strip()
+            strategy = (self.flexcache or "").strip().lower()
             if not strategy:
                 return None
-            params = FlexCacheParams(strategy=strategy)
+            params_cls = FLEXCACHE_PARAM_CLASSES.get(strategy)
+            if params_cls is None:
+                raise ValueError(
+                    f"Unsupported acceleration strategy '{strategy}'. "
+                    "Supported strategies are: blockdance, teacache, pab, cubic, taylorseer, ditango."
+                )
+            params = params_cls()
 
         strategy = (params.strategy or "").strip().lower()
         if strategy in {"", "none", "off", "disable", "disabled"}:
             return None
 
-        if strategy not in {"model", "layer", "attn", "seq", "teacache", "pab", "cubic", "taylorseer", "ditango"}:
+        if strategy not in {"blockdance", "teacache", "pab", "cubic", "taylorseer", "ditango"}:
             raise ValueError(
                 f"Unsupported acceleration strategy '{params.strategy}'. "
-                "Supported strategies are: model, layer, attn, seq, teacache, pab, cubic, taylorseer, ditango."
+                "Supported strategies are: blockdance, teacache, pab, cubic, taylorseer, ditango."
             )
-
-        cache_ratio = float(params.cache_ratio)
-        if cache_ratio < 0.0 or cache_ratio > 1.0:
-            raise ValueError(f"acceleration cache_ratio must be in [0, 1], got {cache_ratio}.")
 
         warmup = int(params.warmup)
         cooldown = int(params.cooldown)
@@ -115,16 +109,22 @@ class DiffusionUserParams:
         if cooldown < 0:
             raise ValueError(f"acceleration cooldown must be >= 0, got {cooldown}.")
 
-        return FlexCacheParams(
-            strategy=strategy,
-            cache_ratio=cache_ratio,
-            warmup=warmup,
-            cooldown=cooldown,
-            tau_max=int(params.tau_max),
-            curvature_interval_power=float(params.curvature_interval_power),
-            strategy_params=dict(params.strategy_params or params.baseline_params or {}),
-            baseline_params=dict(params.baseline_params or {}),
-        )
+        resolved = params
+        resolved.strategy = strategy
+        resolved.warmup = warmup
+        resolved.cooldown = cooldown
+
+        cache_ratio = getattr(resolved, "cache_ratio", None)
+        if cache_ratio is not None:
+            cache_ratio = float(cache_ratio)
+            if cache_ratio < 0.0 or cache_ratio > 1.0:
+                raise ValueError(f"acceleration cache_ratio must be in [0, 1], got {cache_ratio}.")
+            resolved.cache_ratio = cache_ratio
+        if hasattr(resolved, "tau_max"):
+            resolved.tau_max = int(resolved.tau_max)
+        if hasattr(resolved, "curvature_interval_power"):
+            resolved.curvature_interval_power = float(resolved.curvature_interval_power)
+        return resolved
     
 
 class DiffusionUserRequest:

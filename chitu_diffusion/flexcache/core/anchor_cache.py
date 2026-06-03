@@ -61,21 +61,13 @@ class AnchorCachePlanner:
         self.warmup_steps = max(0, int(warmup_steps))
         self.cooldown_steps = max(0, int(cooldown_steps))
         self.total_steps = max(1, int(total_steps))
-        cruise_steps = max(1, self.total_steps - self.warmup_steps - self.cooldown_steps)
         self.mode = str(mode)
         self.tau_max = max(1, int(tau_max))
-        if self.mode == "model_ratio":
-            self.tau_max = max(1, cruise_steps // 4)
         self.curvature_interval_power = max(0.0, float(curvature_interval_power))
         self.curvature = CurvatureState()
         self.intervals: Dict[Hashable, int] = {}
         self.last_compute_step: Dict[Hashable, int] = {}
         self.next_anchor_step: Dict[str, int] = {}
-        self.initial_reuse_steps: Dict[str, int] = {}
-        self.last_anchor_curvature: Dict[Hashable, float] = {}
-        self.last_model_curvature: Dict[Hashable, float] = {}
-        self.next_compute_step: Dict[Hashable, int] = {}
-        self.seen_cruise_anchor: Dict[str, bool] = {}
         self.decision_records: Dict[tuple[int, str], int] = {}
         self.max_step = -1
 
@@ -84,11 +76,6 @@ class AnchorCachePlanner:
         self.intervals.clear()
         self.last_compute_step.clear()
         self.next_anchor_step.clear()
-        self.initial_reuse_steps.clear()
-        self.last_anchor_curvature.clear()
-        self.last_model_curvature.clear()
-        self.next_compute_step.clear()
-        self.seen_cruise_anchor.clear()
         self.decision_records.clear()
         self.max_step = -1
 
@@ -116,9 +103,6 @@ class AnchorCachePlanner:
         return False
 
     def decide(self, key: Hashable) -> AnchorCacheDecision:
-        if self.mode == "model_curvature":
-            return self._decide_model_curvature(key)
-
         step = self.current_step()
         if self.in_warmup_or_cooldown(step):
             decision = AnchorCacheDecision(True, True, key, 1, "warmup_cooldown")
@@ -143,53 +127,12 @@ class AnchorCachePlanner:
         self.record_decision(key, decision)
         return decision
 
-    def _decide_model_curvature(self, key: Hashable) -> AnchorCacheDecision:
-        step = self.current_step()
-        if self.in_warmup_or_cooldown(step):
-            decision = AnchorCacheDecision(True, False, key, 1, "warmup_cooldown")
-            self.record_decision(key, decision)
-            return decision
-
-        next_step = self.next_compute_step.get(key)
-        if next_step is None:
-            decision = AnchorCacheDecision(True, True, key, 1, "cache_miss")
-            self.record_decision(key, decision)
-            return decision
-
-        interval = max(1, int(next_step) - int(self.last_compute_step.get(key, step)))
-        if step >= int(next_step):
-            decision = AnchorCacheDecision(True, True, key, interval, "curvature_due")
-            self.record_decision(key, decision)
-            return decision
-
-        decision = AnchorCacheDecision(False, False, key, interval, "reuse")
-        self.record_decision(key, decision)
-        return decision
-
     def mark_computed(self, key: Hashable, value: torch.Tensor, is_anchor: bool = False):
         step = self.current_step()
         self.last_compute_step[key] = step
         curvature = self.curvature.update(key, value)
-        if self.mode == "model_curvature":
-            interval = self._refresh_model_curvature_interval(key, curvature)
-            self._set_next_compute_step(key, step, interval)
-            if curvature is not None:
-                logger.info(
-                    "[FlexCache model] branch=%s step=%d key=%s curvature=%.6e interval=%d next_compute=%s",
-                    self.branch_key(),
-                    step,
-                    self._label_for_key(key),
-                    curvature,
-                    int(interval),
-                    self.next_compute_step.get(key),
-                )
-            return
-
         if curvature is not None:
-            if self.mode == "model_ratio":
-                self._refresh_model_interval(key, curvature, is_anchor=is_anchor)
-            else:
-                self._refresh_intervals(self.curvature.curvature.keys())
+            self._refresh_intervals(self.curvature.curvature.keys())
         if is_anchor and not self.in_warmup_or_cooldown(step):
             self._schedule_next_anchor(step)
         if is_anchor and curvature is not None:
@@ -203,61 +146,6 @@ class AnchorCachePlanner:
                 int(self.intervals.get(key, 1)),
                 self.next_anchor_step.get(self.branch_key()),
             )
-
-    def _refresh_model_interval(self, key: Hashable, curvature: float, is_anchor: bool):
-        branch_key = self.branch_key()
-        s0 = self.initial_reuse_steps.setdefault(
-            branch_key,
-            int(round(self.tau_max * self.cache_ratio)),
-        )
-        s0 = max(0, min(self.tau_max, s0))
-
-        first_cruise_anchor = is_anchor and not self.in_warmup_or_cooldown() and not self.seen_cruise_anchor.get(branch_key, False)
-        if first_cruise_anchor or key not in self.last_anchor_curvature:
-            reuse_steps = s0
-        elif is_anchor:
-            old_curvature = max(float(self.last_anchor_curvature[key]), 1e-8)
-            ratio = max(float(curvature), 1e-8) / old_curvature
-            reuse_steps = int(round(ratio * s0))
-        else:
-            reuse_steps = max(0, int(self.intervals.get(key, 1)) - 1)
-
-        reuse_steps = max(0, min(self.tau_max, reuse_steps))
-        self.intervals[key] = reuse_steps + 1
-        if is_anchor and not self.in_warmup_or_cooldown():
-            self.last_anchor_curvature[key] = float(curvature)
-            self.seen_cruise_anchor[branch_key] = True
-
-    def _model_base_reuse_steps(self) -> int:
-        return max(0, min(self.tau_max, int(round(self.tau_max * self.cache_ratio))))
-
-    def _refresh_model_curvature_interval(self, key: Hashable, curvature: Optional[float]) -> int:
-        base_reuse_steps = self._model_base_reuse_steps()
-        if base_reuse_steps <= 0:
-            reuse_steps = 0
-        elif curvature is None or key not in self.last_model_curvature:
-            reuse_steps = base_reuse_steps
-        else:
-            old_curvature = max(float(self.last_model_curvature[key]), 1e-8)
-            ratio = max(float(curvature), 1e-8) / old_curvature
-            # Higher curvature shortens reuse; lower curvature lengthens it.
-            reuse_steps = int(round(base_reuse_steps / (ratio ** 0.5)))
-
-        reuse_steps = max(0, min(self.tau_max, reuse_steps))
-        if curvature is not None:
-            self.last_model_curvature[key] = float(curvature)
-
-        interval = reuse_steps + 1
-        self.intervals[key] = interval
-        return interval
-
-    def _set_next_compute_step(self, key: Hashable, step: int, interval: int):
-        cooldown_start = max(0, self.total_steps - self.cooldown_steps)
-        next_step = int(step) + max(1, int(interval))
-        if next_step >= cooldown_start:
-            self.next_compute_step[key] = self.total_steps + 1
-        else:
-            self.next_compute_step[key] = next_step
 
     def _refresh_intervals(self, keys: Iterable[Hashable]):
         keys = list(keys)
@@ -283,16 +171,6 @@ class AnchorCachePlanner:
 
     def _schedule_next_anchor(self, step: int):
         branch_key = self.branch_key()
-        if self.mode == "model_ratio":
-            branch_intervals = [
-                interval
-                for key, interval in self.intervals.items()
-                if not isinstance(key, tuple) or str(key[0]) == branch_key
-            ]
-            anchor_gap = max(1, max(branch_intervals, default=1))
-            self._set_next_anchor_step(branch_key, step, anchor_gap)
-            return
-
         branch_intervals = [
             interval
             for key, interval in self.intervals.items()

@@ -1,39 +1,58 @@
 import torch
+import torch.nn as nn
 
 from chitu_diffusion.flexcache.core.anchor_cache import AnchorCachePlanner
-from chitu_diffusion.flexcache.strategy.model import ModelStrategy
+from chitu_diffusion.flexcache.flexcache_manager import FlexCacheManager
+from chitu_diffusion.flexcache.params import (
+    BlockDanceParams,
+    CubicParams,
+    DiTangoParams,
+    PABParams,
+    TaylorSeerParams,
+    TeaCacheParams,
+)
+from chitu_diffusion.flexcache.strategy.blockdance import BlockDanceStrategy
 from chitu_diffusion.flexcache.strategy.teacache import TeaCacheStrategy
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
-from chitu_diffusion.runtime.task import DiffusionUserParams, FlexCacheParams
+from chitu_diffusion.runtime.task import DiffusionUserParams
 
 
 def test_flexcache_strategies_are_accepted():
-    for strategy in ("model", "layer", "attn", "seq", "teacache", "pab", "cubic", "taylorseer", "ditango"):
+    for cls in (BlockDanceParams, TeaCacheParams, PABParams, CubicParams, TaylorSeerParams, DiTangoParams):
         params = DiffusionUserParams(
-            flexcache_params=FlexCacheParams(strategy=strategy)
+            flexcache_params=cls()
         ).resolve_flexcache_params()
-        assert params.strategy == strategy
+        assert params.strategy == cls().strategy
+        assert isinstance(params, cls)
 
 
-def test_strategy_params_are_preserved():
+def test_flexcache_param_dict_uses_concrete_fields():
     params = DiffusionUserParams(
-        flexcache_params=FlexCacheParams(
-            strategy="pab",
-            cache_ratio=0.99,
-            strategy_params={"skip_self_range": 4, "skip_cross_range": 6},
-        )
+        flexcache_params={
+            "strategy": "pab",
+            "skip_self_range": 4,
+            "skip_cross_range": 6,
+        }
     ).resolve_flexcache_params()
-    assert params.strategy_params == {"skip_self_range": 4, "skip_cross_range": 6}
+    assert isinstance(params, PABParams)
+    assert params.skip_self_range == 4
+    assert params.skip_cross_range == 6
 
 
-def test_legacy_baseline_params_are_accepted_as_strategy_params():
-    params = DiffusionUserParams(
-        flexcache_params=FlexCacheParams(
-            strategy="pab",
-            baseline_params={"skip_self_range": 4, "skip_cross_range": 6},
-        )
+def test_concrete_params_are_strategy_specific():
+    blockdance = DiffusionUserParams(
+        flexcache_params=BlockDanceParams(warmup=7, cooldown=3)
     ).resolve_flexcache_params()
-    assert params.strategy_params == {"skip_self_range": 4, "skip_cross_range": 6}
+    assert isinstance(blockdance, BlockDanceParams)
+    assert not hasattr(blockdance, "tau_max")
+    assert not hasattr(blockdance, "curvature_interval_power")
+
+    cubic = DiffusionUserParams(
+        flexcache_params=CubicParams(cache_ratio=0.5, tau_max=6)
+    ).resolve_flexcache_params()
+    assert isinstance(cubic, CubicParams)
+    assert cubic.cache_ratio == 0.5
+    assert cubic.tau_max == 6
 
 
 def test_interval_plan_preserves_curvature_order():
@@ -56,48 +75,19 @@ def test_interval_plan_preserves_curvature_order():
     assert max(planner.intervals.values()) <= 8
 
 
-def test_model_ratio_interval_uses_cache_ratio_directly(monkeypatch):
+def test_blockdance_reuse_skips_shallow_blocks(monkeypatch):
     class Buffer:
-        current_step = 2
+        current_step = 4
 
     class CurrentTask:
+        task_id = "blockdance"
         buffer = Buffer()
 
     class Generator:
         current_task = CurrentTask()
-
-    monkeypatch.setattr(DiffusionBackend, "generator", Generator())
-    monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.POS)
-
-    planner = AnchorCachePlanner(
-        cache_ratio=0.5,
-        warmup_steps=2,
-        cooldown_steps=2,
-        total_steps=18,
-        tau_max=99,
-        mode="model_ratio",
-    )
-    assert planner.tau_max == 3
-    planner.curvature.curvature = {"model": 1.0}
-    planner._refresh_model_interval("model", curvature=1.0, is_anchor=True)
-    assert planner.intervals["model"] == 3
-
-
-def test_model_strategy_reuses_until_next_compute_step(monkeypatch):
-    class Buffer:
-        current_step = 2
-
-    class CurrentTask:
-        buffer = Buffer()
-
-    class Generator:
-        current_task = CurrentTask()
-
-    monkeypatch.setattr(DiffusionBackend, "generator", Generator())
-    monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.POS)
 
     class ReqParams:
-        num_inference_steps = 18
+        num_inference_steps = 10
 
     class Req:
         params = ReqParams()
@@ -105,80 +95,53 @@ def test_model_strategy_reuses_until_next_compute_step(monkeypatch):
     class Task:
         req = Req()
 
+    class FakeBlock(nn.Module):
+        def __init__(self, value):
+            super().__init__()
+            self.value = value
+            self.calls = 0
+
+        def forward(self, x, **kwargs):
+            self.calls += 1
+            return x + self.value
+
+    class FakeModule(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.blocks = nn.ModuleList([FakeBlock(1), FakeBlock(10), FakeBlock(100), FakeBlock(1000)])
+
+        def model_compute(self, tokens, **kwargs):
+            x = tokens
+            for block in self.blocks:
+                x = block(x, **kwargs)
+            return x
+
     monkeypatch.setattr(DiffusionBackend, "generator", Generator())
     monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.POS)
+    monkeypatch.setattr(DiffusionBackend, "flexcache", FlexCacheManager(max_cache_memory=20))
 
-    strategy = ModelStrategy(
+    module = FakeModule()
+    strategy = BlockDanceStrategy(
         task=Task(),
-        cache_ratio=0.5,
-        warmup_steps=2,
-        cooldown_steps=2,
-        tau_max=8,
-        curvature_interval_power=1.0,
+        warmup_steps=0,
+        cooldown_steps=0,
+        boundary_block=1,
+        group_size=2,
+        start_fraction=0.4,
+        end_fraction=0.95,
     )
-    x0 = torch.ones(1, 2)
-    x1 = x0 * 1.01
-    x2 = x0 * 1.40
+    DiffusionBackend.flexcache.set_strategy(strategy)
+    strategy.wrap_module_with_strategy(module)
 
-    assert strategy.get_reuse_key(x=x0) is None
-    assert strategy.get_store_key(x=x0) == "pos"
-    strategy.planner.mark_computed("pos", x0)
+    tokens = torch.zeros(1, 1)
+    cache_output = module.model_compute(tokens, raw_e=torch.ones(1, 1, 1))
+    assert cache_output.item() == 1111
+    assert [block.calls for block in module.blocks] == [1, 1, 1, 1]
 
-    Buffer.current_step = 3
-    assert strategy.get_reuse_key(x=x1) == "pos"
-
-    next_step = strategy.planner.next_compute_step["pos"]
-    Buffer.current_step = next_step
-    assert strategy.get_reuse_key(x=x2) is None
-
-
-def test_model_strategy_keeps_cfg_branches_independent(monkeypatch):
-    class Buffer:
-        current_step = 2
-
-    class CurrentTask:
-        buffer = Buffer()
-
-    class Generator:
-        current_task = CurrentTask()
-
-    monkeypatch.setattr(DiffusionBackend, "generator", Generator())
-    monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.POS)
-
-    class ReqParams:
-        num_inference_steps = 18
-
-    class Req:
-        params = ReqParams()
-
-    class Task:
-        req = Req()
-
-    monkeypatch.setattr(DiffusionBackend, "generator", Generator())
-    monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.POS)
-
-    strategy = ModelStrategy(
-        task=Task(),
-        cache_ratio=0.5,
-        warmup_steps=2,
-        cooldown_steps=2,
-        tau_max=8,
-        curvature_interval_power=1.0,
-    )
-
-    x0 = torch.ones(1, 2)
-    assert strategy.get_reuse_key(x=x0) is None
-    assert strategy.get_store_key(x=x0) == "pos"
-    strategy.planner.mark_computed("pos", x0)
-
-    monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.NEG)
-    assert strategy.get_reuse_key(x=x0 * 3) is None
-    assert strategy.get_store_key(x=x0 * 3) == "neg"
-    strategy.planner.mark_computed("neg", x0 * 3)
-
-    monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.POS)
-    Buffer.current_step = 3
-    assert strategy.get_reuse_key(x=x0 * 1.01) == "pos"
+    Buffer.current_step = 5
+    reuse_output = module.model_compute(torch.full((1, 1), 999.0), raw_e=torch.ones(1, 1, 1))
+    assert reuse_output.item() == 1111
+    assert [block.calls for block in module.blocks] == [1, 1, 2, 2]
 
 
 def test_teacache_cfg_branches_keep_independent_state(monkeypatch):

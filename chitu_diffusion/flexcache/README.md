@@ -11,8 +11,6 @@ denoising steps according to a strategy-specific policy.
   threshold.
 - `pab`: complete strategy. It stores attention outputs and reuses them at fixed
   self-attention and cross-attention broadcast intervals.
-- `model`: initially usable FlexCache strategy. It stores model-output residuals
-  and uses residual curvature to schedule the next compute anchor.
 - `cubic`: Cubic-WAN strategy. It defaults to a Wan1.3 832x480 uniform
   partition: latent-space `64x60` blocks, mapped to token-space `32x30`
   blocks for Wan's `(1, 2, 2)` patch size. It then applies Cubic's
@@ -20,8 +18,10 @@ denoising steps according to a strategy-specific policy.
 - `taylorseer`: TaylorSeer-Wan strategy. It caches per-block self-attention,
   cross-attention, and FFN outputs, stores first-order Taylor factors on full
   refresh steps, and predicts skipped steps with the Taylor expansion.
-- `layer`, `attn`, `seq`: under construction. These entrypoints are kept for
-  routing and experiments, but their quality/latency behavior is not finalized.
+- `blockdance`: BlockDance-style train-free layerwise cache. It keeps early steps
+  full, then groups the active window by `group_size`; each group caches the
+  output after `boundary_block`, and reuse steps skip shallow/mid blocks while
+  recomputing deeper blocks.
 
 DiTango is independent and lives outside this module.
 
@@ -31,7 +31,7 @@ All strategies use the shared `FlexCacheManager.cache` dictionary. Cache memory
 is measured directly from cached tensors by `numel * element_size`, with current
 and peak bytes recorded after store events.
 
-- TeaCache and `model`: cache `model_output - input`; reuse returns
+- TeaCache: caches `model_output - input`; reuse returns
   `current_input + cached_residual`.
 - PAB: cache attention outputs directly; reuse returns the cached attention
   output.
@@ -39,8 +39,8 @@ and peak bytes recorded after store events.
   residual caches for frozen token reuse.
 - TaylorSeer: caches per-branch per-layer module Taylor factors for
   self-attention, cross-attention, and FFN outputs.
-- `layer` and `attn`: cache block or attention-module outputs directly. These
-  granularities are still experimental.
+- BlockDance: caches the boundary block hidden state and reuses it as the
+  next block input, skipping shallow/mid blocks on reuse steps.
 
 Warmup and cooldown mean full compute is forced for the first and last denoising
 steps. Their names are intentionally shared across strategies.
@@ -55,88 +55,90 @@ The saved ratio is `(baseline_units - actual_units) / baseline_units`.
 
 Per-event debug logging can be enabled with
 `CHITU_FLEXCACHE_COMPUTE_EVENTS=1`, but it is off by default to avoid high-rate
-JSON I/O in layer/attention strategies.
+JSON I/O in module-level strategies.
 
-These units are strategy-owned proxy units, not hardware FLOPs: model-level
-strategies report model-forward units, attention strategies report attention
-module units, and Cubic reports token-forward units. The comparison report reads
-these runtime summaries directly instead of estimating savings from
-strategy-specific side outputs.
+These units are strategy-owned proxy units, not hardware FLOPs: TeaCache reports
+model-forward units, PAB reports attention-module units, BlockDance and
+TaylorSeer report transformer-block or branch units, and Cubic reports
+token-forward units. The comparison report reads these runtime summaries
+directly instead of estimating savings from strategy-specific side outputs.
 
 ## Configuration
 
-User-facing parameters are normalized into `FlexCacheParams`:
+`FlexCacheParams` is the base parameter class. Use a concrete subclass for new
+code so each strategy exposes only its own controls:
 
-- `strategy`: `teacache`, `pab`, `model`, `layer`, `attn`, `seq`, `cubic`, or
-  `taylorseer`
-- `cache_ratio`: `[0, 1]`, used by FlexCache strategies such as `model`
-- `warmup`: first `warmup` denoising steps always compute
-- `cooldown`: last `cooldown` denoising steps always compute
-- `tau_max`: maximum next-compute interval for curvature policies
-- `curvature_interval_power`: curvature-to-interval contrast
-- `strategy_params`: strategy-specific options for TeaCache, PAB, and future
-  strategies
+- `TeaCacheParams`: `warmup`, `cooldown`, `teacache_thresh`, `coefficients`,
+  `use_ref_steps`
+- `PABParams`: `warmup`, `cooldown`, `skip_self_range`, `skip_cross_range`
+- `BlockDanceParams`: `warmup`, `cooldown`, `boundary_block`, `group_size`,
+  `start_fraction`, `end_fraction`
+- `CubicParams`: `cache_ratio`, `warmup`, `cooldown`, `tau_max`,
+  `target_speedup`, `anchor_interval`, `partition_mode`, partition optimizer
+  options
+- `TaylorSeerParams`: `warmup`, `cooldown`, `fresh_threshold`, `max_order`,
+  `first_enhance`
+- `DiTangoParams`: `cache_ratio`, `warmup`, `cooldown`, `tau_max`,
+  `curvature_interval_power`
 
-TeaCache and PAB read their own controls from `strategy_params`; `cache_ratio`
-is not translated into TeaCache or PAB parameters.
+Dictionary inputs must use the concrete field names of the selected strategy.
 
 ## Examples
 
 TeaCache:
 
 ```python
-FlexCacheParams(
-    strategy="teacache",
+TeaCacheParams(
     warmup=7,
     cooldown=3,
-    strategy_params={"teacache_thresh": 0.2},
+    teacache_thresh=0.2,
 )
 ```
 
 PAB:
 
 ```python
-FlexCacheParams(
-    strategy="pab",
+PABParams(
     warmup=5,
     cooldown=5,
-    strategy_params={"skip_self_range": 2, "skip_cross_range": 3},
-)
-```
-
-FlexCache model:
-
-```python
-FlexCacheParams(
-    strategy="model",
-    cache_ratio=0.5,
-    warmup=7,
-    cooldown=3,
-    tau_max=8,
+    skip_self_range=2,
+    skip_cross_range=3,
 )
 ```
 
 Cubic-WAN:
 
 ```python
-FlexCacheParams(
-    strategy="cubic",
+CubicParams(
     cache_ratio=0.5,
     warmup=7,
     cooldown=3,
     tau_max=8,
-    strategy_params={"target_speedup": 2.0, "partition_mode": "wan13_832x480_uniform"},
+    target_speedup=2.0,
+    partition_mode="wan13_832x480_uniform",
+)
+```
+
+BlockDance:
+
+```python
+BlockDanceParams(
+    boundary_block=20,
+    group_size=2,
+    start_fraction=0.40,
+    end_fraction=0.95,
 )
 ```
 
 TaylorSeer-WAN:
 
 ```python
-FlexCacheParams(
-    strategy="taylorseer",
+TaylorSeerParams(
     warmup=7,
     cooldown=3,
-    strategy_params={"fresh_threshold": 5, "max_order": 1, "first_enhance": 1},
+    fresh_threshold=5,
+    max_order=1,
+    first_enhance=1,
 )
 ```
 
@@ -146,11 +148,9 @@ FlexCacheParams(
   memory accounting.
 - `strategy/teacache.py`: TeaCache strategy.
 - `strategy/pab.py`: PAB strategy.
-- `strategy/model.py`: model-output residual FlexCache strategy.
+- `strategy/blockdance.py`: BlockDance-style layerwise cache adapter.
 - `strategy/cubic.py`: Cubic-WAN strategy wrapper and selective forward adapter.
 - `strategy/taylorseer.py`: TaylorSeer-Wan block-cache adapter.
-- `strategy/layer.py`, `strategy/attn.py`, `strategy/seq.py`: experimental
-  granularities.
 - `core/anchor_cache.py`: shared anchor/cache-ratio planner and PPM policy
   visualization helpers.
 
