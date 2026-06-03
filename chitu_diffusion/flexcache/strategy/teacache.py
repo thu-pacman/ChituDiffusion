@@ -170,7 +170,17 @@ class TeaCacheStrategy(FlexCacheStrategy):
         
         # 自动选择coefficients
         if self.use_ref_steps:
-            if '1.3B' in model_name:
+            if model_name == "FLUX.1-dev":
+                if user_thresh is None:
+                    self.teacache_thresh = 0.6
+                self.coefficients = [
+                    4.98651651e+02,
+                    -2.83781631e+02,
+                    5.58554382e+01,
+                    -3.82021401e+00,
+                    2.64230861e-01,
+                ]
+            elif '1.3B' in model_name:
                 if user_thresh is None:
                     self.teacache_thresh = 0.2
                 self.coefficients = [
@@ -287,6 +297,7 @@ class TeaCacheStrategy(FlexCacheStrategy):
         return e0 if self.use_ref_steps else raw_e
 
     def get_reuse_key(self, e0: torch.Tensor = None, raw_e: torch.Tensor = None,
+                      modulated_inp: torch.Tensor = None,
                       **kwargs) -> Optional[str]:
         """
         判断是否可以复用缓存
@@ -299,7 +310,7 @@ class TeaCacheStrategy(FlexCacheStrategy):
             缓存键 'neg' 或 'pos'，若不可复用则返回 None
         """
         # 确定使用哪个嵌入来计算距离
-        modulated_inp = self._select_modulated_input(e0=e0, raw_e=raw_e)
+        modulated_inp = modulated_inp if modulated_inp is not None else self._select_modulated_input(e0=e0, raw_e=raw_e)
         if modulated_inp is None:
             self._record_step_policy(DiffusionBackend.generator.current_task.buffer.current_step, 1)
             return None
@@ -376,6 +387,7 @@ class TeaCacheStrategy(FlexCacheStrategy):
         self,
         e0: torch.Tensor = None,
         raw_e: torch.Tensor = None,
+        modulated_inp: torch.Tensor = None,
         **kwargs,
     ) -> Optional[str]:
         """
@@ -393,7 +405,7 @@ class TeaCacheStrategy(FlexCacheStrategy):
         """
         branch_key = self._branch_key()
 
-        modulated_inp = self._select_modulated_input(e0=e0, raw_e=raw_e)
+        modulated_inp = modulated_inp if modulated_inp is not None else self._select_modulated_input(e0=e0, raw_e=raw_e)
         if modulated_inp is not None:
             self._set_previous_e0(branch_key, modulated_inp.clone().detach())
             
@@ -432,8 +444,13 @@ class TeaCacheStrategy(FlexCacheStrategy):
 
             e0 = kwargs.get('e', None)
             raw_e = kwargs.pop('raw_e', None)
+            modulated_inp = None
+            if hasattr(module, "get_teacache_modulated_input"):
+                temb = kwargs.get("temb", None)
+                if temb is not None:
+                    modulated_inp = module.get_teacache_modulated_input(x, temb)
             # 检查是否可以复用缓存
-            reuse_key = self.get_reuse_key(e0=e0, raw_e=raw_e)
+            reuse_key = self.get_reuse_key(e0=e0, raw_e=raw_e, modulated_inp=modulated_inp)
             
             if reuse_key is not None and reuse_key in DiffusionBackend.flexcache.cache:
                 cached_residual = DiffusionBackend.flexcache.cache[reuse_key]
@@ -468,7 +485,13 @@ class TeaCacheStrategy(FlexCacheStrategy):
             )
             
             # 存储缓存
-            store_key = self.get_store_key(x=ori_x, output=output, e0=e0, raw_e=raw_e)
+            store_key = self.get_store_key(
+                x=ori_x,
+                output=output,
+                e0=e0,
+                raw_e=raw_e,
+                modulated_inp=modulated_inp,
+            )
             if store_key is not None:
                 # 需要获取blocks后的x来计算残差
                 # 这里简化处理，实际需要在blocks循环中插入逻辑

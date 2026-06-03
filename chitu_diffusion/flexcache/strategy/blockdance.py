@@ -6,6 +6,7 @@ from typing import Optional
 import torch
 
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheStrategy
+from chitu_diffusion.flexcache.model_adapters import detach_cache_value, get_flexcache_adapter
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
 from chitu_diffusion.runtime.output_layout import debug_output_dir
 
@@ -78,31 +79,33 @@ class BlockDanceStrategy(FlexCacheStrategy):
         return None
 
     def store(self, fresh_feature: torch.Tensor, **kwargs):
-        return fresh_feature.detach()
+        return detach_cache_value(fresh_feature)
 
     def wrap_module_with_strategy(self, module: torch.nn.Module) -> None:
-        if not hasattr(module, "blocks") or not hasattr(module, "model_compute"):
-            raise ValueError("BlockDance layer strategy expects a WanModel-like module with blocks and model_compute.")
+        if not hasattr(module, "model_compute"):
+            raise ValueError("BlockDance layer strategy expects a module with model_compute.")
         if not hasattr(module, "_original_forward"):
             module._original_forward = module.model_compute
         original_forward = module._original_forward
-        block_count = len(module.blocks)
+        adapter = get_flexcache_adapter(module)
+        blocks = adapter.blocks
+        block_count = len(blocks)
         boundary_index = min(self.boundary_block, max(0, block_count - 1))
         reuse_start_index = min(boundary_index + 1, block_count)
 
         @functools.wraps(original_forward)
         def model_compute_with_blockdance(tokens: torch.Tensor, **kwargs):
-            block_kwargs = dict(kwargs)
-            block_kwargs.pop("raw_e", None)
             step = self._current_step()
             offset = self._active_group_offset(step)
             cache_key = self._cache_key()
             task_id = getattr(DiffusionBackend.generator.current_task, "task_id", None)
 
             if offset is not None and offset != 0 and cache_key in DiffusionBackend.flexcache.cache:
-                x = self.reuse(DiffusionBackend.flexcache.cache[cache_key])
-                for block in module.blocks[reuse_start_index:]:
-                    x = block(x, **block_kwargs)
+                state = adapter.make_state(tokens, kwargs)
+                state = adapter.restore_cached_state(state, self.reuse(DiffusionBackend.flexcache.cache[cache_key]))
+                for block_info in blocks[reuse_start_index:]:
+                    state = adapter.prepare_block_state(block_info, state)
+                    state = adapter.run_block(block_info, state)
                 self._record_compute(
                     baseline_units=float(block_count),
                     actual_units=float(block_count - reuse_start_index),
@@ -113,15 +116,16 @@ class BlockDanceStrategy(FlexCacheStrategy):
                     reuse_start_index=reuse_start_index,
                 )
                 self._record_step_policy(step, 2)
-                return x
+                return adapter.finalize_state(state)
 
-            x = tokens
+            state = adapter.make_state(tokens, kwargs)
             cached_boundary = None
             should_store = offset == 0
-            for layer_id, block in enumerate(module.blocks):
-                x = block(x, **block_kwargs)
+            for layer_id, block_info in enumerate(blocks):
+                state = adapter.prepare_block_state(block_info, state)
+                state = adapter.run_block(block_info, state)
                 if should_store and layer_id == boundary_index:
-                    cached_boundary = self.store(x)
+                    cached_boundary = self.store(adapter.cache_state(state))
 
             if should_store and cached_boundary is not None:
                 DiffusionBackend.flexcache.cache[cache_key] = cached_boundary
@@ -143,7 +147,7 @@ class BlockDanceStrategy(FlexCacheStrategy):
                 boundary_index=boundary_index,
                 reuse_start_index=reuse_start_index,
             )
-            return x
+            return adapter.finalize_state(state)
 
         module.model_compute = model_compute_with_blockdance
         logger.info(

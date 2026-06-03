@@ -5,35 +5,35 @@ from logging import getLogger
 from typing import Any, Dict, Optional
 
 import torch
-import torch.amp as amp
 
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheStrategy
+from chitu_diffusion.flexcache.model_adapters import (
+    add_cache_values,
+    detach_cache_value,
+    get_flexcache_adapter,
+    scale_cache_value,
+    sub_cache_values,
+)
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
 from chitu_diffusion.runtime.output_layout import debug_output_dir
 
 logger = getLogger(__name__)
 
 
-def _fp32_autocast():
-    return amp.autocast(device_type="cuda", dtype=torch.float32, enabled=torch.cuda.is_available())
-
-
 def _taylor_formula(derivative_dict: Dict[int, torch.Tensor], distance: int) -> torch.Tensor:
     output = None
     for order in sorted(derivative_dict):
-        term = derivative_dict[order] * (distance ** order) / math.factorial(order)
-        output = term if output is None else output + term
+        term = scale_cache_value(derivative_dict[order], (distance ** order) / math.factorial(order))
+        output = term if output is None else add_cache_values(output, term)
     if output is None:
         raise ValueError("TaylorSeer cache is empty for the requested module.")
     return output
 
 
 class TaylorSeerStrategy(FlexCacheStrategy):
-    """TaylorSeer-Wan block cache adapted to the FlexCache strategy API."""
+    """TaylorSeer block-residual cache adapted to the FlexCache strategy API."""
 
-    MODULE_SELF_ATTN = "self-attention"
-    MODULE_CROSS_ATTN = "cross-attention"
-    MODULE_FFN = "ffn"
+    MODULE_BLOCK = "block-residual"
 
     def __init__(
         self,
@@ -75,24 +75,52 @@ class TaylorSeerStrategy(FlexCacheStrategy):
     def store(self, fresh_feature: torch.Tensor, **kwargs) -> Dict[int, torch.Tensor]:
         key = self._cache_key(**kwargs)
         previous = DiffusionBackend.flexcache.cache.get(key, {})
-        updated: Dict[int, torch.Tensor] = {0: fresh_feature}
+        updated: Dict[int, torch.Tensor] = {0: detach_cache_value(fresh_feature)}
         distance = 1 if len(self.activated_steps) < 2 else max(1, self.activated_steps[-1] - self.activated_steps[-2])
         for order in range(self.max_order):
             if order not in previous or self._current_step_value() <= self.first_enhance - 2:
                 break
-            updated[order + 1] = (updated[order] - previous[order]) / distance
+            updated[order + 1] = scale_cache_value(sub_cache_values(updated[order], previous[order]), 1.0 / distance)
         return updated
 
     def wrap_module_with_strategy(self, module: torch.nn.Module) -> None:
-        if not hasattr(module, "blocks"):
-            raise ValueError("TaylorSeer strategy expects a WanModel-like module with blocks.")
+        if not hasattr(module, "model_compute"):
+            raise ValueError("TaylorSeer strategy expects a module with model_compute.")
+        if not hasattr(module, "_taylorseer_original_model_compute"):
+            module._taylorseer_original_model_compute = module.model_compute
+        original_forward = module._taylorseer_original_model_compute
+        adapter = get_flexcache_adapter(module)
+        blocks = adapter.blocks
+        self._wrapped_blocks = [block_info.module for block_info in blocks]
 
-        self._wrapped_blocks = []
-        for layer_idx, block in enumerate(module.blocks):
-            if not hasattr(block, "_taylorseer_original_forward"):
-                block._taylorseer_original_forward = block.forward
-            block.forward = self._make_block_forward(block, layer_idx)
-            self._wrapped_blocks.append(block)
+        @functools.wraps(original_forward)
+        def model_compute_with_taylorseer(tokens: torch.Tensor, **kwargs):
+            state = adapter.make_state(tokens, kwargs)
+            for block_info in blocks:
+                state = adapter.prepare_block_state(block_info, state)
+                self._ensure_step_decision()
+                layer_idx = block_info.index
+                if self.current_type == "Taylor" and self._has_layer_cache(layer_idx):
+                    residual = self.reuse(
+                        DiffusionBackend.flexcache.cache[
+                            self._cache_key(layer=layer_idx, module=self.MODULE_BLOCK)
+                        ],
+                        distance=self._distance_from_anchor(),
+                    )
+                    state = adapter.apply_block_delta(state, residual)
+                    self._record_compute("reuse", layer_idx)
+                    self._record_step_policy(self._current_step_value(), 2)
+                    continue
+
+                previous_state = adapter.cache_state(state)
+                state = adapter.run_block(block_info, state)
+                residual = adapter.block_delta(previous_state, adapter.cache_state(state))
+                self._store_module(layer_idx, self.MODULE_BLOCK, residual)
+                self._record_compute("compute", layer_idx)
+                self._record_step_policy(self._current_step_value(), 1)
+            return adapter.finalize_state(state)
+
+        module.model_compute = model_compute_with_taylorseer
 
         logger.info(
             "Module %s wrapped with TaylorSeer strategy: fresh_threshold=%d max_order=%d warmup=%d cooldown=%d",
@@ -104,11 +132,9 @@ class TaylorSeerStrategy(FlexCacheStrategy):
         )
 
     def unwrap_module(self, module: torch.nn.Module) -> None:
-        blocks = self._wrapped_blocks or list(getattr(module, "blocks", []))
-        for block in blocks:
-            if hasattr(block, "_taylorseer_original_forward"):
-                block.forward = block._taylorseer_original_forward
-                delattr(block, "_taylorseer_original_forward")
+        if hasattr(module, "_taylorseer_original_model_compute"):
+            module.model_compute = module._taylorseer_original_model_compute
+            delattr(module, "_taylorseer_original_model_compute")
 
         run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
         if run_output_dir:
@@ -129,100 +155,6 @@ class TaylorSeerStrategy(FlexCacheStrategy):
         self._vis_max_step = -1
         DiffusionBackend.flexcache.clear_cache()
 
-    def _make_block_forward(self, block: torch.nn.Module, layer_idx: int):
-        original_forward = block._taylorseer_original_forward
-
-        @functools.wraps(original_forward)
-        def forward_with_taylorseer(
-            x,
-            e,
-            seq_lens,
-            grid_sizes,
-            freqs,
-            context,
-            context_lens,
-        ):
-            self._ensure_step_decision()
-            if self.current_type == "Taylor" and self._has_layer_cache(layer_idx):
-                return self._reuse_block(block, x=x, e=e, layer_idx=layer_idx)
-            return self._compute_and_store_block(
-                block=block,
-                x=x,
-                e=e,
-                seq_lens=seq_lens,
-                grid_sizes=grid_sizes,
-                freqs=freqs,
-                context=context,
-                context_lens=context_lens,
-                layer_idx=layer_idx,
-            )
-
-        return forward_with_taylorseer
-
-    def _compute_and_store_block(
-        self,
-        block,
-        x,
-        e,
-        seq_lens,
-        grid_sizes,
-        freqs,
-        context,
-        context_lens,
-        layer_idx: int,
-    ):
-        e_chunks = self._modulation_chunks(block, e)
-
-        y = block.self_attn(
-            block.norm1(x).float() * (1 + e_chunks[1]) + e_chunks[0],
-            seq_lens,
-            grid_sizes,
-            freqs,
-        )
-        self._store_module(layer_idx, self.MODULE_SELF_ATTN, y)
-        with _fp32_autocast():
-            x = x + y * e_chunks[2]
-
-        y = block.cross_attn(block.norm3(x), context, context_lens)
-        self._store_module(layer_idx, self.MODULE_CROSS_ATTN, y)
-        x = x + y
-
-        y = block.ffn(block.norm2(x).float() * (1 + e_chunks[4]) + e_chunks[3])
-        self._store_module(layer_idx, self.MODULE_FFN, y)
-        with _fp32_autocast():
-            x = x + y * e_chunks[5]
-
-        self._record_compute("compute", layer_idx)
-        self._record_step_policy(self._current_step_value(), 1)
-        return x
-
-    def _reuse_block(self, block, x, e, layer_idx: int):
-        e_chunks = self._modulation_chunks(block, e)
-        distance = self._distance_from_anchor()
-
-        sa = self.reuse(
-            DiffusionBackend.flexcache.cache[self._cache_key(layer=layer_idx, module=self.MODULE_SELF_ATTN)],
-            distance=distance,
-        )
-        ca = self.reuse(
-            DiffusionBackend.flexcache.cache[self._cache_key(layer=layer_idx, module=self.MODULE_CROSS_ATTN)],
-            distance=distance,
-        )
-        ffn = self.reuse(
-            DiffusionBackend.flexcache.cache[self._cache_key(layer=layer_idx, module=self.MODULE_FFN)],
-            distance=distance,
-        )
-
-        with _fp32_autocast():
-            x = x + sa * e_chunks[2]
-        x = x + ca
-        with _fp32_autocast():
-            x = x + ffn * e_chunks[5]
-
-        self._record_compute("reuse", layer_idx)
-        self._record_step_policy(self._current_step_value(), 2)
-        return x
-
     def _store_module(self, layer_idx: int, module_name: str, feature: torch.Tensor) -> None:
         key = self.get_store_key(layer=layer_idx, module=module_name)
         DiffusionBackend.flexcache.cache[key] = self.store(
@@ -230,19 +162,12 @@ class TaylorSeerStrategy(FlexCacheStrategy):
             layer=layer_idx,
             module=module_name,
         )
-        if layer_idx == 0 and module_name == self.MODULE_SELF_ATTN:
+        if layer_idx == 0 and module_name == self.MODULE_BLOCK:
             DiffusionBackend.flexcache.record_cache_memory(
                 "flexcache_store",
                 task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
                 extra={"cache_key": "taylorseer"},
             )
-
-    def _modulation_chunks(self, block, e):
-        assert e.dtype == torch.float32
-        with _fp32_autocast():
-            chunks = (block.modulation + e).chunk(6, dim=1)
-        assert chunks[0].dtype == torch.float32
-        return chunks
 
     def _ensure_step_decision(self) -> None:
         step = self._current_step_value()
@@ -288,18 +213,15 @@ class TaylorSeerStrategy(FlexCacheStrategy):
         return max(0, self._current_step_value() - self.activated_steps[-1])
 
     def _has_layer_cache(self, layer_idx: int) -> bool:
-        return all(
-            self._cache_key(layer=layer_idx, module=module_name) in DiffusionBackend.flexcache.cache
-            for module_name in (self.MODULE_SELF_ATTN, self.MODULE_CROSS_ATTN, self.MODULE_FFN)
-        )
+        return self._cache_key(layer=layer_idx, module=self.MODULE_BLOCK) in DiffusionBackend.flexcache.cache
 
     def _record_compute(self, decision: str, layer_idx: int) -> None:
         DiffusionBackend.flexcache.record_compute(
-            baseline_units=3.0,
-            actual_units=0.0 if decision == "reuse" else 3.0,
+            baseline_units=1.0,
+            actual_units=0.0 if decision == "reuse" else 1.0,
             task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
             scope="taylorseer_block",
-            unit="block_modules",
+            unit="transformer_block",
             extra={
                 "decision": decision,
                 "step": self._current_step_value(),

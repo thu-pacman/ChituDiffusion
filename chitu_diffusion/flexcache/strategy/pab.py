@@ -6,6 +6,7 @@ import torch.distributed as dist
 import functools
 from logging import getLogger
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheStrategy
+from chitu_diffusion.flexcache.model_adapters import get_flexcache_adapter
 from chitu_diffusion.runtime.task import DiffusionTask
 from chitu_diffusion.runtime.backend import DiffusionBackend, CFGType
 from chitu_diffusion.runtime.output_layout import debug_output_dir
@@ -272,131 +273,70 @@ class PABStrategy(FlexCacheStrategy):
         Args:
             module: 要包装的PyTorch模块（DiT model）
         """
-        # 遍历所有 blocks，分别包装 self-attention 和 cross-attention
-        for block_idx, block in enumerate(module.blocks):
-            # 包装 self-attention
-            if not hasattr(block.self_attn, '_original_forward'): 
-                block.self_attn._original_forward = block.self_attn.forward
-            
-            # 显式捕获原始函数，避免闭包引用最后一个 block
-            original_self_attn = block.self_attn._original_forward
-            
-            @functools.wraps(original_self_attn)
-            def self_attn_forward_with_pab(*args, block_idx=block_idx, original_fn=original_self_attn, **kwargs):
-                """
-                带PAB缓存的 self-attention forward
-                """
-                reuse_key = self.get_reuse_key(range=self.skip_self_range, attn_kind="self")
-                
-                # 构建完整缓存键
+        adapter = get_flexcache_adapter(module)
+        modules = adapter.attention_modules()
+        if not modules:
+            raise ValueError(f"PAB strategy found no attention modules on {module.__class__.__name__}.")
+
+        module._pab_wrapped_modules = []
+
+        for block_idx, attn_kind, attn_module in modules:
+            if attn_kind not in {"self", "cross"}:
+                continue
+            if not hasattr(attn_module, '_pab_original_forward'):
+                attn_module._pab_original_forward = attn_module.forward
+            original_forward = attn_module._pab_original_forward
+            module._pab_wrapped_modules.append(attn_module)
+
+            @functools.wraps(original_forward)
+            def attn_forward_with_pab(
+                *args,
+                block_idx=block_idx,
+                attn_kind=attn_kind,
+                original_fn=original_forward,
+                **kwargs,
+            ):
+                reuse_range = self.skip_self_range if attn_kind == "self" else self.skip_cross_range
+                reuse_key = self.get_reuse_key(range=reuse_range, attn_kind=attn_kind)
+                scope = f"{attn_kind}_attn"
+
                 if reuse_key is not None:
-                    cache_key = f"{reuse_key}_block{block_idx}_self"
-                    
+                    cache_key = f"{reuse_key}_block{block_idx}_{attn_kind}"
                     if cache_key in DiffusionBackend.flexcache.cache:
                         cached_output = DiffusionBackend.flexcache.cache[cache_key]
                         DiffusionBackend.flexcache.record_compute(
                             baseline_units=1.0,
                             actual_units=0.0,
                             task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
-                            scope="self_attn",
+                            scope=scope,
                             unit="attention_module",
                             extra={"decision": "reuse", "block_idx": block_idx},
                         )
-                        # 所有rank都打印读取信息（只在block 0）
-                        # if block_idx == 0:
-                        #     print(f"[Rank {dist.get_rank()}] REUSE self-attn from key: {cache_key}, shape: {cached_output.shape}")
                         return self.reuse(cached_feature=cached_output)
-                
-                # 完整计算 - 使用捕获的原始函数
+
                 output = original_fn(*args, **kwargs)
                 DiffusionBackend.flexcache.record_compute(
                     baseline_units=1.0,
                     actual_units=1.0,
                     task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
-                    scope="self_attn",
+                    scope=scope,
                     unit="attention_module",
                     extra={"decision": "compute", "block_idx": block_idx},
                 )
-                
-                # 存储缓存
+
                 store_key = self.get_store_key()
                 if store_key is not None:
-                    cache_key = f"{store_key}_block{block_idx}_self"
+                    cache_key = f"{store_key}_block{block_idx}_{attn_kind}"
                     DiffusionBackend.flexcache.cache[cache_key] = output
                     DiffusionBackend.flexcache.record_cache_memory(
                         "flexcache_store",
                         task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
                         extra={"cache_key": str(cache_key)},
                     )
-                    # 所有rank都打印存储信息（只在block 0）
-                    # if block_idx == 0:
-                    #     print(f"[Rank {dist.get_rank()}] STORE self-attn to key: {cache_key}, shape: {output.shape}")
-                
+
                 return output
-            
-            block.self_attn.forward = self_attn_forward_with_pab
-            
-            # 包装 cross-attention
-            if not hasattr(block.cross_attn, '_original_forward'):
-                block.cross_attn._original_forward = block.cross_attn.forward
-            
-            # 显式捕获原始函数，避免闭包引用最后一个 block
-            original_cross_attn = block.cross_attn._original_forward
-            
-            @functools.wraps(original_cross_attn)
-            def cross_attn_forward_with_pab(*args, block_idx=block_idx, original_fn=original_cross_attn, **kwargs):
-                """
-                带PAB缓存的 cross-attention forward
-                """
-                reuse_key = self.get_reuse_key(range=self.skip_cross_range, attn_kind="cross")
-                
-                # 构建完整缓存键
-                if reuse_key is not None:
-                    cache_key = f"{reuse_key}_block{block_idx}_cross"
-                    
-                    if cache_key in DiffusionBackend.flexcache.cache:
-                        cached_output = DiffusionBackend.flexcache.cache[cache_key]
-                        DiffusionBackend.flexcache.record_compute(
-                            baseline_units=1.0,
-                            actual_units=0.0,
-                            task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
-                            scope="cross_attn",
-                            unit="attention_module",
-                            extra={"decision": "reuse", "block_idx": block_idx},
-                        )
-                        # 所有rank都打印读取信息（只在block 0）
-                        # if block_idx == 0:
-                        #     print(f"[Rank {dist.get_rank()}] REUSE cross-attn from key: {cache_key}, shape: {cached_output.shape}")
-                        return self.reuse(cached_feature=cached_output)
-                
-                # 完整计算 - 使用捕获的原始函数
-                output = original_fn(*args, **kwargs)
-                DiffusionBackend.flexcache.record_compute(
-                    baseline_units=1.0,
-                    actual_units=1.0,
-                    task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
-                    scope="cross_attn",
-                    unit="attention_module",
-                    extra={"decision": "compute", "block_idx": block_idx},
-                )
-                
-                # 存储缓存
-                store_key = self.get_store_key()
-                if store_key is not None:
-                    cache_key = f"{store_key}_block{block_idx}_cross"
-                    DiffusionBackend.flexcache.cache[cache_key] = output
-                    DiffusionBackend.flexcache.record_cache_memory(
-                        "flexcache_store",
-                        task_id=getattr(DiffusionBackend.generator.current_task, "task_id", None),
-                        extra={"cache_key": str(cache_key)},
-                    )
-                    # 所有rank都打印存储信息（只在block 0）
-                    # if block_idx == 0:
-                    #     print(f"[Rank {dist.get_rank()}] STORE cross-attn to key: {cache_key}, shape: {output.shape}")
-                
-                return output
-            
-            block.cross_attn.forward = cross_attn_forward_with_pab
+
+            attn_module.forward = attn_forward_with_pab
         
         logger.info(f"Module {module.__class__.__name__} wrapped with PAB strategy")
     
@@ -407,17 +347,12 @@ class PABStrategy(FlexCacheStrategy):
         Args:
             module: 要恢复的PyTorch模块
         """
-        # 遍历所有 blocks，恢复 attention 的原始 forward
-        for block in module.blocks:
-            # 恢复 self-attention
-            if hasattr(block.self_attn, '_original_forward'):
-                block.self_attn.forward = block.self_attn._original_forward
-                delattr(block.self_attn, '_original_forward')
-            
-            # 恢复 cross-attention
-            if hasattr(block.cross_attn, '_original_forward'):
-                block.cross_attn.forward = block.cross_attn._original_forward
-                delattr(block.cross_attn, '_original_forward')
+        for attn_module in getattr(module, "_pab_wrapped_modules", []):
+            if hasattr(attn_module, '_pab_original_forward'):
+                attn_module.forward = attn_module._pab_original_forward
+                delattr(attn_module, '_pab_original_forward')
+        if hasattr(module, "_pab_wrapped_modules"):
+            delattr(module, "_pab_wrapped_modules")
 
         self._save_policy_ppm()
         DiffusionBackend.flexcache.flush_cache_memory_events()
