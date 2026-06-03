@@ -19,12 +19,12 @@ from chitu_diffusion.runtime.main import (
     chitu_terminate,
     warmup_diffusion_engine,
 )
+from chitu_diffusion.flexcache.params import BlockDanceParams, CubicParams, TaylorSeerParams
 from chitu_diffusion.runtime.task import (
     DiffusionTask,
     DiffusionTaskPool,
     DiffusionUserParams,
     DiffusionUserRequest,
-    FlexCacheParams,
 )
 from flexcache_summary import write_flexcache_comparison
 from run_context import DiffusionTestRunContext, should_record_metrics_on_rank
@@ -33,6 +33,37 @@ logger = getLogger(__name__)
 
 
 msgs = [
+    #     DiffusionUserParams(
+    #     role="Alex",
+    #     prompt="A cat walking on grass.",
+    #     seed=42,
+    #     frame_num=81,
+    #     size=(832, 480),
+    #     negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+    #     num_inference_steps=50,
+    #     sample_solver="unipc",
+    #     flexcache_params=BlockDanceParams(
+    #         warmup=7,
+    #         cooldown=3,
+    #     ),
+    # ),
+
+    # DiffusionUserParams(
+    #     role="Alex",
+    #     prompt="A cat walking on grass.",
+    #     seed=42,
+    #     frame_num=81,
+    #     size=(832, 480),
+    #     negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+    #     num_inference_steps=50,
+    #     sample_solver="unipc",
+    #     flexcache_params=CubicParams(
+    #         cache_ratio=0.5,
+    #         warmup=7,
+    #         cooldown=3,
+    #     ),
+    # ),
+
     DiffusionUserParams(
         role="Alex",
         prompt="A cat walking on grass.",
@@ -42,14 +73,13 @@ msgs = [
         negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
         num_inference_steps=50,
         sample_solver="unipc",
-        flexcache_params=FlexCacheParams(
-            strategy="model",
-            cache_ratio=0.3,
+        flexcache_params=TaylorSeerParams(
             warmup=7,
             cooldown=3,
+            fresh_threshold=5,
+            max_order=1,
         ),
     ),
-
     DiffusionUserParams(
         role="Alex",
         prompt="A cat walking on grass.",
@@ -59,16 +89,13 @@ msgs = [
         negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
         num_inference_steps=50,
         sample_solver="unipc",
-        flexcache_params=FlexCacheParams(
-            strategy="teacache",
-            strategy_params={
-                "warmup_steps": 7,
-                "cooldown_steps": 3,
-                "teacache_thresh": 0.2,
-            }
+        flexcache_params=TaylorSeerParams(
+            warmup=7,
+            cooldown=3,
+            fresh_threshold=4,
+            max_order=2,
         ),
     ),
-
     DiffusionUserParams(
         role="Alex",
         prompt="A cat walking on grass.",
@@ -78,17 +105,15 @@ msgs = [
         negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
         num_inference_steps=50,
         sample_solver="unipc",
-        flexcache_params=FlexCacheParams(
-            strategy="pab",
-            strategy_params={
-                "warmup_steps": 7,
-                "cooldown_steps": 3,
-                "skip_self_range": 3,
-                "skip_cross_range": 5
-            }
+        flexcache_params=TaylorSeerParams(
+            warmup=7,
+            cooldown=3,
+            fresh_threshold=3,
+            max_order=1,
         ),
     ),
-    
+
+
 ]
 
 
@@ -107,10 +132,11 @@ def gen_reqs(num_reqs, max_new_tokens, frequency_penalty, is_vl=False):
 
 def run_normal(args, run_context: DiffusionTestRunContext):
     rank = torch.distributed.get_rank()
+    run_output_dir = None
 
     for i in range(1):
         reqs = []
-        run_output_dir = None
+        log_handler = None
         if rank == 0:
             reqs = gen_reqs(
                 num_reqs=len(msgs),
@@ -130,7 +156,6 @@ def run_normal(args, run_context: DiffusionTestRunContext):
         if run_output_dir:
             run_context.activate_run(run_output_dir)
 
-        log_handler = None
         if (
             run_output_dir
             and getattr(args.output, "run_log", True)
@@ -138,45 +163,46 @@ def run_normal(args, run_context: DiffusionTestRunContext):
         ):
             log_handler = run_context.attach_run_log_handler(run_output_dir)
 
-        if rank == 0:
-            run_context.dump_run_metadata(run_output_dir, reqs)
-            logger.info(f"{reqs=}")
+        try:
+            if rank == 0:
+                run_context.dump_run_metadata(run_output_dir, reqs)
+                logger.info(f"{reqs=}")
 
-        run_context.dump_memory_snapshot(run_output_dir, "model_loaded")
-        warmup_diffusion_engine(args)
-        chitu_start()
+            run_context.dump_memory_snapshot(run_output_dir, "model_loaded")
+            warmup_diffusion_engine(args)
+            chitu_start()
 
-        if rank == 0:
-            for req in reqs:
-                DiffusionTaskPool.add(DiffusionTask(task_id=req.request_id, req=req))
+            if rank == 0:
+                for req in reqs:
+                    DiffusionTaskPool.add(DiffusionTask(task_id=req.request_id, req=req))
 
-        logger.info(f"------ batch {i} ------")
-        t_start = time.time()
-        with Timer.get_timer("overall"):
-            while not chitu_is_terminated():
-                chitu_generate()
-                if rank == 0 and DiffusionTaskPool.all_finished():
-                    break
+            logger.info(f"------ batch {i} ------")
+            t_start = time.time()
+            with Timer.get_timer("overall"):
+                while not chitu_is_terminated():
+                    chitu_generate()
+                    if rank == 0 and DiffusionTaskPool.all_finished():
+                        break
 
-        if rank == 0:
-            t_end = time.time()
-            elapsed_s = t_end - t_start
-            logger.info(f"Time cost {elapsed_s}")
-        run_context.log_final_memory()
-        run_context.dump_memory_snapshot(run_output_dir, "final")
+            if rank == 0:
+                t_end = time.time()
+                elapsed_s = t_end - t_start
+                logger.info(f"Time cost {elapsed_s}")
+            run_context.log_final_memory()
+            run_context.dump_memory_snapshot(run_output_dir, "final")
 
-        if rank == 0 and getattr(args.output, "timer", False):
-            Timer.print_statistics()
-            run_context.dump_timing_summary(run_output_dir, elapsed_s=locals().get("elapsed_s"))
+            if rank == 0 and getattr(args.output, "timer", False):
+                Timer.print_statistics()
+                run_context.dump_timing_summary(run_output_dir, elapsed_s=locals().get("elapsed_s"))
+        finally:
+            if log_handler is not None:
+                run_context.close_run_log_handler(log_handler)
 
     chitu_terminate()
     chitu_run_eval()
     if run_output_dir and rank == 0:
         write_flexcache_comparison(run_output_dir)
         logger.info("FlexCache comparison written under %s/metrics", run_output_dir)
-
-    if log_handler is not None:
-        run_context.close_run_log_handler(log_handler)
 
 
 def main(args: ServeConfig):
@@ -211,8 +237,11 @@ def main(args: ServeConfig):
 
 
 if __name__ == "__main__":
-    main(load_config_from_cli())
-
-    logger.info("Waiting for all ranks to finish...")
-    torch.distributed.barrier(device_ids=[torch.cuda.current_device()])
-    os.execl("/usr/bin/true", "true")
+    try:
+        main(load_config_from_cli())
+        logger.info("Waiting for all ranks to finish...")
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            torch.distributed.barrier(device_ids=[torch.cuda.current_device()])
+    finally:
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()

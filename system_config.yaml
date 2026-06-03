@@ -1,5 +1,5 @@
 launch:
-  tag: flex_teacache
+  tag: taylor
   num_nodes: 1
   gpus_per_node: 2
   python_script: test/test_flexcache.py
@@ -28,12 +28,12 @@ infer:
 
 eval:
   eval_type: [psnr,lpips]
-  reference_path: /home/chenyy/WORK/cyy/ChituDiffusion/outputs/origin/origin_a_cat_walking_on_grass_20260401_174307_wan2_1_t2v_1_3b
+  reference_path: /home/chenyy/WORK/cyy/ChituDiffusion/outputs/origin/origin-20260602_105824-0db83df4
 
 output:
   root_dir: outputs
-  run_log: true
-  memory: true
+  run_log: false
+  memory: false
   timer: true
   log_ranks: [0]
   
