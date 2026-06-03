@@ -32,65 +32,102 @@ class ReferenceMetricStrategy(EvalStrategy):
         video_prompt: Dict[str, str],
         generated_dir: str,
         reference_dir: str,
+        model_name: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         generated_base = Path(generated_dir)
         reference_base = Path(reference_dir)
 
-        def _triplet_key(prompt: str, seed: Any, step: Any) -> Tuple[str, str, str]:
+        def _normalize_model(value: Any) -> str:
+            return str(value or "").strip().lower()
+
+        def _match_key(model: Any, prompt: str, seed: Any) -> Tuple[str, str, str]:
             return (
+                _normalize_model(model),
                 slugify_prompt(prompt),
                 "none" if seed is None else str(seed),
-                "none" if step is None else str(step),
             )
 
-        def _load_sidecar_triplets(base_dir: Path) -> Dict[Tuple[str, str, str], Path]:
+        def _read_json(path: Path) -> Optional[Dict[str, Any]]:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                return None
+            return data if isinstance(data, dict) else None
+
+        def _reference_run_model(base_dir: Path) -> str:
+            data = _read_json(base_dir / "system_params.json")
+            if data is None:
+                return ""
+            return _normalize_model(data.get("model_name"))
+
+        def _sidecar_for_video(video_path: Path) -> Optional[Dict[str, Any]]:
+            return _read_json(video_path.with_suffix(".json"))
+
+        def _load_reference_index(base_dir: Path) -> Dict[Tuple[str, str, str], Path]:
             mapping: Dict[Tuple[str, str, str], Path] = {}
-            for sidecar in base_dir.glob("*.json"):
-                try:
-                    with open(sidecar, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                except Exception:
+            run_model = _reference_run_model(base_dir)
+
+            for reference_video in base_dir.rglob("*.mp4"):
+                sidecar = _sidecar_for_video(reference_video)
+                if sidecar is not None and sidecar.get("prompt") is not None:
+                    ref_model = sidecar.get("model_name") or sidecar.get("model") or run_model
+                    mapping[_match_key(ref_model, str(sidecar["prompt"]), sidecar.get("seed"))] = reference_video
+                    continue
+
+                parsed = parse_video_name(reference_video.name)
+                if parsed is not None and run_model:
+                    prompt_slug, seed, _step = parsed
+                    mapping[(run_model, prompt_slug, seed)] = reference_video
+
+            # Also support sidecars that name a file when the mp4 name is not canonical.
+            for sidecar_path in base_dir.rglob("*.json"):
+                if sidecar_path.name in {"system_params.json", "request_params.json"}:
+                    continue
+                data = _read_json(sidecar_path)
+                if data is None:
                     continue
 
                 filename = data.get("filename")
                 prompt = data.get("prompt")
                 seed = data.get("seed")
-                step = data.get("step")
                 if not filename or prompt is None:
                     continue
-                candidate = base_dir / str(filename)
+                candidate = sidecar_path.parent / str(filename)
+                if not candidate.exists():
+                    candidate = base_dir / str(filename)
                 if not candidate.exists():
                     continue
-                mapping[_triplet_key(str(prompt), seed, step)] = candidate
+                ref_model = data.get("model_name") or data.get("model") or run_model
+                mapping[_match_key(ref_model, str(prompt), seed)] = candidate
             return mapping
 
-        ref_triplet_map: Dict[Tuple[str, str, str], Path] = {}
-        for reference_video in reference_base.glob("*.mp4"):
-            parsed = parse_video_name(reference_video.name)
-            if parsed is not None:
-                ref_triplet_map[parsed] = reference_video
+        def _generated_key(video_path: Path, prompt: str) -> Tuple[str, str, str]:
+            sidecar = _sidecar_for_video(video_path)
+            if sidecar is not None:
+                gen_model = sidecar.get("model_name") or sidecar.get("model") or model_name
+                gen_prompt = sidecar.get("prompt", prompt)
+                return _match_key(gen_model, str(gen_prompt), sidecar.get("seed"))
 
-        # Sidecar metadata can capture raw prompt/seed/step and helps when names are not canonical.
-        ref_triplet_map.update(_load_sidecar_triplets(reference_base))
+            parsed = parse_video_name(video_path.name)
+            if parsed is not None:
+                prompt_slug, seed, _step = parsed
+                return (_normalize_model(model_name), prompt_slug, seed)
+
+            return _match_key(model_name, prompt, None)
+
+        ref_match_map = _load_reference_index(reference_base)
 
         pairs: List[Dict[str, str]] = []
-        for video_key in video_prompt.keys():
+        for video_key, prompt in video_prompt.items():
             generated_path = generated_base / video_key
             video_name = generated_path.name
             task_id = generated_path.parent.name if generated_path.parent != generated_base else None
-            reference_path = reference_base / video_key
-            if not reference_path.exists():
-                reference_path = reference_base / video_name
             if not generated_path.exists():
                 continue
 
-            matched_reference: Optional[Path] = None
-            if reference_path.exists():
-                matched_reference = reference_path
-            else:
-                triplet = parse_video_name(video_name)
-                if triplet is not None:
-                    matched_reference = ref_triplet_map.get(triplet)
+            match_key = _generated_key(generated_path, prompt)
+            matched_reference = ref_match_map.get(match_key)
 
             if matched_reference is not None:
                 pairs.append(
@@ -100,31 +137,18 @@ class ReferenceMetricStrategy(EvalStrategy):
                         "video_key": video_key,
                         "generated": str(generated_path.resolve()),
                         "reference": str(matched_reference.resolve()),
+                        "match_model": match_key[0],
+                        "match_prompt": match_key[1],
+                        "match_seed": match_key[2],
                     }
                 )
 
-        if pairs:
-            return pairs
-
-        generated_files = sorted(generated_base.rglob("*.mp4"))
-        reference_files = sorted(reference_base.glob("*.mp4"))
-        n = min(len(generated_files), len(reference_files))
-        if n == 0:
-            return []
-
-        logger.warning(
-            "No same-name match found in reference_path, fallback to sorted pairing by index."
-        )
-        for idx in range(n):
-            task_id = generated_files[idx].parent.name if generated_files[idx].parent != generated_base else None
-            pairs.append(
-                {
-                    "task_id": task_id,
-                    "video_name": generated_files[idx].name,
-                    "video_key": str(generated_files[idx].relative_to(generated_base)),
-                    "generated": str(generated_files[idx].resolve()),
-                    "reference": str(reference_files[idx].resolve()),
-                }
+        if not pairs:
+            logger.warning(
+                "No reference videos matched in reference_path by (model, prompt, seed). "
+                "reference_path=%s generated_dir=%s",
+                reference_base,
+                generated_base,
             )
         return pairs
 
@@ -158,7 +182,13 @@ class ReferenceMetricStrategy(EvalStrategy):
             }
             return payload
 
-        pairs = self._build_video_pairs(video_prompt, videos_dir, str(reference_path))
+        model_name = getattr(getattr(args, "models", None), "name", None)
+        pairs = self._build_video_pairs(
+            video_prompt,
+            videos_dir,
+            str(reference_path),
+            model_name=model_name,
+        )
         payload = {
             "name": self.run_name,
             "metric_type": self.type,
