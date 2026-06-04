@@ -997,7 +997,7 @@ class Flux2Transformer2DModel(
             state["single_stream_started"] = True
         return state
 
-    def backbone_run_block(self, block_info: BackboneBlockInfo, state):
+    def block_compute(self, block_info: BackboneBlockInfo, state):
         block_index = block_info.index
         if block_index < len(self.transformer_blocks):
             block = self.transformer_blocks[block_index]
@@ -1023,6 +1023,9 @@ class Flux2Transformer2DModel(
             joint_attention_kwargs=state["joint_attention_kwargs"],
         )
         return state
+
+    def backbone_run_block(self, block_info: BackboneBlockInfo, state):
+        return self.block_compute(block_info, state)
 
     def backbone_state_tensor(self, state) -> torch.Tensor:
         return state["hidden_states"]
@@ -1095,11 +1098,11 @@ class Flux2Transformer2DModel(
             state = self.backbone_prepare_block_state(block_info, state)
             if torch.is_grad_enabled() and self.gradient_checkpointing:
                 state = self._gradient_checkpointing_func(
-                    lambda current_state: self.backbone_run_block(block_info, current_state),
+                    lambda current_state: self.block_compute(block_info, current_state),
                     state,
                 )
             else:
-                state = self.backbone_run_block(block_info, state)
+                state = self.block_compute(block_info, state)
         return self.backbone_finalize_state(state)
 
     @apply_lora_scale("joint_attention_kwargs")

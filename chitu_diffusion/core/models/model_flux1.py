@@ -373,7 +373,7 @@ class Flux1Model(
             state["single_stream_started"] = True
         return state
 
-    def backbone_run_block(self, block_info: BackboneBlockInfo, state):
+    def block_compute(self, block_info: BackboneBlockInfo, state):
         block_index = block_info.index
         if block_index < len(self.transformer_blocks):
             block = self.transformer_blocks[block_index]
@@ -418,6 +418,9 @@ class Flux1Model(
             )
         state["hidden_states"] = hidden_states
         return state
+
+    def backbone_run_block(self, block_info: BackboneBlockInfo, state):
+        return self.block_compute(block_info, state)
 
     def backbone_state_tensor(self, state) -> torch.Tensor:
         if state["single_stream_started"]:
@@ -478,83 +481,28 @@ class Flux1Model(
         controlnet_single_block_samples=None,
         controlnet_blocks_repeat: bool = False,
     ) -> torch.Tensor:
-        for index_block, block in enumerate(self.transformer_blocks):
+        state = self.backbone_make_state(
+            hidden_states,
+            encoder_hidden_states=encoder_hidden_states,
+            temb=temb,
+            image_rotary_emb=image_rotary_emb,
+            joint_attention_kwargs=joint_attention_kwargs,
+            controlnet_block_samples=controlnet_block_samples,
+            controlnet_single_block_samples=controlnet_single_block_samples,
+            controlnet_blocks_repeat=controlnet_blocks_repeat,
+        )
+        for block_info in self.backbone_blocks():
+            state = self.backbone_prepare_block_state(block_info, state)
             if torch.is_grad_enabled() and self.gradient_checkpointing:
-
-                def create_custom_forward(module, return_dict=None):
-                    def custom_forward(*inputs):
-                        if return_dict is not None:
-                            return module(*inputs, return_dict=return_dict)
-                        return module(*inputs)
-
-                    return custom_forward
-
                 ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
-                encoder_hidden_states, hidden_states = torch.utils.checkpoint.checkpoint(
-                    create_custom_forward(block),
-                    hidden_states,
-                    encoder_hidden_states,
-                    temb,
-                    image_rotary_emb,
+                state = torch.utils.checkpoint.checkpoint(
+                    lambda current_state: self.block_compute(block_info, current_state),
+                    state,
                     **ckpt_kwargs,
                 )
-
             else:
-                encoder_hidden_states, hidden_states = block(
-                    hidden_states=hidden_states,
-                    encoder_hidden_states=encoder_hidden_states,
-                    temb=temb,
-                    image_rotary_emb=image_rotary_emb,
-                    joint_attention_kwargs=joint_attention_kwargs,
-                )
-
-            if controlnet_block_samples is not None:
-                interval_control = len(self.transformer_blocks) / len(controlnet_block_samples)
-                interval_control = int(np.ceil(interval_control))
-                if controlnet_blocks_repeat:
-                    hidden_states = hidden_states + controlnet_block_samples[index_block % len(controlnet_block_samples)]
-                else:
-                    hidden_states = hidden_states + controlnet_block_samples[index_block // interval_control]
-
-        hidden_states = torch.cat([encoder_hidden_states, hidden_states], dim=1)
-
-        for index_block, block in enumerate(self.single_transformer_blocks):
-            if torch.is_grad_enabled() and self.gradient_checkpointing:
-
-                def create_custom_forward(module, return_dict=None):
-                    def custom_forward(*inputs):
-                        if return_dict is not None:
-                            return module(*inputs, return_dict=return_dict)
-                        return module(*inputs)
-
-                    return custom_forward
-
-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
-                hidden_states = torch.utils.checkpoint.checkpoint(
-                    create_custom_forward(block),
-                    hidden_states,
-                    temb,
-                    image_rotary_emb,
-                    **ckpt_kwargs,
-                )
-
-            else:
-                hidden_states = block(
-                    hidden_states=hidden_states,
-                    temb=temb,
-                    image_rotary_emb=image_rotary_emb,
-                    joint_attention_kwargs=joint_attention_kwargs,
-                )
-
-            if controlnet_single_block_samples is not None:
-                interval_control = len(self.single_transformer_blocks) / len(controlnet_single_block_samples)
-                interval_control = int(np.ceil(interval_control))
-                hidden_states[:, encoder_hidden_states.shape[1] :, ...] = (
-                    hidden_states[:, encoder_hidden_states.shape[1] :, ...]
-                    + controlnet_single_block_samples[index_block // interval_control]
-                )
-
-        return hidden_states[:, encoder_hidden_states.shape[1] :, ...]
+                state = self.block_compute(block_info, state)
+        return self.backbone_finalize_state(state)
 
     @property
     # Copied from diffusers.models.unets.unet_2d_condition.UNet2DConditionModel.attn_processors

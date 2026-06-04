@@ -117,9 +117,19 @@ class BackboneMixin:
     def backbone_prepare_block_state(self, block_info: BackboneBlockInfo, state: BackboneState) -> BackboneState:
         return state
 
-    def backbone_run_block(self, block_info: BackboneBlockInfo, state: BackboneState) -> BackboneState:
+    def block_compute(self, block_info: BackboneBlockInfo, state: BackboneState) -> BackboneState:
         state["x"] = block_info.module(state["x"], **state["kwargs"])
         return state
+
+    def backbone_run_block(self, block_info: BackboneBlockInfo, state: BackboneState) -> BackboneState:
+        return self.block_compute(block_info, state)
+
+    def model_compute(self, tokens: torch.Tensor, **kwargs) -> torch.Tensor:
+        state = self.backbone_make_state(tokens, **kwargs)
+        for block_info in self.backbone_blocks():
+            state = self.backbone_prepare_block_state(block_info, state)
+            state = self.block_compute(block_info, state)
+        return self.backbone_finalize_state(state)
 
     def backbone_state_tensor(self, state: Any) -> torch.Tensor:
         if torch.is_tensor(state):

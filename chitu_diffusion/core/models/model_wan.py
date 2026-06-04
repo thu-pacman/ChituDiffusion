@@ -505,11 +505,7 @@ class WanModel(BackboneMixin, ModelMixin, ConfigMixin):
         Returns:
             processed_tokens: 处理后的tokens
         """
-        kwargs.pop("raw_e", None)
-        x = tokens
-        for i, block in enumerate(self.blocks):
-            x = block(x, **kwargs)
-        return x
+        return super().model_compute(tokens, **kwargs)
         
 
     def forward(

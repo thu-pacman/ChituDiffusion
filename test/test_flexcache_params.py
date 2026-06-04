@@ -116,10 +116,7 @@ def test_blockdance_reuse_skips_shallow_blocks(monkeypatch):
             self.blocks = nn.ModuleList([FakeBlock(1), FakeBlock(10), FakeBlock(100), FakeBlock(1000)])
 
         def model_compute(self, tokens, **kwargs):
-            x = tokens
-            for block in self.blocks:
-                x = block(x, **kwargs)
-            return x
+            return super().model_compute(tokens, **kwargs)
 
     monkeypatch.setattr(DiffusionBackend, "generator", Generator())
     monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.POS)
@@ -149,6 +146,37 @@ def test_blockdance_reuse_skips_shallow_blocks(monkeypatch):
     assert [block.calls for block in module.blocks] == [1, 1, 2, 2]
 
 
+def test_blockdance_cache_key_includes_cfg_branch_and_cp_rank(monkeypatch):
+    class ReqParams:
+        num_inference_steps = 10
+
+    class Req:
+        params = ReqParams()
+
+    class Task:
+        req = Req()
+
+    class FakeCpGroup:
+        group_size = 2
+        rank_in_group = 1
+
+    monkeypatch.setattr("chitu_diffusion.flexcache.strategy.blockdance.get_cp_group", lambda: FakeCpGroup())
+    monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.POS)
+
+    strategy = BlockDanceStrategy(
+        task=Task(),
+        warmup_steps=0,
+        cooldown_steps=0,
+        boundary_block=3,
+        group_size=2,
+    )
+
+    assert strategy._cache_key() == ("blockdance", "pos_cp1", 3)
+
+    monkeypatch.setattr(DiffusionBackend, "cfg_type", CFGType.NEG)
+    assert strategy._cache_key() == ("blockdance", "neg_cp1", 3)
+
+
 def test_default_backbone_delta_accepts_cached_tensor():
     class FakeBlock(nn.Module):
         def forward(self, x, **kwargs):
@@ -168,6 +196,28 @@ def test_default_backbone_delta_accepts_cached_tensor():
 
     assert torch.equal(delta, torch.full((1, 2), 2.0))
     assert torch.equal(module.backbone_state_tensor(restored), torch.full((1, 2), 3.0))
+
+
+def test_default_backbone_model_compute_routes_through_block_compute():
+    class FakeBlock(nn.Module):
+        def forward(self, x, **kwargs):
+            return x + 1
+
+    class FakeModule(BackboneMixin, nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.blocks = nn.ModuleList([FakeBlock(), FakeBlock(), FakeBlock()])
+            self.block_compute_calls = 0
+
+        def block_compute(self, block_info, state):
+            self.block_compute_calls += 1
+            return super().block_compute(block_info, state)
+
+    module = FakeModule()
+    output = module.model_compute(torch.zeros(1, 1))
+
+    assert output.item() == 3
+    assert module.block_compute_calls == 3
 
 
 def test_teacache_cfg_branches_keep_independent_state(monkeypatch):

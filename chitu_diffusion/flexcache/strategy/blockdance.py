@@ -6,6 +6,7 @@ from typing import Optional
 import torch
 
 from chitu_diffusion.core.models.backbone import detach_backbone_value
+from chitu_diffusion.core.distributed.parallel_state import get_cp_group
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
 from chitu_diffusion.runtime.output_layout import debug_output_dir
@@ -49,7 +50,13 @@ class BlockDanceStrategy(FlexCacheStrategy):
         self._vis_max_step = -1
 
     def _branch_key(self) -> str:
-        return "pos" if DiffusionBackend.cfg_type == CFGType.POS else "neg"
+        cfg_branch = "pos" if DiffusionBackend.cfg_type == CFGType.POS else "neg"
+        try:
+            cp_group = get_cp_group()
+            cp_rank = cp_group.rank_in_group if cp_group.group_size > 1 else 0
+        except AssertionError:
+            cp_rank = 0
+        return f"{cfg_branch}_cp{cp_rank}"
 
     def _cache_key(self):
         return ("blockdance", self._branch_key(), self.boundary_block)
@@ -82,11 +89,11 @@ class BlockDanceStrategy(FlexCacheStrategy):
         return detach_backbone_value(fresh_feature)
 
     def wrap_module_with_strategy(self, module: torch.nn.Module) -> None:
-        if not hasattr(module, "model_compute"):
-            raise ValueError("BlockDance layer strategy expects a module with model_compute.")
-        if not hasattr(module, "_original_forward"):
-            module._original_forward = module.model_compute
-        original_forward = module._original_forward
+        if not hasattr(module, "block_compute"):
+            raise ValueError("BlockDance layer strategy expects a module with block_compute.")
+        if not hasattr(module, "_blockdance_original_block_compute"):
+            module._blockdance_original_block_compute = module.block_compute
+        original_block_compute = module._blockdance_original_block_compute
         if not hasattr(module, "backbone_blocks"):
             raise ValueError(f"{module.__class__.__name__} does not implement the backbone block API.")
         blocks = module.backbone_blocks()
@@ -94,63 +101,61 @@ class BlockDanceStrategy(FlexCacheStrategy):
         boundary_index = min(self.boundary_block, max(0, block_count - 1))
         reuse_start_index = min(boundary_index + 1, block_count)
 
-        @functools.wraps(original_forward)
-        def model_compute_with_blockdance(tokens: torch.Tensor, **kwargs):
+        @functools.wraps(original_block_compute)
+        def block_compute_with_blockdance(block_info, state):
             step = self._current_step()
             offset = self._active_group_offset(step)
             cache_key = self._cache_key()
             task_id = getattr(DiffusionBackend.generator.current_task, "task_id", None)
+            layer_id = int(block_info.index)
 
             if offset is not None and offset != 0 and cache_key in DiffusionBackend.flexcache.cache:
-                state = module.backbone_make_state(tokens, **kwargs)
-                state = module.backbone_restore_cached_state(state, self.reuse(DiffusionBackend.flexcache.cache[cache_key]))
-                for block_info in blocks[reuse_start_index:]:
-                    state = module.backbone_prepare_block_state(block_info, state)
-                    state = module.backbone_run_block(block_info, state)
-                self._record_compute(
-                    baseline_units=float(block_count),
-                    actual_units=float(block_count - reuse_start_index),
-                    task_id=task_id,
-                    step=step,
-                    decision="reuse",
-                    boundary_index=boundary_index,
-                    reuse_start_index=reuse_start_index,
-                )
-                self._record_step_policy(step, 2)
-                return module.backbone_finalize_state(state)
+                if layer_id < reuse_start_index:
+                    if layer_id == 0:
+                        self._record_compute(
+                            baseline_units=float(block_count),
+                            actual_units=float(block_count - reuse_start_index),
+                            task_id=task_id,
+                            step=step,
+                            decision="reuse",
+                            boundary_index=boundary_index,
+                            reuse_start_index=reuse_start_index,
+                        )
+                        self._record_step_policy(step, 2)
+                    if layer_id == boundary_index:
+                        return module.backbone_restore_cached_state(
+                            state,
+                            self.reuse(DiffusionBackend.flexcache.cache[cache_key]),
+                        )
+                    return state
+                return original_block_compute(block_info, state)
 
-            state = module.backbone_make_state(tokens, **kwargs)
-            cached_boundary = None
             should_store = offset == 0
-            for layer_id, block_info in enumerate(blocks):
-                state = module.backbone_prepare_block_state(block_info, state)
-                state = module.backbone_run_block(block_info, state)
-                if should_store and layer_id == boundary_index:
-                    cached_boundary = self.store(module.backbone_cache_state(state))
-
-            if should_store and cached_boundary is not None:
-                DiffusionBackend.flexcache.cache[cache_key] = cached_boundary
+            state = original_block_compute(block_info, state)
+            if should_store and layer_id == boundary_index:
+                DiffusionBackend.flexcache.cache[cache_key] = self.store(module.backbone_cache_state(state))
                 DiffusionBackend.flexcache.record_cache_memory(
                     "flexcache_store",
                     task_id=task_id,
                     extra={"cache_key": str(cache_key)},
                 )
                 self._record_step_policy(step, 3)
-            else:
+            elif layer_id == 0:
                 self._record_step_policy(step, 1)
 
-            self._record_compute(
-                baseline_units=float(block_count),
-                actual_units=float(block_count),
-                task_id=task_id,
-                step=step,
-                decision="cache" if should_store else "compute",
-                boundary_index=boundary_index,
-                reuse_start_index=reuse_start_index,
-            )
-            return module.backbone_finalize_state(state)
+            if layer_id == 0:
+                self._record_compute(
+                    baseline_units=float(block_count),
+                    actual_units=float(block_count),
+                    task_id=task_id,
+                    step=step,
+                    decision="cache" if should_store else "compute",
+                    boundary_index=boundary_index,
+                    reuse_start_index=reuse_start_index,
+                )
+            return state
 
-        module.model_compute = model_compute_with_blockdance
+        module.block_compute = block_compute_with_blockdance
         logger.info(
             "Module %s wrapped with BlockDance layer strategy: boundary_block=%d group_size=%d active=[%d,%d)",
             module.__class__.__name__,
@@ -161,9 +166,9 @@ class BlockDanceStrategy(FlexCacheStrategy):
         )
 
     def unwrap_module(self, module: torch.nn.Module) -> None:
-        if hasattr(module, "_original_forward"):
-            module.model_compute = module._original_forward
-            delattr(module, "_original_forward")
+        if hasattr(module, "_blockdance_original_block_compute"):
+            module.block_compute = module._blockdance_original_block_compute
+            delattr(module, "_blockdance_original_block_compute")
         run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
         if run_output_dir:
             self._save_policy_ppm(debug_output_dir(run_output_dir), "flexcache_blockdance_policy.ppm")
