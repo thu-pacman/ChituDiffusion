@@ -12,8 +12,10 @@ runtime:
   chitu_debug: true
   cuda_launch_blocking: false
 
+# Wan2.1-T2V-1.3B, FLUX.1-dev
 model:
   name: FLUX.1-dev
+  # Flux-1  flux2-klein  Wan2.1-T2V-1.3B  Wan2.1-T2V-14B
   ckpt_dir: /home/chenyy/WORK/models/Flux-1
 
 parallel:

@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 from logging import getLogger
 from typing import Dict, Tuple
@@ -39,6 +40,11 @@ def collect_videos_and_prompts(args) -> Tuple[Dict[str, str], str]:
         save_dir = str(Path(task.req.params.save_dir).resolve())
         save_name = build_video_name_from_task(task)
         video_path = Path(save_dir) / save_name
+        if not video_path.exists():
+            image_path = _image_output_from_sidecar(Path(save_dir), task.task_id)
+            if image_path is not None:
+                video_path = image_path
+                save_name = video_path.name
 
         if not video_path.exists():
             missing_files += 1
@@ -63,6 +69,24 @@ def collect_videos_and_prompts(args) -> Tuple[Dict[str, str], str]:
         f"Missing files: {missing_files}. videos_dir={videos_dir}"
     )
     return video_prompt, videos_dir
+
+
+def _image_output_from_sidecar(save_dir: Path, task_id: str) -> Path | None:
+    for sidecar_path in sorted(save_dir.glob("*.json")):
+        try:
+            with open(sidecar_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception:
+            continue
+        if not isinstance(payload, dict) or payload.get("task_id") != task_id:
+            continue
+        filename = payload.get("filename")
+        if not filename:
+            continue
+        output_path = save_dir / str(filename)
+        if output_path.exists() and output_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
+            return output_path
+    return None
 
 
 def _get_completed_tasks_from_pool():

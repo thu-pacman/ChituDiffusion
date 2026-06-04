@@ -1,8 +1,13 @@
 import numpy as np
 import imageio.v2 as imageio
+from PIL import Image
 
 
 def load_video_frames(video_path: str, max_frames: int = -1) -> np.ndarray:
+    if video_path.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp")):
+        frame = np.array(Image.open(video_path).convert("RGB"), dtype=np.float32)
+        return frame[None]
+
     frames = []
     reader = imageio.get_reader(video_path)
     try:

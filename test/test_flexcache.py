@@ -19,7 +19,7 @@ from chitu_diffusion.runtime.main import (
     chitu_terminate,
     warmup_diffusion_engine,
 )
-from chitu_diffusion.flexcache.params import BlockDanceParams, CubicParams, TaylorSeerParams
+from chitu_diffusion.flexcache.params import BlockDanceParams, CubicParams, PABParams, TaylorSeerParams, TeaCacheParams
 from chitu_diffusion.runtime.task import (
     DiffusionTask,
     DiffusionTaskPool,
@@ -32,54 +32,45 @@ from run_context import DiffusionTestRunContext, should_record_metrics_on_rank
 logger = getLogger(__name__)
 
 
-msgs = [
-    #     DiffusionUserParams(
-    #     role="Alex",
-    #     prompt="A cat walking on grass.",
-    #     seed=42,
-    #     frame_num=81,
-    #     size=(832, 480),
-    #     negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
-    #     num_inference_steps=50,
-    #     sample_solver="unipc",
-    #     flexcache_params=BlockDanceParams(
-    #         warmup=7,
-    #         cooldown=3,
-    #     ),
-    # ),
+def get_wan_steps() -> int:
+    return int(os.getenv("CHITU_WAN_STEPS", "50"))
 
-    # DiffusionUserParams(
-    #     role="Alex",
-    #     prompt="A cat walking on grass.",
-    #     seed=42,
-    #     frame_num=81,
-    #     size=(832, 480),
-    #     negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
-    #     num_inference_steps=50,
-    #     sample_solver="unipc",
-    #     flexcache_params=CubicParams(
-    #         cache_ratio=0.5,
-    #         warmup=7,
-    #         cooldown=3,
-    #     ),
-    # ),
 
-    DiffusionUserParams(
-        role="Alex",
-        prompt="A cat walking on grass.",
-        seed=42,
-        frame_num=81,
-        size=(832, 480),
-        negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
-        num_inference_steps=50,
-        sample_solver="unipc",
-        flexcache_params=TaylorSeerParams(
-            warmup=7,
-            cooldown=3,
+def get_wan_warmup_cooldown() -> tuple[int, int]:
+    steps = get_wan_steps()
+    if steps <= 10:
+        return 1, 1
+    return 7, 3
+
+
+def build_wan_flexcache_params():
+    strategy = os.getenv("CHITU_WAN_FLEXCACHE_STRATEGY", "taylorseer").strip().lower()
+    warmup, cooldown = get_wan_warmup_cooldown()
+    if strategy == "teacache":
+        return TeaCacheParams(
+            warmup=warmup,
+            cooldown=cooldown,
+            teacache_thresh=0.2,
+            coefficients=None,
+            use_ref_steps=True,
+        )
+    if strategy == "pab":
+        return PABParams(warmup=warmup, cooldown=cooldown, skip_self_range=2, skip_cross_range=3)
+    if strategy == "blockdance":
+        return BlockDanceParams(warmup=warmup, cooldown=cooldown)
+    if strategy == "cubic":
+        return CubicParams(target_speedup=2.0, warmup=warmup, cooldown=cooldown)
+    if strategy == "taylorseer":
+        return TaylorSeerParams(
+            warmup=warmup,
+            cooldown=cooldown,
             fresh_threshold=5,
             max_order=1,
-        ),
-    ),
+        )
+    raise ValueError(f"Unsupported CHITU_WAN_FLEXCACHE_STRATEGY={strategy!r}")
+
+
+msgs = [
     DiffusionUserParams(
         role="Alex",
         prompt="A cat walking on grass.",
@@ -87,33 +78,10 @@ msgs = [
         frame_num=81,
         size=(832, 480),
         negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
-        num_inference_steps=50,
+        num_inference_steps=get_wan_steps(),
         sample_solver="unipc",
-        flexcache_params=TaylorSeerParams(
-            warmup=7,
-            cooldown=3,
-            fresh_threshold=4,
-            max_order=2,
-        ),
+        flexcache_params=build_wan_flexcache_params(),
     ),
-    DiffusionUserParams(
-        role="Alex",
-        prompt="A cat walking on grass.",
-        seed=42,
-        frame_num=81,
-        size=(832, 480),
-        negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
-        num_inference_steps=50,
-        sample_solver="unipc",
-        flexcache_params=TaylorSeerParams(
-            warmup=7,
-            cooldown=3,
-            fresh_threshold=3,
-            max_order=1,
-        ),
-    ),
-
-
 ]
 
 

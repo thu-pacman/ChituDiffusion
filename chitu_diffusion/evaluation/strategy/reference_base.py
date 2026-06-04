@@ -68,7 +68,7 @@ class ReferenceMetricStrategy(EvalStrategy):
             mapping: Dict[Tuple[str, str, str], Path] = {}
             run_model = _reference_run_model(base_dir)
 
-            for reference_video in base_dir.rglob("*.mp4"):
+            for reference_video in [*base_dir.rglob("*.mp4"), *base_dir.rglob("*.png")]:
                 sidecar = _sidecar_for_video(reference_video)
                 if sidecar is not None and sidecar.get("prompt") is not None:
                     ref_model = sidecar.get("model_name") or sidecar.get("model") or run_model
