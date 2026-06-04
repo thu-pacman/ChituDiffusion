@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Tuple
 
 import torch
+from diffusers.models.modeling_outputs import Transformer2DModelOutput
 
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheStrategy
-from chitu_diffusion.flexcache.modules import WanCubicSelectiveForwardEngine
+from chitu_diffusion.flexcache.modules import FluxCubicSelectiveForwardEngine, WanCubicSelectiveForwardEngine
+from chitu_diffusion.modules.utils.flux import unpack_flux1_latents
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
 from chitu_diffusion.runtime.output_layout import debug_output_dir
 
@@ -17,9 +19,12 @@ logger = logging.getLogger(__name__)
 
 
 def _load_cubic_core():
-    cubic_root = Path(__file__).resolve().parents[3] / "third_party" / "Cubic"
+    repo_root = Path(__file__).resolve().parents[3]
+    cubic_root = repo_root / "third_party" / "Cubic"
     if not cubic_root.exists():
-        raise ImportError(f"third_party/Cubic not found at {cubic_root}")
+        cubic_root = repo_root / "refs" / "Cubic"
+    if not cubic_root.exists():
+        raise ImportError(f"Cubic reference package not found under {repo_root}/third_party/Cubic or {repo_root}/refs/Cubic")
     cubic_root_str = str(cubic_root)
     if cubic_root_str not in sys.path:
         sys.path.insert(0, cubic_root_str)
@@ -36,14 +41,15 @@ def _load_cubic_core():
 
 
 @dataclass
-class CubicWanConfig:
-    target_speedup: float = 2.0
-    warmup_fraction: float = 0.15
-    cooldown_fraction: float = 0.15
-    anchor_interval: int = 8
+class CubicModelParams:
     patch_size: Tuple[int, int, int] = (1, 2, 2)
     num_layers: int = 30
     partition_mode: str = "wan13_832x480_uniform"
+    uniform_square_min_splits: int = 8
+    min_block_tokens: int = 1
+    max_block_tokens: int = 1 << 30
+    max_blocksize_candidates: int = 36
+    uniform_common_factor_blocks: bool = False
     wan13_image_h: int = 480
     wan13_image_w: int = 832
     wan13_block_image_h: int = 60
@@ -56,35 +62,83 @@ class CubicWanConfig:
     curvature_contrast_gamma: float = 1.0
 
 
-class CubicStrategy(FlexCacheStrategy):
-    """Cubic-WAN as a FlexCache strategy."""
+@dataclass
+class CubicFluxModelParams(CubicModelParams):
+    patch_size: Tuple[int, int, int] = (1, 2, 2)
+    num_layers: int = 57
+    partition_mode: str = "uniform_square"
+    uniform_square_min_splits: int = 8
+    min_block_size: int = 8
+    max_block_size: int = 8
+    alpha: float = 2.0
+    beta: float = 4.0
+    curvature_contrast_gamma: float = 1.8
 
-    def __init__(self, task, cache_ratio: float, warmup_steps: int, cooldown_steps: int, tau_max: int, **kwargs):
+
+@dataclass
+class CubicWanModelParams(CubicModelParams):
+    patch_size: Tuple[int, int, int] = (1, 2, 2)
+    num_layers: int = 30
+    partition_mode: str = "wan13_832x480_uniform"
+    wan13_image_h: int = 480
+    wan13_image_w: int = 832
+    wan13_block_image_h: int = 60
+    wan13_block_image_w: int = 64
+    min_block_size: int = 2
+    max_block_size: int = 16
+
+
+@dataclass
+class CubicConfig(CubicModelParams):
+    target_speedup: float = 2.0
+    warmup_fraction: float = 0.15
+    cooldown_fraction: float = 0.15
+    anchor_interval: int = 8
+
+
+class CubicStrategy(FlexCacheStrategy):
+    """Cubic selective token forward as a FlexCache strategy."""
+
+    def __init__(
+        self,
+        task,
+        target_speedup: float,
+        warmup_steps: int,
+        cooldown_steps: int,
+        tau_max: int,
+        model_params: CubicModelParams,
+    ):
         super().__init__()
         AdaptivePartitioner, CurvatureMonitor, Phase, SelectiveStepScheduler, UpdateFrequencyOptimizer = _load_cubic_core()
         total_steps = int(task.req.params.num_inference_steps)
-        warmup_fraction = float(kwargs.get("warmup_fraction", warmup_steps / max(total_steps, 1)))
-        cooldown_fraction = float(kwargs.get("cooldown_fraction", cooldown_steps / max(total_steps, 1)))
-        target_speedup = float(kwargs.get("target_speedup", max(1.0, 1.0 / max(1.0 - float(cache_ratio), 1e-6))))
-        patch_size = tuple(int(v) for v in kwargs.get("patch_size", (1, 2, 2)))
-        self.config = CubicWanConfig(
+        warmup_fraction = warmup_steps / max(total_steps, 1)
+        cooldown_fraction = cooldown_steps / max(total_steps, 1)
+        target_speedup = float(target_speedup)
+        self.model_name = getattr(getattr(getattr(DiffusionBackend, "args", None), "models", None), "name", None)
+        is_flux1 = self.model_name == "FLUX.1-dev"
+        self.config = CubicConfig(
             target_speedup=target_speedup,
             warmup_fraction=warmup_fraction,
             cooldown_fraction=cooldown_fraction,
-            anchor_interval=int(kwargs.get("anchor_interval", tau_max)),
-            patch_size=patch_size,
-            num_layers=int(kwargs.get("num_layers", 30)),
-            partition_mode=str(kwargs.get("partition_mode", "wan13_832x480_uniform")),
-            wan13_image_h=int(kwargs.get("wan13_image_h", 480)),
-            wan13_image_w=int(kwargs.get("wan13_image_w", 832)),
-            wan13_block_image_h=int(kwargs.get("wan13_block_image_h", 60)),
-            wan13_block_image_w=int(kwargs.get("wan13_block_image_w", 64)),
-            min_block_size=int(kwargs.get("min_block_size", 2)),
-            max_block_size=int(kwargs.get("max_block_size", 16)),
-            cv_threshold=float(kwargs.get("cv_threshold", 0.5)),
-            alpha=float(kwargs.get("alpha", 1.0)),
-            beta=float(kwargs.get("beta", 2.0)),
-            curvature_contrast_gamma=float(kwargs.get("curvature_contrast_gamma", 1.0)),
+            anchor_interval=int(tau_max),
+            patch_size=model_params.patch_size,
+            num_layers=model_params.num_layers,
+            partition_mode=model_params.partition_mode,
+            uniform_square_min_splits=model_params.uniform_square_min_splits,
+            min_block_tokens=model_params.min_block_tokens,
+            max_block_tokens=model_params.max_block_tokens,
+            max_blocksize_candidates=model_params.max_blocksize_candidates,
+            uniform_common_factor_blocks=model_params.uniform_common_factor_blocks,
+            wan13_image_h=model_params.wan13_image_h,
+            wan13_image_w=model_params.wan13_image_w,
+            wan13_block_image_h=model_params.wan13_block_image_h,
+            wan13_block_image_w=model_params.wan13_block_image_w,
+            min_block_size=model_params.min_block_size,
+            max_block_size=model_params.max_block_size,
+            cv_threshold=model_params.cv_threshold,
+            alpha=model_params.alpha,
+            beta=model_params.beta,
+            curvature_contrast_gamma=model_params.curvature_contrast_gamma,
         )
         self.type = "cubic"
         self.tradeoff_score = target_speedup
@@ -94,7 +148,9 @@ class CubicStrategy(FlexCacheStrategy):
         self.partitioner = AdaptivePartitioner(self.config)
         self.frequency_optimizer = UpdateFrequencyOptimizer(self.config)
         self.step_scheduler = SelectiveStepScheduler(self.config)
-        self.selective_forward = WanCubicSelectiveForwardEngine()
+        self.selective_forward = (
+            FluxCubicSelectiveForwardEngine(self.config) if is_flux1 else WanCubicSelectiveForwardEngine()
+        )
         self.current_partition = None
         self.current_frequency_plan = None
         self.current_step_plan = None
@@ -120,6 +176,10 @@ class CubicStrategy(FlexCacheStrategy):
         if not hasattr(module, "_original_forward"):
             module._original_forward = module.forward
         original_forward = module._original_forward
+
+        if self.model_name == "FLUX.1-dev":
+            self._wrap_flux1_module(module, original_forward)
+            return
 
         @functools.wraps(original_forward)
         def forward_with_cubic(x, t, context, seq_len, clip_fea=None, y=None):
@@ -154,7 +214,83 @@ class CubicStrategy(FlexCacheStrategy):
             self.config.anchor_interval,
         )
 
+    def _wrap_flux1_module(self, module: torch.nn.Module, original_forward) -> None:
+        @functools.wraps(original_forward)
+        def forward_with_cubic(
+            hidden_states,
+            encoder_hidden_states=None,
+            pooled_projections=None,
+            timestep=None,
+            img_ids=None,
+            txt_ids=None,
+            guidance=None,
+            joint_attention_kwargs=None,
+            controlnet_block_samples=None,
+            controlnet_single_block_samples=None,
+            return_dict=True,
+            controlnet_blocks_repeat=False,
+        ):
+            if controlnet_block_samples is not None or controlnet_single_block_samples is not None:
+                return original_forward(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+                    pooled_projections=pooled_projections,
+                    timestep=timestep,
+                    img_ids=img_ids,
+                    txt_ids=txt_ids,
+                    guidance=guidance,
+                    joint_attention_kwargs=joint_attention_kwargs,
+                    controlnet_block_samples=controlnet_block_samples,
+                    controlnet_single_block_samples=controlnet_single_block_samples,
+                    return_dict=return_dict,
+                    controlnet_blocks_repeat=controlnet_blocks_repeat,
+                )
+
+            step = self._current_step()
+            phase = self._phase(step)
+            self._prepare_step_plan(step, phase)
+            branch_key = self._branch_key()
+            output = self.selective_forward.forward(
+                transformer=module,
+                original_forward=original_forward,
+                hidden_states=hidden_states,
+                timestep=timestep,
+                guidance=guidance,
+                pooled_projections=pooled_projections,
+                encoder_hidden_states=encoder_hidden_states,
+                txt_ids=txt_ids,
+                img_ids=img_ids,
+                joint_attention_kwargs=joint_attention_kwargs,
+                step_plan=self.current_step_plan,
+                cache_key=branch_key,
+            )
+            if self._should_monitor(step, phase):
+                self._update_flux_anchor_state(
+                    latents=hidden_states,
+                    output=output,
+                    img_ids=img_ids,
+                    t=timestep,
+                    step=step,
+                )
+            self._publish_cache_refs()
+            self._record_compute_metric(step, phase, branch_key)
+            self._record_step_trace(step, phase)
+            if not return_dict:
+                return (output,)
+            return Transformer2DModelOutput(sample=output)
+
+        module.forward = forward_with_cubic
+        logger.info(
+            "Module %s wrapped with Flux Cubic strategy: target_speedup=%.3f partition_mode=%s uniform_square_min_splits=%d",
+            module.__class__.__name__,
+            self.config.target_speedup,
+            self.config.partition_mode,
+            self.config.uniform_square_min_splits,
+        )
+
     def unwrap_module(self, module: torch.nn.Module) -> None:
+        if hasattr(self.selective_forward, "restore_attn_processors"):
+            self.selective_forward.restore_attn_processors(module)
         if hasattr(module, "_original_forward"):
             module.forward = module._original_forward
             delattr(module, "_original_forward")
@@ -269,6 +405,63 @@ class CubicStrategy(FlexCacheStrategy):
             self.current_frequency_plan.achieved_speedup,
             self.next_anchor_step,
         )
+
+    def _update_flux_anchor_state(self, latents, output, img_ids, t, step: int):
+        latents_unpacked = self._unpack_flux_sequence(latents, img_ids)
+        output_unpacked = self._unpack_flux_sequence(output, img_ids)
+        t_unit = self._normalize_t_to_unit_interval(t)
+        curvature_map = self.monitor.update(
+            x=latents_unpacked.unsqueeze(2),
+            v=output_unpacked.unsqueeze(2),
+            t=t_unit,
+            step_idx=step,
+        )
+        if curvature_map is None:
+            self.current_anchor_gap = 1
+            self.next_anchor_step = step + self.current_anchor_gap
+            return
+
+        ft, ht, wt = curvature_map.shape
+        self.current_partition = self.partitioner.partition(Ft=ft, Ht=ht, Wt=wt, curvature_map=curvature_map)
+        block_curvatures = self.monitor.get_block_curvatures(self.current_partition, curvature_map=curvature_map)
+        self.current_frequency_plan = self.frequency_optimizer.optimize(
+            partition=self.current_partition,
+            block_curvatures=block_curvatures,
+        )
+        self.current_anchor_gap = max(1, 2 * int(self.current_frequency_plan.max_interval))
+        self.next_anchor_step = min(self.total_steps - 1, step + self.current_anchor_gap)
+        self.current_step_plan = self.step_scheduler.build_step_plan(
+            partition=self.current_partition,
+            block_intervals=self.current_frequency_plan.block_intervals,
+            phase=self.CubicPhase.CRUISE_ANCHOR,
+            step_idx=step,
+            selective_step_idx=max(0, step - int(self.total_steps * self.config.warmup_fraction)),
+        )
+        logger.info(
+            "[flexcache-cubic-flux] step=%d curvature=%s blocks=%d tau_min=%d tau_max=%d achieved_speedup=%.3f next_anchor_step=%d",
+            step,
+            tuple(curvature_map.shape),
+            len(self.current_partition.blocks),
+            self.current_frequency_plan.min_interval,
+            self.current_frequency_plan.max_interval,
+            self.current_frequency_plan.achieved_speedup,
+            self.next_anchor_step,
+        )
+
+    @staticmethod
+    def _unpack_flux_sequence(sequence: torch.Tensor, img_ids: torch.Tensor | None) -> torch.Tensor:
+        if img_ids is not None:
+            ids = img_ids[0] if img_ids.ndim == 3 else img_ids
+            if ids.shape[1] >= 3:
+                h_tokens = int(ids[:, 1].max().item()) + 1
+                w_tokens = int(ids[:, 2].max().item()) + 1
+                return unpack_flux1_latents(sequence, height=h_tokens * 16, width=w_tokens * 16, vae_scale_factor=16)
+
+        seq_len = int(sequence.shape[1])
+        side = int(seq_len**0.5)
+        if side * side != seq_len:
+            raise ValueError(f"Flux Cubic expects square token grid when img_ids is missing, got seq_len={seq_len}")
+        return unpack_flux1_latents(sequence, height=side * 16, width=side * 16, vae_scale_factor=16)
 
     def _record_step_trace(self, step: int, phase):
         if self._branch_key() != "pos":

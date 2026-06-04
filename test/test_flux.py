@@ -8,7 +8,7 @@ import torch
 from chitu_diffusion.core.config_loader import load_config_from_cli
 from chitu_diffusion.core.schemas import ServeConfig
 from chitu_diffusion.core.utils import gen_req_id
-from chitu_diffusion.flexcache.params import BlockDanceParams, PABParams, TaylorSeerParams, TeaCacheParams
+from chitu_diffusion.flexcache.params import BlockDanceParams, CubicParams, PABParams, TaylorSeerParams, TeaCacheParams
 from chitu_diffusion.observability import Timer
 from chitu_diffusion.runtime.main import (
     chitu_generate,
@@ -46,6 +46,13 @@ def build_flux1_flexcache_params():
         return BlockDanceParams(warmup=1, cooldown=1, boundary_block=18, group_size=2, start_fraction=0.25, end_fraction=0.90)
     if strategy == "taylorseer":
         return TaylorSeerParams(warmup=1, cooldown=1, fresh_threshold=2, max_order=1, first_enhance=1)
+    if strategy == "cubic":
+        return CubicParams(
+            warmup=1,
+            cooldown=1,
+            target_speedup=2.0,
+            tau_max=8,
+        )
     raise ValueError(f"Unsupported CHITU_FLUX_FLEXCACHE_STRATEGY={strategy!r}")
 
 

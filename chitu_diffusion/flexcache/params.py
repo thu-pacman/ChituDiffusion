@@ -39,21 +39,9 @@ class BlockDanceParams(FlexCacheParams):
 @dataclass
 class CubicParams(FlexCacheParams):
     strategy: Optional[str] = "cubic"
-    cache_ratio: float = 0.5
+    target_speedup: float = 2.0
     tau_max: int = 8
-    target_speedup: Optional[float] = None
-    patch_size: Optional[Tuple[int, int, int]] = None
-    num_layers: Optional[int] = None
-    warmup_fraction: Optional[float] = None
-    cooldown_fraction: Optional[float] = None
-    anchor_interval: Optional[int] = None
-    partition_mode: str = "wan13_832x480_uniform"
-    min_block_size: int = 2
-    max_block_size: int = 16
-    cv_threshold: float = 0.5
-    alpha: float = 1.0
-    beta: float = 2.0
-    curvature_contrast_gamma: float = 1.0
+    block_size: Optional[int] = None
 
 
 @dataclass

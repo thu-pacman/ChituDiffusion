@@ -73,9 +73,8 @@ code so each strategy exposes only its own controls:
 - `PABParams`: `warmup`, `cooldown`, `skip_self_range`, `skip_cross_range`
 - `BlockDanceParams`: `warmup`, `cooldown`, `boundary_block`, `group_size`,
   `start_fraction`, `end_fraction`
-- `CubicParams`: `cache_ratio`, `warmup`, `cooldown`, `tau_max`,
-  `target_speedup`, `anchor_interval`, `partition_mode`, partition optimizer
-  options
+- `CubicParams`: `target_speedup`, `warmup`, `cooldown`, `tau_max`,
+  optional `block_size`
 - `TaylorSeerParams`: `warmup`, `cooldown`, `fresh_threshold`, `max_order`,
   `first_enhance`
 - `DiTangoParams`: `cache_ratio`, `warmup`, `cooldown`, `tau_max`,
@@ -110,12 +109,10 @@ Cubic-WAN:
 
 ```python
 CubicParams(
-    cache_ratio=0.5,
+    target_speedup=2.0,
     warmup=7,
     cooldown=3,
     tau_max=8,
-    target_speedup=2.0,
-    partition_mode="wan13_832x480_uniform",
 )
 ```
 
