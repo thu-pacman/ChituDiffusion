@@ -116,7 +116,6 @@ class FlexCacheManager():
         self.peak_cache_entries = 0
         self.peak_cache_tensors = 0
         self.cache_memory_events: List[Dict[str, Any]] = []
-        self.cache_memory_seen_keys = set()
         self.compute_baseline_units = 0.0
         self.compute_actual_units = 0.0
         self.compute_event_count = 0
@@ -131,7 +130,6 @@ class FlexCacheManager():
         self.peak_cache_entries = 0
         self.peak_cache_tensors = 0
         self.cache_memory_events.clear()
-        self.cache_memory_seen_keys.clear()
 
     def reset_compute_stats(self):
         self.compute_baseline_units = 0.0
@@ -335,13 +333,6 @@ class FlexCacheManager():
         return len(self.cache)
 
     def record_cache_memory(self, stage: str, task_id: Optional[str] = None, extra: Optional[Dict[str, Any]] = None):
-        cache_key = None if not extra else extra.get("cache_key")
-        if cache_key is not None:
-            cache_key = str(cache_key)
-            if cache_key in self.cache_memory_seen_keys:
-                return
-            self.cache_memory_seen_keys.add(cache_key)
-
         peak_increased, cache_stats = self.update_peak_cache_memory()
         if not peak_increased:
             return

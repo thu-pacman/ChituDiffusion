@@ -77,20 +77,20 @@ def test_compute_stats_accumulate_saved_units_by_scope(monkeypatch):
     assert manager.compute_summary()["baseline_units"] == 0
 
 
-def test_cache_memory_events_buffer_only_new_peak_keys(monkeypatch):
+def test_cache_memory_events_buffer_only_peak_increases(monkeypatch):
     manager = FlexCacheManager(max_cache_memory=20)
     calls = []
 
     def fake_update_peak_cache_memory():
         calls.append("scan")
-        increased = len(calls) == 1
+        increased = len(calls) in {1, 3}
         return increased, {
-            "entries": 1,
-            "tensors": 1,
-            "bytes": 8,
-            "peak_entries": 1,
-            "peak_tensors": 1,
-            "peak_bytes": 8,
+            "entries": len(calls),
+            "tensors": len(calls),
+            "bytes": 8 * len(calls),
+            "peak_entries": len(calls),
+            "peak_tensors": len(calls),
+            "peak_bytes": 8 * len(calls),
             "peak_increased": increased,
             "tensor_summary": [],
         }
@@ -105,9 +105,10 @@ def test_cache_memory_events_buffer_only_new_peak_keys(monkeypatch):
     manager.record_cache_memory("flexcache_store", extra={"cache_key": "a"})
     manager.record_cache_memory("flexcache_store", extra={"cache_key": "b"})
 
-    assert calls == ["scan", "scan"]
-    assert len(manager.cache_memory_events) == 1
+    assert calls == ["scan", "scan", "scan"]
+    assert len(manager.cache_memory_events) == 2
     assert manager.cache_memory_events[0]["cache_key"] == "a"
+    assert manager.cache_memory_events[1]["cache_key"] == "b"
 
 
 def test_flush_cache_memory_events_writes_buffered_events(monkeypatch):

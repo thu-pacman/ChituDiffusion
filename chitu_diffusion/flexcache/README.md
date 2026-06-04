@@ -15,9 +15,9 @@ denoising steps according to a strategy-specific policy.
   partition: latent-space `64x60` blocks, mapped to token-space `32x30`
   blocks for Wan's `(1, 2, 2)` patch size. It then applies Cubic's
   update-frequency optimizer and selective token forward for Wan T2V.
-- `taylorseer`: TaylorSeer-Wan strategy. It caches per-block self-attention,
-  cross-attention, and FFN outputs, stores first-order Taylor factors on full
-  refresh steps, and predicts skipped steps with the Taylor expansion.
+- `taylorseer`: model-specific TaylorSeer strategy for Flux and Wan. It caches
+  local module outputs, stores Taylor factors on full refresh steps, and
+  predicts skipped steps with the Taylor expansion.
 - `blockdance`: BlockDance-style train-free layerwise cache. It keeps early steps
   full, then groups the active window by `group_size`; each group caches the
   output after `boundary_block`, and reuse steps skip shallow/mid blocks while
@@ -37,8 +37,10 @@ and peak bytes recorded after store events.
   output.
 - Cubic: keeps per-branch per-layer self-attention K/V caches plus hidden-state
   residual caches for frozen token reuse.
-- TaylorSeer: caches per-branch per-layer module Taylor factors for
-  self-attention, cross-attention, and FFN outputs.
+- TaylorSeer: caches per-branch per-layer module Taylor factors. Wan caches
+  self-attention, cross-attention, and FFN outputs; Flux double blocks cache
+  image/text attention and MLP outputs; Flux single blocks cache their fused
+  local module output. Distributed ranks cache only their local tensor chunk.
 - BlockDance: caches the boundary block hidden state and reuses it as the
   next block input, skipping shallow/mid blocks on reuse steps.
 
@@ -58,8 +60,8 @@ Per-event debug logging can be enabled with
 JSON I/O in module-level strategies.
 
 These units are strategy-owned proxy units, not hardware FLOPs: TeaCache reports
-model-forward units, PAB reports attention-module units, BlockDance and
-TaylorSeer report transformer-block or branch units, and Cubic reports
+model-forward units, PAB reports attention-module units, BlockDance reports
+transformer-block units, TaylorSeer reports module-output units, and Cubic reports
 token-forward units. The comparison report reads these runtime summaries
 directly instead of estimating savings from strategy-specific side outputs.
 
@@ -127,7 +129,7 @@ BlockDanceParams(
 )
 ```
 
-TaylorSeer-WAN:
+TaylorSeer:
 
 ```python
 TaylorSeerParams(
@@ -147,7 +149,7 @@ TaylorSeerParams(
 - `strategy/pab.py`: PAB strategy.
 - `strategy/blockdance.py`: BlockDance-style layerwise cache adapter.
 - `strategy/cubic.py`: Cubic-WAN strategy wrapper and selective forward adapter.
-- `strategy/taylorseer.py`: TaylorSeer-Wan block-cache adapter.
+- `strategy/taylorseer.py`: TaylorSeer Flux/Wan module-cache adapter.
 - `core/anchor_cache.py`: shared anchor/cache-ratio planner and PPM policy
   visualization helpers.
 

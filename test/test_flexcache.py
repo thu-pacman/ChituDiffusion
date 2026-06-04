@@ -43,8 +43,9 @@ def get_wan_warmup_cooldown() -> tuple[int, int]:
     return 7, 3
 
 
-def build_wan_flexcache_params():
-    strategy = os.getenv("CHITU_WAN_FLEXCACHE_STRATEGY", "taylorseer").strip().lower()
+def build_wan_flexcache_params(strategy):
+    if strategy is None:
+        strategy = os.getenv("CHITU_WAN_FLEXCACHE_STRATEGY", "taylorseer").strip().lower()
     warmup, cooldown = get_wan_warmup_cooldown()
     if strategy == "teacache":
         return TeaCacheParams(
@@ -80,7 +81,18 @@ msgs = [
         negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
         num_inference_steps=get_wan_steps(),
         sample_solver="unipc",
-        flexcache_params=build_wan_flexcache_params(),
+        flexcache_params=build_wan_flexcache_params("blockdance"),
+    ),
+    DiffusionUserParams(
+        role="Alex",
+        prompt="A cat walking on grass.",
+        seed=42,
+        frame_num=81,
+        size=(832, 480),
+        negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+        num_inference_steps=get_wan_steps(),
+        sample_solver="unipc",
+        flexcache_params=build_wan_flexcache_params("taylorseer"),
     ),
 ]
 
