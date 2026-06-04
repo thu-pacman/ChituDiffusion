@@ -6,7 +6,6 @@ import torch.distributed as dist
 import functools
 from logging import getLogger
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheStrategy
-from chitu_diffusion.flexcache.model_adapters import get_flexcache_adapter
 from chitu_diffusion.runtime.task import DiffusionTask
 from chitu_diffusion.runtime.backend import DiffusionBackend, CFGType
 from chitu_diffusion.runtime.output_layout import debug_output_dir
@@ -273,8 +272,9 @@ class PABStrategy(FlexCacheStrategy):
         Args:
             module: 要包装的PyTorch模块（DiT model）
         """
-        adapter = get_flexcache_adapter(module)
-        modules = adapter.attention_modules()
+        if not hasattr(module, "backbone_attention_modules"):
+            raise ValueError(f"{module.__class__.__name__} does not implement the backbone attention API.")
+        modules = module.backbone_attention_modules()
         if not modules:
             raise ValueError(f"PAB strategy found no attention modules on {module.__class__.__name__}.")
 

@@ -4,7 +4,6 @@
 
 import gc
 import itertools
-from functools import partial
 import resource
 import os
 import time
@@ -31,10 +30,10 @@ from chitu_diffusion.core.distributed.parallel_state import (
     initialize_diffusion_parallel_groups,
     get_cp_group
 )
-from chitu_diffusion.core.models.registry import ModelType, get_model_class
 from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend, DiffusionAttention_with_CP
 
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheManager
+from chitu_diffusion.runtime.adapter import get_model_runtime_spec
 
 # from chitu_diffusion.core.distributed.moe_token_dispatcher import init_token_dispatcher
 if TYPE_CHECKING:
@@ -99,7 +98,7 @@ class DiffusionBackend:
         vae: VAE decoder model.
         boundary: Noise boundary values for multi-stage models.
         guidance_scale: CFG guidance scale values.
-        flexcache (FlexCacheManager): Feature reuse cache manager.
+    flexcache (FlexCacheManager): Feature reuse cache manager.
         ditango (DiTangoPlanner): Independent DiTango planner/runtime state.
     """
     # init once
@@ -131,6 +130,8 @@ class DiffusionBackend:
     active_model = None
     active_model_id = 0
     vae = None
+    model_spec = None
+    model_adapter = None
     boundary = None
     guidance_scale = None
     flexcache: Optional["FlexCacheManager"] = None
@@ -188,28 +189,10 @@ class DiffusionBackend:
 
     @staticmethod
     def _build_model_architecture(args, attn_backend, rope_impl) -> torch.nn.Module:
-        try:
-            model_type = ModelType(args.type)
-        except ValueError:
-            raise ValueError(
-                f"Model type '{args.type}' is not supported. "
-                f"Available types: {[t.value for t in ModelType]}"
-            )
-
-        model_cls = get_model_class(model_type)
         logger.info(f"Building model with args: {args.transformer}")
-
-        # # 从 args.transformer 构建正确的模型参数
-        # if args.type in ["diff-wan", "diff-wan-22"]:
-        try:
-            model_kwargs = args.transformer
-        except:
-            raise ValueError(f"Unsupported model type: {args.type}")
-        
-        # 创建模型实例
-        model = model_cls(model_type=args.task, attn_backend=attn_backend, rope_impl=rope_impl, **model_kwargs)
-        
-        return model
+        if DiffusionBackend.model_adapter is None:
+            raise RuntimeError("Diffusion model runtime adapter is not initialized.")
+        return DiffusionBackend.model_adapter.build_transformer(args, attn_backend, rope_impl)
     
     @staticmethod
     def _load_checkpoint(model: torch.nn.Module, path: str, args: Any, target_device: torch.device):
@@ -439,11 +422,9 @@ class DiffusionBackend:
         # Diffusion Parallelism
         non_expert_data_parallel_size = 1 # TODO: support batch generation with data parallelism
 
-        # FIXME: a better cfg worldsize decision
-        if args.models.name in ["FLUX.1-dev", "FLUX.2-klein-4B"]:
-            DiffusionBackend.do_cfg = False
-        else:
-            DiffusionBackend.do_cfg = all(x > 0 for x in args.models.sampler.guidance_scale)
+        if DiffusionBackend.model_adapter is None:
+            raise RuntimeError("Diffusion model runtime adapter is not initialized.")
+        DiffusionBackend.do_cfg = DiffusionBackend.model_adapter.supports_cfg(args)
         cfg_size = 2 if (world_size >= 2 and  DiffusionBackend.do_cfg and args.infer.diffusion.cfg_size > 1) else 1
 
         up_limit = args.infer.diffusion.up_limit
@@ -505,39 +486,9 @@ class DiffusionBackend:
         else:
             init_device = DiffusionBackend._get_init_device(args)
 
-        if "Wan" in args.models.name:
-            from chitu_diffusion.modules.encoders.t5 import T5EncoderModel
-            logger.info(f"Initializing T5 encoder for {args.models.name}")
-            text_encoder = T5EncoderModel(
-                    text_len=args.models.encoder.text_len,
-                    device = init_device,
-                    checkpoint_path=os.path.join(args.models.ckpt_dir, args.models.encoder.t5_checkpoint),
-                    tokenizer_path=os.path.join(args.models.ckpt_dir, args.models.encoder.t5_tokenizer),
-                )
-            logger.info(f"Initialized T5 encoder for {args.models.name}")
-        elif args.models.name in ["FLUX.1-dev"]:
-            from chitu_diffusion.modules.encoders.clip_t5 import CLIPT5TextEncoder
-
-            logger.info(f"Initializing CLIP+T5 text encoders for {args.models.name}")
-            text_encoder = CLIPT5TextEncoder(
-                model_path=args.models.ckpt_dir,
-                device=init_device,
-                dtype=torch.bfloat16,
-            )
-            logger.info(f"Initialized CLIP+T5 text encoders for {args.models.name}")
-        elif args.models.name in ["FLUX.2-klein-4B"]:
-            from chitu_diffusion.modules.encoders.qwen3 import Qwen3CausalLMTextEncoder
-
-            logger.info(f"Initializing Qwen3 text encoder for {args.models.name}")
-            text_encoder = Qwen3CausalLMTextEncoder(
-                model_path=args.models.ckpt_dir,
-                device=init_device,
-                dtype=torch.bfloat16,
-            )
-            logger.info(f"Initialized Qwen3 text encoder for {args.models.name}")
-        else:
-            text_encoder = None
-
+        if DiffusionBackend.model_adapter is None:
+            raise RuntimeError("Diffusion model runtime adapter is not initialized.")
+        text_encoder = DiffusionBackend.model_adapter.load_text_encoder(args, init_device)
         logger.info(f"Initialized multimodal processor for {args.models.name}")
         return text_encoder
 
@@ -551,44 +502,9 @@ class DiffusionBackend:
         """
         init_device = DiffusionBackend._get_init_device(args)
 
-        if "Wan" in args.models.name:
-            # TODO: Wan vae 不支持tiling或者slicing，因此只能offload。
-            # 但是offload vae 貌似没有意义，主要显存都是activation。
-            # 希望能替换为diffusers版本的vae。
-            from chitu_diffusion.modules.vaes.wan_vae import WanVAE
-            # from chitu_diffusion.modules.vaes.wan_vae_diffusers import AutoencoderKLWan
-            logger.info(f"Initializing Wan VAE for {args.models.name}")
-            vae = WanVAE(
-                    vae_pth=os.path.join(args.models.ckpt_dir, args.models.vae.checkpoint),
-                    device = init_device,
-                )
-            logger.info(f"Initialized Wan VAE for {args.models.name}")
-        elif args.models.name in ["FLUX.1-dev"]:
-            from diffusers import AutoencoderKL
-
-            logger.info(f"Initializing Flux.1 VAE for {args.models.name}")
-            vae = AutoencoderKL.from_pretrained(
-                args.models.ckpt_dir,
-                subfolder=args.models.vae.checkpoint,
-                torch_dtype=torch.bfloat16,
-            ).to(init_device)
-            vae.eval().requires_grad_(False)
-            logger.info(f"Initialized Flux.1 VAE for {args.models.name}")
-        elif args.models.name in ["FLUX.2-klein-4B"]:
-            from diffusers.models import AutoencoderKLFlux2
-
-            logger.info(f"Initializing Flux2-klein VAE for {args.models.name}")
-            vae = AutoencoderKLFlux2.from_pretrained(
-                args.models.ckpt_dir,
-                subfolder=args.models.vae.checkpoint,
-                torch_dtype=torch.bfloat16,
-            ).to(init_device)
-            vae.eval().requires_grad_(False)
-            logger.info(f"Initialized Flux2-klein VAE for {args.models.name}")
-        else:
-            # 将来其他vae优先支持slicing和tiling
-            vae = None
-        return vae
+        if DiffusionBackend.model_adapter is None:
+            raise RuntimeError("Diffusion model runtime adapter is not initialized.")
+        return DiffusionBackend.model_adapter.load_vae(args, init_device)
     
     @staticmethod
     def _init_cache_manager(args):
@@ -641,11 +557,9 @@ class DiffusionBackend:
         Returns:
             callable or None: RoPE implementation function, or None for default.
         """
-        if args.infer.diffusion.cp_size > 1:
-            from chitu_diffusion.modules.utils.wan import rope_apply_with_cp
-            return partial(rope_apply_with_cp, cp_size=get_cp_group().group_size, cp_rank=get_cp_group().rank_in_group)
-        
-        return None
+        if DiffusionBackend.model_adapter is None:
+            raise RuntimeError("Diffusion model runtime adapter is not initialized.")
+        return DiffusionBackend.model_adapter.rope_impl(args)
 
     # hmx: refactored for Wan2.2 because it has two noise models
     @staticmethod
@@ -662,37 +576,11 @@ class DiffusionBackend:
         args.models = DiffusionBackend.check_and_convert_config(args.models)
         DiffusionBackend.args = args
 
-        # build model
-        if args.models.name in ["Wan2.1-T2V-1.3B", "Wan2.1-T2V-14B"]:
-            ckpt_path = os.path.join(args.models.ckpt_dir, "diffusion_pytorch_model.safetensors")
-            model = DiffusionBackend._build_and_setup_single_model(
-                args, 
-                ckpt_path,
-                attn_backend, 
-                rope_impl
-            )
-            DiffusionBackend.model_pool.append(model) 
-            
-        elif args.models.name in ["Wan2.2-T2V-A14B"]:
-            # build high noise model
-            high_ckpt_path = os.path.join(args.models.ckpt_dir, args.models.high_noise_checkpoint)
-            high_noise_model = DiffusionBackend._build_and_setup_single_model(
-                args, 
-                high_ckpt_path, 
-                attn_backend, 
-                rope_impl
-            )
-            # build low noise model
-            low_ckpt_path = os.path.join(args.models.ckpt_dir, args.models.low_noise_checkpoint)
-            low_noise_model = DiffusionBackend._build_and_setup_single_model(
-                args, 
-                low_ckpt_path, 
-                attn_backend, 
-                rope_impl
-            )
-            DiffusionBackend.model_pool = [high_noise_model, low_noise_model]
-        elif args.models.name in ["FLUX.1-dev"]:
-            ckpt_path = os.path.join(args.models.ckpt_dir, "transformer")
+        if DiffusionBackend.model_adapter is None:
+            raise RuntimeError("Diffusion model runtime adapter is not initialized.")
+
+        DiffusionBackend.model_pool = []
+        for ckpt_path in DiffusionBackend.model_adapter.checkpoint_paths(args):
             model = DiffusionBackend._build_and_setup_single_model(
                 args,
                 ckpt_path,
@@ -700,17 +588,6 @@ class DiffusionBackend:
                 rope_impl,
             )
             DiffusionBackend.model_pool.append(model)
-        elif args.models.name in ["FLUX.2-klein-4B"]:
-            ckpt_path = os.path.join(args.models.ckpt_dir, args.models.transformer_checkpoint)
-            model = DiffusionBackend._build_and_setup_single_model(
-                args,
-                ckpt_path,
-                attn_backend,
-                rope_impl,
-            )
-            DiffusionBackend.model_pool.append(model)
-        else:
-            raise ValueError(f"Unsupported model name: {args.models.name}")
 
         gc.collect()
         torch.cuda.empty_cache()
@@ -753,6 +630,9 @@ class DiffusionBackend:
         Arguments:
             args: Configuration object containing model and training related configurations.
         """
+        DiffusionBackend.model_spec = get_model_runtime_spec(args.models)
+        DiffusionBackend.model_adapter = DiffusionBackend.model_spec.create_adapter()
+
         # Initialize distributed environment
         DiffusionBackend._init_distributed(args)
 

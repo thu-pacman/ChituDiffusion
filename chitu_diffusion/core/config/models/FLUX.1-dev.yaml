@@ -8,9 +8,11 @@ tokenizer_type: "hf"
 task: t2i
 
 encoder:
+  name: "clip_t5"
   max_sequence_length: 512
 
 vae:
+  type: "autoencoder_kl"
   checkpoint: "vae"
   scale_factor: 16
 

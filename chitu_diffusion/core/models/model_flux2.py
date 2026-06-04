@@ -36,6 +36,7 @@ from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormContinuous
 
+from chitu_diffusion.core.models.backbone import BackboneBlockInfo, BackboneMixin, BackboneState
 from chitu_diffusion.core.models.registry import ModelType, register_model
 
 
@@ -780,6 +781,7 @@ class Flux2Modulation(nn.Module):
 
 @register_model(ModelType.FLUX2_KLEIN)
 class Flux2Transformer2DModel(
+    BackboneMixin,
     ModelMixin,
     ConfigMixin,
     PeftAdapterMixin,
@@ -922,6 +924,184 @@ class Flux2Transformer2DModel(
 
         self.gradient_checkpointing = False
 
+    def backbone_blocks(self):
+        blocks = []
+        for index, block in enumerate(self.transformer_blocks):
+            blocks.append(BackboneBlockInfo(index=index, name=f"transformer_blocks.{index}", module=block))
+        offset = len(blocks)
+        for index, block in enumerate(self.single_transformer_blocks):
+            blocks.append(
+                BackboneBlockInfo(
+                    index=offset + index,
+                    name=f"single_transformer_blocks.{index}",
+                    module=block,
+                )
+            )
+        return blocks
+
+    def backbone_attention_modules(self):
+        modules = []
+        for block_info in self.backbone_blocks():
+            if hasattr(block_info.module, "attn"):
+                modules.append((block_info.index, "self", block_info.module.attn))
+        return modules
+
+    def backbone_make_state(self, hidden_states: torch.Tensor, **kwargs):
+        kwargs = dict(kwargs)
+        kwargs.pop("raw_e", None)
+        encoder_hidden_states = kwargs["encoder_hidden_states"]
+        timestep = kwargs["timestep"].to(hidden_states.dtype) * 1000
+        guidance = kwargs.get("guidance")
+        if guidance is not None:
+            guidance = guidance.to(hidden_states.dtype) * 1000
+
+        temb = self.time_guidance_embed(timestep, guidance)
+        double_stream_mod_img = self.double_stream_modulation_img(temb)
+        double_stream_mod_txt = self.double_stream_modulation_txt(temb)
+        single_stream_mod = self.single_stream_modulation(temb)
+
+        hidden_states = self.x_embedder(hidden_states)
+        encoder_hidden_states = self.context_embedder(encoder_hidden_states)
+
+        img_ids = kwargs["img_ids"]
+        txt_ids = kwargs["txt_ids"]
+        if img_ids.ndim == 3:
+            img_ids = img_ids[0]
+        if txt_ids.ndim == 3:
+            txt_ids = txt_ids[0]
+
+        image_rotary_emb = self.pos_embed(img_ids)
+        text_rotary_emb = self.pos_embed(txt_ids)
+        concat_rotary_emb = (
+            torch.cat([text_rotary_emb[0], image_rotary_emb[0]], dim=0),
+            torch.cat([text_rotary_emb[1], image_rotary_emb[1]], dim=0),
+        )
+
+        return BackboneState({
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "text_seq_len": encoder_hidden_states.shape[1],
+            "temb": temb,
+            "double_stream_mod_img": double_stream_mod_img,
+            "double_stream_mod_txt": double_stream_mod_txt,
+            "single_stream_mod": single_stream_mod,
+            "image_rotary_emb": concat_rotary_emb,
+            "joint_attention_kwargs": kwargs.get("joint_attention_kwargs"),
+            "single_stream_started": False,
+        })
+
+    def backbone_prepare_block_state(self, block_info: BackboneBlockInfo, state):
+        if block_info.index >= len(self.transformer_blocks) and not state["single_stream_started"]:
+            state = BackboneState(state)
+            state["hidden_states"] = torch.cat([state["encoder_hidden_states"], state["hidden_states"]], dim=1)
+            state["single_stream_started"] = True
+        return state
+
+    def backbone_run_block(self, block_info: BackboneBlockInfo, state):
+        block_index = block_info.index
+        if block_index < len(self.transformer_blocks):
+            block = self.transformer_blocks[block_index]
+            encoder_hidden_states, hidden_states = block(
+                hidden_states=state["hidden_states"],
+                encoder_hidden_states=state["encoder_hidden_states"],
+                temb_mod_img=state["double_stream_mod_img"],
+                temb_mod_txt=state["double_stream_mod_txt"],
+                image_rotary_emb=state["image_rotary_emb"],
+                joint_attention_kwargs=state["joint_attention_kwargs"],
+            )
+            state["hidden_states"] = hidden_states
+            state["encoder_hidden_states"] = encoder_hidden_states
+            return state
+
+        single_index = block_index - len(self.transformer_blocks)
+        block = self.single_transformer_blocks[single_index]
+        state["hidden_states"] = block(
+            hidden_states=state["hidden_states"],
+            encoder_hidden_states=None,
+            temb_mod=state["single_stream_mod"],
+            image_rotary_emb=state["image_rotary_emb"],
+            joint_attention_kwargs=state["joint_attention_kwargs"],
+        )
+        return state
+
+    def backbone_state_tensor(self, state) -> torch.Tensor:
+        return state["hidden_states"]
+
+    def backbone_with_state_tensor(self, state, tensor: torch.Tensor):
+        state = BackboneState(state)
+        state["hidden_states"] = tensor
+        if tensor.shape[1] > state["text_seq_len"]:
+            state["single_stream_started"] = True
+        return state
+
+    def backbone_finalize_state(self, state) -> torch.Tensor:
+        hidden_states = state["hidden_states"]
+        if state["single_stream_started"]:
+            hidden_states = hidden_states[:, state["text_seq_len"] :, ...]
+        hidden_states = self.norm_out(hidden_states, state["temb"])
+        return self.proj_out(hidden_states)
+
+    def backbone_cache_state(self, state):
+        if state["single_stream_started"]:
+            return {"hidden_states": state["hidden_states"].detach()}
+        return {
+            "hidden_states": state["hidden_states"].detach(),
+            "encoder_hidden_states": state["encoder_hidden_states"].detach(),
+        }
+
+    def backbone_restore_cached_state(self, state, cached_state):
+        state = BackboneState(state)
+        state["hidden_states"] = cached_state["hidden_states"]
+        if "encoder_hidden_states" in cached_state:
+            state["encoder_hidden_states"] = cached_state["encoder_hidden_states"]
+            state["single_stream_started"] = False
+        else:
+            state["single_stream_started"] = True
+        return state
+
+    def backbone_block_delta(self, before, after):
+        delta = {"hidden_states": after["hidden_states"] - before["hidden_states"]}
+        if "encoder_hidden_states" in after:
+            delta["encoder_hidden_states"] = after["encoder_hidden_states"] - before["encoder_hidden_states"]
+        return delta
+
+    def backbone_apply_block_delta(self, state, delta):
+        state = BackboneState(state)
+        state["hidden_states"] = state["hidden_states"] + delta["hidden_states"]
+        if "encoder_hidden_states" in delta:
+            state["encoder_hidden_states"] = state["encoder_hidden_states"] + delta["encoder_hidden_states"]
+        return state
+
+    def model_compute(
+        self,
+        hidden_states: torch.Tensor,
+        encoder_hidden_states: torch.Tensor = None,
+        timestep: torch.LongTensor = None,
+        img_ids: torch.Tensor = None,
+        txt_ids: torch.Tensor = None,
+        guidance: torch.Tensor = None,
+        joint_attention_kwargs: dict[str, Any] | None = None,
+    ) -> torch.Tensor:
+        state = self.backbone_make_state(
+            hidden_states,
+            encoder_hidden_states=encoder_hidden_states,
+            timestep=timestep,
+            img_ids=img_ids,
+            txt_ids=txt_ids,
+            guidance=guidance,
+            joint_attention_kwargs=joint_attention_kwargs,
+        )
+        for block_info in self.backbone_blocks():
+            state = self.backbone_prepare_block_state(block_info, state)
+            if torch.is_grad_enabled() and self.gradient_checkpointing:
+                state = self._gradient_checkpointing_func(
+                    lambda current_state: self.backbone_run_block(block_info, current_state),
+                    state,
+                )
+            else:
+                state = self.backbone_run_block(block_info, state)
+        return self.backbone_finalize_state(state)
+
     @apply_lora_scale("joint_attention_kwargs")
     def forward(
         self,
@@ -958,90 +1138,15 @@ class Flux2Transformer2DModel(
             If `return_dict` is True, an [`~models.transformer_2d.Transformer2DModelOutput`] is returned, otherwise a
             `tuple` where the first element is the sample tensor.
         """
-        # 0. Handle input arguments
-
-        num_txt_tokens = encoder_hidden_states.shape[1]
-
-        # 1. Calculate timestep embedding and modulation parameters
-        timestep = timestep.to(hidden_states.dtype) * 1000
-
-        if guidance is not None:
-            guidance = guidance.to(hidden_states.dtype) * 1000
-
-        temb = self.time_guidance_embed(timestep, guidance)
-
-        double_stream_mod_img = self.double_stream_modulation_img(temb)
-        double_stream_mod_txt = self.double_stream_modulation_txt(temb)
-        single_stream_mod = self.single_stream_modulation(temb)
-
-        # 2. Input projection for image (hidden_states) and conditioning text (encoder_hidden_states)
-        hidden_states = self.x_embedder(hidden_states)
-        encoder_hidden_states = self.context_embedder(encoder_hidden_states)
-
-        # 3. Calculate RoPE embeddings from image and text tokens
-        # NOTE: the below logic means that we can't support batched inference with images of different resolutions or
-        # text prompts of differents lengths. Is this a use case we want to support?
-        if img_ids.ndim == 3:
-            img_ids = img_ids[0]
-        if txt_ids.ndim == 3:
-            txt_ids = txt_ids[0]
-
-        image_rotary_emb = self.pos_embed(img_ids)
-        text_rotary_emb = self.pos_embed(txt_ids)
-        concat_rotary_emb = (
-            torch.cat([text_rotary_emb[0], image_rotary_emb[0]], dim=0),
-            torch.cat([text_rotary_emb[1], image_rotary_emb[1]], dim=0),
+        output = self.model_compute(
+            hidden_states,
+            encoder_hidden_states=encoder_hidden_states,
+            timestep=timestep,
+            img_ids=img_ids,
+            txt_ids=txt_ids,
+            guidance=guidance,
+            joint_attention_kwargs=joint_attention_kwargs,
         )
-
-        # 4. Double Stream Transformer Blocks
-        for index_block, block in enumerate(self.transformer_blocks):
-            if torch.is_grad_enabled() and self.gradient_checkpointing:
-                encoder_hidden_states, hidden_states = self._gradient_checkpointing_func(
-                    block,
-                    hidden_states,
-                    encoder_hidden_states,
-                    double_stream_mod_img,
-                    double_stream_mod_txt,
-                    concat_rotary_emb,
-                    joint_attention_kwargs,
-                )
-            else:
-                encoder_hidden_states, hidden_states = block(
-                    hidden_states=hidden_states,
-                    encoder_hidden_states=encoder_hidden_states,
-                    temb_mod_img=double_stream_mod_img,
-                    temb_mod_txt=double_stream_mod_txt,
-                    image_rotary_emb=concat_rotary_emb,
-                    joint_attention_kwargs=joint_attention_kwargs,
-                )
-        # Concatenate text and image streams for single-block inference
-        hidden_states = torch.cat([encoder_hidden_states, hidden_states], dim=1)
-
-        # 5. Single Stream Transformer Blocks
-        for index_block, block in enumerate(self.single_transformer_blocks):
-            if torch.is_grad_enabled() and self.gradient_checkpointing:
-                hidden_states = self._gradient_checkpointing_func(
-                    block,
-                    hidden_states,
-                    None,
-                    single_stream_mod,
-                    concat_rotary_emb,
-                    joint_attention_kwargs,
-                )
-            else:
-                hidden_states = block(
-                    hidden_states=hidden_states,
-                    encoder_hidden_states=None,
-                    temb_mod=single_stream_mod,
-                    image_rotary_emb=concat_rotary_emb,
-                    joint_attention_kwargs=joint_attention_kwargs,
-                )
-        # Remove text tokens from concatenated stream
-        hidden_states = hidden_states[:, num_txt_tokens:, ...]
-
-        # 6. Output layers
-        hidden_states = self.norm_out(hidden_states, temb)
-        output = self.proj_out(hidden_states)
 
         if not return_dict:
             return (output,)

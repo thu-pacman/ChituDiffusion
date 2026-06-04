@@ -6,14 +6,13 @@ from typing import Any, Dict, Optional
 
 import torch
 
-from chitu_diffusion.flexcache.flexcache_manager import FlexCacheStrategy
-from chitu_diffusion.flexcache.model_adapters import (
-    add_cache_values,
-    detach_cache_value,
-    get_flexcache_adapter,
-    scale_cache_value,
-    sub_cache_values,
+from chitu_diffusion.core.models.backbone import (
+    add_backbone_values,
+    detach_backbone_value,
+    scale_backbone_value,
+    sub_backbone_values,
 )
+from chitu_diffusion.flexcache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
 from chitu_diffusion.runtime.output_layout import debug_output_dir
 
@@ -23,8 +22,8 @@ logger = getLogger(__name__)
 def _taylor_formula(derivative_dict: Dict[int, torch.Tensor], distance: int) -> torch.Tensor:
     output = None
     for order in sorted(derivative_dict):
-        term = scale_cache_value(derivative_dict[order], (distance ** order) / math.factorial(order))
-        output = term if output is None else add_cache_values(output, term)
+        term = scale_backbone_value(derivative_dict[order], (distance ** order) / math.factorial(order))
+        output = term if output is None else add_backbone_values(output, term)
     if output is None:
         raise ValueError("TaylorSeer cache is empty for the requested module.")
     return output
@@ -75,12 +74,12 @@ class TaylorSeerStrategy(FlexCacheStrategy):
     def store(self, fresh_feature: torch.Tensor, **kwargs) -> Dict[int, torch.Tensor]:
         key = self._cache_key(**kwargs)
         previous = DiffusionBackend.flexcache.cache.get(key, {})
-        updated: Dict[int, torch.Tensor] = {0: detach_cache_value(fresh_feature)}
+        updated: Dict[int, torch.Tensor] = {0: detach_backbone_value(fresh_feature)}
         distance = 1 if len(self.activated_steps) < 2 else max(1, self.activated_steps[-1] - self.activated_steps[-2])
         for order in range(self.max_order):
             if order not in previous or self._current_step_value() <= self.first_enhance - 2:
                 break
-            updated[order + 1] = scale_cache_value(sub_cache_values(updated[order], previous[order]), 1.0 / distance)
+            updated[order + 1] = scale_backbone_value(sub_backbone_values(updated[order], previous[order]), 1.0 / distance)
         return updated
 
     def wrap_module_with_strategy(self, module: torch.nn.Module) -> None:
@@ -89,15 +88,16 @@ class TaylorSeerStrategy(FlexCacheStrategy):
         if not hasattr(module, "_taylorseer_original_model_compute"):
             module._taylorseer_original_model_compute = module.model_compute
         original_forward = module._taylorseer_original_model_compute
-        adapter = get_flexcache_adapter(module)
-        blocks = adapter.blocks
+        if not hasattr(module, "backbone_blocks"):
+            raise ValueError(f"{module.__class__.__name__} does not implement the backbone block API.")
+        blocks = module.backbone_blocks()
         self._wrapped_blocks = [block_info.module for block_info in blocks]
 
         @functools.wraps(original_forward)
         def model_compute_with_taylorseer(tokens: torch.Tensor, **kwargs):
-            state = adapter.make_state(tokens, kwargs)
+            state = module.backbone_make_state(tokens, **kwargs)
             for block_info in blocks:
-                state = adapter.prepare_block_state(block_info, state)
+                state = module.backbone_prepare_block_state(block_info, state)
                 self._ensure_step_decision()
                 layer_idx = block_info.index
                 if self.current_type == "Taylor" and self._has_layer_cache(layer_idx):
@@ -107,18 +107,18 @@ class TaylorSeerStrategy(FlexCacheStrategy):
                         ],
                         distance=self._distance_from_anchor(),
                     )
-                    state = adapter.apply_block_delta(state, residual)
+                    state = module.backbone_apply_block_delta(state, residual)
                     self._record_compute("reuse", layer_idx)
                     self._record_step_policy(self._current_step_value(), 2)
                     continue
 
-                previous_state = adapter.cache_state(state)
-                state = adapter.run_block(block_info, state)
-                residual = adapter.block_delta(previous_state, adapter.cache_state(state))
+                previous_state = module.backbone_cache_state(state)
+                state = module.backbone_run_block(block_info, state)
+                residual = module.backbone_block_delta(previous_state, module.backbone_cache_state(state))
                 self._store_module(layer_idx, self.MODULE_BLOCK, residual)
                 self._record_compute("compute", layer_idx)
                 self._record_step_policy(self._current_step_value(), 1)
-            return adapter.finalize_state(state)
+            return module.backbone_finalize_state(state)
 
         module.model_compute = model_compute_with_taylorseer
 

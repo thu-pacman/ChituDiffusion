@@ -7,6 +7,7 @@ import torch.nn as nn
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 
+from chitu_diffusion.core.models.backbone import BackboneMixin
 from chitu_diffusion.core.models.registry import ModelType, register_model, log_init_params
 from chitu_diffusion.model_default import WanModelDefaults
 from chitu_diffusion.modules.attention.wan_attention import flash_attention
@@ -386,7 +387,7 @@ class MLPProj(torch.nn.Module):
 
 @register_model(ModelType.WAN_DIT)
 @log_init_params
-class WanModel(ModelMixin, ConfigMixin):
+class WanModel(BackboneMixin, ModelMixin, ConfigMixin):
     r"""
     Wan diffusion backbone supporting both text-to-video and image-to-video.
     """

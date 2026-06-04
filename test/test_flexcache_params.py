@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+from chitu_diffusion.core.models.backbone import BackboneMixin
 from chitu_diffusion.flexcache.core.anchor_cache import AnchorCachePlanner
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheManager
 from chitu_diffusion.flexcache.params import (
@@ -48,10 +49,14 @@ def test_concrete_params_are_strategy_specific():
     assert not hasattr(blockdance, "curvature_interval_power")
 
     cubic = DiffusionUserParams(
-        flexcache_params=CubicParams(cache_ratio=0.5, tau_max=6)
+        flexcache_params=CubicParams(target_speedup=2.5, tau_max=6)
     ).resolve_flexcache_params()
     assert isinstance(cubic, CubicParams)
-    assert cubic.cache_ratio == 0.5
+    assert not hasattr(cubic, "cache_ratio")
+    assert not hasattr(cubic, "partition_mode")
+    assert not hasattr(cubic, "anchor_interval")
+    assert not hasattr(cubic, "alpha")
+    assert cubic.target_speedup == 2.5
     assert cubic.tau_max == 6
 
 
@@ -105,7 +110,7 @@ def test_blockdance_reuse_skips_shallow_blocks(monkeypatch):
             self.calls += 1
             return x + self.value
 
-    class FakeModule(nn.Module):
+    class FakeModule(BackboneMixin, nn.Module):
         def __init__(self):
             super().__init__()
             self.blocks = nn.ModuleList([FakeBlock(1), FakeBlock(10), FakeBlock(100), FakeBlock(1000)])
@@ -142,6 +147,27 @@ def test_blockdance_reuse_skips_shallow_blocks(monkeypatch):
     reuse_output = module.model_compute(torch.full((1, 1), 999.0), raw_e=torch.ones(1, 1, 1))
     assert reuse_output.item() == 1111
     assert [block.calls for block in module.blocks] == [1, 1, 2, 2]
+
+
+def test_default_backbone_delta_accepts_cached_tensor():
+    class FakeBlock(nn.Module):
+        def forward(self, x, **kwargs):
+            return x + 2
+
+    class FakeModule(BackboneMixin, nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.blocks = nn.ModuleList([FakeBlock()])
+
+    module = FakeModule()
+    state = module.backbone_make_state(torch.ones(1, 2))
+    before = module.backbone_cache_state(state)
+    after = module.backbone_run_block(module.backbone_blocks()[0], state)
+    delta = module.backbone_block_delta(before, module.backbone_cache_state(after))
+    restored = module.backbone_apply_block_delta(module.backbone_make_state(torch.ones(1, 2)), delta)
+
+    assert torch.equal(delta, torch.full((1, 2), 2.0))
+    assert torch.equal(module.backbone_state_tensor(restored), torch.full((1, 2), 3.0))
 
 
 def test_teacache_cfg_branches_keep_independent_state(monkeypatch):

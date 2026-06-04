@@ -14,6 +14,7 @@ encoder:
   hidden_states_layers: [9, 18, 27]
 
 vae:
+  type: "autoencoder_kl_flux2"
   checkpoint: "vae"
   scale_factor: 8
 

@@ -37,8 +37,8 @@ from diffusers.utils.torch_utils import maybe_allow_in_graph
 from diffusers.models.embeddings import CombinedTimestepGuidanceTextProjEmbeddings, CombinedTimestepTextProjEmbeddings, FluxPosEmbed
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 
+from chitu_diffusion.core.models.backbone import BackboneBlockInfo, BackboneMixin, BackboneState
 from chitu_diffusion.core.models.registry import ModelType, register_model
-from chitu_diffusion.flexcache.model_adapters import FlexCacheBlockInfo
 from chitu_diffusion.modules.attention.flux_attention import ChituFluxAttnProcessor2_0, FluxAttnProcessor2_0
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -236,7 +236,7 @@ class FluxTransformerBlock(nn.Module):
 
 @register_model(ModelType.FLUX1_DEV)
 class Flux1Model(
-    ModelMixin, ConfigMixin, PeftAdapterMixin, FromOriginalModelMixin, FluxTransformer2DLoadersMixin
+    BackboneMixin, ModelMixin, ConfigMixin, PeftAdapterMixin, FromOriginalModelMixin, FluxTransformer2DLoadersMixin
 ):
     """
     The Transformer model introduced in Flux.
@@ -327,14 +327,14 @@ class Flux1Model(
         modulated_inp, *_ = self.transformer_blocks[0].norm1(hidden_states, emb=temb)
         return modulated_inp
 
-    def flexcache_blocks(self):
+    def backbone_blocks(self):
         blocks = []
         for index, block in enumerate(self.transformer_blocks):
-            blocks.append(FlexCacheBlockInfo(index=index, name=f"transformer_blocks.{index}", module=block))
+            blocks.append(BackboneBlockInfo(index=index, name=f"transformer_blocks.{index}", module=block))
         offset = len(blocks)
         for index, block in enumerate(self.single_transformer_blocks):
             blocks.append(
-                FlexCacheBlockInfo(
+                BackboneBlockInfo(
                     index=offset + index,
                     name=f"single_transformer_blocks.{index}",
                     module=block,
@@ -342,18 +342,18 @@ class Flux1Model(
             )
         return blocks
 
-    def flexcache_attention_modules(self):
+    def backbone_attention_modules(self):
         modules = []
-        for block_info in self.flexcache_blocks():
+        for block_info in self.backbone_blocks():
             if hasattr(block_info.module, "attn"):
                 modules.append((block_info.index, "self", block_info.module.attn))
         return modules
 
-    def flexcache_make_state(self, hidden_states: torch.Tensor, **kwargs):
+    def backbone_make_state(self, hidden_states: torch.Tensor, **kwargs):
         kwargs = dict(kwargs)
         kwargs.pop("raw_e", None)
         encoder_hidden_states = kwargs["encoder_hidden_states"]
-        return {
+        return BackboneState({
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
             "text_seq_len": encoder_hidden_states.shape[1],
@@ -364,16 +364,17 @@ class Flux1Model(
             "controlnet_single_block_samples": kwargs.get("controlnet_single_block_samples"),
             "controlnet_blocks_repeat": kwargs.get("controlnet_blocks_repeat", False),
             "single_stream_started": False,
-        }
+        })
 
-    def flexcache_prepare_block_state(self, block_index: int, state):
-        if block_index >= len(self.transformer_blocks) and not state["single_stream_started"]:
-            state = dict(state)
+    def backbone_prepare_block_state(self, block_info: BackboneBlockInfo, state):
+        if block_info.index >= len(self.transformer_blocks) and not state["single_stream_started"]:
+            state = BackboneState(state)
             state["hidden_states"] = torch.cat([state["encoder_hidden_states"], state["hidden_states"]], dim=1)
             state["single_stream_started"] = True
         return state
 
-    def flexcache_run_block(self, block_index: int, state):
+    def backbone_run_block(self, block_info: BackboneBlockInfo, state):
+        block_index = block_info.index
         if block_index < len(self.transformer_blocks):
             block = self.transformer_blocks[block_index]
             encoder_hidden_states, hidden_states = block(
@@ -418,24 +419,24 @@ class Flux1Model(
         state["hidden_states"] = hidden_states
         return state
 
-    def flexcache_state_tensor(self, state) -> torch.Tensor:
+    def backbone_state_tensor(self, state) -> torch.Tensor:
         if state["single_stream_started"]:
             return state["hidden_states"]
         return state["hidden_states"]
 
-    def flexcache_with_state_tensor(self, state, tensor: torch.Tensor):
-        state = dict(state)
+    def backbone_with_state_tensor(self, state, tensor: torch.Tensor):
+        state = BackboneState(state)
         state["hidden_states"] = tensor
         if tensor.shape[1] > state["text_seq_len"]:
             state["single_stream_started"] = True
         return state
 
-    def flexcache_finalize_state(self, state) -> torch.Tensor:
+    def backbone_finalize_state(self, state) -> torch.Tensor:
         if state["single_stream_started"]:
             return state["hidden_states"][:, state["text_seq_len"] :, ...]
         return state["hidden_states"]
 
-    def flexcache_cache_state(self, state):
+    def backbone_cache_state(self, state):
         if state["single_stream_started"]:
             return {"hidden_states": state["hidden_states"].detach()}
         return {
@@ -443,8 +444,8 @@ class Flux1Model(
             "encoder_hidden_states": state["encoder_hidden_states"].detach(),
         }
 
-    def flexcache_restore_cached_state(self, state, cached_state):
-        state = dict(state)
+    def backbone_restore_cached_state(self, state, cached_state):
+        state = BackboneState(state)
         state["hidden_states"] = cached_state["hidden_states"]
         if "encoder_hidden_states" in cached_state:
             state["encoder_hidden_states"] = cached_state["encoder_hidden_states"]
@@ -453,14 +454,14 @@ class Flux1Model(
             state["single_stream_started"] = True
         return state
 
-    def flexcache_block_delta(self, before, after):
+    def backbone_block_delta(self, before, after):
         delta = {"hidden_states": after["hidden_states"] - before["hidden_states"]}
         if "encoder_hidden_states" in after:
             delta["encoder_hidden_states"] = after["encoder_hidden_states"] - before["encoder_hidden_states"]
         return delta
 
-    def flexcache_apply_block_delta(self, state, delta):
-        state = dict(state)
+    def backbone_apply_block_delta(self, state, delta):
+        state = BackboneState(state)
         state["hidden_states"] = state["hidden_states"] + delta["hidden_states"]
         if "encoder_hidden_states" in delta:
             state["encoder_hidden_states"] = state["encoder_hidden_states"] + delta["encoder_hidden_states"]
