@@ -281,6 +281,15 @@ class Generator:
     def step(self, task: Optional[DiffusionTask]) -> torch.Tensor:
         # 调度器会给generator task，翻译成kernel -> 运行 -> 正确放置输出 -> 回收对应内存
         # Prepare Payload
+        control_override = torch.tensor(
+            [1 if task is not None and task.is_control_signal() else 0],
+            dtype=torch.int32,
+            device="cpu" if DiffusionBackend.use_gloo else self.local_rank,
+        )
+        dist.broadcast(control_override, src=0)
+        if bool(control_override.item()):
+            self.current_task = None
+
         if self.current_task is None: # 生成的最开始，将任务分发到workers
             task_type, task = DiffusionTaskDispatcher().dispatch_metadata(task)
             self.current_task = task
@@ -301,6 +310,19 @@ class Generator:
             self._clear_flexcache_strategy()
             DiffusionBackend.state = BackendState.Terminated
             task.status = DiffusionTaskStatus.Completed
+            DiffusionTaskPool.clear_shutdown_request()
+            self.current_task = None
+            return None
+
+        if task_type == DiffusionTaskType.Cancel:
+            self._clear_ditango_planner()
+            self._clear_flexcache_strategy()
+            reason = str(task.signal_data.get("reason") or "Current generation cancelled")
+            logger.info("Executing cancel signal task_id=%s reason=%s", task.task_id, reason)
+            DiffusionTaskPool.cancel_active_tasks(reason)
+            task.status = DiffusionTaskStatus.Completed
+            DiffusionTaskPool.clear_cancel_request()
+            self.current_task = None
             return None
 
         # Execute
@@ -495,6 +517,10 @@ class Generator:
                 "Invalid acceleration warmup/cooldown: "
                 f"warmup({spec.warmup}) + cooldown({spec.cooldown}) must be < num_inference_steps({total_steps})."
             )
+        if spec.strategy == "ditango" and self.cp_size <= 1:
+            raise ValueError("DiTango requires cp world size > 1.")
+        if spec.strategy == "cubic" and self.cp_size != 1:
+            raise ValueError("FlexCache Cubic requires cp world size = 1.")
         return spec
 
     def _build_flexcache_strategy(self, task: DiffusionTask, spec: FlexCacheParams):
@@ -543,8 +569,6 @@ class Generator:
 
             if not isinstance(spec, CubicParams):
                 raise TypeError("FlexCache cubic requires CubicParams.")
-            if self.cp_size != 1:
-                raise ValueError("FlexCache Cubic currently supports cp_size=1 only.")
             model_name = getattr(DiffusionBackend.args.models, "name", "")
             if model_name == "FLUX.1-dev":
                 model_params = CubicFluxModelParams()

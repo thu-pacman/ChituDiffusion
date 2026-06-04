@@ -120,5 +120,8 @@ vbench_out/*
 # Local algorithm references
 third_party/Cubic/
 
+# Service runtime artifacts
+service_framework/runs/
+
 # MkDocs
 site/

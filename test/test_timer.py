@@ -23,3 +23,14 @@ def test_save_task_statistics_json_uses_task_local_records(tmp_path):
     assert len(payload["records"]["dit_forward"]) == 1
 
     Timer.reset()
+
+
+def test_timer_reset_preserves_decorated_timer_entry():
+    timer = Timer.get_timer("TextEncode")
+    Timer.reset()
+
+    with timer:
+        pass
+
+    assert "TextEncode" in Timer.statistics_dict()
+    Timer.reset()

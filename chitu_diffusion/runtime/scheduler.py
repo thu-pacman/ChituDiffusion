@@ -34,6 +34,24 @@ class DiffusionScheduler:
         Returns:
             List[str]: contains only one task_id
         """
+        shutdown_task = DiffusionTaskPool.get_shutdown_task()
+        if shutdown_task is not None and shutdown_task.status == DiffusionTaskStatus.Pending:
+            self.scheduling_ts = time.perf_counter_ns()
+            shutdown_task.sched_ts = self.scheduling_ts
+            logger.info("Scheduling shutdown request with highest priority.")
+            return [shutdown_task.task_id]
+
+        cancel_task = DiffusionTaskPool.get_cancel_task()
+        if cancel_task is not None and cancel_task.status == DiffusionTaskStatus.Pending:
+            self.scheduling_ts = time.perf_counter_ns()
+            cancel_task.sched_ts = self.scheduling_ts
+            logger.info(
+                "Scheduling cancel request with high priority: task_id=%s reason=%s",
+                cancel_task.task_id,
+                cancel_task.signal_data.get("reason"),
+            )
+            return [cancel_task.task_id]
+
         # 检查任务池是否为空
         if DiffusionTaskPool.is_empty():
             logger.info("DiffusionTaskPool is empty, returning empty task list.")
@@ -73,6 +91,10 @@ class DiffusionScheduler:
         """
         if DiffusionTaskPool.is_empty():
             return False
+        if DiffusionTaskPool.has_shutdown_request():
+            return True
+        if DiffusionTaskPool.has_cancel_request():
+            return True
         
         # 检查是否有Pending状态的任务
         for task_id in DiffusionTaskPool.id_list:
@@ -91,13 +113,14 @@ class DiffusionScheduler:
         """
         if DiffusionTaskPool.is_empty():
             return 0
+        control_count = int(DiffusionTaskPool.has_shutdown_request()) + int(DiffusionTaskPool.has_cancel_request())
         
         pending_count = sum(
             1 for task_id in DiffusionTaskPool.id_list
             if DiffusionTaskPool.pool[task_id].status == DiffusionTaskStatus.Pending
         )
         
-        return pending_count
+        return pending_count + control_count
 
     def get_scheduler_info(self) -> dict:
         """

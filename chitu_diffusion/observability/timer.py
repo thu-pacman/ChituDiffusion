@@ -208,5 +208,8 @@ class Timer:
     @staticmethod
     def reset():
         """Reset all timers"""
-        Timer._timers.clear()
+        for timer in Timer._timers.values():
+            timer['times'] = []
+            timer['start_time'] = 0
+            timer['is_timing_valid'] = False
         Timer._records.clear()

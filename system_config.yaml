@@ -1,8 +1,8 @@
 launch:
-  tag: flux1-flexcache
+  tag: wan-flexcache
   num_nodes: 1
-  gpus_per_node: 1
-  python_script: test/test_flux1_flexcache.py
+  gpus_per_node: 4
+  python_script: test/test_flexcache.py
   srun:
     partition: debug
     cpus_per_gpu: 24
@@ -14,13 +14,13 @@ runtime:
 
 # Wan2.1-T2V-1.3B, FLUX.1-dev
 model:
-  name: FLUX.1-dev
+  name: Wan2.1-T2V-1.3B
   # Flux-1  flux2-klein  Wan2.1-T2V-1.3B  Wan2.1-T2V-14B
-  ckpt_dir: /home/chenyy/WORK/models/Flux-1
+  ckpt_dir: /home/chenyy/WORK/models/Wan2.1-T2V-1.3B
 
 parallel:
   # cfg-parallel factor: only 1 or 2.
-  cfp: 1
+  cfp: 2
 
 infer:
   attn_type: flash_attn

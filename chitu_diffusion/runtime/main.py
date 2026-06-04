@@ -264,10 +264,12 @@ def chitu_run_main_rank():
     # logger.info(f"[Scheduler] scheduled task_ids={task_ids}")
     
     # 再基于task_ids给出打包
-    if not DiffusionTaskPool.all_finished():
+    if task_ids:
         # compute
         logger.debug(f"Processing {task_ids}")
-        task = DiffusionTaskPool.pool[task_ids[0]]
+        task = DiffusionTaskPool.get_control_task(task_ids[0])
+        if task is None:
+            task = DiffusionTaskPool.pool[task_ids[0]]
         out = DiffusionBackend.generator.step(task)
         if out is not None:
             logger.debug(f"[run] executor.step returned. {out.shape=}")
@@ -307,9 +309,14 @@ def chitu_terminate():
     Terminated and sending a termination signal through the generator.
     """
     if torch.distributed.get_rank() == 0:
-        DiffusionBackend.state = BackendState.Terminated
-        terminated_task = DiffusionTask.create_terminate_signal("0x")
-        DiffusionBackend.generator.step(terminated_task)
+        DiffusionTaskPool.request_shutdown("Chitu terminate requested")
+    chitu_generate()
+
+
+def chitu_cancel_current(reason: str = "Current generation cancelled"):
+    if torch.distributed.get_rank() == 0:
+        DiffusionTaskPool.request_cancel(reason)
+    chitu_generate()
 
 def chitu_run_eval():
     """

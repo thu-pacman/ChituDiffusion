@@ -37,6 +37,7 @@ class DiffusionTaskType(Enum):
     Denoise = 3
     VAEDecode = 4
     Terminate = 5
+    Cancel = 6
 
 
 class DiffusionTaskStatus(Enum):
@@ -247,19 +248,42 @@ class DiffusionTask:
             signal_data={'reason': reason, 'timestamp': time.time()}
         )
 
+    @classmethod
+    def create_cancel_signal(
+        cls,
+        task_id: str = None,
+        reason: str = "Current generation cancelled"
+    ) -> 'DiffusionTask':
+        if task_id is None:
+            task_id = f"cancel_signal_{int(time.time() * 1000)}"
+
+        return cls(
+            task_id=task_id,
+            task_type=DiffusionTaskType.Cancel,
+            req=None,
+            buffer=None,
+            signal_data={'reason': reason, 'timestamp': time.time()}
+        )
+
     def is_terminate_signal(self) -> bool:
         """检查是否为终止信号"""
         return self.task_type == DiffusionTaskType.Terminate
 
+    def is_cancel_signal(self) -> bool:
+        return self.task_type == DiffusionTaskType.Cancel
+
+    def is_control_signal(self) -> bool:
+        return self.is_terminate_signal() or self.is_cancel_signal()
+
     def is_completed(self) -> bool:
         """检查任务是否完成"""
-        if self.is_terminate_signal():
+        if self.is_control_signal():
             return True
         return self.status in [DiffusionTaskStatus.Completed, DiffusionTaskStatus.Failed]
 
     def is_running(self) -> bool:
         """检查任务是否正在运行"""
-        if self.is_terminate_signal():
+        if self.is_control_signal():
             return False
         return self.status == DiffusionTaskStatus.Running
 
@@ -407,6 +431,8 @@ class DiffusionTaskPool:
     pool: dict[str, DiffusionTask] = {}
     id_list: list[str] = []
     pending_queue: deque[DiffusionTask] = Deque()
+    shutdown_task: DiffusionTask | None = None
+    cancel_task: DiffusionTask | None = None
 
     def __bool__(self):
         return len(self.pool) > 0
@@ -418,16 +444,70 @@ class DiffusionTaskPool:
     def reset(cls):
         cls.pool = {}
         cls.id_list = []
+        cls.shutdown_task = None
+        cls.cancel_task = None
 
     @classmethod
     def is_empty(cls):
-        return len(cls.pool) == 0
+        return len(cls.pool) == 0 and cls.shutdown_task is None and cls.cancel_task is None
 
     @classmethod
     def all_finished(cls) -> bool:
+        if cls.shutdown_task is not None or cls.cancel_task is not None:
+            return False
         if len(cls.pool) == 0:
             return True
         return all(task.is_completed() for task in cls.pool.values())
+
+    @classmethod
+    def request_shutdown(cls, reason: str = "Normal shutdown") -> DiffusionTask:
+        if cls.shutdown_task is None:
+            cls.shutdown_task = DiffusionTask.create_terminate_signal(reason=reason)
+        return cls.shutdown_task
+
+    @classmethod
+    def request_cancel(cls, reason: str = "Current generation cancelled") -> DiffusionTask:
+        if cls.cancel_task is None:
+            cls.cancel_task = DiffusionTask.create_cancel_signal(reason=reason)
+        return cls.cancel_task
+
+    @classmethod
+    def has_shutdown_request(cls) -> bool:
+        return cls.shutdown_task is not None and cls.shutdown_task.status == DiffusionTaskStatus.Pending
+
+    @classmethod
+    def has_cancel_request(cls) -> bool:
+        return cls.cancel_task is not None and cls.cancel_task.status == DiffusionTaskStatus.Pending
+
+    @classmethod
+    def get_shutdown_task(cls) -> DiffusionTask | None:
+        return cls.shutdown_task
+
+    @classmethod
+    def get_cancel_task(cls) -> DiffusionTask | None:
+        return cls.cancel_task
+
+    @classmethod
+    def get_control_task(cls, task_id: str) -> DiffusionTask | None:
+        for task in (cls.shutdown_task, cls.cancel_task):
+            if task is not None and task.task_id == task_id:
+                return task
+        return None
+
+    @classmethod
+    def clear_shutdown_request(cls):
+        cls.shutdown_task = None
+
+    @classmethod
+    def clear_cancel_request(cls):
+        cls.cancel_task = None
+
+    @classmethod
+    def cancel_active_tasks(cls, reason: str = "Current generation cancelled"):
+        for task in cls.pool.values():
+            if not task.is_completed():
+                task.status = DiffusionTaskStatus.Failed
+                task.error_message = reason
 
     @classmethod
     def add(cls, task: DiffusionTask):

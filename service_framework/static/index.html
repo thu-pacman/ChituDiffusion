@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ChituDiffusion Service</title>
+    <link rel="stylesheet" href="/styles.css?v=20260604-eval-availability">
+  </head>
+  <body>
+    <main class="app">
+      <section class="topbar">
+        <div>
+          <h1>ChituDiffusion Service</h1>
+          <p id="configPath"></p>
+          <p id="workerStatus"></p>
+          <pre id="workerDetails" class="workerDetails" hidden></pre>
+        </div>
+        <div class="topActions">
+          <button id="refreshBtn" type="button" title="Refresh jobs">Refresh</button>
+          <button id="shutdownBtn" class="danger" type="button" title="Release worker resources">Shutdown Service</button>
+        </div>
+      </section>
+
+      <section class="layout">
+        <div class="mainColumn">
+          <form id="requestForm" class="panel">
+            <div class="sectionTitle">Request</div>
+            <label>
+              Prompt
+              <textarea id="prompt" required>A photorealistic cute cat, wearing a simple blue shirt, standing against a clear sky background.</textarea>
+            </label>
+            <label>
+              Negative Prompt
+              <input id="negativePrompt" type="text" placeholder="optional">
+            </label>
+            <div class="grid">
+              <label>
+                Request ID
+                <input id="requestId" type="text" placeholder="auto">
+              </label>
+              <label>
+                Seed
+                <input id="seed" type="number" value="42">
+              </label>
+              <label>
+                Width
+                <input id="width" type="number" value="1024" min="64" step="16">
+              </label>
+              <label>
+                Height
+                <input id="height" type="number" value="1024" min="64" step="16">
+              </label>
+              <label>
+                Frames
+                <input id="frames" type="number" value="1" min="1">
+              </label>
+              <label>
+                Steps
+                <input id="steps" type="number" placeholder="config default" min="1">
+              </label>
+              <label>
+                Solver
+                <select id="solver">
+                  <option value="">Auto</option>
+                  <option value="flowmatch_euler">flowmatch_euler</option>
+                  <option value="ddpm">ddpm</option>
+                  <option value="unipc">unipc</option>
+                </select>
+              </label>
+              <label>
+                Role
+                <input id="role" type="text" value="user">
+              </label>
+            </div>
+
+            <div class="sectionTitle">FlexCache</div>
+            <div class="grid">
+              <label>
+                Strategy
+                <select id="flexcacheStrategy">
+                  <option value="origin">origin</option>
+                </select>
+              </label>
+            </div>
+            <div id="flexcacheParams" class="grid"></div>
+
+            <div class="sectionTitle">Output</div>
+            <div class="toggles">
+              <label><input id="runLog" type="checkbox"> Run log</label>
+              <label><input id="memory" type="checkbox"> Memory</label>
+              <label><input id="timer" type="checkbox" checked> Timer</label>
+            </div>
+            <div class="grid">
+              <label>
+                Output Root
+                <input id="outputRoot" type="text" value="outputs">
+              </label>
+              <label>
+                Log Ranks
+                <input id="logRanks" type="text" value="0">
+              </label>
+            </div>
+            <button id="submitBtn" class="primary" type="submit">Start Request</button>
+          </form>
+
+          <section class="panel logPanel">
+            <div class="sectionTitle">Request Log</div>
+            <pre id="log"></pre>
+          </section>
+        </div>
+
+        <aside class="panel">
+          <div class="sectionTitle">Static Instance Config</div>
+          <dl id="staticConfig"></dl>
+          <div class="sectionTitle">Jobs</div>
+          <div id="jobs" class="jobs"></div>
+        </aside>
+      </section>
+    </main>
+    <script src="/app.js?v=20260604-eval-availability"></script>
+  </body>
+</html>
