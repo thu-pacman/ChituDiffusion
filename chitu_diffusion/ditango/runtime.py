@@ -1,4 +1,5 @@
 from logging import getLogger
+import os
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -21,6 +22,8 @@ def get_ditango_planner() -> DiTangoPlanner:
 
 
 class DitangoAttention:
+    COMPRESSED_NONLOCAL_TAG = "nonlocal"
+
     def __init__(self, layer_id: int):
         self.attn_backend = DiffusionBackend.attn
         self.group = get_cp_group()
@@ -35,6 +38,124 @@ class DitangoAttention:
         assert self.cp_size <= self.intra_group_size or self.cp_size % self.intra_group_size == 0
         if self.global_rank == 0:
             logger.info("L%d | Using Ditango Attn (curvature interval).", layer_id)
+
+    def _probe_enabled(self, strategy: DiTangoPlanner) -> bool:
+        probe_dir = os.getenv("CHITU_DITANGO_PROBE_DIR", "").strip()
+        if not probe_dir:
+            return False
+
+        def _matches_env(name: str, value: str) -> bool:
+            raw = os.getenv(name, "").strip()
+            if not raw:
+                return True
+            return value in {item.strip() for item in raw.split(",") if item.strip()}
+
+        if not _matches_env("CHITU_DITANGO_PROBE_LAYERS", str(self.layer_id)):
+            return False
+        if not _matches_env("CHITU_DITANGO_PROBE_STEPS", str(get_timestep())):
+            return False
+        if not _matches_env("CHITU_DITANGO_PROBE_BRANCHES", strategy._branch_key()):
+            return False
+        return True
+
+    def _stale_kv_probe_enabled(self, strategy: DiTangoPlanner, group_id: int) -> bool:
+        probe_dir = os.getenv("CHITU_DITANGO_STALE_KV_PROBE_DIR", "").strip()
+        if not probe_dir:
+            return False
+
+        def _matches_env(name: str, value: str) -> bool:
+            raw = os.getenv(name, "").strip()
+            if not raw:
+                return True
+            return value in {item.strip() for item in raw.split(",") if item.strip()}
+
+        if not _matches_env("CHITU_DITANGO_STALE_KV_PROBE_LAYERS", str(self.layer_id)):
+            return False
+        if not _matches_env("CHITU_DITANGO_STALE_KV_PROBE_STEPS", str(get_timestep())):
+            return False
+        if not _matches_env("CHITU_DITANGO_STALE_KV_PROBE_BRANCHES", strategy._branch_key()):
+            return False
+        if not _matches_env("CHITU_DITANGO_STALE_KV_PROBE_GROUPS", str(group_id)):
+            return False
+        if not _matches_env("CHITU_DITANGO_STALE_KV_PROBE_RANKS", str(self.rank_in_cp)):
+            return False
+        return True
+
+    def _dump_probe_qkv(self, strategy: DiTangoPlanner, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> None:
+        if not self._probe_enabled(strategy):
+            return
+        probe_dir = os.getenv("CHITU_DITANGO_PROBE_DIR", "").strip()
+        task_id = getattr(getattr(DiffusionBackend, "generator", None), "current_task", None)
+        task_id = getattr(task_id, "task_id", "unknown")
+        branch_key = strategy._branch_key()
+        step = get_timestep()
+        if os.getenv("CHITU_DITANGO_PROBE_BY_TASK", "").strip().lower() in {"1", "true", "yes", "on"}:
+            probe_dir = os.path.join(probe_dir, str(task_id).replace("/", "_"))
+        os.makedirs(probe_dir, exist_ok=True)
+        path = os.path.join(
+            probe_dir,
+            f"task-{task_id}_branch-{branch_key}_step-{step:03d}_layer-{self.layer_id:02d}"
+            f"_rank-{self.rank_in_cp:02d}.pt",
+        )
+        if os.path.exists(path):
+            return
+        payload = {
+            "task_id": task_id,
+            "branch": branch_key,
+            "step": int(step),
+            "layer_id": int(self.layer_id),
+            "rank_in_cp": int(self.rank_in_cp),
+            "global_rank": int(self.global_rank),
+            "cp_size": int(self.cp_size),
+            "intra_group_size": int(self.intra_group_size),
+            "ulysses_size": int(self.ulysses_size),
+            "q": q.detach().to("cpu"),
+            "k": k.detach().to("cpu"),
+            "v": v.detach().to("cpu"),
+        }
+        torch.save(payload, path)
+
+    def _dump_stale_kv_probe(
+        self,
+        strategy: DiTangoPlanner,
+        group_id: int,
+        q: torch.Tensor,
+        cached_k: torch.Tensor,
+        cached_v: torch.Tensor,
+    ) -> None:
+        if not self._stale_kv_probe_enabled(strategy, group_id):
+            return
+        probe_dir = os.getenv("CHITU_DITANGO_STALE_KV_PROBE_DIR", "").strip()
+        task_id = getattr(getattr(DiffusionBackend, "generator", None), "current_task", None)
+        task_id = getattr(task_id, "task_id", "unknown")
+        branch_key = strategy._branch_key()
+        step = get_timestep()
+        cached_step = strategy.cached_kv_step(self.layer_id, group_id)
+        os.makedirs(probe_dir, exist_ok=True)
+        path = os.path.join(
+            probe_dir,
+            f"task-{task_id}_branch-{branch_key}_step-{step:03d}_layer-{self.layer_id:02d}"
+            f"_group-{group_id:02d}_rank-{self.rank_in_cp:02d}.pt",
+        )
+        if os.path.exists(path):
+            return
+        payload = {
+            "task_id": task_id,
+            "branch": branch_key,
+            "step": int(step),
+            "cached_kv_step": cached_step,
+            "layer_id": int(self.layer_id),
+            "group_id": int(group_id),
+            "rank_in_cp": int(self.rank_in_cp),
+            "global_rank": int(self.global_rank),
+            "cp_size": int(self.cp_size),
+            "intra_group_size": int(self.intra_group_size),
+            "ulysses_size": int(self.ulysses_size),
+            "q": q.detach().to("cpu"),
+            "cached_k": cached_k.detach().to("cpu"),
+            "cached_v": cached_v.detach().to("cpu"),
+        }
+        torch.save(payload, path)
 
     @staticmethod
     def _is_local_partition_step(outer_step: int, inner_step: int) -> bool:
@@ -69,11 +190,59 @@ class DitangoAttention:
                     outer_loop_next_rank = (self.rank_in_cp - self.intra_group_size * (skip_group_range + 1)) % self.cp_size
                     outer_loop_prev_rank = (self.rank_in_cp + self.intra_group_size * (skip_group_range + 1)) % self.cp_size
                     comm_list.append((outer_loop_prev_rank, outer_loop_next_rank))
+                    skip_group_range = 0
                 for _ in range(inner_loop_size - 1):
                     comm_list.append((inner_loop_prev_rank, inner_loop_next_rank))
             elif group_id != 0:
                 skip_group_range += 1
         return outer_loop_size, inner_loop_size, comm_list
+
+    def _is_local_only_state_reuse_plan(
+        self,
+        strategy: DiTangoPlanner,
+        group_plan: torch.Tensor,
+        num_groups: int,
+        is_varlen: bool,
+    ) -> bool:
+        if num_groups <= 1 or strategy.groupwise_reuse_stale_kv:
+            return False
+        if strategy.groupwise_local_expand != 0:
+            return False
+        plan = group_plan.bool().tolist()
+        return bool(plan[0]) and not any(bool(item) for item in plan[1:])
+
+    def _stores_anchor_as_compressed_nonlocal(self, strategy: DiTangoPlanner) -> bool:
+        if self.cp_size <= self.intra_group_size or strategy.groupwise_reuse_stale_kv:
+            return False
+        if strategy.groupwise_local_expand != 0:
+            return False
+        if strategy.groupwise_stagger_period > 0 and strategy.groupwise_stagger_fresh_count > 0:
+            return False
+        if strategy.groupwise_topk_mode not in {"", "none", "off"} and strategy.groupwise_extra_topk > 0:
+            return False
+        return True
+
+    def _compress_nonlocal_cached_states(
+        self,
+        strategy: DiTangoPlanner,
+        num_groups: int,
+    ) -> AttentionState:
+        compressed = strategy.reuse_compressed(self.layer_id, self.COMPRESSED_NONLOCAL_TAG)
+        if not compressed.is_empty():
+            return compressed
+
+        compressed = AttentionState()
+        for group_id in range(1, num_groups):
+            state = strategy.reuse(self.layer_id, group_id=group_id)
+            if state.is_empty():
+                strategy.discard_compressed_state(self.layer_id, self.COMPRESSED_NONLOCAL_TAG)
+                return AttentionState()
+            compressed = AttentionState.merge(compressed, state)
+
+        strategy.store_compressed(self.layer_id, self.COMPRESSED_NONLOCAL_TAG, compressed)
+        for group_id in range(1, num_groups):
+            strategy.discard_group_state(self.layer_id, group_id)
+        return compressed
 
     def __call__(
         self,
@@ -114,6 +283,7 @@ class DitangoAttention:
             v = ulysses_group.all_to_all(v, head_dim, seq_dim)
         else:
             ulysses_group = None
+        self._dump_probe_qkv(strategy, q, k, v)
 
         warmup_cooldown = strategy.is_warmup_or_cooldown_step()
         is_anchor = strategy.is_anchor_step()
@@ -159,10 +329,18 @@ class DitangoAttention:
         final_state = AttentionState()
         computed_group_states: Dict[int, AttentionState] = {}
         local_partition_state = AttentionState()
+        compressed_nonlocal_state = AttentionState()
         current_group_id = 0
+        compress_anchor_nonlocal = is_anchor and self._stores_anchor_as_compressed_nonlocal(strategy)
+
+        if is_anchor:
+            strategy.discard_compressed_state(self.layer_id, self.COMPRESSED_NONLOCAL_TAG)
 
         for outer_step in range(outer_loop_size):
             group_state = AttentionState()
+            group_k_to_store = None
+            group_v_to_store = None
+            group_cu_to_store = None
             decision_code = strategy.DECISION_CODE_ANCHOR if is_anchor else strategy.DECISION_CODE_WARMUP_COOLDOWN
             for inner_step in range(inner_loop_size):
                 if is_varlen:
@@ -181,10 +359,14 @@ class DitangoAttention:
                     )
 
                 block_out, block_lse, _ = self.attn_backend(q, k, v, **kwargs)
+                final_state.update(block_out, block_lse)
+                if inner_step == 0:
+                    group_k_to_store = k
+                    group_v_to_store = v
+                    group_cu_to_store = kwargs.get("cu_seqlens_k", None)
                 is_local_partition = self._is_local_partition_step(outer_step, inner_step)
                 if is_local_partition:
                     local_partition_state.update(block_out, block_lse)
-                    final_state = AttentionState.merge(final_state, local_partition_state)
                 else:
                     group_state.update(block_out, block_lse)
 
@@ -200,13 +382,24 @@ class DitangoAttention:
             if not state_to_store.is_empty():
                 computed_group_states[current_group_id] = state_to_store
                 if is_anchor:
-                    strategy.store(self.layer_id, group_id=current_group_id, group_state=state_to_store)
-                if current_group_id == 0:
-                    final_state = state_to_store
-                else:
-                    final_state = AttentionState.merge(final_state, group_state)
+                    if compress_anchor_nonlocal and current_group_id > 0:
+                        compressed_nonlocal_state = AttentionState.merge(compressed_nonlocal_state, state_to_store)
+                        strategy.discard_group_state(self.layer_id, current_group_id)
+                    else:
+                        strategy.store(self.layer_id, group_id=current_group_id, group_state=state_to_store)
+                    if strategy.groupwise_reuse_stale_kv:
+                        strategy.store_kv(
+                            self.layer_id,
+                            group_id=current_group_id,
+                            k=group_k_to_store if group_k_to_store is not None else k,
+                            v=group_v_to_store if group_v_to_store is not None else v,
+                            cu_seqlens_k=group_cu_to_store,
+                        )
             strategy.record_group_decision(self.layer_id, current_group_id, decision_code)
             current_group_id = (current_group_id + 1) % outer_loop_size
+
+        if compress_anchor_nonlocal and not compressed_nonlocal_state.is_empty():
+            strategy.store_compressed(self.layer_id, self.COMPRESSED_NONLOCAL_TAG, compressed_nonlocal_state)
 
         return final_state, computed_group_states, local_partition_state
 
@@ -228,12 +421,24 @@ class DitangoAttention:
             group_plan = branch_plan[self.layer_id].to(self.group.device)
 
         group_plan = group_plan.clone().bool()
+        old_compute_states: Dict[int, AttentionState] = {}
+        use_compressed_nonlocal = self._is_local_only_state_reuse_plan(strategy, group_plan, num_groups, is_varlen)
+        compressed_nonlocal_state = AttentionState()
+        if use_compressed_nonlocal:
+            compressed_nonlocal_state = self._compress_nonlocal_cached_states(strategy, num_groups)
+            if compressed_nonlocal_state.is_empty():
+                use_compressed_nonlocal = False
         for group_id in range(num_groups):
             if bool(group_plan[group_id].item()):
+                old_state = strategy.reuse(self.layer_id, group_id=group_id)
+                if not old_state.is_empty():
+                    old_compute_states[group_id] = old_state
                 strategy.discard_group_state(self.layer_id, group_id)
+                if not use_compressed_nonlocal:
+                    strategy.discard_compressed_state(self.layer_id, self.COMPRESSED_NONLOCAL_TAG)
 
         if not bool(group_plan.bool().any().item()):
-            final_state = self._merge_cached_group_states(strategy, num_groups)
+            final_state = self._merge_cached_group_states(strategy, num_groups, q=q, is_varlen=is_varlen, **kwargs)
             if not final_state.is_empty():
                 strategy.record_step_fallback(self.layer_id, 0)
                 for group_id in range(num_groups):
@@ -245,21 +450,43 @@ class DitangoAttention:
         for group_id in range(num_groups):
             if bool(group_plan[group_id].item()):
                 continue
-            if strategy.reuse(self.layer_id, group_id=group_id).is_empty():
+            if use_compressed_nonlocal and group_id > 0:
+                continue
+            has_cached_state = not strategy.reuse(self.layer_id, group_id=group_id).is_empty()
+            has_cached_kv = strategy.reuse_kv(self.layer_id, group_id=group_id) is not None
+            if strategy.groupwise_reuse_stale_kv and not self._stale_kv_reuse_supported(is_varlen):
+                has_cached_kv = False
+            if (strategy.groupwise_reuse_stale_kv and not has_cached_kv) or (
+                not strategy.groupwise_reuse_stale_kv and not has_cached_state
+            ):
                 group_plan[group_id] = True
                 fallback_count += 1
 
         final_state = AttentionState()
         computed_group_states: Dict[int, AttentionState] = {}
+        reused_group_states: Dict[int, AttentionState] = {}
         local_partition_state = AttentionState()
+        align_source_pairs = []
+        align_stats = None
         current_group_id = 0
         compute_group = group_plan.bool().tolist().count(True)
+        use_state_align = (
+            strategy.groupwise_state_align
+            and not strategy.groupwise_reuse_stale_kv
+            and compute_group > 0
+            and compute_group < num_groups
+        )
+        if use_state_align:
+            align_source_pairs = list(old_compute_states.items())
 
         with Timer.get_timer(f"ditango_sele_attn_{compute_group}"):
             outer_loop_size, group_size, comm_list = self._generate_selective_comm_pattern(group_plan)
             for outer_step in range(outer_loop_size):
                 should_compute = bool(group_plan[current_group_id].item())
                 group_state = AttentionState()
+                group_k_to_store = None
+                group_v_to_store = None
+                group_cu_to_store = None
                 inner_loop_size = group_size if should_compute else 1
 
                 for inner_step in range(inner_loop_size):
@@ -269,7 +496,7 @@ class DitangoAttention:
                     else:
                         data_pack = (k, v)
 
-                    if comm_list:
+                    if should_compute and comm_list:
                         next_rank, prev_rank = comm_list.pop(0)
                         nxt_data_pack = async_ring_p2p_commit(
                             self.group, data_pack, src_rank=prev_rank, dst_rank=next_rank
@@ -280,6 +507,10 @@ class DitangoAttention:
                     is_local_partition = self._is_local_partition_step(outer_step, inner_step)
                     if should_compute:
                         block_out, block_lse, _ = self.attn_backend(q, k, v, **kwargs)
+                        if inner_step == 0:
+                            group_k_to_store = k
+                            group_v_to_store = v
+                            group_cu_to_store = kwargs.get("cu_seqlens_k", None)
                         if is_local_partition:
                             local_partition_state.update(block_out, block_lse)
                         else:
@@ -297,26 +528,261 @@ class DitangoAttention:
                         state_to_store = AttentionState.merge(state_to_store, group_state)
                     if not state_to_store.is_empty():
                         strategy.store(self.layer_id, group_id=current_group_id, group_state=state_to_store)
+                        if strategy.groupwise_reuse_stale_kv:
+                            strategy.store_kv(
+                                self.layer_id,
+                                group_id=current_group_id,
+                                k=group_k_to_store if group_k_to_store is not None else k,
+                                v=group_v_to_store if group_v_to_store is not None else v,
+                                cu_seqlens_k=group_cu_to_store,
+                        )
                         computed_group_states[current_group_id] = state_to_store
-                        if current_group_id == 0:
+                        if current_group_id == 0 and not use_state_align:
                             final_state = state_to_store
-                        else:
+                        elif not use_state_align:
                             final_state = AttentionState.merge(final_state, state_to_store)
+                        if use_state_align:
+                            align_stats = self._update_state_align_stats(
+                                current_group_id,
+                                state_to_store,
+                                align_source_pairs,
+                                align_stats,
+                            )
                     strategy.record_group_decision(self.layer_id, current_group_id, strategy.DECISION_CODE_COMPUTE)
                 else:
-                    reused_state = strategy.reuse(self.layer_id, group_id=current_group_id)
-                    final_state = AttentionState.merge(final_state, reused_state)
+                    if use_compressed_nonlocal and current_group_id > 0:
+                        strategy.record_group_decision(self.layer_id, current_group_id, strategy.DECISION_CODE_REUSE)
+                        current_group_id = (current_group_id + 1) % num_groups
+                        continue
+                    reused_state = self._reuse_group_state(strategy, current_group_id, q, is_varlen, **kwargs)
+                    reused_group_states[current_group_id] = reused_state
+                    if not use_state_align:
+                        final_state = AttentionState.merge(final_state, reused_state)
                     strategy.record_group_decision(self.layer_id, current_group_id, strategy.DECISION_CODE_REUSE)
 
                 current_group_id = (current_group_id + 1) % num_groups
 
+        if use_compressed_nonlocal:
+            final_state = self._merge_selective_states_with_alignment(
+                num_groups,
+                computed_group_states,
+                reused_group_states,
+                align_stats,
+                compressed_nonlocal_state,
+            )
+        elif use_state_align:
+            final_state = self._merge_selective_states_with_alignment(
+                num_groups,
+                computed_group_states,
+                reused_group_states,
+                align_stats,
+            )
         strategy.record_step_fallback(self.layer_id, fallback_count)
         return final_state, computed_group_states, local_partition_state
 
-    def _merge_cached_group_states(self, strategy: DiTangoPlanner, num_groups: int) -> AttentionState:
+    def _merge_selective_states_with_alignment(
+        self,
+        num_groups: int,
+        computed_group_states: Dict[int, AttentionState],
+        reused_group_states: Dict[int, AttentionState],
+        align_stats,
+        compressed_nonlocal_state: Optional[AttentionState] = None,
+    ) -> AttentionState:
+        if compressed_nonlocal_state is not None and not compressed_nonlocal_state.is_empty():
+            final_state = computed_group_states.get(0, AttentionState())
+            stale_state = compressed_nonlocal_state
+            if align_stats is not None:
+                stale_state = self._apply_state_align_correction(
+                    get_ditango_planner(),
+                    stale_state,
+                    align_stats,
+                    group_id=1,
+                    num_groups=num_groups,
+                )
+            return AttentionState.merge(final_state, stale_state)
+
+        final_state = AttentionState()
+        strategy = get_ditango_planner()
+        for group_id in range(num_groups):
+            state = computed_group_states.get(group_id)
+            if state is None:
+                state = reused_group_states.get(group_id, AttentionState())
+                if align_stats is not None and not state.is_empty():
+                    state = self._apply_state_align_correction(strategy, state, align_stats, group_id, num_groups)
+            final_state = AttentionState.merge(final_state, state)
+        return final_state
+
+    def _update_state_align_stats(
+        self,
+        group_id: int,
+        fresh_state: AttentionState,
+        source_pairs,
+        current_stats,
+    ):
+        if fresh_state.is_empty():
+            return current_stats
+        old_state = None
+        for source_group_id, source_state in source_pairs:
+            if source_group_id == group_id:
+                old_state = source_state
+                break
+        if old_state is None or old_state.is_empty():
+            return current_stats
+        out_delta = fresh_state.out.detach().float() - old_state.out.detach().to(fresh_state.out.device).float()
+        lse_delta = fresh_state.lse.detach().float() - old_state.lse.detach().to(fresh_state.lse.device).float()
+        out_scale, out_shift = self._fit_scalar_affine(old_state.out, fresh_state.out)
+        out_head_scale, out_head_shift = self._fit_head_affine(old_state.out, fresh_state.out)
+        if current_stats is None:
+            return {
+                "source_groups": [group_id],
+                "out_delta": out_delta,
+                "lse_delta": lse_delta,
+                "out_scale": out_scale,
+                "out_shift": out_shift,
+                "out_head_scale": out_head_scale,
+                "out_head_shift": out_head_shift,
+                "count": 1,
+            }
+        count = current_stats["count"]
+        count += 1
+        alpha = 1.0 / float(count)
+        current_stats["source_groups"].append(group_id)
+        current_stats["out_delta"] = current_stats["out_delta"] + (out_delta - current_stats["out_delta"]) * alpha
+        current_stats["lse_delta"] = current_stats["lse_delta"] + (lse_delta - current_stats["lse_delta"]) * alpha
+        current_stats["out_scale"] = current_stats["out_scale"] + (out_scale - current_stats["out_scale"]) * alpha
+        current_stats["out_shift"] = current_stats["out_shift"] + (out_shift - current_stats["out_shift"]) * alpha
+        current_stats["out_head_scale"] = current_stats["out_head_scale"] + (out_head_scale - current_stats["out_head_scale"]) * alpha
+        current_stats["out_head_shift"] = current_stats["out_head_shift"] + (out_head_shift - current_stats["out_head_shift"]) * alpha
+        current_stats["count"] = count
+        return current_stats
+
+    def _fit_scalar_affine(self, old: torch.Tensor, fresh: torch.Tensor) -> tuple[float, float]:
+        x = old.detach().float().reshape(-1)
+        y = fresh.detach().to(old.device).float().reshape(-1)
+        x_mean = x.mean()
+        y_mean = y.mean()
+        var = ((x - x_mean) ** 2).mean().clamp_min(1e-12)
+        scale = (((x - x_mean) * (y - y_mean)).mean() / var).item()
+        shift = (y_mean - scale * x_mean).item()
+        return float(scale), float(shift)
+
+    def _fit_head_affine(self, old: torch.Tensor, fresh: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        old = old.detach()
+        fresh = fresh.detach().to(old.device)
+        if old.ndim != 4:
+            scale, shift = self._fit_scalar_affine(old, fresh)
+            return torch.tensor([scale], device=old.device), torch.tensor([shift], device=old.device)
+        x = old.float().permute(2, 0, 1, 3).reshape(old.shape[2], -1)
+        y = fresh.float().permute(2, 0, 1, 3).reshape(fresh.shape[2], -1)
+        x_mean = x.mean(dim=1)
+        y_mean = y.mean(dim=1)
+        var = ((x - x_mean[:, None]) ** 2).mean(dim=1).clamp_min(1e-12)
+        scale = ((x - x_mean[:, None]) * (y - y_mean[:, None])).mean(dim=1) / var
+        shift = y_mean - scale * x_mean
+        return scale, shift
+
+    def _apply_state_align_correction(
+        self,
+        strategy: DiTangoPlanner,
+        state: AttentionState,
+        align_stats,
+        group_id: int,
+        num_groups: int,
+    ) -> AttentionState:
+        mode = strategy.groupwise_state_align_mode
+        if mode in {"delta", "lse_delta"}:
+            out_scale = 0.0 if mode == "lse_delta" else float(strategy.groupwise_state_align_out_scale)
+            return state.corrected(
+                align_stats["out_delta"] * out_scale,
+                align_stats["lse_delta"] * float(strategy.groupwise_state_align_lse_scale),
+            )
+        if mode in {"out_affine", "dist_out_affine"}:
+            transformed = AttentionState(
+                out=state.out * align_stats["out_scale"] + align_stats["out_shift"],
+                lse=state.lse,
+            )
+            if mode == "dist_out_affine":
+                weight = self._state_align_distance_weight(
+                    align_stats["source_groups"],
+                    group_id,
+                    num_groups,
+                    strategy.groupwise_state_align_distance_tau,
+                )
+                return AttentionState(
+                    out=state.out + (transformed.out - state.out) * weight,
+                    lse=state.lse,
+                )
+            return transformed
+        if mode == "out_affine_per_head":
+            scale = align_stats["out_head_scale"].to(device=state.out.device, dtype=state.out.dtype)
+            shift = align_stats["out_head_shift"].to(device=state.out.device, dtype=state.out.dtype)
+            if state.out.ndim == 4:
+                scale = scale.view(1, 1, -1, 1)
+                shift = shift.view(1, 1, -1, 1)
+            return AttentionState(
+                out=state.out * scale + shift,
+                lse=state.lse,
+            )
+        if mode == "out_affine_lse_delta":
+            return AttentionState(
+                out=state.out * align_stats["out_scale"] + align_stats["out_shift"],
+                lse=state.lse
+                + align_stats["lse_delta"].to(device=state.lse.device, dtype=state.lse.dtype)
+                * float(strategy.groupwise_state_align_lse_scale),
+            )
+        return state
+
+    def _state_align_distance_weight(
+        self,
+        source_groups: list[int],
+        target_group: int,
+        num_groups: int,
+        tau: float,
+    ) -> float:
+        def distance(a: int, b: int) -> int:
+            raw = abs(a - b)
+            return min(raw, num_groups - raw)
+
+        nearest = min(distance(source, target_group) for source in source_groups)
+        return float(torch.exp(torch.tensor(-float(nearest) / max(float(tau), 1e-6))).item())
+
+    def _stale_kv_reuse_supported(self, is_varlen: bool) -> bool:
+        return (not is_varlen) and self.intra_group_size == 1 and self.ulysses_size == 1
+
+    def _reuse_group_state(
+        self,
+        strategy: DiTangoPlanner,
+        group_id: int,
+        q: torch.Tensor,
+        is_varlen: bool,
+        **kwargs,
+    ) -> AttentionState:
+        if not strategy.groupwise_reuse_stale_kv or not self._stale_kv_reuse_supported(is_varlen):
+            return strategy.reuse(self.layer_id, group_id=group_id)
+        cached = strategy.reuse_kv(self.layer_id, group_id=group_id)
+        if cached is None:
+            return AttentionState()
+        cached_k, cached_v, _ = cached
+        self._dump_stale_kv_probe(strategy, group_id, q, cached_k, cached_v)
+        block_out, block_lse, _ = self.attn_backend(q, cached_k, cached_v, **kwargs)
+        state = AttentionState()
+        state.update(block_out, block_lse)
+        return state
+
+    def _merge_cached_group_states(
+        self,
+        strategy: DiTangoPlanner,
+        num_groups: int,
+        q: Optional[torch.Tensor] = None,
+        is_varlen: bool = False,
+        **kwargs,
+    ) -> AttentionState:
         final_state = AttentionState()
         for group_id in range(num_groups):
-            state = strategy.reuse(self.layer_id, group_id=group_id)
+            if q is None:
+                state = strategy.reuse(self.layer_id, group_id=group_id)
+            else:
+                state = self._reuse_group_state(strategy, group_id, q, is_varlen, **kwargs)
             if state.is_empty():
                 return AttentionState()
             final_state = AttentionState.merge(final_state, state)

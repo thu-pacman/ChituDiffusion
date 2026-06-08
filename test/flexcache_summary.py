@@ -48,7 +48,23 @@ def _strategy_label(params: dict[str, Any]) -> str:
         "blockdance": ("warmup", "cooldown", "boundary_block", "group_size", "start_fraction", "end_fraction"),
         "cubic": ("target_speedup", "warmup", "cooldown", "tau_max", "block_size"),
         "taylorseer": ("warmup", "cooldown", "fresh_threshold", "max_order", "first_enhance"),
-        "ditango": ("cache_ratio", "warmup", "cooldown", "tau_max", "curvature_interval_power"),
+        "ditango": (
+            "cache_ratio",
+            "warmup",
+            "cooldown",
+            "tau_max",
+            "curvature_interval_power",
+            "intra_group_size_limit",
+            "locality_group_compute_boost",
+            "anchor_interval",
+            "groupwise_stagger_period",
+            "groupwise_stagger_fresh_count",
+            "groupwise_stagger_layer_start",
+            "groupwise_stagger_layer_end",
+            "groupwise_keep_local",
+            "groupwise_force_tail_full_layers",
+            "groupwise_reuse_stale_kv",
+        ),
     }
     names = fields_by_strategy.get(strategy, tuple(key for key in spec.keys() if key != "strategy"))
     core = {key: spec.get(key) for key in names}

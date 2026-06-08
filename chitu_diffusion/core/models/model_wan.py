@@ -1,5 +1,6 @@
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
 import math
+import os
 from logging import getLogger
 import torch
 import torch.amp as amp
@@ -137,6 +138,70 @@ class WanSelfAttention(nn.Module):
         self.norm_k = WanRMSNorm(dim, eps=eps) if qk_norm else nn.Identity()
         self.rope_impl = rope_impl or rope_apply
 
+    def _probe_enabled(self, branch: str, step: int) -> bool:
+        if not os.getenv("CHITU_WAN_ATTN_PROBE_DIR", "").strip():
+            return False
+
+        def _matches(name: str, value: str) -> bool:
+            raw = os.getenv(name, "").strip()
+            if not raw:
+                return True
+            return value in {item.strip() for item in raw.split(",") if item.strip()}
+
+        layer_id = str(getattr(self, "_debug_layer_id", -1))
+        if not _matches("CHITU_WAN_ATTN_PROBE_LAYERS", layer_id):
+            return False
+        if not _matches("CHITU_WAN_ATTN_PROBE_STEPS", str(step)):
+            return False
+        if not _matches("CHITU_WAN_ATTN_PROBE_BRANCHES", branch):
+            return False
+        return True
+
+    def _dump_probe(self, q, k, v, out) -> None:
+        try:
+            from chitu_diffusion.runtime.backend import DiffusionBackend
+        except Exception:
+            return
+        generator = getattr(DiffusionBackend, "generator", None)
+        task = getattr(generator, "current_task", None)
+        if task is None:
+            return
+        branch = getattr(getattr(DiffusionBackend, "cfg_type", None), "value", "unknown")
+        step = int(getattr(task.buffer, "current_step", -1))
+        if not self._probe_enabled(branch, step):
+            return
+        probe_dir = os.getenv("CHITU_WAN_ATTN_PROBE_DIR", "").strip()
+        task_id = str(getattr(task, "task_id", "unknown")).replace("/", "_")
+        raw_tasks = os.getenv("CHITU_WAN_ATTN_PROBE_TASKS", "").strip()
+        if raw_tasks and not any(item.strip() in task_id for item in raw_tasks.split(",") if item.strip()):
+            return
+        os.makedirs(probe_dir, exist_ok=True)
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+        raw_ranks = os.getenv("CHITU_WAN_ATTN_PROBE_RANKS", "").strip()
+        if raw_ranks and str(rank) not in {item.strip() for item in raw_ranks.split(",") if item.strip()}:
+            return
+        layer_id = int(getattr(self, "_debug_layer_id", -1))
+        path = os.path.join(
+            probe_dir,
+            f"task-{task_id}_branch-{branch}_step-{step:03d}_layer-{layer_id:02d}_rank-{rank:02d}.pt",
+        )
+        if os.path.exists(path):
+            return
+        torch.save(
+            {
+                "task_id": task_id,
+                "branch": branch,
+                "step": step,
+                "layer_id": layer_id,
+                "rank": int(rank),
+                "q": q.detach().cpu(),
+                "k": k.detach().cpu(),
+                "v": v.detach().cpu(),
+                "out": out.detach().cpu(),
+            },
+            path,
+        )
+
 
     def forward(self, x, seq_lens, grid_sizes, freqs):
         r"""
@@ -165,6 +230,7 @@ class WanSelfAttention(nn.Module):
             v = half(v),
             window_size=self.window_size
         )[0]
+        self._dump_probe(half(rope_q), half(rope_k), half(v), x)
         x = x.to(q.dtype)
 
         # output
@@ -451,6 +517,8 @@ class WanModel(BackboneMixin, ModelMixin, ConfigMixin):
                               self.window_size, self.qk_norm, self.cross_attn_norm, self.eps)
             for _ in range(self.num_layers)
         ])
+        for layer_id, block in enumerate(self.blocks):
+            block.self_attn._debug_layer_id = layer_id
 
         # head
         self.head = Head(self.dim, self.out_dim, self.patch_size, self.eps)

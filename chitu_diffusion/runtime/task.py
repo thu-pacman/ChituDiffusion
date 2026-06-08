@@ -123,8 +123,69 @@ class DiffusionUserParams:
             resolved.cache_ratio = cache_ratio
         if hasattr(resolved, "tau_max"):
             resolved.tau_max = int(resolved.tau_max)
+        if hasattr(resolved, "anchor_interval") and resolved.anchor_interval is not None:
+            resolved.anchor_interval = int(resolved.anchor_interval)
+            if resolved.anchor_interval < 1:
+                raise ValueError(
+                    "acceleration anchor_interval must be >= 1, "
+                    f"got {resolved.anchor_interval}."
+                )
         if hasattr(resolved, "curvature_interval_power"):
             resolved.curvature_interval_power = float(resolved.curvature_interval_power)
+        if hasattr(resolved, "locality_group_compute_boost"):
+            resolved.locality_group_compute_boost = float(resolved.locality_group_compute_boost)
+            if resolved.locality_group_compute_boost < 0.0:
+                raise ValueError(
+                    "acceleration locality_group_compute_boost must be >= 0, "
+                    f"got {resolved.locality_group_compute_boost}."
+                )
+        for attr in (
+            "groupwise_state_align_out_scale",
+            "groupwise_state_align_lse_scale",
+            "groupwise_state_align_distance_tau",
+        ):
+            if hasattr(resolved, attr):
+                value = float(getattr(resolved, attr))
+                if value < 0.0:
+                    raise ValueError(f"acceleration {attr} must be >= 0, got {value}.")
+                setattr(resolved, attr, value)
+        if hasattr(resolved, "groupwise_state_align_mode"):
+            resolved.groupwise_state_align_mode = str(resolved.groupwise_state_align_mode)
+        if hasattr(resolved, "groupwise_topk_mode"):
+            resolved.groupwise_topk_mode = str(resolved.groupwise_topk_mode)
+        if hasattr(resolved, "groupwise_fixed_anchor_steps"):
+            resolved.groupwise_fixed_anchor_steps = str(resolved.groupwise_fixed_anchor_steps)
+        for attr in (
+            "groupwise_stagger_period",
+            "groupwise_stagger_fresh_count",
+            "groupwise_stagger_layer_start",
+            "groupwise_force_tail_full_layers",
+            "groupwise_local_expand",
+            "groupwise_extra_topk",
+        ):
+            if hasattr(resolved, attr):
+                value = int(getattr(resolved, attr))
+                if value < 0 and attr != "groupwise_local_expand":
+                    raise ValueError(f"acceleration {attr} must be >= 0, got {value}.")
+                setattr(resolved, attr, value)
+        if hasattr(resolved, "groupwise_stagger_layer_end"):
+            resolved.groupwise_stagger_layer_end = int(resolved.groupwise_stagger_layer_end)
+        for attr in ("groupwise_keep_local", "groupwise_reuse_stale_kv", "groupwise_state_align"):
+            if not hasattr(resolved, attr):
+                continue
+            raw = getattr(resolved, attr)
+            if isinstance(raw, str):
+                value = raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+            else:
+                value = bool(raw)
+            setattr(resolved, attr, value)
+        if hasattr(resolved, "intra_group_size_limit") and resolved.intra_group_size_limit is not None:
+            resolved.intra_group_size_limit = int(resolved.intra_group_size_limit)
+            if resolved.intra_group_size_limit < 1:
+                raise ValueError(
+                    "acceleration intra_group_size_limit must be >= 1, "
+                    f"got {resolved.intra_group_size_limit}."
+                )
         return resolved
     
 

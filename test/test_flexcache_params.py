@@ -41,6 +41,23 @@ def test_flexcache_param_dict_uses_concrete_fields():
     assert params.skip_cross_range == 6
 
 
+def test_ditango_param_dict_accepts_group_size_limit():
+    params = DiffusionUserParams(
+        flexcache_params={
+            "strategy": "ditango",
+            "cache_ratio": 0.6,
+            "intra_group_size_limit": 2,
+            "locality_group_compute_boost": 1.5,
+            "groupwise_reuse_stale_kv": "true",
+        }
+    ).resolve_flexcache_params()
+    assert isinstance(params, DiTangoParams)
+    assert params.cache_ratio == 0.6
+    assert params.intra_group_size_limit == 2
+    assert params.locality_group_compute_boost == 1.5
+    assert params.groupwise_reuse_stale_kv is True
+
+
 def test_concrete_params_are_strategy_specific():
     blockdance = DiffusionUserParams(
         flexcache_params=BlockDanceParams(warmup=7, cooldown=3)

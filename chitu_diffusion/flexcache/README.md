@@ -80,7 +80,7 @@ code so each strategy exposes only its own controls:
 - `TaylorSeerParams`: `warmup`, `cooldown`, `fresh_threshold`, `max_order`,
   `first_enhance`
 - `DiTangoParams`: `cache_ratio`, `warmup`, `cooldown`, `tau_max`,
-  `curvature_interval_power`
+  `curvature_interval_power`, `intra_group_size_limit`
 
 Dictionary inputs must use the concrete field names of the selected strategy.
 

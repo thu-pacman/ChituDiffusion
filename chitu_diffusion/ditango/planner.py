@@ -60,10 +60,11 @@ class DiTangoPlanner:
 
     DEFAULT_ANCHOR_INTERVAL = 5
     DEFAULT_TAU_MAX = 8
-    DEFAULT_INTRA_GROUP_SIZE_LIMIT = None
+    DEFAULT_INTRA_GROUP_SIZE_LIMIT = 1
     DEFAULT_WARMUP_STEPS = 5
     DEFAULT_COOLDOWN_STEPS = 5
     DEFAULT_CURVATURE_INTERVAL_POWER = 1.0 / 3.0
+    DEFAULT_LOCALITY_GROUP_COMPUTE_BOOST = 0.0
     DEFAULT_ANCHOR_LOG_LAYERS = ()
     DECISION_CODE_WARMUP_COOLDOWN = 0
     DECISION_CODE_ANCHOR = 1
@@ -82,6 +83,23 @@ class DiTangoPlanner:
         warmup_steps: Optional[int] = None,
         cooldown_steps: Optional[int] = None,
         curvature_interval_power: Optional[float] = None,
+        locality_group_compute_boost: Optional[float] = None,
+        groupwise_stagger_period: Optional[int] = None,
+        groupwise_stagger_fresh_count: Optional[int] = None,
+        groupwise_stagger_layer_start: Optional[int] = None,
+        groupwise_stagger_layer_end: Optional[int] = None,
+        groupwise_keep_local: Optional[bool] = None,
+        groupwise_force_tail_full_layers: Optional[int] = None,
+        groupwise_reuse_stale_kv: Optional[bool] = None,
+        groupwise_local_expand: Optional[int] = None,
+        groupwise_fixed_anchor_steps: Optional[str] = None,
+        groupwise_topk_mode: Optional[str] = None,
+        groupwise_extra_topk: Optional[int] = None,
+        groupwise_state_align: Optional[bool] = None,
+        groupwise_state_align_mode: Optional[str] = None,
+        groupwise_state_align_out_scale: Optional[float] = None,
+        groupwise_state_align_lse_scale: Optional[float] = None,
+        groupwise_state_align_distance_tau: Optional[float] = None,
     ):
         if cache_ratio is None:
             cache_ratio = 0.5
@@ -90,13 +108,47 @@ class DiTangoPlanner:
         if tau_max is None:
             tau_max = self.DEFAULT_TAU_MAX
         if intra_group_size_limit is None:
-            intra_group_size_limit = max(1, min(get_cp_group().group_size // 2, 8))
+            intra_group_size_limit = self.DEFAULT_INTRA_GROUP_SIZE_LIMIT
         if warmup_steps is None:
             warmup_steps = self.DEFAULT_WARMUP_STEPS
         if cooldown_steps is None:
             cooldown_steps = self.DEFAULT_COOLDOWN_STEPS
         if curvature_interval_power is None:
             curvature_interval_power = self.DEFAULT_CURVATURE_INTERVAL_POWER
+        if locality_group_compute_boost is None:
+            locality_group_compute_boost = self.DEFAULT_LOCALITY_GROUP_COMPUTE_BOOST
+        if groupwise_stagger_period is None:
+            groupwise_stagger_period = 0
+        if groupwise_stagger_fresh_count is None:
+            groupwise_stagger_fresh_count = 0
+        if groupwise_stagger_layer_start is None:
+            groupwise_stagger_layer_start = 0
+        if groupwise_stagger_layer_end is None:
+            groupwise_stagger_layer_end = -1
+        if groupwise_keep_local is None:
+            groupwise_keep_local = True
+        if groupwise_force_tail_full_layers is None:
+            groupwise_force_tail_full_layers = 1
+        if groupwise_reuse_stale_kv is None:
+            groupwise_reuse_stale_kv = False
+        if groupwise_local_expand is None:
+            groupwise_local_expand = -1
+        if groupwise_fixed_anchor_steps is None:
+            groupwise_fixed_anchor_steps = ""
+        if groupwise_topk_mode is None:
+            groupwise_topk_mode = "none"
+        if groupwise_extra_topk is None:
+            groupwise_extra_topk = 0
+        if groupwise_state_align is None:
+            groupwise_state_align = False
+        if groupwise_state_align_mode is None:
+            groupwise_state_align_mode = "delta"
+        if groupwise_state_align_out_scale is None:
+            groupwise_state_align_out_scale = 1.0
+        if groupwise_state_align_lse_scale is None:
+            groupwise_state_align_lse_scale = 1.0
+        if groupwise_state_align_distance_tau is None:
+            groupwise_state_align_distance_tau = 2.0
 
         self.type = "ditango"
         self.task = task
@@ -108,12 +160,36 @@ class DiTangoPlanner:
         self.warmup_steps = max(0, int(warmup_steps))
         self.cooldown_steps = max(0, int(cooldown_steps))
         self.curvature_interval_power = max(0.0, float(curvature_interval_power))
+        self.locality_group_compute_boost = max(0.0, float(locality_group_compute_boost))
+        self.groupwise_stagger_period = max(0, int(groupwise_stagger_period))
+        self.groupwise_stagger_fresh_count = max(0, int(groupwise_stagger_fresh_count))
+        self.groupwise_stagger_layer_start = max(0, int(groupwise_stagger_layer_start))
+        self.groupwise_stagger_layer_end = int(groupwise_stagger_layer_end)
+        self.groupwise_keep_local = bool(groupwise_keep_local)
+        self.groupwise_force_tail_full_layers = max(0, int(groupwise_force_tail_full_layers))
+        self.groupwise_reuse_stale_kv = bool(groupwise_reuse_stale_kv)
+        self.groupwise_local_expand = int(groupwise_local_expand)
+        self.groupwise_fixed_anchor_steps = str(groupwise_fixed_anchor_steps)
+        self.fixed_anchor_steps = self._parse_fixed_anchor_steps(self.groupwise_fixed_anchor_steps)
+        self.groupwise_topk_mode = str(groupwise_topk_mode).strip().lower()
+        self.groupwise_extra_topk = max(0, int(groupwise_extra_topk))
+        self.groupwise_state_align = bool(groupwise_state_align)
+        self.groupwise_state_align_mode = str(groupwise_state_align_mode)
+        self.groupwise_state_align_out_scale = float(groupwise_state_align_out_scale)
+        self.groupwise_state_align_lse_scale = float(groupwise_state_align_lse_scale)
+        self.groupwise_state_align_distance_tau = max(1e-6, float(groupwise_state_align_distance_tau))
         self.anchor_log_layers = set(self.DEFAULT_ANCHOR_LOG_LAYERS)
         self.total_layers = None
-        self.effective_group_size = min(get_cp_group().group_size, self.intra_group_size_limit)
-        self.group_num = max(1, get_cp_group().group_size // self.intra_group_size_limit)
+        cp_size = get_cp_group().group_size
+        self.intra_group_size_limit = min(cp_size, self.intra_group_size_limit)
+        while cp_size % self.intra_group_size_limit != 0 and self.intra_group_size_limit > 1:
+            self.intra_group_size_limit -= 1
+        self.effective_group_size = min(cp_size, self.intra_group_size_limit)
+        self.group_num = max(1, cp_size // self.intra_group_size_limit)
 
         self.state_cache: Dict[str, AttentionState] = {}
+        self.compressed_state_cache: Dict[str, AttentionState] = {}
+        self.kv_cache: Dict[str, Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]] = {}
         self.full_output_compress: Dict[str, torch.Tensor] = {}
         self.prev_anchor_full_output_compress: Dict[str, torch.Tensor] = {}
         self.group_meta: Dict[str, Dict[str, Any]] = {}
@@ -131,6 +207,8 @@ class DiTangoPlanner:
 
     def reset_state(self) -> None:
         self.state_cache.clear()
+        self.compressed_state_cache.clear()
+        self.kv_cache.clear()
         self.full_output_compress.clear()
         self.prev_anchor_full_output_compress.clear()
         self.group_meta = {}
@@ -151,8 +229,23 @@ class DiTangoPlanner:
 
     def _initial_anchor_steps(self) -> list[int]:
         if self.warmup_steps >= 2:
-            return [self.warmup_steps - 2, self.warmup_steps - 1]
-        return [0, 1]
+            steps = [self.warmup_steps - 2, self.warmup_steps - 1]
+        else:
+            steps = [0, 1]
+        steps.extend(self.fixed_anchor_steps)
+        return sorted({step for step in steps if step >= 0})
+
+    @staticmethod
+    def _parse_fixed_anchor_steps(raw_steps: str) -> list[int]:
+        if not raw_steps:
+            return []
+        steps = []
+        for item in str(raw_steps).replace(",", "|").split("|"):
+            item = item.strip()
+            if not item:
+                continue
+            steps.append(int(item))
+        return sorted(set(steps))
 
     def is_full_compute_mode(self) -> bool:
         return self.cache_ratio <= 0.0
@@ -330,8 +423,28 @@ class DiTangoPlanner:
         payload = {
             "strategy": self.type,
             "cache_ratio": self.cache_ratio,
+            "selective_cache_ratio_target": self._selective_cache_ratio_target(),
             "tau_max": self.tau_max,
             "curvature_interval_power": self.curvature_interval_power,
+            "locality_group_compute_boost": self.locality_group_compute_boost,
+            "intra_group_size_limit": self.intra_group_size_limit,
+            "anchor_interval": self.anchor_interval,
+            "groupwise_stagger_period": self.groupwise_stagger_period,
+            "groupwise_stagger_fresh_count": self.groupwise_stagger_fresh_count,
+            "groupwise_stagger_layer_start": self.groupwise_stagger_layer_start,
+            "groupwise_stagger_layer_end": self.groupwise_stagger_layer_end,
+            "groupwise_keep_local": self.groupwise_keep_local,
+            "groupwise_force_tail_full_layers": self.groupwise_force_tail_full_layers,
+            "groupwise_reuse_stale_kv": self.groupwise_reuse_stale_kv,
+            "groupwise_local_expand": self.groupwise_local_expand,
+            "groupwise_fixed_anchor_steps": self.groupwise_fixed_anchor_steps,
+            "groupwise_topk_mode": self.groupwise_topk_mode,
+            "groupwise_extra_topk": self.groupwise_extra_topk,
+            "groupwise_state_align": self.groupwise_state_align,
+            "groupwise_state_align_mode": self.groupwise_state_align_mode,
+            "groupwise_state_align_out_scale": self.groupwise_state_align_out_scale,
+            "groupwise_state_align_lse_scale": self.groupwise_state_align_lse_scale,
+            "groupwise_state_align_distance_tau": self.groupwise_state_align_distance_tau,
             "total_layers": self.total_layers,
             "group_num": self.group_num,
             "records": records,
@@ -451,31 +564,183 @@ class DiTangoPlanner:
         curv = torch.clamp(group_curvature.detach().float(), min=self.CURVATURE_EPSILON)
         power = float(self.curvature_interval_power)
         raw_tau = torch.pow(curv, -power) if power > 0.0 else torch.ones_like(curv)
-        target_update_rate = max(1.0 - float(self.cache_ratio), 1.0 / float(self.tau_max))
+        raw_tau = self._apply_locality_group_compute_boost(raw_tau)
+        target_update_rate = max(1.0 - self._selective_cache_ratio_target(), 1.0 / float(self.tau_max))
         inverse_raw_rate = torch.mean(1.0 / torch.clamp(raw_tau, min=self.CURVATURE_EPSILON))
         scale = float(inverse_raw_rate.item()) / max(target_update_rate, self.CURVATURE_EPSILON)
         tau = torch.round(raw_tau * scale).clamp(min=1, max=self.tau_max).to(dtype=torch.long)
         return tau
 
+    def _apply_locality_group_compute_boost(self, raw_tau: torch.Tensor) -> torch.Tensor:
+        boost = float(self.locality_group_compute_boost)
+        if boost <= 0.0 or raw_tau.ndim != 2 or raw_tau.shape[1] <= 1:
+            return raw_tau
+        multipliers = torch.ones(raw_tau.shape[1], dtype=raw_tau.dtype, device=raw_tau.device)
+        hot_group_count = min(2, raw_tau.shape[1])
+        multipliers[:hot_group_count] = 1.0 / (1.0 + boost)
+        return raw_tau * multipliers.unsqueeze(0)
+
+    def _selective_cache_ratio_target(self) -> float:
+        total_steps = self._get_total_steps()
+        if total_steps is None or total_steps <= 0:
+            return self.cache_ratio
+        cooldown_start = max(0, total_steps - self.cooldown_steps)
+        forced_step_set = {
+            step
+            for step in range(total_steps)
+            if step < self.warmup_steps or step >= cooldown_start
+        }
+        for branch_steps in self.anchor_step_list.values():
+            forced_step_set.update(
+                step
+                for step in branch_steps
+                if 0 <= step < total_steps and step >= self.warmup_steps and step < cooldown_start
+            )
+        forced_steps = len(forced_step_set)
+        selective_steps = max(1, total_steps - forced_steps)
+        target_reuse_steps = min(float(total_steps), max(0.0, float(self.cache_ratio) * float(total_steps)))
+        return max(0.0, min(1.0, target_reuse_steps / float(selective_steps)))
+
     def _build_plan_from_intervals(self, step: int, branch_key: str) -> None:
         intervals = self.group_intervals.get(branch_key)
         if intervals is None:
-            self.ditango_plan[branch_key] = torch.ones((self.total_layers, self.group_num), dtype=torch.bool)
+            plan = torch.ones((self.total_layers, self.group_num), dtype=torch.bool)
+            plan = self._apply_groupwise_stagger_plan(plan, step)
+            plan = self._apply_groupwise_topk_plan(plan, step, branch_key)
+            self.ditango_plan[branch_key] = plan
             return
         last_anchor = int(self.last_anchor_step.get(branch_key, step))
         age = max(1, int(step) - last_anchor)
         interval_cpu = intervals.detach().cpu().clamp(min=1)
         plan = (age % interval_cpu) == 0
+        plan = self._apply_groupwise_stagger_plan(plan, step)
+        plan = self._apply_groupwise_topk_plan(plan, step, branch_key)
         self.ditango_plan[branch_key] = plan.to(dtype=torch.bool)
 
+    def _groupwise_enabled(self) -> bool:
+        return (
+            self.groupwise_local_expand >= 0
+            or (self.groupwise_stagger_period > 0 and self.groupwise_stagger_fresh_count > 0)
+        ) and self.group_num > 1
+
+    def _groupwise_layer_bounds(self) -> tuple[int, int]:
+        if self.total_layers is None or self.total_layers <= 0:
+            return (0, -1)
+        start = min(max(0, self.groupwise_stagger_layer_start), self.total_layers - 1)
+        if self.groupwise_stagger_layer_end < 0:
+            end = self.total_layers - 1
+        else:
+            end = min(max(start, self.groupwise_stagger_layer_end), self.total_layers - 1)
+        if self.groupwise_force_tail_full_layers > 0:
+            end = min(end, max(start - 1, self.total_layers - self.groupwise_force_tail_full_layers - 1))
+        return start, end
+
+    def _groupwise_fresh_groups(self, step: int) -> set[int]:
+        if not self._groupwise_enabled():
+            return set()
+        if self.groupwise_local_expand >= 0:
+            expand = min(max(0, self.groupwise_local_expand), max(0, self.group_num - 1))
+            groups = {0}
+            for distance in range(1, expand + 1):
+                groups.add(distance % self.group_num)
+                groups.add((-distance) % self.group_num)
+            return groups
+        fresh_count = min(self.group_num, self.groupwise_stagger_fresh_count)
+        phase = max(0, int(step) - self.warmup_steps)
+        start_group = (phase * fresh_count) % self.group_num
+        groups = {(start_group + offset) % self.group_num for offset in range(fresh_count)}
+        if self.groupwise_keep_local:
+            groups.add(0)
+        return groups
+
+    def _apply_groupwise_stagger_plan(self, plan: torch.Tensor, step: int) -> torch.Tensor:
+        if not self._groupwise_enabled() or self.total_layers is None:
+            return plan
+        stagger_start, stagger_end = self._groupwise_layer_bounds()
+        if stagger_end < stagger_start:
+            return plan
+        result = plan.clone().to(dtype=torch.bool)
+        if self.groupwise_force_tail_full_layers > 0:
+            tail_start = max(0, self.total_layers - self.groupwise_force_tail_full_layers)
+            result[tail_start:, :] = True
+        fresh_groups = self._groupwise_fresh_groups(step)
+        for layer_id in range(stagger_start, stagger_end + 1):
+            result[layer_id, :] = False
+            for group_id in fresh_groups:
+                if 0 <= group_id < self.group_num:
+                    result[layer_id, group_id] = True
+        return result
+
+    def _groupwise_topk_enabled(self) -> bool:
+        return self.group_num > 1 and self.groupwise_topk_mode not in {"", "none", "off"} and self.groupwise_extra_topk > 0
+
+    def _apply_groupwise_topk_plan(self, plan: torch.Tensor, step: int, branch_key: str) -> torch.Tensor:
+        if not self._groupwise_topk_enabled() or self.total_layers is None:
+            return plan
+        topk_start, topk_end = self._groupwise_layer_bounds()
+        if topk_end < topk_start:
+            return plan
+        result = plan.clone().to(dtype=torch.bool)
+        if self.groupwise_force_tail_full_layers > 0:
+            tail_start = max(0, self.total_layers - self.groupwise_force_tail_full_layers)
+            result[tail_start:, :] = True
+
+        k = min(max(0, self.groupwise_extra_topk), max(0, self.group_num - 1))
+        score_matrix = self._cached_group_score_matrix(branch_key, step)
+        for layer_id in range(topk_start, topk_end + 1):
+            result[layer_id, :] = False
+            result[layer_id, 0] = True
+            for group_id in self._rank_cached_groups(score_matrix, layer_id)[:k]:
+                result[layer_id, group_id] = True
+        return result
+
+    def _rank_cached_groups(self, score_matrix: torch.Tensor, layer_id: int) -> list[int]:
+        candidates = []
+        for group_id in range(1, self.group_num):
+            score = float(score_matrix[layer_id, group_id].item())
+            candidates.append((score, -group_id, group_id))
+        candidates.sort(reverse=True)
+        return [group_id for _, _, group_id in candidates]
+
+    def _cached_group_score_matrix(self, branch_key: str, step: int) -> torch.Tensor:
+        scores = torch.full((self.total_layers, self.group_num), float("-inf"), dtype=torch.float32)
+        for layer_id in range(self.total_layers):
+            for group_id in range(1, self.group_num):
+                scores[layer_id, group_id] = self._cached_group_score(branch_key, layer_id, group_id, step)
+        if self.groupwise_topk_mode in {"cached_lse", "cached_lse_abs"} and get_cp_group().group_size > 1:
+            device = self._anchor_matrix_device(branch_key)
+            sync_scores = scores.to(device=device)
+            missing_mask = torch.isneginf(sync_scores)
+            sync_scores = torch.where(missing_mask, torch.zeros_like(sync_scores), sync_scores)
+            counts = (~missing_mask).to(dtype=torch.float32)
+            get_cp_group().all_reduce(sync_scores, op=torch.distributed.ReduceOp.SUM)
+            get_cp_group().all_reduce(counts, op=torch.distributed.ReduceOp.SUM)
+            sync_scores = torch.where(counts > 0, sync_scores / torch.clamp(counts, min=1.0), torch.full_like(sync_scores, float("-inf")))
+            scores = sync_scores.cpu()
+        return scores
+
+    def _cached_group_score(self, branch_key: str, layer_id: int, group_id: int, step: int) -> float:
+        mode = self.groupwise_topk_mode
+        if mode in {"cached_lse", "cached_lse_abs"}:
+            key = self._explicit_branch_layer_group_key(branch_key, layer_id, group_id)
+            state = self.state_cache.get(key)
+            if state is None or state.is_empty():
+                return float("-inf")
+            lse_mean = float(state.lse.detach().float().mean().item())
+            return abs(lse_mean) if mode == "cached_lse_abs" else lse_mean
+        if mode == "nearest":
+            return float(-min(group_id, self.group_num - group_id))
+        if mode == "farthest":
+            return float(min(group_id, self.group_num - group_id))
+        if mode == "round_robin":
+            return 1.0 if group_id == (max(0, int(step) - self.warmup_steps) % max(1, self.group_num)) else 0.0
+        return float("-inf")
+
     def _schedule_next_anchor(self, step: int, target_branches: Tuple[str, ...]) -> None:
+        if self.fixed_anchor_steps:
+            return
         total_steps = self._get_total_steps()
-        max_interval = 1
-        for branch_key in target_branches:
-            intervals = self.group_intervals.get(branch_key)
-            if intervals is not None and intervals.numel() > 0:
-                max_interval = max(max_interval, int(intervals.max().item()))
-        next_step = step + max(1, 2 * max_interval)
+        next_step = step + max(1, self.anchor_interval)
         if total_steps is not None and next_step >= max(0, total_steps - self.cooldown_steps):
             return
         for branch_key in target_branches:
@@ -498,7 +763,12 @@ class DiTangoPlanner:
             return
         logger.info(
             "[DiTango Anchor t%d-%s] targets=%s curvature(mean=%.6e,max=%.6e) "
-            "interval(min=%d,max=%d,mean=%.3f) cache_ratio=%.3f curvature_interval_power=%.4f",
+            "interval(min=%d,max=%d,mean=%.3f) cache_ratio=%.3f selective_cache_ratio=%.3f "
+            "curvature_interval_power=%.4f locality_group_compute_boost=%.3f "
+            "groupwise(period=%d,fresh=%d,layers=%d..%d,keep_local=%s,tail_full=%d,local_expand=%d,"
+            "fixed_anchors=%s,topk_mode=%s,extra_topk=%d,state_align=%s,mode=%s,"
+            "out_scale=%.3f,lse_scale=%.3f,tau=%.3f) "
+            "stale_kv=%s group_num=%d intra_group_size_limit=%d",
             step,
             branch_key,
             target_branches,
@@ -508,7 +778,27 @@ class DiTangoPlanner:
             int(intervals.max().item()),
             float(intervals.float().mean().item()),
             self.cache_ratio,
+            self._selective_cache_ratio_target(),
             self.curvature_interval_power,
+            self.locality_group_compute_boost,
+            self.groupwise_stagger_period,
+            self.groupwise_stagger_fresh_count,
+            self.groupwise_stagger_layer_start,
+            self.groupwise_stagger_layer_end,
+            self.groupwise_keep_local,
+            self.groupwise_force_tail_full_layers,
+            self.groupwise_local_expand,
+            self.groupwise_fixed_anchor_steps,
+            self.groupwise_topk_mode,
+            self.groupwise_extra_topk,
+            self.groupwise_state_align,
+            self.groupwise_state_align_mode,
+            self.groupwise_state_align_out_scale,
+            self.groupwise_state_align_lse_scale,
+            self.groupwise_state_align_distance_tau,
+            self.groupwise_reuse_stale_kv,
+            self.group_num,
+            self.intra_group_size_limit,
         )
 
     def run_ditango_planner(self, layer_id: int) -> None:
@@ -543,7 +833,7 @@ class DiTangoPlanner:
 
             if has_signal:
                 self._schedule_next_anchor(step, target_branches)
-            else:
+            elif not self.fixed_anchor_steps:
                 for target_branch in target_branches:
                     next_step = step + 1
                     if next_step not in self.anchor_step_list[target_branch]:
@@ -566,9 +856,24 @@ class DiTangoPlanner:
     def get_reuse_key(self, layer_id: int, group_id: int = 0, **kwargs) -> str:
         return self._branch_layer_group_key(layer_id, group_id)
 
+    def get_compressed_reuse_key(self, layer_id: int, tag: str) -> str:
+        return f"{self._branch_layer_key(layer_id)}_compressed_{tag}"
+
     def reuse(self, layer_id: int, group_id: int = 0, **kwargs) -> AttentionState:
         key = self.get_reuse_key(layer_id, group_id=group_id)
         return self.state_cache.get(key, AttentionState())
+
+    def reuse_compressed(self, layer_id: int, tag: str) -> AttentionState:
+        key = self.get_compressed_reuse_key(layer_id, tag)
+        return self.compressed_state_cache.get(key, AttentionState())
+
+    def reuse_kv(
+        self,
+        layer_id: int,
+        group_id: int,
+    ) -> Optional[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]]:
+        key = self.get_reuse_key(layer_id, group_id=group_id)
+        return self.kv_cache.get(key)
 
     def get_store_key(self, layer_id: int, group_id: int = 0, **kwargs) -> str:
         return self._branch_layer_group_key(layer_id, group_id)
@@ -580,8 +885,41 @@ class DiTangoPlanner:
         self.state_cache[key] = group_state
         self.group_meta.setdefault(key, {})["last_compute_step"] = get_timestep()
 
+    def store_compressed(self, layer_id: int, tag: str, state: Optional[AttentionState]) -> None:
+        key = self.get_compressed_reuse_key(layer_id, tag)
+        if state is None or state.is_empty():
+            self.compressed_state_cache.pop(key, None)
+            return
+        self.compressed_state_cache[key] = state
+
+    def discard_compressed_state(self, layer_id: int, tag: str) -> None:
+        key = self.get_compressed_reuse_key(layer_id, tag)
+        self.compressed_state_cache.pop(key, None)
+
+    def store_kv(
+        self,
+        layer_id: int,
+        group_id: int,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        cu_seqlens_k: Optional[torch.Tensor] = None,
+    ) -> None:
+        if self.is_warmup_or_cooldown_step() and not self.is_anchor_step():
+            return
+        key = self.get_store_key(layer_id, group_id=group_id)
+        cached_cu = None if cu_seqlens_k is None else cu_seqlens_k.detach().clone()
+        self.kv_cache[key] = (k.detach().clone(), v.detach().clone(), cached_cu)
+        self.group_meta.setdefault(key, {})["last_kv_step"] = get_timestep()
+
+    def cached_kv_step(self, layer_id: int, group_id: int) -> Optional[int]:
+        key = self.get_reuse_key(layer_id, group_id=group_id)
+        step = self.group_meta.get(key, {}).get("last_kv_step")
+        return None if step is None else int(step)
+
     def discard_group_state(self, layer_id: int, group_id: int) -> None:
-        self.state_cache.pop(self.get_store_key(layer_id, group_id=group_id), None)
+        key = self.get_store_key(layer_id, group_id=group_id)
+        self.state_cache.pop(key, None)
+        self.kv_cache.pop(key, None)
 
     def wrap_module_with_strategy(self, module: torch.nn.Module) -> None:
         from chitu_diffusion.ditango.runtime import DitangoAttention

@@ -116,6 +116,7 @@ output/*
 srun_wan_demo.sh
 experiments/
 vbench_out/*
+*.pt
 
 # Local algorithm references
 third_party/Cubic/
