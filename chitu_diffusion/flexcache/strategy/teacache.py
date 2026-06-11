@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 import os
-import json
 from typing import Optional, Any, Dict
 import torch.distributed as dist
 import functools
@@ -73,8 +72,6 @@ class TeaCacheStrategy(FlexCacheStrategy):
 
         self._vis_records: Dict[int, int] = {}
         self._vis_max_step = -1
-        self._e0_trace_path = os.environ.get("CHITU_TEACACHE_E0_TRACE", "").strip()
-        self._e0_trace_dir = os.environ.get("CHITU_TEACACHE_E0_TRACE_DIR", "").strip()
 
     def _get_output_dir(self) -> str:
         env_output = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
@@ -143,24 +140,6 @@ class TeaCacheStrategy(FlexCacheStrategy):
             f.write(bytes(rgb))
 
         logger.info(f"[TeaCache] Saved policy visualization PPM to {ppm_path}")
-
-    def _dump_e0_trace(self, payload: Dict[str, Any]) -> None:
-        if (not self._e0_trace_path and not self._e0_trace_dir) or not _is_main_process():
-            return
-        task = DiffusionBackend.generator.current_task
-        task_id = getattr(task, "task_id", None)
-        if self._e0_trace_path:
-            trace_path = self._e0_trace_path
-        else:
-            safe_task_id = str(task_id or "unknown").replace("/", "_")
-            trace_path = os.path.join(self._e0_trace_dir, f"{safe_task_id}_e0_trace.jsonl")
-        os.makedirs(os.path.dirname(trace_path) or ".", exist_ok=True)
-        payload = {
-            "task_id": task_id,
-            **payload,
-        }
-        with open(trace_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
         
     def _setup_teacache(
         self, 
@@ -334,22 +313,8 @@ class TeaCacheStrategy(FlexCacheStrategy):
         modulated_inp = modulated_inp if modulated_inp is not None else self._select_modulated_input(e0=e0, raw_e=raw_e)
         current_step = DiffusionBackend.generator.current_task.buffer.current_step
         branch_key = self._branch_key()
-        accumulated_distance = self._accumulated_distance(branch_key)
         if modulated_inp is None:
             self._record_step_policy(current_step, 1)
-            self._dump_e0_trace(
-                {
-                    "step": int(current_step),
-                    "branch": branch_key,
-                    "decision": "compute_missing_observation",
-                    "rel_l1": None,
-                    "scaled_distance": None,
-                    "accumulated_before": float(accumulated_distance),
-                    "accumulated_after": float(accumulated_distance),
-                    "threshold": float(self.teacache_thresh),
-                    "use_ref_steps": bool(self.use_ref_steps),
-                }
-            )
             return None
         
         # warmup: 前 warmup_steps 步完整计算
@@ -357,40 +322,15 @@ class TeaCacheStrategy(FlexCacheStrategy):
         if self._in_warmup_or_cooldown(current_step):
             self._set_accumulated_distance(branch_key, 0.0)
             self._record_step_policy(current_step, 0)
-            self._dump_e0_trace(
-                {
-                    "step": int(current_step),
-                    "branch": branch_key,
-                    "decision": "warmup_cooldown",
-                    "rel_l1": None,
-                    "scaled_distance": None,
-                    "accumulated_before": float(accumulated_distance),
-                    "accumulated_after": 0.0,
-                    "threshold": float(self.teacache_thresh),
-                    "use_ref_steps": bool(self.use_ref_steps),
-                }
-            )
             return None
             
         # 获取对应分支的状态
         previous_e0 = self._previous_e0(branch_key)
-            
+        accumulated_distance = self._accumulated_distance(branch_key)
+
         # 首次调用该分支，没有历史数据
         if previous_e0 is None:
             self._record_step_policy(current_step, 1)
-            self._dump_e0_trace(
-                {
-                    "step": int(current_step),
-                    "branch": branch_key,
-                    "decision": "compute_no_history",
-                    "rel_l1": None,
-                    "scaled_distance": None,
-                    "accumulated_before": float(accumulated_distance),
-                    "accumulated_after": float(accumulated_distance),
-                    "threshold": float(self.teacache_thresh),
-                    "use_ref_steps": bool(self.use_ref_steps),
-                }
-            )
             return None
             
         # 计算相对L1距离
@@ -401,19 +341,6 @@ class TeaCacheStrategy(FlexCacheStrategy):
             # 避免除零
             if abs_mean < 1e-8:
                 self._record_step_policy(current_step, 1)
-                self._dump_e0_trace(
-                    {
-                        "step": int(current_step),
-                        "branch": branch_key,
-                        "decision": "compute_zero_norm",
-                        "rel_l1": None,
-                        "scaled_distance": None,
-                        "accumulated_before": float(accumulated_distance),
-                        "accumulated_after": float(accumulated_distance),
-                        "threshold": float(self.teacache_thresh),
-                        "use_ref_steps": bool(self.use_ref_steps),
-                    }
-                )
                 return None
                 
             rel_l1_distance = (abs_diff / abs_mean).cpu().item()
@@ -433,36 +360,10 @@ class TeaCacheStrategy(FlexCacheStrategy):
             self._set_accumulated_distance(branch_key, new_accumulated)
             self._set_previous_e0(branch_key, modulated_inp.clone().detach())
             self._record_step_policy(current_step, 2)
-            self._dump_e0_trace(
-                {
-                    "step": int(current_step),
-                    "branch": branch_key,
-                    "decision": "reuse",
-                    "rel_l1": float(rel_l1_distance),
-                    "scaled_distance": float(scaled_distance),
-                    "accumulated_before": float(accumulated_distance),
-                    "accumulated_after": float(new_accumulated),
-                    "threshold": float(self.teacache_thresh),
-                    "use_ref_steps": bool(self.use_ref_steps),
-                }
-            )
             return branch_key
         else: # 若否，完整计算并重置累积距离
             self._set_accumulated_distance(branch_key, 0.0)
             self._record_step_policy(current_step, 1)
-            self._dump_e0_trace(
-                {
-                    "step": int(current_step),
-                    "branch": branch_key,
-                    "decision": "compute_threshold",
-                    "rel_l1": float(rel_l1_distance),
-                    "scaled_distance": float(scaled_distance),
-                    "accumulated_before": float(accumulated_distance),
-                    "accumulated_after": 0.0,
-                    "threshold": float(self.teacache_thresh),
-                    "use_ref_steps": bool(self.use_ref_steps),
-                }
-            )
             return None
     
     def reuse(self, cached_feature: torch.Tensor, x: torch.Tensor, 

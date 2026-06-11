@@ -1,5 +1,4 @@
 from logging import getLogger
-import os
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -38,124 +37,6 @@ class DitangoAttention:
         assert self.cp_size <= self.intra_group_size or self.cp_size % self.intra_group_size == 0
         if self.global_rank == 0:
             logger.info("L%d | Using Ditango Attn (curvature interval).", layer_id)
-
-    def _probe_enabled(self, strategy: DiTangoPlanner) -> bool:
-        probe_dir = os.getenv("CHITU_DITANGO_PROBE_DIR", "").strip()
-        if not probe_dir:
-            return False
-
-        def _matches_env(name: str, value: str) -> bool:
-            raw = os.getenv(name, "").strip()
-            if not raw:
-                return True
-            return value in {item.strip() for item in raw.split(",") if item.strip()}
-
-        if not _matches_env("CHITU_DITANGO_PROBE_LAYERS", str(self.layer_id)):
-            return False
-        if not _matches_env("CHITU_DITANGO_PROBE_STEPS", str(get_timestep())):
-            return False
-        if not _matches_env("CHITU_DITANGO_PROBE_BRANCHES", strategy._branch_key()):
-            return False
-        return True
-
-    def _stale_kv_probe_enabled(self, strategy: DiTangoPlanner, group_id: int) -> bool:
-        probe_dir = os.getenv("CHITU_DITANGO_STALE_KV_PROBE_DIR", "").strip()
-        if not probe_dir:
-            return False
-
-        def _matches_env(name: str, value: str) -> bool:
-            raw = os.getenv(name, "").strip()
-            if not raw:
-                return True
-            return value in {item.strip() for item in raw.split(",") if item.strip()}
-
-        if not _matches_env("CHITU_DITANGO_STALE_KV_PROBE_LAYERS", str(self.layer_id)):
-            return False
-        if not _matches_env("CHITU_DITANGO_STALE_KV_PROBE_STEPS", str(get_timestep())):
-            return False
-        if not _matches_env("CHITU_DITANGO_STALE_KV_PROBE_BRANCHES", strategy._branch_key()):
-            return False
-        if not _matches_env("CHITU_DITANGO_STALE_KV_PROBE_GROUPS", str(group_id)):
-            return False
-        if not _matches_env("CHITU_DITANGO_STALE_KV_PROBE_RANKS", str(self.rank_in_cp)):
-            return False
-        return True
-
-    def _dump_probe_qkv(self, strategy: DiTangoPlanner, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> None:
-        if not self._probe_enabled(strategy):
-            return
-        probe_dir = os.getenv("CHITU_DITANGO_PROBE_DIR", "").strip()
-        task_id = getattr(getattr(DiffusionBackend, "generator", None), "current_task", None)
-        task_id = getattr(task_id, "task_id", "unknown")
-        branch_key = strategy._branch_key()
-        step = get_timestep()
-        if os.getenv("CHITU_DITANGO_PROBE_BY_TASK", "").strip().lower() in {"1", "true", "yes", "on"}:
-            probe_dir = os.path.join(probe_dir, str(task_id).replace("/", "_"))
-        os.makedirs(probe_dir, exist_ok=True)
-        path = os.path.join(
-            probe_dir,
-            f"task-{task_id}_branch-{branch_key}_step-{step:03d}_layer-{self.layer_id:02d}"
-            f"_rank-{self.rank_in_cp:02d}.pt",
-        )
-        if os.path.exists(path):
-            return
-        payload = {
-            "task_id": task_id,
-            "branch": branch_key,
-            "step": int(step),
-            "layer_id": int(self.layer_id),
-            "rank_in_cp": int(self.rank_in_cp),
-            "global_rank": int(self.global_rank),
-            "cp_size": int(self.cp_size),
-            "intra_group_size": int(self.intra_group_size),
-            "ulysses_size": int(self.ulysses_size),
-            "q": q.detach().to("cpu"),
-            "k": k.detach().to("cpu"),
-            "v": v.detach().to("cpu"),
-        }
-        torch.save(payload, path)
-
-    def _dump_stale_kv_probe(
-        self,
-        strategy: DiTangoPlanner,
-        group_id: int,
-        q: torch.Tensor,
-        cached_k: torch.Tensor,
-        cached_v: torch.Tensor,
-    ) -> None:
-        if not self._stale_kv_probe_enabled(strategy, group_id):
-            return
-        probe_dir = os.getenv("CHITU_DITANGO_STALE_KV_PROBE_DIR", "").strip()
-        task_id = getattr(getattr(DiffusionBackend, "generator", None), "current_task", None)
-        task_id = getattr(task_id, "task_id", "unknown")
-        branch_key = strategy._branch_key()
-        step = get_timestep()
-        cached_step = strategy.cached_kv_step(self.layer_id, group_id)
-        os.makedirs(probe_dir, exist_ok=True)
-        path = os.path.join(
-            probe_dir,
-            f"task-{task_id}_branch-{branch_key}_step-{step:03d}_layer-{self.layer_id:02d}"
-            f"_group-{group_id:02d}_rank-{self.rank_in_cp:02d}.pt",
-        )
-        if os.path.exists(path):
-            return
-        payload = {
-            "task_id": task_id,
-            "branch": branch_key,
-            "step": int(step),
-            "cached_kv_step": cached_step,
-            "layer_id": int(self.layer_id),
-            "group_id": int(group_id),
-            "rank_in_cp": int(self.rank_in_cp),
-            "global_rank": int(self.global_rank),
-            "cp_size": int(self.cp_size),
-            "intra_group_size": int(self.intra_group_size),
-            "ulysses_size": int(self.ulysses_size),
-            "q": q.detach().to("cpu"),
-            "cached_k": cached_k.detach().to("cpu"),
-            "cached_v": cached_v.detach().to("cpu"),
-        }
-        torch.save(payload, path)
 
     @staticmethod
     def _is_local_partition_step(outer_step: int, inner_step: int) -> bool:
@@ -283,7 +164,6 @@ class DitangoAttention:
             v = ulysses_group.all_to_all(v, head_dim, seq_dim)
         else:
             ulysses_group = None
-        self._dump_probe_qkv(strategy, q, k, v)
 
         warmup_cooldown = strategy.is_warmup_or_cooldown_step()
         is_anchor = strategy.is_anchor_step()
@@ -763,7 +643,6 @@ class DitangoAttention:
         if cached is None:
             return AttentionState()
         cached_k, cached_v, _ = cached
-        self._dump_stale_kv_probe(strategy, group_id, q, cached_k, cached_v)
         block_out, block_lse, _ = self.attn_backend(q, cached_k, cached_v, **kwargs)
         state = AttentionState()
         state.update(block_out, block_lse)
