@@ -1,9 +1,9 @@
 # ChituDiffusion Service Framework
 
 This is a lightweight web UI plus persistent GPU worker around the existing
-`system_config.yaml` and `run.sh` launch path. The HTTP UI is opened by the
+`system_config.yaml` and `chitu run` launch path. The HTTP UI is opened by the
 launcher process on the VSCode remote host so VSCode can detect and forward the
-port. The GPU worker is started through `run.sh`, allocates resources, loads the
+port. The GPU worker is started through `chitu run`, allocates resources, loads the
 model, then marks the UI ready for requests.
 
 The static launch fields stay in the selected system config:
@@ -21,14 +21,14 @@ fields such as `output.run_log`, `output.memory`, `output.timer`, and
 ## Remote Cluster Start
 
 ```bash
-./.venv/bin/python service_framework/server.py --config system_config.yaml --host 127.0.0.1 --port 7860
+chitu serve --config system_config.yaml --host 127.0.0.1 --port 7860
 ```
 
 This command opens the UI on the VSCode remote host and generates a temporary
 service config under `service_framework/runs/`, then launches the GPU worker:
 
 ```bash
-bash run.sh service_framework/runs/<service_id>/system_config.yaml
+chitu run service_framework/runs/<service_id>/system_config.yaml
 ```
 
 The temporary config points `launch.python_script` at
@@ -54,7 +54,7 @@ If port `7860` is already used on the cluster, either stop the old service,
 choose another port, or let the service pick the next free port:
 
 ```bash
-./.venv/bin/python service_framework/server.py --config system_config.yaml --host 127.0.0.1 --port 7860 --auto-port
+chitu serve --config system_config.yaml --host 127.0.0.1 --port 7860 --auto-port
 ```
 
 Use the actual printed port in the SSH tunnel command.

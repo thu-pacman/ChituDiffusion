@@ -24,6 +24,8 @@ dependencies = [
     "regex==2025.11.3",
     "safetensors==0.7.0",
     "scipy==1.16.3",
+    "sentencepiece==0.2.1",
+    "protobuf==7.34.0",
     "tiktoken>=0.7.0",
     "torch==2.9.1",
     "torchvision",
@@ -32,7 +34,6 @@ dependencies = [
     "typing-extensions",
     "uvicorn[standard]",
     "netifaces",
-    "flash_attn",
     "pandas"
 
 ]
@@ -40,6 +41,9 @@ dependencies = [
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[project.scripts]
+chitu = "chitu_diffusion.cli:main"
 
 
 [[tool.uv.index]]
@@ -80,11 +84,11 @@ vbench = { workspace = true }
 
 [tool.uv.extra-build-dependencies]
 flash_attn = ["torch==2.9.1"]
-sageattention = ["torch==2.9.1"]
+sageattention = ["torch==2.9.1", "numpy==2.4.0", "ninja"]
 spas_sage_attn = ["torch==2.9.1"]
 
 [tool.uv.extra-build-variables]
-# flash_attn     = { FLASH_ATTENTION_FORCE_BUILD = "TRUE", MAX_JOBS="8", FLASH_ATTN_CUDA_ARCHS = "90" }
+flash_attn     = { FLASH_ATTENTION_FORCE_BUILD = "TRUE", MAX_JOBS="8", FLASH_ATTN_CUDA_ARCHS = "90" }
 sageattention  = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
 spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
 
@@ -94,6 +98,7 @@ spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS=
 # config-settings = { editable_mode = "compat" }
 # no-build-isolation-package = ["sageattention", "spas_sage_attn"]
 # reinstall-package = ["spas_sage_attn"]
+override-dependencies = ["transformers>=4.49.0,<4.57.0"]
 # [dependency-groups]
 # dev = [
 #     "torch==2.9.1",
@@ -106,7 +111,9 @@ eval = [
     "scikit-image==0.25.2",
     "torch-fidelity==0.4.0",
     "torchmetrics==1.9.0",
+    "hpsv3==1.0.0",
 ]
+flash = ["flash_attn"]
 sage = ["sageattention"]
 sparge = ["spas_sage_attn"]
 vbench = ["vbench"]

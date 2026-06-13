@@ -1,4 +1,4 @@
-name: FLUX.2-klein-4B
+name: Flux2-klein-4B
 type: flux2-klein
 source: "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B" # Just for displaying. No automatic download.
 ckpt_dir: null # Please override this in command line with `models.ckpt_dir=<path>`.

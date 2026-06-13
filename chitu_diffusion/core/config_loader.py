@@ -127,8 +127,11 @@ def validate_config(config: DictConfig) -> None:
         "sparse",
         "spas_sage",
         "torch_sdpa",
+        "torch_sdpa_math",
         "sdpa",
+        "sdpa_math",
         "torch",
+        "torch_math",
         "ref",
     }
     if attn_type not in allowed_attn:

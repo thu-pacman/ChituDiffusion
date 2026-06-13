@@ -114,7 +114,7 @@ def _worker_stage_from_log(log_text: str, ready: dict[str, Any]) -> dict[str, An
     if "Chitu has been initialized" in joined:
         return {"stage": "initializing_service", "message": "Chitu initialized; waiting for service readiness.", "command": command, "recent": recent}
     if command:
-        return {"stage": "launching", "message": "Launching GPU worker through run.sh.", "command": command, "recent": recent}
+        return {"stage": "launching", "message": "Launching GPU worker through chitu run.", "command": command, "recent": recent}
     return {"stage": "loading", "message": ready.get("message") or "GPU worker is starting.", "recent": recent}
 
 
@@ -253,7 +253,6 @@ class ServiceState:
         cfg.setdefault("launch", {})
         cfg.setdefault("infer", {})
         cfg["launch"]["python_script"] = "service_framework/persistent_service.py"
-        cfg["infer"]["enable_flexcache"] = True
         _write_yaml(self.config_path, cfg)
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         _write_json(
@@ -270,7 +269,16 @@ class ServiceState:
         env = os.environ.copy()
         env["CHITU_SERVICE_RUN_DIR"] = str(self.run_dir)
         env["CHITU_SERVICE_CONFIG"] = str(self.config_path)
-        cmd = ["bash", "run.sh", str(self.config_path)]
+        chitu_cmd = ["chitu"]
+        raw_cli_cmd = env.get("CHITU_CLI_CMD", "").strip()
+        if raw_cli_cmd:
+            try:
+                parsed_cli_cmd = json.loads(raw_cli_cmd)
+            except json.JSONDecodeError:
+                parsed_cli_cmd = []
+            if isinstance(parsed_cli_cmd, list) and all(isinstance(item, str) for item in parsed_cli_cmd):
+                chitu_cmd = parsed_cli_cmd
+        cmd = [*chitu_cmd, "run", str(self.config_path)]
         self.service_log.parent.mkdir(parents=True, exist_ok=True)
         log_f = open(self.service_log, "a", encoding="utf-8", errors="replace")
         self.worker_log_handle = log_f
@@ -1059,17 +1067,22 @@ def _serve(state: ServiceState) -> None:
         server.server_close()
 
 
-def main() -> None:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch ChituDiffusion web UI plus a persistent GPU worker")
     parser.add_argument("--config", default="system_config.yaml", help="base system config")
     parser.add_argument("--host", default="127.0.0.1", help="HTTP bind host on the VSCode remote host")
     parser.add_argument("--port", type=int, default=7860, help="HTTP bind port on the VSCode remote host")
     parser.add_argument("--auto-port", action="store_true", help="try later ports if the requested port is busy")
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main(args: argparse.Namespace | None = None) -> None:
+    if args is None:
+        args = parse_args()
 
     state = ServiceState(PROJECT_ROOT / args.config, args.host, args.port, args.auto_port)
     state.prepare()
-    print("Starting GPU worker through run.sh.", flush=True)
+    print("Starting GPU worker through chitu run.", flush=True)
     print(f"Generated service config: {state.config_path}", flush=True)
     print(f"Worker log: {state.service_log}", flush=True)
     state.launch_worker()
@@ -1083,4 +1096,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(parse_args())

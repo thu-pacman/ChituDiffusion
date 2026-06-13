@@ -6,7 +6,7 @@ inference, multiple attention backends, FlexCache and DiTango acceleration, and
 optional evaluation utilities.
 
 The project is under active development. The current public interface is the
-repository launcher in `run.sh` plus the configuration in `system_config.yaml`.
+`chitu` command plus the configuration in `system_config.yaml`.
 
 ## Features
 
@@ -43,14 +43,28 @@ Install the base environment:
 uv sync
 ```
 
+`uv sync` installs the CLI into the project virtual environment. Activate it
+before using the bare `chitu` command:
+
+```bash
+source .venv/bin/activate
+chitu --help
+```
+
+If you do not want to activate the environment, use `uv run chitu ...`.
+
 Optional extras are available for acceleration and evaluation:
 
 ```bash
 uv sync --extra sage
 uv sync --extra sparge
+uv sync --extra flash
 uv sync --extra eval
 uv sync --extra vbench
 ```
+
+Build CUDA extension extras on a GPU compute node whose CUDA toolkit matches
+the selected PyTorch build.
 
 For manual environments:
 
@@ -74,10 +88,10 @@ launch:
 
 parallel:
   cfp: 2
+  up: 8
 
 infer:
-  attn_type: flash_attn
-  enable_flexcache: true  # required for TeaCache/PAB; DiTango is independent
+  attn_type: torch_sdpa
 ```
 
 The most important field is `model.ckpt_dir`; it must point to a local model
@@ -88,16 +102,16 @@ checkpoint directory.
 Run generation through the single repository entry point:
 
 ```bash
-bash run.sh system_config.yaml
+chitu run system_config.yaml
 ```
 
 Common overrides:
 
 ```bash
-bash run.sh system_config.yaml --gpus-per-node 8 --cfp 2
+chitu run system_config.yaml --gpus-per-node 8 --cfp 2
 ```
 
-`run.sh` reads `system_config.yaml`, builds dotlist overrides, and launches
+`chitu run` reads `system_config.yaml`, builds dotlist overrides, and launches
 the configured Python entry through the runtime script.
 
 ## Supported Models
@@ -118,14 +132,13 @@ configuration under the project config directory.
 chitu_diffusion/core/            Configuration, schemas, distributed utilities, registry
 chitu_diffusion/runtime/         Backend, generator, scheduler, task, main runtime API
 chitu_diffusion/modules/         Model-specific and reusable diffusion modules
-chitu_diffusion/flexcache/       FlexCache strategies and shared cache utilities
-chitu_diffusion/ditango/         DiTango planner, runtime attention, visualization
+chitu_diffusion/flexcache/       [DiT Cache] FlexCache strategies and shared cache utilities
+chitu_diffusion/ditango/         [HPDC'26] DiTango planner, runtime attention, visualization
 chitu_diffusion/evaluation/      Evaluation manager, strategies, metric helpers
 chitu_diffusion/observability/   Timing and magnitude logging helpers
 script/                         Launch helpers for local and Slurm execution
 test/                           Generation and acceleration test entry points
 system_config.yaml              Default runtime configuration
-run.sh                          Main launch entry point
 ```
 
 This layout will continue to be simplified as the project is prepared for
@@ -186,7 +199,7 @@ forward times. Memory JSON is grouped by rank, so `model_loaded`,
 write memory metrics and Python logs. Quality JSON includes `by_task_id` groups
 for multi-request runs. `logs/` contains process logs and per-task debug
 visualizations. `command.log` captures the full launch command output,
-including `run.sh`, `srun`, wrapper output, and Python stdout/stderr.
+including `chitu run`, `srun`, wrapper output, and Python stdout/stderr.
 
 ## Development
 

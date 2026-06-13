@@ -18,4 +18,9 @@ setup(
     version="0.1",
     packages=find_packages(),
     install_requires=_read_requirements("requirements.txt"),
+    entry_points={
+        "console_scripts": [
+            "chitu=chitu_diffusion.cli:main",
+        ],
+    },
 )
