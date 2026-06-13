@@ -1,0 +1,38 @@
+launch:
+  tag: wan-attn-sparge
+  num_nodes: 1
+  gpus_per_node: 1
+  python_script: test/test_flexcache.py
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    job_name: chitu-wan-attn-sparge
+
+runtime:
+  chitu_debug: true
+  cuda_launch_blocking: false
+
+model:
+  name: Wan2.1-T2V-1.3B
+  ckpt_dir: /home/chenyy/WORK/models/Wan2.1-T2V-1.3B
+
+parallel:
+  cfp: 1
+  up: 1
+
+infer:
+  attn_type: sparge
+  low_mem_level: 0
+
+eval:
+  eval_type: []
+  reference_path: null
+
+output:
+  root_dir: outputs/test-smoke
+  run_log: false
+  memory: false
+  timer: true
+  log_ranks: [0]
+
+overrides: []

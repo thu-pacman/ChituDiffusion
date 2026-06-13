@@ -1,0 +1,39 @@
+launch:
+  tag: flux-cp-sparge
+  num_nodes: 1
+  gpus_per_node: 2
+  python_script: test/test_flux.py
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    job_name: chitu-flux-cp-sparge
+
+runtime:
+  chitu_debug: true
+  cuda_launch_blocking: false
+
+model:
+  name: Flux1-dev
+  ckpt_dir: /home/chenyy/WORK/models/Flux-1
+
+parallel:
+  cfp: 1
+  up: 2
+
+infer:
+  attn_type: sparge
+  low_mem_level: 0
+
+eval:
+  eval_type: []
+  reference_path: null
+
+output:
+  root_dir: outputs/test-smoke
+  run_log: false
+  memory: false
+  timer: true
+  log_ranks: [0]
+
+overrides:
+  - models.sampler.sample_steps=3

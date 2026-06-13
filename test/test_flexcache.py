@@ -71,8 +71,14 @@ def build_wan_flexcache_params(strategy):
     raise ValueError(f"Unsupported CHITU_WAN_FLEXCACHE_STRATEGY={strategy!r}")
 
 
-msgs = [
-    DiffusionUserParams(
+def get_flexcache_strategy_names() -> list[str]:
+    raw = os.getenv("CHITU_FLEXCACHE_STRATEGIES", "blockdance,taylorseer")
+    names = [item.strip().lower() for item in raw.split(",") if item.strip()]
+    return names or ["blockdance", "taylorseer"]
+
+
+def build_wan_request_params(strategy: str) -> DiffusionUserParams:
+    return DiffusionUserParams(
         role="Alex",
         prompt="A cat walking on grass.",
         seed=42,
@@ -81,26 +87,19 @@ msgs = [
         negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
         num_inference_steps=get_wan_steps(),
         sample_solver="unipc",
-        flexcache_params=build_wan_flexcache_params("blockdance"),
-    ),
-    DiffusionUserParams(
-        role="Alex",
-        prompt="A cat walking on grass.",
-        seed=42,
-        frame_num=81,
-        size=(832, 480),
-        negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
-        num_inference_steps=get_wan_steps(),
-        sample_solver="unipc",
-        flexcache_params=build_wan_flexcache_params("taylorseer"),
-    ),
-]
+        flexcache_params=build_wan_flexcache_params(strategy),
+    )
+
+
+def build_wan_request_params_list() -> list[DiffusionUserParams]:
+    return [build_wan_request_params(strategy) for strategy in get_flexcache_strategy_names()]
 
 
 def gen_reqs(num_reqs, max_new_tokens, frequency_penalty, is_vl=False):
     reqs: list[DiffusionUserRequest] = []
-    for i in range(num_reqs):
-        params = copy.deepcopy(msgs[i])
+    params_list = build_wan_request_params_list()
+    for i, base_params in enumerate(params_list):
+        params = copy.deepcopy(base_params)
         request_id = os.getenv("CHITU_RUN_TASK_ID") if i == 0 else None
         req = DiffusionUserRequest(
             request_id=request_id or f"{gen_req_id()}",
@@ -119,7 +118,7 @@ def run_normal(args, run_context: DiffusionTestRunContext):
         log_handler = None
         if rank == 0:
             reqs = gen_reqs(
-                num_reqs=len(msgs),
+                num_reqs=len(build_wan_request_params_list()),
                 max_new_tokens=args.request.max_new_tokens,
                 frequency_penalty=args.request.frequency_penalty,
                 is_vl=hasattr(args.models, "vision_config"),
@@ -189,7 +188,6 @@ def main(args: ServeConfig):
     global local_args
     local_args = args
     logger.setLevel(logging.DEBUG)
-    args.infer.diffusion.enable_flexcache = True
 
     run_context = DiffusionTestRunContext(args, logger, per_task_results=True, capture_stdio_log=True)
     initial_run_output_dir = run_context.build_initial_run_output_dir()

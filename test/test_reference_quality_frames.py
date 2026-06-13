@@ -78,7 +78,7 @@ def test_reference_pairs_match_recursive_origin_by_model_prompt_seed(tmp_path):
         json.dumps(
             {
                 "filename": wrong_model_reference.name,
-                "model_name": "FLUX.2-klein-4B",
+                "model_name": "Flux2-klein-4B",
                 "prompt": "A cat walking on grass.",
                 "seed": 42,
             }

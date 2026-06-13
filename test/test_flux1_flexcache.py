@@ -32,49 +32,77 @@ from run_context import DiffusionTestRunContext, should_record_metrics_on_rank
 logger = getLogger(__name__)
 
 FLUX1_PROMPT = "A photorealistic cute cat, wearing a simple blue shirt, standing against a clear sky background."
-FLUX1_STEPS = 50
-FLUX1_BASE_SEED = 42
-FLUX1_NUM_SEEDS = 3
-FLUX1_WARMUP_RUNS = 1
+FLUX1_STEPS = int(os.getenv("CHITU_FLUX1_BENCH_STEPS", "50"))
+FLUX1_BASE_SEED = int(os.getenv("CHITU_FLUX1_BENCH_BASE_SEED", "42"))
+FLUX1_NUM_SEEDS = int(os.getenv("CHITU_FLUX1_BENCH_NUM_SEEDS", "3"))
+FLUX1_WARMUP_RUNS = int(os.getenv("CHITU_FLUX1_BENCH_WARMUP_RUNS", "1"))
 FLUX1_SIZE = (1024, 1024)
+
+
+def _strategy_warmup_cooldown() -> tuple[int, int]:
+    if FLUX1_STEPS <= 10:
+        return 1, 1
+    return 3, 3
+
+
+STRATEGY_WARMUP, STRATEGY_COOLDOWN = _strategy_warmup_cooldown()
 
 
 FLEXCACHE_STRATEGY_PARAMS = [
     TeaCacheParams(
-        warmup=3,
-        cooldown=3,
+        warmup=STRATEGY_WARMUP,
+        cooldown=STRATEGY_COOLDOWN,
         teacache_thresh=0.6,
         coefficients=None,
         use_ref_steps=True,
     ),
     PABParams(
-        warmup=3,
-        cooldown=3,
+        warmup=STRATEGY_WARMUP,
+        cooldown=STRATEGY_COOLDOWN,
         skip_self_range=2,
         skip_cross_range=3,
     ),
     BlockDanceParams(
-        warmup=3,
-        cooldown=3,
+        warmup=STRATEGY_WARMUP,
+        cooldown=STRATEGY_COOLDOWN,
         boundary_block=18,
         group_size=2,
         start_fraction=0.25,
         end_fraction=0.90,
     ),
     TaylorSeerParams(
-        warmup=3,
-        cooldown=3,
+        warmup=STRATEGY_WARMUP,
+        cooldown=STRATEGY_COOLDOWN,
         fresh_threshold=3,
         max_order=1,
         first_enhance=1,
     ),
     CubicParams(
-        warmup=3,
-        cooldown=3,
+        warmup=STRATEGY_WARMUP,
+        cooldown=STRATEGY_COOLDOWN,
         target_speedup=2.0,
         tau_max=8,
     ),
 ]
+
+
+def _selected_strategy_names() -> set[str] | None:
+    raw = os.getenv("CHITU_FLUX1_BENCH_STRATEGIES", "").strip().lower()
+    if not raw:
+        return None
+    names = {item.strip() for item in raw.replace(";", ",").replace(" ", ",").split(",") if item.strip()}
+    return names or None
+
+
+def _selected_strategy_params():
+    selected = _selected_strategy_names()
+    if selected is None:
+        return FLEXCACHE_STRATEGY_PARAMS
+    params = [item for item in FLEXCACHE_STRATEGY_PARAMS if _strategy_name(item) in selected]
+    missing = selected - {_strategy_name(item) for item in params}
+    if missing:
+        raise ValueError(f"Unknown CHITU_FLUX1_BENCH_STRATEGIES items: {sorted(missing)}")
+    return params
 
 
 def _seeds() -> list[int]:
@@ -106,13 +134,23 @@ def _strategy_name(params) -> str:
 
 
 def gen_origin_reqs() -> list[DiffusionUserRequest]:
-    return [
+    reqs: list[DiffusionUserRequest] = []
+    seeds = _seeds()
+    for warmup_idx in range(FLUX1_WARMUP_RUNS):
+        reqs.append(
+            DiffusionUserRequest(
+                request_id=_request_id("origin", seeds[0], warmup_idx=warmup_idx),
+                params=_base_params(seeds[0], role="warmup"),
+            )
+        )
+    reqs.extend([
         DiffusionUserRequest(
             request_id=_request_id("origin", seed),
             params=_base_params(seed),
         )
-        for seed in _seeds()
-    ]
+        for seed in seeds
+    ])
+    return reqs
 
 
 def gen_flexcache_reqs() -> list[DiffusionUserRequest]:
@@ -130,7 +168,7 @@ def gen_flexcache_reqs() -> list[DiffusionUserRequest]:
             )
         )
 
-    for strategy_params in FLEXCACHE_STRATEGY_PARAMS:
+    for strategy_params in _selected_strategy_params():
         strategy = _strategy_name(strategy_params)
         for seed in seeds:
             params = _base_params(seed)
@@ -229,12 +267,11 @@ def run_flux1_benchmark(args: ServeConfig, run_context: DiffusionTestRunContext,
 
 
 def main(args: ServeConfig):
-    if args.models.name != "FLUX.1-dev":
-        raise ValueError(f"test/test_flux1_flexcache.py expects models=FLUX.1-dev, got {args.models.name}.")
+    if args.models.name != "Flux1-dev":
+        raise ValueError(f"test/test_flux1_flexcache.py expects models=Flux1-dev, got {args.models.name}.")
 
     logger.setLevel(logging.DEBUG)
     mode = _benchmark_mode(args)
-    args.infer.diffusion.enable_flexcache = mode == "flexcache"
     args.models.sampler.sample_steps = FLUX1_STEPS
 
     if mode == "flexcache":

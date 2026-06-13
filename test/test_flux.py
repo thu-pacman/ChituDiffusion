@@ -58,10 +58,10 @@ def build_flux1_flexcache_params():
 
 def build_flux_debug_params(args: ServeConfig) -> DiffusionUserParams:
     flux1_flexcache_params = None
-    if args.models.name == "FLUX.1-dev" and bool(args.infer.diffusion.enable_flexcache):
+    if args.models.name == "Flux1-dev" and os.getenv("CHITU_FLUX_FLEXCACHE_STRATEGY", "").strip():
         flux1_flexcache_params = build_flux1_flexcache_params()
 
-    if args.models.name == "FLUX.2-klein-4B":
+    if args.models.name == "Flux2-klein-4B":
         return DiffusionUserParams(
             role="Alex",
             prompt="A cat holding a sign that says hello world",
@@ -163,9 +163,9 @@ def run_flux_debug(args: ServeConfig, run_context: DiffusionTestRunContext):
 
 
 def main(args: ServeConfig):
-    if args.models.name not in {"FLUX.1-dev", "FLUX.2-klein-4B"}:
+    if args.models.name not in {"Flux1-dev", "Flux2-klein-4B"}:
         raise ValueError(
-            "test/test_flux.py expects models=FLUX.1-dev or FLUX.2-klein-4B, "
+            "test/test_flux.py expects models=Flux1-dev or Flux2-klein-4B, "
             f"got {args.models.name}."
         )
 

@@ -23,8 +23,8 @@ def test_runtime_specs_resolve_checkpoint_paths():
     cases = {
         "Wan2.1-T2V-1.3B": ["diffusion_pytorch_model.safetensors"],
         "Wan2.2-T2V-A14B": ["high_noise_model", "low_noise_model"],
-        "FLUX.1-dev": ["transformer"],
-        "FLUX.2-klein-4B": ["transformer"],
+        "Flux1-dev": ["transformer"],
+        "Flux2-klein-4B": ["transformer"],
     }
 
     for model_name, suffixes in cases.items():
