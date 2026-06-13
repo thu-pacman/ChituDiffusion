@@ -361,7 +361,7 @@ def initialize_cp_group(cp_size: int, cfg_size: int, rank: int, local_rank: int,
     
     _CP_GROUP = CommGroup(rank_list, rank, local_rank)
 
-def initialize_up_groups(up_sizes: List[int], up_limit: int, cfg_size: int, rank: int, local_rank: int, world_size: int):
+def initialize_up_groups(up_sizes: List[int], up: int, cfg_size: int, rank: int, local_rank: int, world_size: int):
     global _UP_GROUP_DICT
     assert _UP_GROUP_DICT is None
     
@@ -385,7 +385,7 @@ def initialize_up_groups(up_sizes: List[int], up_limit: int, cfg_size: int, rank
         if up_size == 0 or cp_group_size % up_size != 0:
             continue
             
-        if up_size > up_limit:
+        if up_size > up:
             continue
             
         rank_list = []
@@ -401,13 +401,13 @@ def initialize_up_groups(up_sizes: List[int], up_limit: int, cfg_size: int, rank
 def initialize_diffusion_parallel_groups(
     cfg_size: int,
     cp_size: int,
-    up_limit: int = 8,
+    up: int = 8,
 ):
     global _PARALLEL_GROUPS_INITIALIZED
     assert not _PARALLEL_GROUPS_INITIALIZED
     
     logger.info(
-        f"initialize_diffusion_parallel_groups: {cfg_size=}, {cp_size=}, {up_limit=}"
+        f"initialize_diffusion_parallel_groups: {cfg_size=}, {cp_size=}, {up=}"
     )
     
     rank = torch.distributed.get_rank()
@@ -419,9 +419,9 @@ def initialize_diffusion_parallel_groups(
     initialize_cfg_group(cfg_size, rank, local_rank, world_size)
     initialize_cp_group(cp_size, cfg_size, rank, local_rank, world_size)
 
-    max_up_size = min(up_limit, cp_size)
+    max_up_size = min(up, cp_size)
     up_sizes = [max_up_size, max_up_size // 2] # TODO: More up sizes to support DiTango Support
-    initialize_up_groups(up_sizes, up_limit, cfg_size, rank, local_rank, world_size)
+    initialize_up_groups(up_sizes, up, cfg_size, rank, local_rank, world_size)
     
     # Debug logging
     if rank == 0:

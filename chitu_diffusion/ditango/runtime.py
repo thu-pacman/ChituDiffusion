@@ -33,7 +33,7 @@ class DitangoAttention:
 
         strategy = get_ditango_planner()
         self.intra_group_size = min(self.cp_size, strategy.intra_group_size_limit)
-        self.ulysses_size = min(DiffusionBackend.args.infer.diffusion.up_limit, self.cp_size, self.intra_group_size)
+        self.ulysses_size = min(DiffusionBackend.args.infer.diffusion.up, self.cp_size, self.intra_group_size)
         assert self.cp_size <= self.intra_group_size or self.cp_size % self.intra_group_size == 0
         if self.global_rank == 0:
             logger.info("L%d | Using Ditango Attn (curvature interval).", layer_id)

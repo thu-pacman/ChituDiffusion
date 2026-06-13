@@ -10,7 +10,7 @@ from diffusers.models.modeling_utils import ModelMixin
 from chitu_diffusion.core.models.backbone import BackboneMixin
 from chitu_diffusion.core.models.registry import ModelType, register_model, log_init_params
 from chitu_diffusion.model_default import WanModelDefaults
-from chitu_diffusion.modules.attention.wan_attention import flash_attention
+from chitu_diffusion.modules.attention.wan_attention import attention
 
 logger = getLogger(__name__)
 
@@ -189,7 +189,7 @@ class WanT2VCrossAttention(WanSelfAttention):
         v = self.v(context).view(b, -1, n, d)
 
         # compute attention
-        x = flash_attention(q, k, v, k_lens=context_lens)
+        x = attention(q, k, v, k_lens=context_lens)
         
         # output
         x = x.flatten(2)
@@ -230,9 +230,9 @@ class WanI2VCrossAttention(WanSelfAttention):
         v = self.v(context).view(b, -1, n, d)
         k_img = self.norm_k_img(self.k_img(context_img)).view(b, -1, n, d)
         v_img = self.v_img(context_img).view(b, -1, n, d)
-        img_x = flash_attention(q, k_img, v_img, k_lens=None)
+        img_x = attention(q, k_img, v_img, k_lens=None)
         # compute attention
-        x = flash_attention(q, k, v, k_lens=context_lens)
+        x = attention(q, k, v, k_lens=context_lens)
 
         # output
         x = x.flatten(2)

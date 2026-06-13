@@ -115,7 +115,7 @@ class CubicStrategy(FlexCacheStrategy):
         cooldown_fraction = cooldown_steps / max(total_steps, 1)
         target_speedup = float(target_speedup)
         self.model_name = getattr(getattr(getattr(DiffusionBackend, "args", None), "models", None), "name", None)
-        is_flux1 = self.model_name == "FLUX.1-dev"
+        is_flux1 = self.model_name in {"Flux1-dev", "FLUX.1-dev"}
         self.config = CubicConfig(
             target_speedup=target_speedup,
             warmup_fraction=warmup_fraction,
@@ -177,7 +177,7 @@ class CubicStrategy(FlexCacheStrategy):
             module._original_forward = module.forward
         original_forward = module._original_forward
 
-        if self.model_name == "FLUX.1-dev":
+        if self.model_name in {"Flux1-dev", "FLUX.1-dev"}:
             self._wrap_flux1_module(module, original_forward)
             return
 

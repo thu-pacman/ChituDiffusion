@@ -144,20 +144,51 @@ class ContextParallelDispatcher():
         self.local_rank = self.group.local_rank
         self.rank_in_group = self.group.rank_in_group
 
-    def dispatch(self, tokens: torch.Tensor):
+    def dispatch(self, tokens: torch.Tensor, name: str = 'x'):
         return SequencePadder.split_sequence_padding(tokens, 
                                                      split_num=self.cp_size,
                                                      split_dim=1, 
-                                                     name='x')[self.rank_in_group]
+                                                     name=name)[self.rank_in_group]
     
-    def gather(self, tokens: torch.Tensor):
+    def gather(self, tokens: torch.Tensor, name: str = 'x'):
         tokens_list = [torch.empty_like(tokens) for _ in range(self.cp_size)]
         dist.all_gather(tensor_list=tokens_list, 
                         tensor=tokens, 
                         group=self.group.gpu_group)
         return SequencePadder.remove_sequence_padding_and_concat(tokens_list, 
                                                                  gather_dim=1,
-                                                                 name='x')
+                                                                 name=name)
+
+    def dispatch_sequence_dim0(self, tensor: torch.Tensor, name: str) -> torch.Tensor:
+        return SequencePadder.split_sequence_padding(
+            tensor,
+            split_num=self.cp_size,
+            split_dim=0,
+            name=name,
+        )[self.rank_in_group]
+
+    def dispatch_flux_rotary_emb(
+        self,
+        rotary_emb,
+        text_seq_len: int,
+    ):
+        if rotary_emb is None:
+            return None
+        if not isinstance(rotary_emb, (tuple, list)):
+            return rotary_emb
+
+        local_parts = []
+        for i, tensor in enumerate(rotary_emb):
+            text_part = self.dispatch_sequence_dim0(
+                tensor[:text_seq_len],
+                name=f"flux_rotary_text_{i}",
+            )
+            image_part = self.dispatch_sequence_dim0(
+                tensor[text_seq_len:],
+                name=f"flux_rotary_image_{i}",
+            )
+            local_parts.append(torch.cat([text_part, image_part], dim=0))
+        return tuple(local_parts)
     
     def wrap_model_compute_with_cp(self):
         """替换DiffusionBackend.model.model_compute方法，添加CP支持"""
@@ -165,11 +196,21 @@ class ContextParallelDispatcher():
         def create_wrapped_forward(model_instance):
             original_forward = model_instance.model_compute
             def wrapped_compute(tokens, **kwargs):
-                tokens = self.dispatch(tokens)
+                tokens = self.dispatch(tokens, name="hidden_states")
                 if "seq_lens" in kwargs.keys():
                     kwargs["seq_lens"] = torch.tensor([tokens.size(1)])
+                if "image_rotary_emb" in kwargs and "encoder_hidden_states" in kwargs:
+                    text_seq_len = kwargs["encoder_hidden_states"].size(1)
+                    kwargs["encoder_hidden_states"] = self.dispatch(
+                        kwargs["encoder_hidden_states"],
+                        name="encoder_hidden_states",
+                    )
+                    kwargs["image_rotary_emb"] = self.dispatch_flux_rotary_emb(
+                        kwargs["image_rotary_emb"],
+                        text_seq_len=text_seq_len,
+                    )
                 x = original_forward(tokens, **kwargs)
-                x = self.gather(x)
+                x = self.gather(x, name="hidden_states")
                 return x
             return wrapped_compute
 
@@ -700,11 +741,7 @@ class Generator:
             return
 
         if DiffusionBackend.flexcache is None:
-            logger.warning(
-                f"Flexcache strategy '{spec.strategy}' is requested, "
-                "but infer.diffusion.enable_flexcache is False. Strategy will be ignored."
-            )
-            return
+            raise RuntimeError("FlexCache manager is not initialized.")
 
         DiffusionBackend.flexcache.reset_compute_stats()
 

@@ -308,6 +308,8 @@ def chitu_terminate():
     Signals all ranks to stop processing by setting the backend state to
     Terminated and sending a termination signal through the generator.
     """
+    if DiffusionBackend.state == BackendState.Terminated:
+        return
     if torch.distributed.get_rank() == 0:
         DiffusionTaskPool.request_shutdown("Chitu terminate requested")
     chitu_generate()

@@ -1,6 +1,8 @@
 import torch
 import time
 from typing import Optional, Tuple
+from contextlib import nullcontext
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from chitu_diffusion.core.distributed.parallel_state import get_cp_group, get_up_group
 
 from logging import getLogger
@@ -39,17 +41,18 @@ class DiffusionAttnBackend:
     Unified backend for different attention implementations.
     Priority order:
     1. User specified attention type (if available)
-    2. Fallback to Flash Attention v3/v2 as default
+    2. Fallback to PyTorch SDPA as default
     
     Supported types:
     - auto: prefer sparge, then sage, then flash_attn, then torch_sdpa
     - flash_attn: Flash Attention v2
     - sage: SageAttention
     - sparge: Sparge/Sparse SageAttention
-    - torch_sdpa: PyTorch scaled_dot_product_attention
+    - torch_sdpa: PyTorch scaled_dot_product_attention with PyTorch's kernel auto selection
+    - torch_sdpa_math: PyTorch scaled_dot_product_attention forced to the math kernel
     """
 
-    def __init__(self, attn_type: str = "auto") -> None:
+    def __init__(self, attn_type: str = "torch_sdpa") -> None:
         self.impl = None
         self.topk = 0.5
         requested = self._normalize_attn_type(attn_type)
@@ -83,6 +86,9 @@ class DiffusionAttnBackend:
             "sdpa": "torch_sdpa",
             "torch": "torch_sdpa",
             "ref": "torch_sdpa",
+            "math": "torch_sdpa_math",
+            "sdpa_math": "torch_sdpa_math",
+            "torch_math": "torch_sdpa_math",
             "sparse": "sparge",
             "spas_sage": "sparge",
         }
@@ -96,7 +102,7 @@ class DiffusionAttnBackend:
             return SAGE_ATTENTION_AVAILABLE
         if backend == "sparge":
             return SPAS_SAGE_ATTN_AVAILABLE
-        if backend == "torch_sdpa":
+        if backend in {"torch_sdpa", "torch_sdpa_math"}:
             return hasattr(torch.nn.functional, "scaled_dot_product_attention")
         return False
 
@@ -166,7 +172,7 @@ class DiffusionAttnBackend:
                 deterministic, return_attn_probs,
                 use_varlen,
             )
-        elif self.impl == "torch_sdpa":
+        elif self.impl in {"torch_sdpa", "torch_sdpa_math"}:
             return self._fwd_torch_sdpa(
                 q, k, v,
                 cu_seqlens_q, cu_seqlens_k,
@@ -195,7 +201,17 @@ class DiffusionAttnBackend:
             if return_attn_probs:
                 logger.warning("[Not implemented] Sparge Attention varlen does not support 'return_attn_probs', which may cause error in context parallelism.")
 
-            out = spas_sage2_attn_meansim_topk_cuda(q, k, v, topk=self.topk, is_causal=causal,tensor_layout="NHD")
+            pvthreshd = torch.full((q.size(-2),), 50.0, dtype=torch.float32, device=q.device)
+            out = spas_sage2_attn_meansim_topk_cuda(
+                q,
+                k,
+                v,
+                topk=self.topk,
+                pvthreshd=pvthreshd,
+                is_causal=causal,
+                scale=softmax_scale,
+                tensor_layout="NHD",
+            )
        
             
         return out, None, None
@@ -243,15 +259,17 @@ class DiffusionAttnBackend:
         q_in = q.transpose(1, 2)
         k_in = k.transpose(1, 2)
         v_in = v.transpose(1, 2)
-        out = torch.nn.functional.scaled_dot_product_attention(
-            q_in,
-            k_in,
-            v_in,
-            attn_mask=None,
-            dropout_p=dropout_p,
-            is_causal=causal,
-            scale=softmax_scale,
-        )
+        kernel_ctx = sdpa_kernel(SDPBackend.MATH) if self.impl == "torch_sdpa_math" else nullcontext()
+        with kernel_ctx:
+            out = torch.nn.functional.scaled_dot_product_attention(
+                q_in,
+                k_in,
+                v_in,
+                attn_mask=None,
+                dropout_p=dropout_p,
+                is_causal=causal,
+                scale=softmax_scale,
+            )
         return out.transpose(1, 2).contiguous(), None, None
 
     # ------------- v2 分支 -------------
@@ -381,6 +399,11 @@ class DiffusionAttention_with_CP:
         if ulysses_size > 1:
             ulysses_group = get_up_group(ulysses_size)
         ring_steps = cp_size // ulysses_size
+        if ring_steps > 1 and self.attn.impl in {"sage", "sparge"}:
+            raise NotImplementedError(
+                f"{self.attn.impl} context parallelism currently supports Ulysses only; "
+                f"set infer.diffusion.up equal to cp_size ({cp_size})."
+            )
 
         use_varlen = cu_seqlens_q is not None and cu_seqlens_k is not None and \
             max_seqlen_q is not None and max_seqlen_k is not None
@@ -431,12 +454,16 @@ class DiffusionAttention_with_CP:
                 causal=causal,
                 window_size=window_size,
                 deterministic=deterministic,
-                return_attn_probs=True,
+                return_attn_probs=ring_steps > 1,
             )
             # assert not torch.isnan(block_out).any(), f"NaN detected in blockout: {block_out}"
 
+            if ring_steps == 1 and block_lse is None:
+                fresh_out = block_out
+                fresh_lse = None
+            else:
+                fresh_out, fresh_lse = update_out_and_lse(fresh_out, fresh_lse, block_out, block_lse)
 
-            fresh_out, fresh_lse = update_out_and_lse(fresh_out, fresh_lse, block_out, block_lse)
             # for tensor in [fresh_out, fresh_lse]:
             #     assert not torch.isnan(tensor).any(), f"NaN detected in fresh out lse: {tensor}"
 
@@ -446,13 +473,19 @@ class DiffusionAttention_with_CP:
                 else:
                     k, v = self.async_ring_p2p_wait_and_update(nxt_data_pack)
             
-            fresh_lse = squeeze_and_transpose(fresh_lse)
+            if fresh_lse is not None:
+                fresh_lse = squeeze_and_transpose(fresh_lse)
 
             if ulysses_size > 1:
                 fresh_out = ulysses_group.all_to_all(fresh_out, seq_dim, head_dim)
-                fresh_lse = ulysses_group.all_to_all(fresh_lse, head_dim, seq_dim)
+                if fresh_lse is not None:
+                    fresh_lse = ulysses_group.all_to_all(fresh_lse, head_dim, seq_dim)
 
-            out, lse = update_out_and_lse(out, lse, fresh_out, fresh_lse)
+            if fresh_lse is None:
+                out = fresh_out
+                lse = None
+            else:
+                out, lse = update_out_and_lse(out, lse, fresh_out, fresh_lse)
             fresh_out, fresh_lse = None, None
 
         # assert not torch.isnan(out).any(), f"NaN detected in only output"

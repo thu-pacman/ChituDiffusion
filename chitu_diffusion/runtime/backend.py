@@ -427,7 +427,7 @@ class DiffusionBackend:
         DiffusionBackend.do_cfg = DiffusionBackend.model_adapter.supports_cfg(args)
         cfg_size = 2 if (world_size >= 2 and  DiffusionBackend.do_cfg and args.infer.diffusion.cfg_size > 1) else 1
 
-        up_limit = args.infer.diffusion.up_limit
+        up = args.infer.diffusion.up
         context_parallel_size = args.infer.diffusion.cp_size
 
         assert (
@@ -437,7 +437,7 @@ class DiffusionBackend:
 
         initialize_diffusion_parallel_groups(
             cfg_size= cfg_size,
-            up_limit=up_limit,
+            up=up,
             cp_size=context_parallel_size,
         )
 
@@ -513,7 +513,7 @@ class DiffusionBackend:
         将会支持多种Feature Cache策略
         """
         # 此处initialize的主要任务应该是开辟一段显存buffer（cpu/gpu）
-        manager = FlexCacheManager(max_cache_memory=20) if args.infer.diffusion.enable_flexcache else None
+        manager = FlexCacheManager(max_cache_memory=20)
 
         # 在模型初始化后启用缓存
         # 注意：这里需要在模型构建完成后调用 enable_cache_for_backend()
@@ -540,7 +540,7 @@ class DiffusionBackend:
         DiffusionBackend.attn = attn
 
         if args.infer.diffusion.cp_size > 1:
-            attn = DiffusionAttention_with_CP(attn, args.infer.diffusion.up_limit)
+            attn = DiffusionAttention_with_CP(attn, args.infer.diffusion.up)
         return attn
     
     @staticmethod
