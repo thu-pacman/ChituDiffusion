@@ -117,6 +117,13 @@ srun_wan_demo.sh
 experiments/
 vbench_out/*
 
+# ChituBench runtime artifacts
+ChituBench/results/**/chitubench-*/
+ChituBench/results/**/visuals/
+ChituBench/results/**/plots/
+ChituBench/results/**/configs/
+ChituBench/results/hpsv3_assets/
+
 # Local algorithm references
 third_party/Cubic/
 

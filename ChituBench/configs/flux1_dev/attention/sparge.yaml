@@ -1,0 +1,38 @@
+launch:
+  tag: chitubench-flux1-attn-sparge
+  num_nodes: 1
+  gpus_per_node: 1
+  python_script: ChituBench/scripts/flux_image_benchmark.py
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    job_name: chitubench-flux1-attn-sparge
+
+runtime:
+  chitu_debug: true
+  cuda_launch_blocking: false
+
+model:
+  name: Flux1-dev
+  ckpt_dir: /home/chenyy/WORK/models/Flux-1
+
+parallel:
+  cfp: 1
+  up: 1
+
+infer:
+  attn_type: sparge
+  low_mem_level: 0
+
+eval:
+  eval_type: []
+  reference_path: null
+
+output:
+  root_dir: ChituBench/results/flux1_dev_attention
+  run_log: false
+  memory: true
+  timer: true
+  log_ranks: [0]
+
+overrides: []

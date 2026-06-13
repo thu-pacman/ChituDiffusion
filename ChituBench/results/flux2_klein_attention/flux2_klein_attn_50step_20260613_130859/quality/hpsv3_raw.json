@@ -1,0 +1,182 @@
+[
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-flash-20260613_130859-origin_flash/results/origin_flash_glass_orchid_seed42/A_translucent_glass__origin_flash_glass_orchid_seed42.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 9.292411804199219
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-flash-20260613_130859-origin_flash/results/origin_flash_glass_orchid_seed43/A_translucent_glass__origin_flash_glass_orchid_seed43.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 9.620331764221191
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-flash-20260613_130859-origin_flash/results/origin_flash_glass_orchid_seed44/A_translucent_glass__origin_flash_glass_orchid_seed44.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 10.241422653198242
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-flash-20260613_130859-origin_flash/results/origin_flash_night_bakery_seed42/A_cozy_neon-lit_bake_origin_flash_night_bakery_seed42.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 15.39564037322998
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-flash-20260613_130859-origin_flash/results/origin_flash_night_bakery_seed43/A_cozy_neon-lit_bake_origin_flash_night_bakery_seed43.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 15.519085884094238
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-flash-20260613_130859-origin_flash/results/origin_flash_night_bakery_seed44/A_cozy_neon-lit_bake_origin_flash_night_bakery_seed44.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 15.532176971435547
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-flash-20260613_130859-origin_flash/results/origin_flash_astronaut_kite_seed42/A_small_astronaut_fl_origin_flash_astronaut_kite_seed42.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 11.427329063415527
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-flash-20260613_130859-origin_flash/results/origin_flash_astronaut_kite_seed43/A_small_astronaut_fl_origin_flash_astronaut_kite_seed43.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 11.09880542755127
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-flash-20260613_130859-origin_flash/results/origin_flash_astronaut_kite_seed44/A_small_astronaut_fl_origin_flash_astronaut_kite_seed44.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 12.252431869506836
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sage-20260613_131918-sage/results/sage_glass_orchid_seed42/A_translucent_glass__sage_glass_orchid_seed42.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 9.505281448364258
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sage-20260613_131918-sage/results/sage_glass_orchid_seed43/A_translucent_glass__sage_glass_orchid_seed43.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 9.502509117126465
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sage-20260613_131918-sage/results/sage_glass_orchid_seed44/A_translucent_glass__sage_glass_orchid_seed44.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 10.495412826538086
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sage-20260613_131918-sage/results/sage_night_bakery_seed42/A_cozy_neon-lit_bake_sage_night_bakery_seed42.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 15.172784805297852
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sage-20260613_131918-sage/results/sage_night_bakery_seed43/A_cozy_neon-lit_bake_sage_night_bakery_seed43.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 15.334151268005371
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sage-20260613_131918-sage/results/sage_night_bakery_seed44/A_cozy_neon-lit_bake_sage_night_bakery_seed44.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 15.502456665039062
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sage-20260613_131918-sage/results/sage_astronaut_kite_seed42/A_small_astronaut_fl_sage_astronaut_kite_seed42.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 11.134564399719238
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sage-20260613_131918-sage/results/sage_astronaut_kite_seed43/A_small_astronaut_fl_sage_astronaut_kite_seed43.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 11.451423645019531
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sage-20260613_131918-sage/results/sage_astronaut_kite_seed44/A_small_astronaut_fl_sage_astronaut_kite_seed44.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 12.223505020141602
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sparge-20260613_132208-sparge/results/sparge_glass_orchid_seed42/A_translucent_glass__sparge_glass_orchid_seed42.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 10.692885398864746
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sparge-20260613_132208-sparge/results/sparge_glass_orchid_seed43/A_translucent_glass__sparge_glass_orchid_seed43.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 7.603350639343262
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sparge-20260613_132208-sparge/results/sparge_glass_orchid_seed44/A_translucent_glass__sparge_glass_orchid_seed44.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 10.378034591674805
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sparge-20260613_132208-sparge/results/sparge_night_bakery_seed42/A_cozy_neon-lit_bake_sparge_night_bakery_seed42.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 15.182915687561035
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sparge-20260613_132208-sparge/results/sparge_night_bakery_seed43/A_cozy_neon-lit_bake_sparge_night_bakery_seed43.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 14.843711853027344
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sparge-20260613_132208-sparge/results/sparge_night_bakery_seed44/A_cozy_neon-lit_bake_sparge_night_bakery_seed44.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 15.522683143615723
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sparge-20260613_132208-sparge/results/sparge_astronaut_kite_seed42/A_small_astronaut_fl_sparge_astronaut_kite_seed42.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 10.181905746459961
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sparge-20260613_132208-sparge/results/sparge_astronaut_kite_seed43/A_small_astronaut_fl_sparge_astronaut_kite_seed43.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 10.747750282287598
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-sparge-20260613_132208-sparge/results/sparge_astronaut_kite_seed44/A_small_astronaut_fl_sparge_astronaut_kite_seed44.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 10.522825241088867
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-torch-sdpa-math-20260613_131212-torch_sdpa_math/results/torch_sdpa_math_glass_orchid_seed42/A_translucent_glass__torch_sdpa_math_glass_orchid_seed42.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 9.41417121887207
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-torch-sdpa-math-20260613_131212-torch_sdpa_math/results/torch_sdpa_math_glass_orchid_seed43/A_translucent_glass__torch_sdpa_math_glass_orchid_seed43.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 9.241018295288086
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-torch-sdpa-math-20260613_131212-torch_sdpa_math/results/torch_sdpa_math_glass_orchid_seed44/A_translucent_glass__torch_sdpa_math_glass_orchid_seed44.png",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "hpsv3_score": 10.329471588134766
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-torch-sdpa-math-20260613_131212-torch_sdpa_math/results/torch_sdpa_math_night_bakery_seed42/A_cozy_neon-lit_bake_torch_sdpa_math_night_bakery_seed42.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 15.426756858825684
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-torch-sdpa-math-20260613_131212-torch_sdpa_math/results/torch_sdpa_math_night_bakery_seed43/A_cozy_neon-lit_bake_torch_sdpa_math_night_bakery_seed43.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 15.422558784484863
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-torch-sdpa-math-20260613_131212-torch_sdpa_math/results/torch_sdpa_math_night_bakery_seed44/A_cozy_neon-lit_bake_torch_sdpa_math_night_bakery_seed44.png",
+    "prompt": "A cozy neon-lit bakery at midnight with a window sign that says CHITU, warm pastries, rainy street reflections, cinematic realism.",
+    "hpsv3_score": 15.55209732055664
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-torch-sdpa-math-20260613_131212-torch_sdpa_math/results/torch_sdpa_math_astronaut_kite_seed42/A_small_astronaut_fl_torch_sdpa_math_astronaut_kite_seed42.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 11.177204132080078
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-torch-sdpa-math-20260613_131212-torch_sdpa_math/results/torch_sdpa_math_astronaut_kite_seed43/A_small_astronaut_fl_torch_sdpa_math_astronaut_kite_seed43.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 11.12679672241211
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859/chitubench-flux2-attn-torch-sdpa-math-20260613_131212-torch_sdpa_math/results/torch_sdpa_math_astronaut_kite_seed44/A_small_astronaut_fl_torch_sdpa_math_astronaut_kite_seed44.png",
+    "prompt": "A small astronaut flying a red kite on a grassy hill under a huge pastel planet, whimsical detailed illustration, soft clouds.",
+    "hpsv3_score": 12.192216873168945
+  }
+]

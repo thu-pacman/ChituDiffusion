@@ -1,0 +1,14 @@
+[
+  {
+    "id": "photo_cat",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background."
+  },
+  {
+    "id": "market_sign",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography."
+  },
+  {
+    "id": "paper_robot",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture."
+  }
+]

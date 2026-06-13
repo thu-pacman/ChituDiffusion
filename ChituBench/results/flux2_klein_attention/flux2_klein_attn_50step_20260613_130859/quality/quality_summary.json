@@ -1,0 +1,34 @@
+[
+  {
+    "case": "origin_flash",
+    "num_tasks": 9,
+    "psnr_mean": Infinity,
+    "ssim_mean": 1.0,
+    "one_minus_lpips_mean": 1.0,
+    "hpsv3_score_mean": 12.26440397898356
+  },
+  {
+    "case": "sage",
+    "num_tasks": 9,
+    "psnr_mean": 29.587182862257514,
+    "ssim_mean": 0.9677279260423448,
+    "one_minus_lpips_mean": 0.9749801132000155,
+    "hpsv3_score_mean": 12.258009910583496
+  },
+  {
+    "case": "sparge",
+    "num_tasks": 9,
+    "psnr_mean": 15.938040864063057,
+    "ssim_mean": 0.6544404195414649,
+    "one_minus_lpips_mean": 0.6929866406652663,
+    "hpsv3_score_mean": 11.741784731547037
+  },
+  {
+    "case": "torch_sdpa_math",
+    "num_tasks": 9,
+    "psnr_mean": 36.145994893582234,
+    "ssim_mean": 0.9902804096539816,
+    "one_minus_lpips_mean": 0.9928560730574342,
+    "hpsv3_score_mean": 12.209143532647026
+  }
+]
