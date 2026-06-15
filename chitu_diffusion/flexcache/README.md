@@ -90,9 +90,9 @@ TeaCache:
 
 ```python
 TeaCacheParams(
-    warmup=7,
-    cooldown=3,
-    teacache_thresh=0.2,
+    warmup=1,
+    cooldown=1,
+    teacache_thresh=0.6,
 )
 ```
 

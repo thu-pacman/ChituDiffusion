@@ -15,6 +15,8 @@ class FlexCacheParams:
 @dataclass
 class TeaCacheParams(FlexCacheParams):
     strategy: Optional[str] = "teacache"
+    warmup: int = 1
+    cooldown: int = 1
     teacache_thresh: float = 0.2
     coefficients: Optional[list[float]] = None
     use_ref_steps: bool = True
@@ -42,6 +44,7 @@ class CubicParams(FlexCacheParams):
     target_speedup: float = 2.0
     tau_max: int = 8
     block_size: Optional[int] = None
+    uniform_square_min_splits: Optional[int] = None
 
 
 @dataclass

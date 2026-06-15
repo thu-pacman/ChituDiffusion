@@ -170,7 +170,7 @@ class TeaCacheStrategy(FlexCacheStrategy):
         
         # 自动选择coefficients
         if self.use_ref_steps:
-            if model_name == "FLUX.1-dev":
+            if model_name in {"FLUX.1-dev", "Flux1-dev"}:
                 if user_thresh is None:
                     self.teacache_thresh = 0.6
                 self.coefficients = [
@@ -217,8 +217,12 @@ class TeaCacheStrategy(FlexCacheStrategy):
                 if user_thresh is None:
                     self.teacache_thresh = 0.2
             
-            self.warmup_steps = warmup_steps if warmup_steps is not None else 5
-            self.cooldown_steps = cooldown_steps if cooldown_steps is not None else 0
+            if model_name in {"FLUX.1-dev", "Flux1-dev"}:
+                self.warmup_steps = warmup_steps if warmup_steps is not None else 1
+                self.cooldown_steps = cooldown_steps if cooldown_steps is not None else 1
+            else:
+                self.warmup_steps = warmup_steps if warmup_steps is not None else 5
+                self.cooldown_steps = cooldown_steps if cooldown_steps is not None else 0
             
         else:  # not use_ref_steps: 简便起见，暂时不会走这个分支
             if '1.3B' in model_name:
