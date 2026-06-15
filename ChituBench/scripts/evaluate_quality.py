@@ -160,6 +160,15 @@ def run_config(run_dir: Path) -> dict[str, Any]:
     return {"attn_type": infer.get("attn_type")}
 
 
+def case_for_request(run_dir: Path, cfg: dict[str, Any], request: dict[str, Any]) -> str:
+    params = request.get("params") or {}
+    role = str(params.get("role") or "").strip()
+    if role and role.lower() != "warmup":
+        return role
+    case = str(cfg.get("attn_type") or run_dir.name)
+    return "origin_flash" if case == "flash" else case
+
+
 def collect_rows(experiment_dir: Path, origin_dir: Path) -> list[dict[str, Any]]:
     ref_index = build_reference_index(origin_dir)
     runs = [
@@ -171,9 +180,6 @@ def collect_rows(experiment_dir: Path, origin_dir: Path) -> list[dict[str, Any]]
     lpips_pairs = []
     for run_dir in sorted(runs):
         cfg = run_config(run_dir)
-        case = str(cfg.get("attn_type") or run_dir.name)
-        if case == "flash":
-            case = "origin_flash"
         payload = maybe_json(run_dir / "request_params.json") or {}
         for request in payload.get("requests", []):
             if is_warmup_request(request):
@@ -194,7 +200,7 @@ def collect_rows(experiment_dir: Path, origin_dir: Path) -> list[dict[str, Any]]
                 {
                     "run_dir": str(run_dir),
                     "run_name": run_dir.name,
-                    "case": case,
+                    "case": case_for_request(run_dir, cfg, request),
                     "task_id": task_id,
                     "prompt": prompt,
                     "seed": seed,

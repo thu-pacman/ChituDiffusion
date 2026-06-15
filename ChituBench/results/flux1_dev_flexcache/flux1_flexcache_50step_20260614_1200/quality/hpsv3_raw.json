@@ -1,0 +1,542 @@
+[
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b18g2-20260614_124002-blockdance_b18g2/results/blockdance_b18g2_photo_cat_seed42/A_photorealistic_cut_blockdance_b18g2_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.109440803527832
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b18g2-20260614_124002-blockdance_b18g2/results/blockdance_b18g2_photo_cat_seed43/A_photorealistic_cut_blockdance_b18g2_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.676223754882812
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b18g2-20260614_124002-blockdance_b18g2/results/blockdance_b18g2_photo_cat_seed44/A_photorealistic_cut_blockdance_b18g2_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.957897186279297
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b18g2-20260614_124002-blockdance_b18g2/results/blockdance_b18g2_market_sign_seed42/A_detailed_street_ma_blockdance_b18g2_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.685173988342285
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b18g2-20260614_124002-blockdance_b18g2/results/blockdance_b18g2_market_sign_seed43/A_detailed_street_ma_blockdance_b18g2_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.554861068725586
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b18g2-20260614_124002-blockdance_b18g2/results/blockdance_b18g2_market_sign_seed44/A_detailed_street_ma_blockdance_b18g2_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.559470176696777
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b18g2-20260614_124002-blockdance_b18g2/results/blockdance_b18g2_paper_robot_seed42/A_whimsical_paper_cr_blockdance_b18g2_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.571394920349121
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b18g2-20260614_124002-blockdance_b18g2/results/blockdance_b18g2_paper_robot_seed43/A_whimsical_paper_cr_blockdance_b18g2_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 14.791670799255371
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b18g2-20260614_124002-blockdance_b18g2/results/blockdance_b18g2_paper_robot_seed44/A_whimsical_paper_cr_blockdance_b18g2_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 16.010114669799805
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b24g3-20260614_124614-blockdance_b24g3/results/blockdance_b24g3_photo_cat_seed42/A_photorealistic_cut_blockdance_b24g3_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.926888465881348
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b24g3-20260614_124614-blockdance_b24g3/results/blockdance_b24g3_photo_cat_seed43/A_photorealistic_cut_blockdance_b24g3_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.130170822143555
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b24g3-20260614_124614-blockdance_b24g3/results/blockdance_b24g3_photo_cat_seed44/A_photorealistic_cut_blockdance_b24g3_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.674093246459961
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b24g3-20260614_124614-blockdance_b24g3/results/blockdance_b24g3_market_sign_seed42/A_detailed_street_ma_blockdance_b24g3_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 15.01324462890625
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b24g3-20260614_124614-blockdance_b24g3/results/blockdance_b24g3_market_sign_seed43/A_detailed_street_ma_blockdance_b24g3_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.829659461975098
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b24g3-20260614_124614-blockdance_b24g3/results/blockdance_b24g3_market_sign_seed44/A_detailed_street_ma_blockdance_b24g3_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.713445663452148
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b24g3-20260614_124614-blockdance_b24g3/results/blockdance_b24g3_paper_robot_seed42/A_whimsical_paper_cr_blockdance_b24g3_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.716954231262207
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b24g3-20260614_124614-blockdance_b24g3/results/blockdance_b24g3_paper_robot_seed43/A_whimsical_paper_cr_blockdance_b24g3_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.191093444824219
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-blockdance_b24g3-20260614_124614-blockdance_b24g3/results/blockdance_b24g3_paper_robot_seed44/A_whimsical_paper_cr_blockdance_b24g3_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 16.04090690612793
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s15_tau6-20260614_125858-cubic_s15_tau6/results/cubic_s15_tau6_photo_cat_seed42/A_photorealistic_cut_cubic_s15_tau6_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.454983711242676
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s15_tau6-20260614_125858-cubic_s15_tau6/results/cubic_s15_tau6_photo_cat_seed43/A_photorealistic_cut_cubic_s15_tau6_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.776031494140625
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s15_tau6-20260614_125858-cubic_s15_tau6/results/cubic_s15_tau6_photo_cat_seed44/A_photorealistic_cut_cubic_s15_tau6_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.41368579864502
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s15_tau6-20260614_125858-cubic_s15_tau6/results/cubic_s15_tau6_market_sign_seed42/A_detailed_street_ma_cubic_s15_tau6_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.80948257446289
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s15_tau6-20260614_125858-cubic_s15_tau6/results/cubic_s15_tau6_market_sign_seed43/A_detailed_street_ma_cubic_s15_tau6_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 15.03809928894043
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s15_tau6-20260614_125858-cubic_s15_tau6/results/cubic_s15_tau6_market_sign_seed44/A_detailed_street_ma_cubic_s15_tau6_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.534584999084473
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s15_tau6-20260614_125858-cubic_s15_tau6/results/cubic_s15_tau6_paper_robot_seed42/A_whimsical_paper_cr_cubic_s15_tau6_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.688370704650879
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s15_tau6-20260614_125858-cubic_s15_tau6/results/cubic_s15_tau6_paper_robot_seed43/A_whimsical_paper_cr_cubic_s15_tau6_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 14.658819198608398
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s15_tau6-20260614_125858-cubic_s15_tau6/results/cubic_s15_tau6_paper_robot_seed44/A_whimsical_paper_cr_cubic_s15_tau6_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.970826148986816
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s20_tau8-20260614_130451-cubic_s20_tau8/results/cubic_s20_tau8_photo_cat_seed42/A_photorealistic_cut_cubic_s20_tau8_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.614850044250488
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s20_tau8-20260614_130451-cubic_s20_tau8/results/cubic_s20_tau8_photo_cat_seed43/A_photorealistic_cut_cubic_s20_tau8_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.444783210754395
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s20_tau8-20260614_130451-cubic_s20_tau8/results/cubic_s20_tau8_photo_cat_seed44/A_photorealistic_cut_cubic_s20_tau8_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.935019493103027
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s20_tau8-20260614_130451-cubic_s20_tau8/results/cubic_s20_tau8_market_sign_seed42/A_detailed_street_ma_cubic_s20_tau8_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.61950397491455
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s20_tau8-20260614_130451-cubic_s20_tau8/results/cubic_s20_tau8_market_sign_seed43/A_detailed_street_ma_cubic_s20_tau8_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.856643676757812
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s20_tau8-20260614_130451-cubic_s20_tau8/results/cubic_s20_tau8_market_sign_seed44/A_detailed_street_ma_cubic_s20_tau8_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.461390495300293
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s20_tau8-20260614_130451-cubic_s20_tau8/results/cubic_s20_tau8_paper_robot_seed42/A_whimsical_paper_cr_cubic_s20_tau8_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.713560104370117
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s20_tau8-20260614_130451-cubic_s20_tau8/results/cubic_s20_tau8_paper_robot_seed43/A_whimsical_paper_cr_cubic_s20_tau8_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 14.794548988342285
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-cubic_s20_tau8-20260614_130451-cubic_s20_tau8/results/cubic_s20_tau8_paper_robot_seed44/A_whimsical_paper_cr_cubic_s20_tau8_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 16.010009765625
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-origin_flash-20260614_120037-origin_flash/results/origin_flash_photo_cat_seed42/A_photorealistic_cut_origin_flash_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.502552032470703
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-origin_flash-20260614_120037-origin_flash/results/origin_flash_photo_cat_seed43/A_photorealistic_cut_origin_flash_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.804091453552246
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-origin_flash-20260614_120037-origin_flash/results/origin_flash_photo_cat_seed44/A_photorealistic_cut_origin_flash_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.778264999389648
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-origin_flash-20260614_120037-origin_flash/results/origin_flash_market_sign_seed42/A_detailed_street_ma_origin_flash_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.65626049041748
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-origin_flash-20260614_120037-origin_flash/results/origin_flash_market_sign_seed43/A_detailed_street_ma_origin_flash_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.586684226989746
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-origin_flash-20260614_120037-origin_flash/results/origin_flash_market_sign_seed44/A_detailed_street_ma_origin_flash_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.762693405151367
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-origin_flash-20260614_120037-origin_flash/results/origin_flash_paper_robot_seed42/A_whimsical_paper_cr_origin_flash_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.408439636230469
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-origin_flash-20260614_120037-origin_flash/results/origin_flash_paper_robot_seed43/A_whimsical_paper_cr_origin_flash_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 14.691252708435059
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-origin_flash-20260614_120037-origin_flash/results/origin_flash_paper_robot_seed44/A_whimsical_paper_cr_origin_flash_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.961718559265137
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s2c3-20260614_122804-pab_s2c3/results/pab_s2c3_photo_cat_seed42/A_photorealistic_cut_pab_s2c3_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.89554214477539
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s2c3-20260614_122804-pab_s2c3/results/pab_s2c3_photo_cat_seed43/A_photorealistic_cut_pab_s2c3_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.677966117858887
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s2c3-20260614_122804-pab_s2c3/results/pab_s2c3_photo_cat_seed44/A_photorealistic_cut_pab_s2c3_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.830926895141602
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s2c3-20260614_122804-pab_s2c3/results/pab_s2c3_market_sign_seed42/A_detailed_street_ma_pab_s2c3_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.925373077392578
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s2c3-20260614_122804-pab_s2c3/results/pab_s2c3_market_sign_seed43/A_detailed_street_ma_pab_s2c3_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 15.097835540771484
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s2c3-20260614_122804-pab_s2c3/results/pab_s2c3_market_sign_seed44/A_detailed_street_ma_pab_s2c3_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.474393844604492
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s2c3-20260614_122804-pab_s2c3/results/pab_s2c3_paper_robot_seed42/A_whimsical_paper_cr_pab_s2c3_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.657913208007812
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s2c3-20260614_122804-pab_s2c3/results/pab_s2c3_paper_robot_seed43/A_whimsical_paper_cr_pab_s2c3_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 14.714998245239258
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s2c3-20260614_122804-pab_s2c3/results/pab_s2c3_paper_robot_seed44/A_whimsical_paper_cr_pab_s2c3_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 16.000591278076172
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s3c4-20260614_123435-pab_s3c4/results/pab_s3c4_photo_cat_seed42/A_photorealistic_cut_pab_s3c4_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.26046085357666
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s3c4-20260614_123435-pab_s3c4/results/pab_s3c4_photo_cat_seed43/A_photorealistic_cut_pab_s3c4_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.878214836120605
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s3c4-20260614_123435-pab_s3c4/results/pab_s3c4_photo_cat_seed44/A_photorealistic_cut_pab_s3c4_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.966935157775879
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s3c4-20260614_123435-pab_s3c4/results/pab_s3c4_market_sign_seed42/A_detailed_street_ma_pab_s3c4_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.3963623046875
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s3c4-20260614_123435-pab_s3c4/results/pab_s3c4_market_sign_seed43/A_detailed_street_ma_pab_s3c4_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 15.121845245361328
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s3c4-20260614_123435-pab_s3c4/results/pab_s3c4_market_sign_seed44/A_detailed_street_ma_pab_s3c4_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 13.332253456115723
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s3c4-20260614_123435-pab_s3c4/results/pab_s3c4_paper_robot_seed42/A_whimsical_paper_cr_pab_s3c4_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.605616569519043
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s3c4-20260614_123435-pab_s3c4/results/pab_s3c4_paper_robot_seed43/A_whimsical_paper_cr_pab_s3c4_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.209774017333984
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-pab_s3c4-20260614_123435-pab_s3c4/results/pab_s3c4_paper_robot_seed44/A_whimsical_paper_cr_pab_s3c4_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 16.03462028503418
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f3o1-20260614_125222-taylorseer_f3o1/results/taylorseer_f3o1_photo_cat_seed42/A_photorealistic_cut_taylorseer_f3o1_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.565165519714355
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f3o1-20260614_125222-taylorseer_f3o1/results/taylorseer_f3o1_photo_cat_seed43/A_photorealistic_cut_taylorseer_f3o1_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.93797492980957
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f3o1-20260614_125222-taylorseer_f3o1/results/taylorseer_f3o1_photo_cat_seed44/A_photorealistic_cut_taylorseer_f3o1_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 11.375096321105957
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f3o1-20260614_125222-taylorseer_f3o1/results/taylorseer_f3o1_market_sign_seed42/A_detailed_street_ma_taylorseer_f3o1_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 15.052519798278809
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f3o1-20260614_125222-taylorseer_f3o1/results/taylorseer_f3o1_market_sign_seed43/A_detailed_street_ma_taylorseer_f3o1_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 15.098287582397461
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f3o1-20260614_125222-taylorseer_f3o1/results/taylorseer_f3o1_market_sign_seed44/A_detailed_street_ma_taylorseer_f3o1_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.705177307128906
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f3o1-20260614_125222-taylorseer_f3o1/results/taylorseer_f3o1_paper_robot_seed42/A_whimsical_paper_cr_taylorseer_f3o1_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.791045188903809
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f3o1-20260614_125222-taylorseer_f3o1/results/taylorseer_f3o1_paper_robot_seed43/A_whimsical_paper_cr_taylorseer_f3o1_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.158430099487305
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f3o1-20260614_125222-taylorseer_f3o1/results/taylorseer_f3o1_paper_robot_seed44/A_whimsical_paper_cr_taylorseer_f3o1_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 16.068668365478516
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f5o2-20260614_125612-taylorseer_f5o2/results/taylorseer_f5o2_photo_cat_seed42/A_photorealistic_cut_taylorseer_f5o2_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.435663223266602
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f5o2-20260614_125612-taylorseer_f5o2/results/taylorseer_f5o2_photo_cat_seed43/A_photorealistic_cut_taylorseer_f5o2_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.28315544128418
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f5o2-20260614_125612-taylorseer_f5o2/results/taylorseer_f5o2_photo_cat_seed44/A_photorealistic_cut_taylorseer_f5o2_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.366308212280273
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f5o2-20260614_125612-taylorseer_f5o2/results/taylorseer_f5o2_market_sign_seed42/A_detailed_street_ma_taylorseer_f5o2_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.44411563873291
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f5o2-20260614_125612-taylorseer_f5o2/results/taylorseer_f5o2_market_sign_seed43/A_detailed_street_ma_taylorseer_f5o2_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 15.109415054321289
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f5o2-20260614_125612-taylorseer_f5o2/results/taylorseer_f5o2_market_sign_seed44/A_detailed_street_ma_taylorseer_f5o2_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.248553276062012
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f5o2-20260614_125612-taylorseer_f5o2/results/taylorseer_f5o2_paper_robot_seed42/A_whimsical_paper_cr_taylorseer_f5o2_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.72866153717041
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f5o2-20260614_125612-taylorseer_f5o2/results/taylorseer_f5o2_paper_robot_seed43/A_whimsical_paper_cr_taylorseer_f5o2_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.664680480957031
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-taylorseer_f5o2-20260614_125612-taylorseer_f5o2/results/taylorseer_f5o2_paper_robot_seed44/A_whimsical_paper_cr_taylorseer_f5o2_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 16.05670738220215
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t030-20260614_120728-teacache_t030/results/teacache_t030_photo_cat_seed42/A_photorealistic_cut_teacache_t030_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.502552032470703
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t030-20260614_120728-teacache_t030/results/teacache_t030_photo_cat_seed43/A_photorealistic_cut_teacache_t030_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.804091453552246
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t030-20260614_120728-teacache_t030/results/teacache_t030_photo_cat_seed44/A_photorealistic_cut_teacache_t030_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.778264999389648
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t030-20260614_120728-teacache_t030/results/teacache_t030_market_sign_seed42/A_detailed_street_ma_teacache_t030_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.65626049041748
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t030-20260614_120728-teacache_t030/results/teacache_t030_market_sign_seed43/A_detailed_street_ma_teacache_t030_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.586684226989746
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t030-20260614_120728-teacache_t030/results/teacache_t030_market_sign_seed44/A_detailed_street_ma_teacache_t030_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.762693405151367
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t030-20260614_120728-teacache_t030/results/teacache_t030_paper_robot_seed42/A_whimsical_paper_cr_teacache_t030_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.408439636230469
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t030-20260614_120728-teacache_t030/results/teacache_t030_paper_robot_seed43/A_whimsical_paper_cr_teacache_t030_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 14.691252708435059
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t030-20260614_120728-teacache_t030/results/teacache_t030_paper_robot_seed44/A_whimsical_paper_cr_teacache_t030_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.961718559265137
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t050-20260614_121419-teacache_t050/results/teacache_t050_photo_cat_seed42/A_photorealistic_cut_teacache_t050_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.502552032470703
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t050-20260614_121419-teacache_t050/results/teacache_t050_photo_cat_seed43/A_photorealistic_cut_teacache_t050_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.804091453552246
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t050-20260614_121419-teacache_t050/results/teacache_t050_photo_cat_seed44/A_photorealistic_cut_teacache_t050_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.778264999389648
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t050-20260614_121419-teacache_t050/results/teacache_t050_market_sign_seed42/A_detailed_street_ma_teacache_t050_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.65626049041748
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t050-20260614_121419-teacache_t050/results/teacache_t050_market_sign_seed43/A_detailed_street_ma_teacache_t050_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.586684226989746
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t050-20260614_121419-teacache_t050/results/teacache_t050_market_sign_seed44/A_detailed_street_ma_teacache_t050_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.762693405151367
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t050-20260614_121419-teacache_t050/results/teacache_t050_paper_robot_seed42/A_whimsical_paper_cr_teacache_t050_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.408439636230469
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t050-20260614_121419-teacache_t050/results/teacache_t050_paper_robot_seed43/A_whimsical_paper_cr_teacache_t050_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 14.691252708435059
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t050-20260614_121419-teacache_t050/results/teacache_t050_paper_robot_seed44/A_whimsical_paper_cr_teacache_t050_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.961718559265137
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t070-20260614_122111-teacache_t070/results/teacache_t070_photo_cat_seed42/A_photorealistic_cut_teacache_t070_photo_cat_seed42.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.502552032470703
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t070-20260614_122111-teacache_t070/results/teacache_t070_photo_cat_seed43/A_photorealistic_cut_teacache_t070_photo_cat_seed43.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 9.804091453552246
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t070-20260614_122111-teacache_t070/results/teacache_t070_photo_cat_seed44/A_photorealistic_cut_teacache_t070_photo_cat_seed44.png",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background.",
+    "hpsv3_score": 10.778264999389648
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t070-20260614_122111-teacache_t070/results/teacache_t070_market_sign_seed42/A_detailed_street_ma_teacache_t070_market_sign_seed42.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.65626049041748
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t070-20260614_122111-teacache_t070/results/teacache_t070_market_sign_seed43/A_detailed_street_ma_teacache_t070_market_sign_seed43.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.586684226989746
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t070-20260614_122111-teacache_t070/results/teacache_t070_market_sign_seed44/A_detailed_street_ma_teacache_t070_market_sign_seed44.png",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography.",
+    "hpsv3_score": 14.762693405151367
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t070-20260614_122111-teacache_t070/results/teacache_t070_paper_robot_seed42/A_whimsical_paper_cr_teacache_t070_paper_robot_seed42.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.408439636230469
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t070-20260614_122111-teacache_t070/results/teacache_t070_paper_robot_seed43/A_whimsical_paper_cr_teacache_t070_paper_robot_seed43.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 14.691252708435059
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux1_dev_flexcache/flux1_flexcache_50step_20260614_1200/chitubench-flux1-flexcache-teacache_t070-20260614_122111-teacache_t070/results/teacache_t070_paper_robot_seed44/A_whimsical_paper_cr_teacache_t070_paper_robot_seed44.png",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture.",
+    "hpsv3_score": 15.961718559265137
+  }
+]

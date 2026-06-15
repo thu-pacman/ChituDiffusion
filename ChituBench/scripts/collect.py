@@ -56,7 +56,6 @@ def rows_from_run(run_dir: Path, experiment_id: str) -> list[dict[str, Any]]:
         return []
     cfg = run_config(run_dir)
     case = str(run_dir.name).split("-")[-1]
-    case = str(cfg.get("attn_type") or case)
     if case == "flash":
         case = "origin_flash"
     rows = []
@@ -68,12 +67,16 @@ def rows_from_run(run_dir: Path, experiment_id: str) -> list[dict[str, Any]]:
         timing = task_timing(run_dir, task_id)
         if timing.get("dit_forward_ms") is None:
             continue
+        request_case = str(params.get("role") or "").strip()
+        row_case = request_case if request_case and request_case != "warmup" else str(cfg.get("attn_type") or case)
+        if row_case == "flash":
+            row_case = "origin_flash"
         rows.append(
             {
                 "experiment_id": experiment_id,
                 "run_dir": str(run_dir),
                 "run_name": run_dir.name,
-                "case": case,
+                "case": row_case,
                 "task_id": task_id,
                 "prompt": params.get("prompt"),
                 "seed": params.get("seed"),
@@ -103,6 +106,16 @@ def quality_by_run_task(experiment_dir: Path) -> dict[tuple[str, str], dict[str,
     return out
 
 
+def _baseline_case(summary_rows: list[dict[str, Any]]) -> str:
+    for candidate in ("origin_flash", "torch_sdpa", "baseline_1gpu", "1gpu"):
+        if any(row.get("case") == candidate and row.get("dit_forward_s_mean") for row in summary_rows):
+            return candidate
+    for row in summary_rows:
+        if row.get("dit_forward_s_mean"):
+            return str(row.get("case"))
+    return ""
+
+
 def aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
@@ -123,7 +136,8 @@ def aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "hpsv3_score_mean": mean(numeric([item.get("hpsv3_score") for item in items])) if numeric([item.get("hpsv3_score") for item in items]) else None,
             }
         )
-    baseline = next((item["dit_forward_s_mean"] for item in out if item["case"] == "origin_flash" and item["dit_forward_s_mean"]), None)
+    baseline_case = _baseline_case(out)
+    baseline = next((item["dit_forward_s_mean"] for item in out if item["case"] == baseline_case and item["dit_forward_s_mean"]), None)
     for item in out:
         value = item.get("dit_forward_s_mean")
         item["speedup_vs_origin"] = None if not baseline or not value else baseline / value
@@ -142,7 +156,26 @@ def write_table(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
-def plot(experiment_dir: Path, summary_rows: list[dict[str, Any]], title: str) -> None:
+def read_table(path: Path) -> list[dict[str, Any]]:
+    if not path.exists() or not path.read_text(encoding="utf-8").strip():
+        return []
+    with path.open("r", encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def merge_rows(existing: list[dict[str, Any]], new_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in existing:
+        run_name = str(row.get("run_name") or "")
+        task_id = str(row.get("task_id") or "")
+        if run_name and task_id:
+            merged[(run_name, task_id)] = row
+    for row in new_rows:
+        merged[(str(row.get("run_name") or ""), str(row.get("task_id") or ""))] = row
+    return list(merged.values())
+
+
+def plot(experiment_dir: Path, summary_rows: list[dict[str, Any]], title: str, experiment_id: str) -> None:
     try:
         import matplotlib.pyplot as plt
     except Exception as exc:
@@ -153,16 +186,34 @@ def plot(experiment_dir: Path, summary_rows: list[dict[str, Any]], title: str) -
     plot_dir = experiment_dir / "plots"
     plot_dir.mkdir(parents=True, exist_ok=True)
     metrics = [
+        ("psnr_mean", "Pixel Fidelity", "PSNR vs origin"),
         ("one_minus_lpips_mean", "Perceptual Fidelity", "1-LPIPS vs origin"),
-        ("hpsv3_score_mean", "Human Preference", "HPSv3 score"),
     ]
-    colors = {
-        "origin_flash": "#111827",
-        "torch_sdpa_math": "#2563eb",
-        "sage": "#d97706",
-        "sparge": "#16a34a",
+    family_style = {
+        "origin": ("#222222", "o"),
+        "teacache": ("#7c3aed", "P"),
+        "pab": ("#dc2626", "s"),
+        "blockdance": ("#2563eb", "^"),
+        "cubic": ("#059669", "D"),
+        "taylorseer": ("#d97706", "v"),
+        "sage": ("#0f766e", "X"),
+        "sparge": ("#9333ea", "*"),
+        "torch_sdpa": ("#64748b", "h"),
+        "other": ("#6b7280", "o"),
     }
-    rows = [row for row in summary_rows if row.get("speedup_vs_origin") is not None and math.isfinite(float(row["speedup_vs_origin"]))]
+
+    def family_for_case(case: str) -> str:
+        if case == "origin_flash":
+            return "origin"
+        for family in ("teacache", "pab", "blockdance", "cubic", "taylorseer", "sage", "sparge"):
+            if case.startswith(family):
+                return family
+        if case.startswith("torch_sdpa"):
+            return "torch_sdpa"
+        return "other"
+    x_metric = "dit_forward_s_mean" if experiment_id == "qwen_image_attention" else "speedup_vs_origin"
+    x_label = "DiT forward latency (s, lower is better)" if experiment_id == "qwen_image_attention" else "Speedup vs origin_flash"
+    rows = [row for row in summary_rows if row.get(x_metric) is not None and math.isfinite(float(row[x_metric]))]
     plt.rcParams.update(
         {
             "font.size": 10,
@@ -172,8 +223,9 @@ def plot(experiment_dir: Path, summary_rows: list[dict[str, Any]], title: str) -
             "ytick.labelsize": 9,
         }
     )
-    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.3), sharex=True)
-    for ax, (metric, title, ylabel) in zip(axes, metrics):
+    fig, axes = plt.subplots(1, 2, figsize=(11.7, 4.4), sharex=True)
+    legend_handles = {}
+    for ax, (metric, panel_title, ylabel) in zip(axes, metrics):
         points = [row for row in rows if row.get(metric) is not None and math.isfinite(float(row[metric]))]
         if not points:
             ax.text(
@@ -185,24 +237,70 @@ def plot(experiment_dir: Path, summary_rows: list[dict[str, Any]], title: str) -
                 va="center",
                 color="#6b7280",
             )
-            ax.set_title(title)
-            ax.set_xlabel("Speedup vs origin_flash")
+            ax.set_title(panel_title)
+            ax.set_xlabel(x_label)
             ax.set_ylabel(ylabel)
             ax.grid(True, color="#e5e7eb", linewidth=0.8)
             continue
+        by_family: dict[str, list[dict[str, Any]]] = {}
         for row in points:
-            x = float(row["speedup_vs_origin"])
-            y = float(row[metric])
-            case = str(row["case"])
-            ax.scatter(x, y, s=96, color=colors.get(case, "#6b7280"), edgecolor="white", linewidth=1.0, zorder=3)
-            ax.annotate(case, (x, y), xytext=(6, 5), textcoords="offset points", fontsize=8)
-        ax.axvline(1.0, color="#9ca3af", linewidth=1, linestyle="--")
-        ax.set_title(title)
+            by_family.setdefault(family_for_case(str(row["case"])), []).append(row)
+        for family, family_points in sorted(by_family.items()):
+            color, marker = family_style.get(family, family_style["other"])
+            family_points = sorted(family_points, key=lambda row: float(row[x_metric]))
+            x_values = [float(row[x_metric]) for row in family_points]
+            y_values = [float(row[metric]) for row in family_points]
+            line = ax.plot(
+                x_values,
+                y_values,
+                color=color,
+                linewidth=1.7 if len(family_points) > 1 else 0,
+                alpha=0.78,
+                zorder=2,
+            )[0]
+            scatter = ax.scatter(
+                x_values,
+                y_values,
+                s=88,
+                color=color,
+                marker=marker,
+                edgecolor="white",
+                linewidth=1.1,
+                zorder=3,
+            )
+            legend_handles.setdefault(family, scatter if len(family_points) == 1 else line)
+            for row, x, y in zip(family_points, x_values, y_values):
+                case = str(row["case"])
+                label = case
+                for prefix in ("teacache_", "blockdance_", "taylorseer_", "cubic_"):
+                    if label.startswith(prefix):
+                        label = label[len(prefix) :]
+                ax.annotate(label, (x, y), xytext=(6, 5), textcoords="offset points", fontsize=7.5, color="#374151")
+        if experiment_id != "qwen_image_attention":
+            ax.axvline(1.0, color="#9ca3af", linewidth=1, linestyle="--")
+        ax.set_title(panel_title)
         ax.set_ylabel(ylabel)
         ax.grid(True, color="#e5e7eb", linewidth=0.8)
-        ax.set_xlabel("Speedup vs origin_flash")
+        ax.set_xlabel(x_label)
+    if legend_handles:
+        family_labels = {
+            "origin": "Origin",
+            "teacache": "TeaCache",
+            "pab": "PAB",
+            "blockdance": "BlockDance",
+            "cubic": "Cubic",
+            "taylorseer": "TaylorSeer",
+            "sage": "SageAttention",
+            "sparge": "SpargeAttn",
+            "torch_sdpa": "Torch SDPA",
+            "other": "Other",
+        }
+        order = ["origin", "blockdance", "cubic", "pab", "taylorseer", "teacache", "sage", "sparge", "torch_sdpa", "other"]
+        handles = [legend_handles[key] for key in order if key in legend_handles]
+        labels = [family_labels[key] for key in order if key in legend_handles]
+        fig.legend(handles, labels, loc="lower center", ncol=min(len(labels), 6), frameon=False, fontsize=9)
     fig.suptitle(title, y=0.99, fontsize=14, fontweight="semibold")
-    fig.tight_layout(rect=(0, 0, 1, 0.94), w_pad=2.0)
+    fig.tight_layout(rect=(0, 0.08, 1, 0.94), w_pad=2.0)
     fig.savefig(plot_dir / "speed_quality.png", dpi=220)
     plt.close(fig)
 
@@ -233,13 +331,15 @@ def main() -> int:
 
     if not rows and not args.allow_partial:
         raise SystemExit(f"No benchmark runs found under {experiment_dir}")
+    if args.allow_partial:
+        rows = merge_rows(read_table(experiment_dir / "raw_rows.csv"), rows)
 
     summary_rows = aggregate(rows)
     write_table(experiment_dir / "raw_rows.csv", rows)
     write_table(experiment_dir / "summary.csv", summary_rows)
     (experiment_dir / "raw_rows.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
     (experiment_dir / "summary.json").write_text(json.dumps(summary_rows, indent=2), encoding="utf-8")
-    plot(experiment_dir, summary_rows, args.title)
+    plot(experiment_dir, summary_rows, args.title, args.experiment_id)
     print(f"Wrote {experiment_dir / 'summary.csv'}")
     return 0
 

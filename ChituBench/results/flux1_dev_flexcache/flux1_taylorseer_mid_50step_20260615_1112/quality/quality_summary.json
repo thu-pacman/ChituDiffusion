@@ -1,0 +1,26 @@
+[
+  {
+    "case": "origin_flash",
+    "num_tasks": 9,
+    "psnr_mean": Infinity,
+    "ssim_mean": 1.0,
+    "one_minus_lpips_mean": 1.0,
+    "hpsv3_score_mean": null
+  },
+  {
+    "case": "taylorseer_f2o1",
+    "num_tasks": 9,
+    "psnr_mean": 24.712659093985643,
+    "ssim_mean": 0.8991781870524088,
+    "one_minus_lpips_mean": 0.9405643144208524,
+    "hpsv3_score_mean": null
+  },
+  {
+    "case": "taylorseer_f4o1",
+    "num_tasks": 9,
+    "psnr_mean": 18.58973599676625,
+    "ssim_mean": 0.7595844798617892,
+    "one_minus_lpips_mean": 0.8180765869716803,
+    "hpsv3_score_mean": null
+  }
+]

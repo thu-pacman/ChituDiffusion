@@ -25,7 +25,7 @@ from test.run_context import DiffusionTestRunContext, should_record_metrics_on_r
 
 logger = getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_PROMPT_FILE = PROJECT_ROOT / "ChituBench" / "prompts" / "flux1_attention.json"
+DEFAULT_PROMPT_FILE = PROJECT_ROOT / "ChituBench" / "prompts" / "qwen_image_attention.json"
 
 
 def _load_prompt_items(path: Path) -> list[dict[str, str]]:
@@ -51,19 +51,9 @@ def _steps(args: ServeConfig) -> int:
 
 
 def _size() -> tuple[int, int]:
-    raw = os.getenv("CHITUBENCH_IMAGE_SIZE", "1024,1024")
+    raw = os.getenv("CHITUBENCH_IMAGE_SIZE", "1328,1328")
     width, height = [int(item.strip()) for item in raw.lower().replace("x", ",").split(",", 1)]
     return width, height
-
-
-def _flexcache_params() -> dict | None:
-    raw = os.getenv("CHITUBENCH_FLEXCACHE_PARAMS", "").strip()
-    if not raw:
-        return None
-    payload = json.loads(raw)
-    if not isinstance(payload, dict):
-        raise ValueError("CHITUBENCH_FLEXCACHE_PARAMS must be a JSON object.")
-    return payload
 
 
 def build_requests(args: ServeConfig) -> list[DiffusionUserRequest]:
@@ -73,7 +63,6 @@ def build_requests(args: ServeConfig) -> list[DiffusionUserRequest]:
     seeds = _seeds()
     steps = _steps(args)
     size = _size()
-    flexcache_params = _flexcache_params()
     requests = []
 
     warmup_runs = int(os.getenv("CHITUBENCH_WARMUP_RUNS", "1"))
@@ -85,13 +74,12 @@ def build_requests(args: ServeConfig) -> list[DiffusionUserRequest]:
                 params=DiffusionUserParams(
                     role="warmup",
                     prompt=first["prompt"],
+                    negative_prompt=" ",
                     seed=seeds[0],
                     frame_num=1,
                     size=size,
-                    negative_prompt=None,
                     num_inference_steps=steps,
                     sample_solver="flowmatch_euler",
-                    flexcache_params=flexcache_params,
                 ),
             )
         )
@@ -104,13 +92,12 @@ def build_requests(args: ServeConfig) -> list[DiffusionUserRequest]:
                     params=DiffusionUserParams(
                         role=case_id,
                         prompt=prompt_item["prompt"],
+                        negative_prompt=" ",
                         seed=seed,
                         frame_num=1,
                         size=size,
-                        negative_prompt=None,
                         num_inference_steps=steps,
                         sample_solver="flowmatch_euler",
-                        flexcache_params=flexcache_params,
                     ),
                 )
             )
@@ -143,7 +130,7 @@ def run_benchmark(args: ServeConfig, run_context: DiffusionTestRunContext):
     try:
         if rank == 0:
             run_context.dump_run_metadata(run_output_dir, reqs)
-            logger.info("ChituBench Flux requests: %s", reqs)
+            logger.info("ChituBench Qwen-Image requests: %s", reqs)
 
         run_context.dump_memory_snapshot(run_output_dir, "model_loaded")
         warmup_diffusion_engine(args)
@@ -162,7 +149,7 @@ def run_benchmark(args: ServeConfig, run_context: DiffusionTestRunContext):
 
         elapsed_s = time.time() - start
         if rank == 0:
-            logger.info("ChituBench Flux benchmark time cost %.3fs", elapsed_s)
+            logger.info("ChituBench Qwen-Image benchmark time cost %.3fs", elapsed_s)
         run_context.log_final_memory()
         run_context.dump_memory_snapshot(run_output_dir, "final")
 
@@ -177,8 +164,8 @@ def run_benchmark(args: ServeConfig, run_context: DiffusionTestRunContext):
 
 
 def main(args: ServeConfig):
-    if args.models.name not in {"Flux1-dev", "Flux2-klein-4B"}:
-        raise ValueError(f"flux_image_benchmark expects a Flux image model, got {args.models.name}")
+    if args.models.name != "Qwen-Image":
+        raise ValueError(f"qwen_image_benchmark expects Qwen-Image, got {args.models.name}")
     logger.setLevel(logging.DEBUG)
     args.models.sampler.sample_steps = _steps(args)
 

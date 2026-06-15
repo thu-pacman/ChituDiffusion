@@ -17,6 +17,11 @@ def short_prompt(prompt: str, limit: int = 44) -> str:
     return prompt if len(prompt) <= limit else prompt[: limit - 3] + "..."
 
 
+def short_case(case: str, limit: int = 22) -> str:
+    case = " ".join(case.replace("_", " ").split())
+    return case if len(case) <= limit else case[: limit - 3] + "..."
+
+
 def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     candidates = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -62,11 +67,21 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", default="visuals/contact_sheet.png")
     parser.add_argument("--title", default="Flux Attention Backend Visual Check")
+    parser.add_argument("--cases", nargs="*", help="Optional explicit case order.")
     args = parser.parse_args()
 
     experiment_dir = Path(args.experiment_dir).resolve()
     rows = read_json(experiment_dir / "quality" / "quality_rows.json")
-    cases = ["origin_flash", "torch_sdpa_math", "sage", "sparge"]
+    if args.cases:
+        cases = args.cases
+    else:
+        seen_cases = []
+        for row in rows:
+            case = str(row.get("case") or "")
+            if case and case not in seen_cases:
+                seen_cases.append(case)
+        preferred = ["origin_flash", "torch_sdpa", "torch_sdpa_math", "sage", "sparge", "baseline_1gpu"]
+        cases = [case for case in preferred if case in seen_cases] + [case for case in seen_cases if case not in preferred]
     prompts = []
     for row in rows:
         prompt = str(row.get("prompt") or "")
@@ -74,8 +89,9 @@ def main() -> int:
             prompts.append(prompt)
 
     by_key = {(str(row.get("prompt") or ""), str(row.get("case")), int(row.get("seed"))): row for row in rows}
-    tile_w, tile_h = 320, 320
-    gap = 18
+    tile_w = 260 if len(cases) > 8 else 320
+    tile_h = tile_w
+    gap = 14 if len(cases) > 8 else 18
     margin = 34
     title_h = 56
     header_h = 44
@@ -95,7 +111,7 @@ def main() -> int:
     for col, case in enumerate(cases):
         x = margin + col * (tile_w + gap)
         y = margin + title_h
-        draw_rounded_label(draw, (x, y, x + tile_w, y + 30), case, case_font, (229, 231, 235), (17, 24, 39))
+        draw_rounded_label(draw, (x, y, x + tile_w, y + 30), short_case(case), case_font, (229, 231, 235), (17, 24, 39))
 
     for row_idx, prompt in enumerate(prompts):
         y = margin + title_h + header_h + row_idx * (row_label_h + tile_h + gap)
@@ -125,7 +141,7 @@ def main() -> int:
 
     draw.text(
         (margin, height - margin + 10),
-        "Rows: prompts. Columns: backend cases. Images use the same seed for visual comparison.",
+        "Rows: prompts. Columns: cases. Images use the same seed for visual comparison.",
         fill="#64748b",
         font=small_font,
     )

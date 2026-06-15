@@ -1,0 +1,62 @@
+[
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-sage-20260615_161756-sage/results/sage_coffee_sign_seed42/A_coffee_shop_entran_sage_coffee_sign_seed42.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 12.455167770385742
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-sage-20260615_161756-sage/results/sage_coffee_sign_seed43/A_coffee_shop_entran_sage_coffee_sign_seed43.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 12.575908660888672
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-sage-20260615_161756-sage/results/sage_coffee_sign_seed44/A_coffee_shop_entran_sage_coffee_sign_seed44.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 12.451251029968262
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-sparge-20260615_163823-sparge/results/sparge_coffee_sign_seed42/A_coffee_shop_entran_sparge_coffee_sign_seed42.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 13.235613822937012
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-sparge-20260615_163823-sparge/results/sparge_coffee_sign_seed43/A_coffee_shop_entran_sparge_coffee_sign_seed43.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 12.681777000427246
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-sparge-20260615_163823-sparge/results/sparge_coffee_sign_seed44/A_coffee_shop_entran_sparge_coffee_sign_seed44.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 12.870737075805664
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-torch-sdpa-20260615_154538-torch_sdpa/results/torch_sdpa_coffee_sign_seed42/A_coffee_shop_entran_torch_sdpa_coffee_sign_seed42.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 12.810033798217773
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-torch-sdpa-20260615_154538-torch_sdpa/results/torch_sdpa_coffee_sign_seed43/A_coffee_shop_entran_torch_sdpa_coffee_sign_seed43.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 12.857304573059082
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-torch-sdpa-20260615_154538-torch_sdpa/results/torch_sdpa_coffee_sign_seed44/A_coffee_shop_entran_torch_sdpa_coffee_sign_seed44.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 12.615072250366211
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-torch-sdpa-math-20260615_155447-torch_sdpa_math/results/torch_sdpa_math_coffee_sign_seed42/A_coffee_shop_entran_torch_sdpa_math_coffee_sign_seed42.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 12.501309394836426
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-torch-sdpa-math-20260615_155447-torch_sdpa_math/results/torch_sdpa_math_coffee_sign_seed43/A_coffee_shop_entran_torch_sdpa_math_coffee_sign_seed43.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 12.9317045211792
+  },
+  {
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550/chitubench-qwen-image-attn-torch-sdpa-math-20260615_155447-torch_sdpa_math/results/torch_sdpa_math_coffee_sign_seed44/A_coffee_shop_entran_torch_sdpa_math_coffee_sign_seed44.png",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "hpsv3_score": 12.5969820022583
+  }
+]

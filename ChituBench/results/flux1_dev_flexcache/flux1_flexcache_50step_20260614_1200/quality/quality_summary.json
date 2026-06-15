@@ -1,0 +1,98 @@
+[
+  {
+    "case": "blockdance_b18g2",
+    "num_tasks": 9,
+    "psnr_mean": 33.12902198338656,
+    "ssim_mean": 0.9588196277618408,
+    "one_minus_lpips_mean": 0.9833287397114974,
+    "hpsv3_score_mean": 13.435138596428764
+  },
+  {
+    "case": "blockdance_b24g3",
+    "num_tasks": 9,
+    "psnr_mean": 31.38859237098677,
+    "ssim_mean": 0.9482435517840915,
+    "one_minus_lpips_mean": 0.9776199311535392,
+    "hpsv3_score_mean": 13.581828541225857
+  },
+  {
+    "case": "cubic_s15_tau6",
+    "num_tasks": 9,
+    "psnr_mean": 26.77266080411519,
+    "ssim_mean": 0.9008628063731723,
+    "one_minus_lpips_mean": 0.9412422356350968,
+    "hpsv3_score_mean": 13.482764879862467
+  },
+  {
+    "case": "cubic_s20_tau8",
+    "num_tasks": 9,
+    "psnr_mean": 25.755540048346493,
+    "ssim_mean": 0.8870168526967367,
+    "one_minus_lpips_mean": 0.9323716174500684,
+    "hpsv3_score_mean": 13.383367750379774
+  },
+  {
+    "case": "origin_flash",
+    "num_tasks": 9,
+    "psnr_mean": Infinity,
+    "ssim_mean": 1.0,
+    "one_minus_lpips_mean": 1.0,
+    "hpsv3_score_mean": 13.46132861243354
+  },
+  {
+    "case": "pab_s2c3",
+    "num_tasks": 9,
+    "psnr_mean": 25.952449581057444,
+    "ssim_mean": 0.8889764017528958,
+    "one_minus_lpips_mean": 0.9329747174763017,
+    "hpsv3_score_mean": 13.475060039096409
+  },
+  {
+    "case": "pab_s3c4",
+    "num_tasks": 9,
+    "psnr_mean": 22.805116546634256,
+    "ssim_mean": 0.8302836683061388,
+    "one_minus_lpips_mean": 0.8858318645507097,
+    "hpsv3_score_mean": 13.422898080613878
+  },
+  {
+    "case": "taylorseer_f3o1",
+    "num_tasks": 9,
+    "psnr_mean": 20.721984249312186,
+    "ssim_mean": 0.8158265153566996,
+    "one_minus_lpips_mean": 0.871571304069625,
+    "hpsv3_score_mean": 13.639151679144966
+  },
+  {
+    "case": "taylorseer_f5o2",
+    "num_tasks": 9,
+    "psnr_mean": 15.715432623324391,
+    "ssim_mean": 0.6978960103458829,
+    "one_minus_lpips_mean": 0.7585042814413706,
+    "hpsv3_score_mean": 13.481917805141872
+  },
+  {
+    "case": "teacache_t030",
+    "num_tasks": 9,
+    "psnr_mean": Infinity,
+    "ssim_mean": 1.0,
+    "one_minus_lpips_mean": 1.0,
+    "hpsv3_score_mean": 13.46132861243354
+  },
+  {
+    "case": "teacache_t050",
+    "num_tasks": 9,
+    "psnr_mean": Infinity,
+    "ssim_mean": 1.0,
+    "one_minus_lpips_mean": 1.0,
+    "hpsv3_score_mean": 13.46132861243354
+  },
+  {
+    "case": "teacache_t070",
+    "num_tasks": 9,
+    "psnr_mean": Infinity,
+    "ssim_mean": 1.0,
+    "one_minus_lpips_mean": 1.0,
+    "hpsv3_score_mean": 13.46132861243354
+  }
+]

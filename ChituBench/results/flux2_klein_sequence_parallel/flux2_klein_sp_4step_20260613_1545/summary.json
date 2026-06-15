@@ -1,0 +1,110 @@
+[
+  {
+    "case": "baseline_1gpu",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 1.3583815420667331,
+    "dit_forward_s_min": 1.3576427139341831,
+    "dit_forward_s_max": 1.3601460242643952,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.0
+  },
+  {
+    "case": "ring_2gpu",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.731587792125841,
+    "dit_forward_s_min": 0.7309539020061493,
+    "dit_forward_s_max": 0.7321948977187276,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.856758077003391
+  },
+  {
+    "case": "ring_4gpu",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.4354576100077894,
+    "dit_forward_s_min": 0.4276085291057825,
+    "dit_forward_s_max": 0.4628259725868702,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 3.119434615099354
+  },
+  {
+    "case": "ring_8gpu",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.34384379794614184,
+    "dit_forward_s_min": 0.3408929230645299,
+    "dit_forward_s_max": 0.3457311512902379,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 3.950577413874145
+  },
+  {
+    "case": "ulysses_2gpu",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.7400497530276576,
+    "dit_forward_s_min": 0.7383693512529135,
+    "dit_forward_s_max": 0.7418123595416546,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.835527323006845
+  },
+  {
+    "case": "ulysses_4gpu",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.40915278997272253,
+    "dit_forward_s_min": 0.4086376540362835,
+    "dit_forward_s_max": 0.4098153943195939,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 3.319986018321649
+  },
+  {
+    "case": "ulysses_8gpu",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.2783735090245803,
+    "dit_forward_s_min": 0.2774364436045289,
+    "dit_forward_s_max": 0.279355987906456,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 4.879708370334867
+  },
+  {
+    "case": "usp_r2u2_4gpu",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.43883368879970575,
+    "dit_forward_s_min": 0.43801488541066647,
+    "dit_forward_s_max": 0.4395126048475504,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 3.0954358718041157
+  },
+  {
+    "case": "usp_r4u2_8gpu",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.3348292702188094,
+    "dit_forward_s_min": 0.3318488849326968,
+    "dit_forward_s_max": 0.3363878168165684,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 4.056937857251957
+  }
+]

@@ -1,0 +1,32 @@
+launch:
+  tag: chitubench-flux2-sp-usp-r4u2-8gpu
+  num_nodes: 1
+  gpus_per_node: 8
+  python_script: ChituBench/scripts/flux_image_benchmark.py
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    job_name: chitubench-flux2-sp-usp-r4u2-8gpu
+runtime:
+  chitu_debug: true
+  cuda_launch_blocking: false
+model:
+  name: Flux2-klein-4B
+  ckpt_dir: /home/chenyy/WORK/models/flux2-klein
+parallel:
+  cfp: 1
+  up: 2
+infer:
+  attn_type: flash
+  low_mem_level: 0
+eval:
+  eval_type: []
+  reference_path: null
+output:
+  root_dir: ChituBench/results/flux2_klein_sequence_parallel
+  run_log: false
+  memory: false
+  timer: true
+  log_ranks:
+  - 0
+overrides: []
