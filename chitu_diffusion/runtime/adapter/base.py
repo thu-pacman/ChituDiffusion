@@ -92,11 +92,32 @@ class DiffusionRuntimeAdapter:
     def __init__(self, spec: DiffusionModelSpec):
         self.spec = spec
 
+    def uses_external_pipeline(self) -> bool:
+        return False
+
+    def denoise_completes_in_single_call(self) -> bool:
+        return False
+
+    def schedule_each_stage(self) -> bool:
+        return False
+
+    def configure_external_components(self, backend, attn_backend=None, rope_impl=None) -> None:
+        return None
+
+    def configure_after_backend_build(self, backend) -> None:
+        return None
+
+    def handles_context_parallel(self, args: Any) -> bool:
+        return False
+
     def supports_cfg(self, args: Any) -> bool:
         return all(x > 0 for x in args.models.sampler.guidance_scale)
 
     def rope_impl(self, args: Any):
         return None
+
+    def loads_transformer_weights(self) -> bool:
+        return False
 
     def build_transformer(self, models_config: Any, attn_backend, rope_impl) -> torch.nn.Module:
         try:

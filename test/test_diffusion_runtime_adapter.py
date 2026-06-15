@@ -25,6 +25,7 @@ def test_runtime_specs_resolve_checkpoint_paths():
         "Wan2.2-T2V-A14B": ["high_noise_model", "low_noise_model"],
         "Flux1-dev": ["transformer"],
         "Flux2-klein-4B": ["transformer"],
+        "Qwen-Image": [],
     }
 
     for model_name, suffixes in cases.items():
@@ -61,6 +62,9 @@ def test_generator_lifecycle_delegates_to_runtime_adapter(monkeypatch):
 
         def save_output(self, task, output, generator, backend):
             calls.append("save_output")
+
+        def denoise_completes_in_single_call(self):
+            return False
 
     class FakeGroup:
         group_size = 1

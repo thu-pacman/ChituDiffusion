@@ -18,21 +18,21 @@ FLASH_ATTN_3_AVAILABLE = False
 try:
     import flash_attn                   
     FLASH_ATTN_2_AVAILABLE = True
-except ModuleNotFoundError:
+except ImportError:
     FLASH_ATTN_2_AVAILABLE = False
 
 try:
     import sageattention
     from sageattention import sageattn,sageattn_varlen
     SAGE_ATTENTION_AVAILABLE = True
-except ModuleNotFoundError:
+except ImportError:
     SAGE_ATTENTION_AVAILABLE = False
 
 try:
     import spas_sage_attn
     from spas_sage_attn import spas_sage2_attn_meansim_topk_cuda
     SPAS_SAGE_ATTN_AVAILABLE = True
-except ModuleNotFoundError:
+except ImportError:
     SPAS_SAGE_ATTN_AVAILABLE = False
 
 logger = getLogger(__name__)
@@ -342,7 +342,7 @@ class DiffusionAttention_with_CP:
         recv_tensors = []
         
         for tensor in tensors:
-            send_tensor = tensor
+            send_tensor = tensor.contiguous()
             recv_size = send_tensor.shape
             recv_dtype = send_tensor.dtype
             self.group.p2p_isend(send_tensor, dst=dst_rank)

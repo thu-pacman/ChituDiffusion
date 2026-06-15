@@ -60,6 +60,10 @@ class DiffusionTaskDispatcher():
 
 
     def dispatch_metadata(self, task: Optional[DiffusionTask] = None) -> tuple[DiffusionTaskType, DiffusionTask]:
+        if dist.is_initialized() and dist.get_world_size() == 1:
+            assert task is not None
+            return task.task_type, task
+
         if self.is_main_rank:
             assert task is not None
             # 发送方：序列化任务并获取大小
@@ -167,6 +171,19 @@ class ContextParallelDispatcher():
             name=name,
         )[self.rank_in_group]
 
+    def dispatch_sequence_dim(self, tensor: torch.Tensor, split_dim: int, name: str) -> torch.Tensor:
+        return SequencePadder.split_sequence_padding(
+            tensor,
+            split_num=self.cp_size,
+            split_dim=split_dim,
+            name=name,
+        )[self.rank_in_group]
+
+    def dispatch_id_sequence(self, tensor: torch.Tensor, name: str) -> torch.Tensor:
+        if tensor.ndim >= 3:
+            return self.dispatch_sequence_dim(tensor, split_dim=1, name=name)
+        return self.dispatch_sequence_dim(tensor, split_dim=0, name=name)
+
     def dispatch_flux_rotary_emb(
         self,
         rotary_emb,
@@ -179,15 +196,25 @@ class ContextParallelDispatcher():
 
         local_parts = []
         for i, tensor in enumerate(rotary_emb):
-            text_part = self.dispatch_sequence_dim0(
-                tensor[:text_seq_len],
+            seq_dim = 0
+            total_seq_len = self._last_text_seq_len + self._last_image_seq_len
+            for dim, size in enumerate(tensor.shape):
+                if size == total_seq_len:
+                    seq_dim = dim
+                    break
+            text_part = tensor.narrow(seq_dim, 0, text_seq_len)
+            image_part = tensor.narrow(seq_dim, text_seq_len, tensor.shape[seq_dim] - text_seq_len)
+            text_part = self.dispatch_sequence_dim(
+                text_part,
+                split_dim=seq_dim,
                 name=f"flux_rotary_text_{i}",
             )
-            image_part = self.dispatch_sequence_dim0(
-                tensor[text_seq_len:],
+            image_part = self.dispatch_sequence_dim(
+                image_part,
+                split_dim=seq_dim,
                 name=f"flux_rotary_image_{i}",
             )
-            local_parts.append(torch.cat([text_part, image_part], dim=0))
+            local_parts.append(torch.cat([text_part, image_part], dim=seq_dim))
         return tuple(local_parts)
     
     def wrap_model_compute_with_cp(self):
@@ -196,15 +223,24 @@ class ContextParallelDispatcher():
         def create_wrapped_forward(model_instance):
             original_forward = model_instance.model_compute
             def wrapped_compute(tokens, **kwargs):
+                original_image_seq_len = tokens.size(1)
                 tokens = self.dispatch(tokens, name="hidden_states")
                 if "seq_lens" in kwargs.keys():
                     kwargs["seq_lens"] = torch.tensor([tokens.size(1)])
-                if "image_rotary_emb" in kwargs and "encoder_hidden_states" in kwargs:
+                text_seq_len = None
+                if "encoder_hidden_states" in kwargs and kwargs["encoder_hidden_states"] is not None:
                     text_seq_len = kwargs["encoder_hidden_states"].size(1)
+                    self._last_text_seq_len = text_seq_len
+                    self._last_image_seq_len = original_image_seq_len
                     kwargs["encoder_hidden_states"] = self.dispatch(
                         kwargs["encoder_hidden_states"],
                         name="encoder_hidden_states",
                     )
+                if "txt_ids" in kwargs and kwargs["txt_ids"] is not None:
+                    kwargs["txt_ids"] = self.dispatch_id_sequence(kwargs["txt_ids"], name="txt_ids")
+                if "img_ids" in kwargs and kwargs["img_ids"] is not None:
+                    kwargs["img_ids"] = self.dispatch_id_sequence(kwargs["img_ids"], name="img_ids")
+                if "image_rotary_emb" in kwargs and kwargs["image_rotary_emb"] is not None and text_seq_len is not None:
                     kwargs["image_rotary_emb"] = self.dispatch_flux_rotary_emb(
                         kwargs["image_rotary_emb"],
                         text_seq_len=text_seq_len,
@@ -231,7 +267,8 @@ class Generator:
         self.cfg_size = get_cfg_group().group_size
         if self.cp_size > 1:
             self.cp_dispatcher = ContextParallelDispatcher()
-            self.cp_dispatcher.wrap_model_compute_with_cp()
+            if not DiffusionBackend.model_adapter.handles_context_parallel(args):
+                self.cp_dispatcher.wrap_model_compute_with_cp()
         if self.cfg_size == 2:
             self.cfg_dispatcher = CfgDispatcher()
 
@@ -242,6 +279,10 @@ class Generator:
         self.enable_stage_perf = bool(getattr(args.output, "timer", False))
         self._stage_start_time = {}
         self._dit_forward_step_elapsed_ms = {}
+
+    def _release_current_task_if_stage_scheduled(self, task: DiffusionTask) -> None:
+        if DiffusionBackend.model_adapter.schedule_each_stage():
+            self.current_task = None
 
     def _run_dit_forward(self, task: DiffusionTask, branch: str, *args, **kwargs):
         step_index = int(task.buffer.current_step)
@@ -379,6 +420,7 @@ class Generator:
             raise NotImplementedError  
         
         self._update_task_stage_and_buffer(task, out)
+        self._release_current_task_if_stage_scheduled(task)
 
         return out
         
@@ -611,13 +653,15 @@ class Generator:
             if not isinstance(spec, CubicParams):
                 raise TypeError("FlexCache cubic requires CubicParams.")
             model_name = getattr(DiffusionBackend.args.models, "name", "")
-            if model_name == "FLUX.1-dev":
+            if model_name in {"Flux1-dev", "FLUX.1-dev"}:
                 model_params = CubicFluxModelParams()
             else:
                 model_params = CubicWanModelParams()
             if spec.block_size is not None:
                 model_params.min_block_size = int(spec.block_size)
                 model_params.max_block_size = int(spec.block_size)
+            if spec.uniform_square_min_splits is not None:
+                model_params.uniform_square_min_splits = int(spec.uniform_square_min_splits)
             return CubicStrategy(
                 task=task,
                 target_speedup=spec.target_speedup,
@@ -753,6 +797,11 @@ class Generator:
 
         cache_strategy = self._build_flexcache_strategy(task, spec)
         DiffusionBackend.flexcache.set_strategy(cache_strategy)
+        if DiffusionBackend.active_model is None:
+            raise ValueError(
+                f"FlexCache strategy '{spec.strategy}' requires an internal transformer model; "
+                f"{DiffusionBackend.args.models.name} uses an external pipeline."
+            )
         DiffusionBackend.flexcache.strategy.wrap_module_with_strategy(DiffusionBackend.active_model)
 
         resolved_log: Dict[str, Any] = {
@@ -774,6 +823,7 @@ class Generator:
             resolved_log["target_speedup"] = cache_strategy.config.target_speedup
             resolved_log["tau_max"] = cache_strategy.config.anchor_interval
             resolved_log["block_size"] = cache_strategy.config.max_block_size
+            resolved_log["uniform_square_min_splits"] = cache_strategy.config.uniform_square_min_splits
         elif spec.strategy == "taylorseer":
             resolved_log["fresh_threshold"] = cache_strategy.fresh_threshold
             resolved_log["max_order"] = cache_strategy.max_order
@@ -851,7 +901,10 @@ class Generator:
         elif task.task_type == DiffusionTaskType.Denoise:
             # 更新当前去噪后的latents
             task.buffer.latents = tokens
-            task.buffer.current_step += 1
+            if DiffusionBackend.model_adapter.denoise_completes_in_single_call():
+                task.buffer.current_step = task.req.params.num_inference_steps
+            else:
+                task.buffer.current_step += 1
             current_step = task.buffer.current_step
             total_steps = task.req.params.num_inference_steps
             timestep = task.buffer.timesteps[current_step - 1] if task.buffer.timesteps is not None else None

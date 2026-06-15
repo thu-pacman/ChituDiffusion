@@ -233,6 +233,8 @@ class DiffusionTaskBuffer:
     # Text encode buffers
     text_embeddings: Optional[torch.Tensor] = field(default=None)
     negative_embeddings: Optional[torch.Tensor] = field(default=None)
+    text_embeddings_mask: Optional[torch.Tensor] = field(default=None)
+    negative_embeddings_mask: Optional[torch.Tensor] = field(default=None)
     seq_len: Optional[int] = field(default=None)
     
     # Denoise buffers

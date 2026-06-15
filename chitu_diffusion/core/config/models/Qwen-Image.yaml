@@ -1,0 +1,25 @@
+name: Qwen-Image
+type: qwen-image
+source: "https://huggingface.co/Qwen/Qwen-Image"
+ckpt_dir: null
+tokenizer_path: null
+tokenizer_type: "hf"
+
+task: t2i
+
+encoder:
+  name: "qwen2.5-vl"
+  max_sequence_length: 1024
+
+vae:
+  type: "autoencoder_kl_qwen_image"
+  checkpoint: "vae"
+  scale_factor: 16
+
+sampler:
+  sample_steps: 50
+  guidance_scale: [4.0]
+  boundary: []
+  num_train_timesteps: 1000
+
+transformer: {}

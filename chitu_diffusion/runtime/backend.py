@@ -574,13 +574,17 @@ class DiffusionBackend:
         """
         # convert args.models lists to tuples
         args.models = DiffusionBackend.check_and_convert_config(args.models)
+        setattr(args.models, "float_16bit_variant", args.float_16bit_variant)
         DiffusionBackend.args = args
 
         if DiffusionBackend.model_adapter is None:
             raise RuntimeError("Diffusion model runtime adapter is not initialized.")
 
         DiffusionBackend.model_pool = []
-        for ckpt_path in DiffusionBackend.model_adapter.checkpoint_paths(args):
+        checkpoint_paths = DiffusionBackend.model_adapter.checkpoint_paths(args)
+        if DiffusionBackend.model_adapter.loads_transformer_weights():
+            checkpoint_paths = [""]
+        for ckpt_path in checkpoint_paths:
             model = DiffusionBackend._build_and_setup_single_model(
                 args,
                 ckpt_path,
@@ -606,7 +610,16 @@ class DiffusionBackend:
         Returns:
             Fully set up single model
         """
+        if DiffusionBackend.model_adapter is None:
+            raise RuntimeError("Diffusion model runtime adapter is not initialized.")
+
         target_device = DiffusionBackend._get_init_device(args)
+        if DiffusionBackend.model_adapter.loads_transformer_weights():
+            model = DiffusionBackend._build_model_architecture(args.models, attn_backend, rope_impl)
+            model.to(target_device)
+            model.eval().requires_grad_(False)
+            return model
+
         # Build the model. Don't allocate memory yet.
         with torch.device("meta"):
             model = DiffusionBackend._build_model_architecture(args.models, attn_backend, rope_impl)
@@ -632,6 +645,7 @@ class DiffusionBackend:
         """
         DiffusionBackend.model_spec = get_model_runtime_spec(args.models)
         DiffusionBackend.model_adapter = DiffusionBackend.model_spec.create_adapter()
+        DiffusionBackend.args = args
 
         # Initialize distributed environment
         DiffusionBackend._init_distributed(args)
@@ -646,12 +660,30 @@ class DiffusionBackend:
         # Initialize feature cache manager
         DiffusionBackend.flexcache = DiffusionBackend._init_cache_manager(args)
 
-        # Initialize attention backend
-        # FIXME: 这里的实现有点丑陋了, CP相关应该在wrap model with cp里面做？
-        attn_backend = DiffusionBackend._init_attention_backend(args)
-        rope_impl = DiffusionBackend._get_rope_implementation(args)
-       
-        DiffusionBackend._build_and_setup_model(args, attn_backend, rope_impl)
+        if DiffusionBackend.model_adapter.uses_external_pipeline():
+            attn_backend = DiffusionBackend._init_attention_backend(args)
+            rope_impl = DiffusionBackend._get_rope_implementation(args)
+            DiffusionBackend.model_adapter.configure_external_components(
+                DiffusionBackend,
+                attn_backend=attn_backend,
+                rope_impl=rope_impl,
+            )
+            if not hasattr(DiffusionBackend, "model_pool") or DiffusionBackend.model_pool is None:
+                DiffusionBackend.model_pool = []
+            if not hasattr(DiffusionBackend, "active_model"):
+                DiffusionBackend.active_model = None
+            DiffusionBackend.active_model_id = 0
+            DiffusionBackend.boundary = None
+            DiffusionBackend.guidance_scale = args.models.sampler.guidance_scale[0]
+            logger.info("Configured external pipeline model components.")
+        else:
+            # Initialize attention backend
+            # FIXME: 这里的实现有点丑陋了, CP相关应该在wrap model with cp里面做？
+            attn_backend = DiffusionBackend._init_attention_backend(args)
+            rope_impl = DiffusionBackend._get_rope_implementation(args)
+           
+            DiffusionBackend._build_and_setup_model(args, attn_backend, rope_impl)
+            DiffusionBackend.model_adapter.configure_after_backend_build(DiffusionBackend)
 
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         logger.info(

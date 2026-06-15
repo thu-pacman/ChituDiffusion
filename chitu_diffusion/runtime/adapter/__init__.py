@@ -6,7 +6,7 @@ from chitu_diffusion.runtime.adapter.base import (
 )
 
 # Import concrete adapters for registration side effects.
-from chitu_diffusion.runtime.adapter import flux1, flux2k, wan  # noqa: F401
+from chitu_diffusion.runtime.adapter import flux1, flux2k, qwen_image, wan  # noqa: F401
 
 __all__ = [
     "DiffusionModelSpec",
