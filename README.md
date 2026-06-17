@@ -1,20 +1,10 @@
 # ChituDiffusion
 
 <p align="center">
-  <img src="docs/assets/chitudiffusion-title.png" alt="ChituDiffusion title banner" width="760">
+  <img src="docs/assets/chitudiffusion-brand.png" alt="ChituDiffusion" width="760">
 </p>
 
-![Python](https://img.shields.io/badge/python-3.12%2B-blue)
-![CUDA](https://img.shields.io/badge/CUDA-GPU%20required-76B900)
-![License](https://img.shields.io/badge/license-Apache--2.0-green)
-![Benchmarks](https://img.shields.io/badge/benchmarks-ChituBench-orange)
-
-**ChituDiffusion is a high-performance diffusion inference framework for fast
-image and video generation at research scale.**
-
-It brings together distributed inference, modern attention backends, FlexCache
-acceleration, DiTango runtime experiments, reproducible benchmarking, and a
-single `chitu` CLI for running real model workloads.
+<h3 align="center">ChituDiffusion: Fast diffusion inference, parallel generation, and cache acceleration for AIGC workloads.</h3>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> |
@@ -23,6 +13,19 @@ single `chitu` CLI for running real model workloads.
   <a href="chitu_diffusion/flexcache/README.md">FlexCache</a> |
   <a href="service_framework/README.md">Service Framework</a>
 </p>
+
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.12%2B-blue">
+  <img alt="CUDA" src="https://img.shields.io/badge/CUDA-GPU%20required-76B900">
+  <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-green">
+  <img alt="Benchmarks" src="https://img.shields.io/badge/benchmarks-ChituBench-orange">
+</p>
+
+ChituDiffusion is a high-performance diffusion inference framework for fast
+image and video generation at research scale. It brings together distributed
+inference, modern attention backends, FlexCache acceleration, DiTango runtime
+experiments, reproducible benchmarking, and a single `chitu` CLI for running
+real model workloads.
 
 ## Why ChituDiffusion
 

@@ -1,5 +1,5 @@
 launch:
-  tag: chitudiffusion-title-qwen
+  tag: chitudiffusion-brand-qwen
   num_nodes: 1
   gpus_per_node: 1
   python_script: ChituBench/scripts/qwen_image_benchmark.py
@@ -7,7 +7,7 @@ launch:
     partition: debug
     cpus_per_gpu: 24
     mem_per_gpu: 242144
-    job_name: chitudiffusion-title
+    job_name: chitudiffusion-brand
 
 runtime:
   chitu_debug: true
@@ -30,7 +30,7 @@ eval:
   reference_path: null
 
 output:
-  root_dir: docs/assets/title-runs
+  root_dir: docs/assets/brand-runs
   run_log: false
   memory: false
   timer: true
