@@ -87,9 +87,9 @@ ChituBench/scripts/run_flux1_attention.sh
 - Result: `ChituBench/results/flux1_dev_attention/smoke_20260613_115806`.
 - Status: passed end to end through `chitu run`; HPSv3 was skipped because
   `CHITUBENCH_HPSV3_CONFIG` and `CHITUBENCH_HPSV3_CHECKPOINT` were not set.
-- Smoke speed summary: `origin_flash` 3.077s, `torch_sdpa_math` 6.375s,
+- Smoke speed summary: `origin_flash` 3.077s, Torch 6.375s,
   `sage` 2.991s, `sparge` 2.776s mean DiT forward time.
-- Smoke quality summary: `torch_sdpa_math` PSNR 50.563 / SSIM 0.9968 /
+- Smoke quality summary: Torch PSNR 50.563 / SSIM 0.9968 /
   1-LPIPS 0.9992; `sage` PSNR 48.512 / SSIM 0.9962 / 1-LPIPS 0.9986;
   `sparge` PSNR 20.847 / SSIM 0.8138 / 1-LPIPS 0.8166.
 - Visuals: `plots/speed_quality.png` and `visuals/contact_sheet.png` under the
@@ -102,9 +102,9 @@ ChituBench/scripts/run_flux1_attention.sh
 - Result: `ChituBench/results/flux1_dev_attention/flux1_attn_50step_20260613_121311`.
 - Status: four backend cases completed with 50 steps, 3 prompts, and 3 seeds.
   HPSv3 was recomputed on a Slurm compute node because it requires CUDA.
-- Speed summary: `origin_flash` 37.960s, `torch_sdpa_math` 79.111s,
+- Speed summary: `origin_flash` 37.960s, Torch 79.111s,
   `sage` 32.711s, `sparge` 32.502s mean DiT forward time.
-- Quality summary: `torch_sdpa_math` PSNR 39.859 / SSIM 0.9876 / 1-LPIPS
+- Quality summary: Torch PSNR 39.859 / SSIM 0.9876 / 1-LPIPS
   0.9961 / HPSv3 13.422; `sage` PSNR 32.918 / SSIM 0.9595 / 1-LPIPS
   0.9824 / HPSv3 13.466; `sparge` PSNR 15.048 / SSIM 0.6442 / 1-LPIPS
   0.6474 / HPSv3 12.548.
@@ -120,9 +120,9 @@ ChituBench/scripts/run_flux1_attention.sh
 - Result: `ChituBench/results/flux2_klein_attention/flux2_klein_attn_50step_20260613_130859`.
 - Status: four backend cases completed with 50 steps, 3 prompts, and 3 seeds.
   HPSv3 was recomputed on a Slurm compute node because it requires CUDA.
-- Speed summary: `origin_flash` 16.972s, `torch_sdpa_math` 35.056s,
+- Speed summary: `origin_flash` 16.972s, Torch 35.056s,
   `sage` 14.591s, `sparge` 14.576s mean DiT forward time.
-- Quality summary: `torch_sdpa_math` PSNR 36.146 / SSIM 0.9903 / 1-LPIPS
+- Quality summary: Torch PSNR 36.146 / SSIM 0.9903 / 1-LPIPS
   0.9929 / HPSv3 12.209; `sage` PSNR 29.587 / SSIM 0.9677 / 1-LPIPS
   0.9750 / HPSv3 12.258; `sparge` PSNR 15.938 / SSIM 0.6544 / 1-LPIPS
   0.6930 / HPSv3 11.742.
@@ -216,21 +216,21 @@ ChituBench/scripts/run_flux1_attention.sh
   `ChituBench/results/qwen_image_attention/qwen_image_attn_50step_20260615_1550`.
 - Status: completed on Qwen-Image with single-GPU staged Chitu runtime,
   `cp=1`, 50 steps, 1 prompt, 3 measured seeds, and 1 warmup image per backend.
-- Cases: `torch_sdpa`, `torch_sdpa_math`, `sage`, and `sparge`.
-- Speed summary: `torch_sdpa` 113.564s; `torch_sdpa_math` 335.033s / 0.339x;
+- Cases: Flash Attention, Torch, `sage`, and `sparge`.
+- Speed summary: Flash Attention 113.564s; Torch 335.033s / 0.339x;
   `sage` 105.093s / 1.081x; `sparge` 101.954s / 1.114x mean DiT forward time.
-- Quality summary uses `torch_sdpa` as the reference because Qwen-Image does not
-  have an origin-flash case in this run. `torch_sdpa_math` is close to
+- Quality summary uses Flash Attention as the reference because Qwen-Image does
+  not have an origin-flash case in this run. Torch is close to
   reference at PSNR 34.913 / SSIM 0.9785 / 1-LPIPS 0.9942 / HPSv3 12.677,
   while `sage` has visible drift at PSNR 19.742 / SSIM 0.8222 / 1-LPIPS
   0.9032 / HPSv3 12.494, and `sparge` drifts more at PSNR 15.742 / SSIM
-  0.6549 / 1-LPIPS 0.7377 / HPSv3 12.929. The `torch_sdpa` reference HPSv3 is
+  0.6549 / 1-LPIPS 0.7377 / HPSv3 12.929. The Flash Attention reference HPSv3 is
   12.761.
 - Readout: `sage` gives a modest speedup on Qwen-Image, but the current
   processor path changes results enough that it should be treated as an
   experimental performance point. `sparge` is the fastest point but has the
   largest quality drop in baseline-consistency metrics despite the highest
-  HPSv3 on this single prompt. `torch_sdpa_math` is the slow quality-control
+  HPSv3 on this single prompt. Torch is the slow quality-control
   point.
 - Visuals: selected latency-quality and contact-sheet figures are copied to
   `ChituBench/plots/qwen_image_attention`.

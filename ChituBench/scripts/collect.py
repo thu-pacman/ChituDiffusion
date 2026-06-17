@@ -25,7 +25,13 @@ def is_warmup_request(request: dict[str, Any]) -> bool:
 
 
 def numeric(values: list[Any]) -> list[float]:
-    return [float(value) for value in values if value is not None and not (isinstance(value, float) and math.isnan(value))]
+    return [
+        float(value)
+        for value in values
+        if value is not None
+        and value != ""
+        and not (isinstance(value, float) and math.isnan(value))
+    ]
 
 
 def task_timing(run_dir: Path, task_id: str) -> dict[str, Any]:
@@ -209,6 +215,7 @@ def plot(
         "flashinfer": ("#0891b2", "p"),
         "sparge": ("#9333ea", "*"),
         "torch_sdpa": ("#64748b", "h"),
+        "torch": ("#94a3b8", "o"),
         "other": ("#6b7280", "o"),
     }
 
@@ -219,6 +226,8 @@ def plot(
                 break
         if case == "origin_flash":
             return "origin"
+        if case.startswith("torch_sdpa_math"):
+            return "torch"
         for family in ("teacache", "meancache", "pab", "blockdance", "cubic", "taylorseer", "sage", "flashinfer", "sparge"):
             if case.startswith(family):
                 return family
@@ -228,7 +237,8 @@ def plot(
 
     def display_label(case: str) -> str:
         qwen_labels = {
-            "torch_sdpa": "torch_sdpa",
+            "torch_sdpa": "Flash Attention",
+            "torch_sdpa_math": "Torch",
             "flashinfer": "flashinfer",
             "qwen_pab50_cfp2": "pab50",
             "qwen_blockdance50_cfp2": "bd50",
@@ -270,7 +280,8 @@ def plot(
             "cubic1.5": (7, 5),
             "cubic2": (7, 8),
             "cubic3": (7, -12),
-            "torch_sdpa": (7, 8),
+            "Flash Attention": (7, 8),
+            "Torch": (7, 8),
         }
         if metric == "one_minus_lpips_mean":
             offsets.update(
@@ -288,7 +299,7 @@ def plot(
         return offsets.get(label, (6, 5))
 
     x_metric = "dit_forward_s_mean" if experiment_id == "qwen_image_attention" else "speedup_vs_origin"
-    x_label = "DiT forward latency (s, lower is better)" if experiment_id == "qwen_image_attention" else "Speedup vs torch_sdpa" if experiment_id == "qwen_image_flexcache" else "Speedup vs origin_flash"
+    x_label = "DiT forward latency (s, lower is better)" if experiment_id == "qwen_image_attention" else "Speedup vs Flash Attention" if experiment_id == "qwen_image_flexcache" else "Speedup vs origin_flash"
     rows = [row for row in summary_rows if row.get(x_metric) is not None and math.isfinite(float(row[x_metric]))]
     plt.rcParams.update(
         {
@@ -374,10 +385,11 @@ def plot(
             "sage": "Sage",
             "flashinfer": "FlashInfer",
             "sparge": "Sparge",
-            "torch_sdpa": "Torch SDPA",
+            "torch_sdpa": "Flash Attention",
+            "torch": "Torch",
             "other": "Other",
         }
-        order = ["origin", "blockdance", "cubic", "pab", "taylorseer", "teacache", "meancache", "sage", "flashinfer", "sparge", "torch_sdpa", "other"]
+        order = ["origin", "blockdance", "cubic", "pab", "taylorseer", "teacache", "meancache", "sage", "flashinfer", "sparge", "torch_sdpa", "torch", "other"]
         handles = [legend_handles[key] for key in order if key in legend_handles]
         labels = [family_labels[key] for key in order if key in legend_handles]
         fig.legend(
@@ -425,6 +437,11 @@ def main() -> int:
             row[name] = row_quality.get(name)
 
     if not rows and not args.allow_partial:
+        summary_rows = read_table(experiment_dir / "summary.csv")
+        if summary_rows:
+            plot(experiment_dir, summary_rows, args.title, args.experiment_id, point_labels=not args.no_point_labels)
+            print(f"Replotted from {experiment_dir / 'summary.csv'}")
+            return 0
         raise SystemExit(f"No benchmark runs found under {experiment_dir}")
     if args.allow_partial:
         rows = merge_rows(read_table(experiment_dir / "raw_rows.csv"), rows)

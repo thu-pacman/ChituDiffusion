@@ -42,7 +42,8 @@ def short_case(case: str, limit: int = 22) -> str:
 
 FAMILY_STYLES = {
     "origin": {"label": "Origin", "color": "#222222"},
-    "torch_sdpa": {"label": "Torch SDPA", "color": "#64748b"},
+    "torch_sdpa": {"label": "Flash Attention", "color": "#64748b"},
+    "torch": {"label": "Torch", "color": "#94a3b8"},
     "pab": {"label": "PAB", "color": "#dc2626"},
     "blockdance": {"label": "BlockDance", "color": "#2563eb"},
     "cubic": {"label": "Cubic", "color": "#059669"},
@@ -63,6 +64,8 @@ def family_for_case(case: str) -> str:
             break
     if case == "origin_flash":
         return "origin"
+    if case.startswith("torch_sdpa_math"):
+        return "torch"
     for family in ("torch_sdpa", "pab", "blockdance", "cubic", "meancache", "teacache", "taylorseer", "sage", "flashinfer", "sparge"):
         if case.startswith(family):
             return family
@@ -71,7 +74,8 @@ def family_for_case(case: str) -> str:
 
 def display_case(case: str) -> str:
     labels = {
-        "torch_sdpa": "torch_sdpa",
+        "torch_sdpa": "Flash Attention",
+        "torch_sdpa_math": "Torch",
         "origin_flash": "origin_flash",
         "flashinfer": "flashinfer",
         "qwen_pab50_cfp2": "pab50",

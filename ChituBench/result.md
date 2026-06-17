@@ -36,13 +36,13 @@ Notes:
 | case | tasks | DiT forward mean (s) | speedup vs origin | PSNR | SSIM | 1-LPIPS | HPSv3 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | origin_flash | 9 | 37.960 | 1.000 | inf | 1.0000 | 1.0000 | 13.461 |
-| torch_sdpa_math | 9 | 79.111 | 0.480 | 39.859 | 0.9876 | 0.9961 | 13.422 |
+| Torch | 9 | 79.111 | 0.480 | 39.859 | 0.9876 | 0.9961 | 13.422 |
 | sage | 9 | 32.711 | 1.160 | 32.918 | 0.9595 | 0.9824 | 13.466 |
 | sparge | 9 | 32.502 | 1.168 | 15.048 | 0.6442 | 0.6474 | 12.548 |
 
 ### Readout
 
-- `torch_sdpa_math` is the native math SDPA control: it preserves image quality
+- Torch is the native math SDPA control: it preserves image quality
   closely but is about 0.48x the speed of `origin_flash`.
 - `sage` is the best point in this run: about 1.16x speedup with a small HPSv3
   gain and moderate pixel/perceptual drift.
@@ -214,13 +214,13 @@ Notes:
 | case | tasks | DiT forward mean (s) | speedup vs origin | PSNR | SSIM | 1-LPIPS | HPSv3 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | origin_flash | 9 | 16.972 | 1.000 | inf | 1.0000 | 1.0000 | 12.264 |
-| torch_sdpa_math | 9 | 35.056 | 0.484 | 36.146 | 0.9903 | 0.9929 | 12.209 |
+| Torch | 9 | 35.056 | 0.484 | 36.146 | 0.9903 | 0.9929 | 12.209 |
 | sage | 9 | 14.591 | 1.163 | 29.587 | 0.9677 | 0.9750 | 12.258 |
 | sparge | 9 | 14.576 | 1.164 | 15.938 | 0.6544 | 0.6930 | 11.742 |
 
 ### Readout
 
-- `torch_sdpa_math` remains the slow native math SDPA control: about 0.48x the
+- Torch remains the slow native math SDPA control: about 0.48x the
   speed of `origin_flash`, with quality close to the origin output.
 - `sage` gives about 1.16x speedup and keeps HPSv3 nearly identical to
   `origin_flash`, with moderate pixel/perceptual drift.
@@ -262,7 +262,7 @@ Notes:
 
 - Qwen-Image uses 50 denoising steps at 1328x1328.
 - Each case uses 1 prompt x 3 seeds = 3 measured images, plus 1 warmup image.
-- Quality is measured against `torch_sdpa` for the same prompt and seed.
+- Quality is measured against Flash Attention for the same prompt and seed.
 - HPSv3 was computed on a Slurm GPU node and is shown in the visual contact
   sheet labels.
 - Qwen-Image currently supports this benchmark on single-GPU attention only;
@@ -273,23 +273,23 @@ Notes:
 
 ### Summary
 
-| case | tasks | DiT forward mean (s) | speedup vs torch_sdpa | PSNR | SSIM | 1-LPIPS | HPSv3 |
+| case | tasks | DiT forward mean (s) | speedup vs Flash Attention | PSNR | SSIM | 1-LPIPS | HPSv3 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| torch_sdpa | 3 | 113.564 | 1.000 | inf | 1.0000 | 1.0000 | 12.761 |
-| torch_sdpa_math | 3 | 335.033 | 0.339 | 34.913 | 0.9785 | 0.9942 | 12.677 |
+| Flash Attention | 3 | 113.564 | 1.000 | inf | 1.0000 | 1.0000 | 12.761 |
+| Torch | 3 | 335.033 | 0.339 | 34.913 | 0.9785 | 0.9942 | 12.677 |
 | flashinfer | 1 | 125.264 | 0.907 | - | - | - | - |
 | sage | 3 | 105.093 | 1.081 | 19.742 | 0.8222 | 0.9032 | 12.494 |
 | sparge | 3 | 101.954 | 1.114 | 15.742 | 0.6549 | 0.7377 | 12.929 |
 
 ### Readout
 
-- `torch_sdpa` is the baseline for the current Qwen-Image Chitu attention
+- Flash Attention is the baseline for the current Qwen-Image Chitu attention
   adapter, because this run does not include an origin-flash path.
-- `torch_sdpa_math` is the slow native math SDPA control. It preserves outputs
-  relatively closely but runs at about 0.34x the speed of `torch_sdpa`.
+- Torch is the slow native math SDPA control. It preserves outputs
+  relatively closely but runs at about 0.34x the speed of Flash Attention.
 - `flashinfer` is functional through the Chitu attention backend and ran the
   Qwen-Image 50-step coffee prompt end to end, but this dense full-attention
-  workload is slower than `torch_sdpa` in the measured single-image run
+  workload is slower than Flash Attention in the measured single-image run
   (125.264s vs 113.564s DiT-forward latency). It is not a better default for
   Qwen-Image yet.
 - `sage` gives a modest 1.08x DiT-forward speedup, but it introduces visible
@@ -300,7 +300,7 @@ Notes:
   a quality-preserving point yet.
 - HPSv3 scores are close across the four cases and rank `sparge` highest on
   this single coffee prompt. That reward score should be read alongside
-  PSNR/SSIM/LPIPS, which measure consistency against the `torch_sdpa` baseline.
+  PSNR/SSIM/LPIPS, which measure consistency against the Flash Attention baseline.
 
 ### Latency-Quality Trade-off
 
@@ -415,7 +415,7 @@ Notes:
 
 Model: `Qwen-Image`
 
-Family: FlexCache strategies, `torch_sdpa` attention backend, CFP2
+Family: FlexCache strategies, Flash Attention backend, CFP2
 
 Run: `qwen_image_flexcache_50step_20260616`
 
@@ -483,22 +483,22 @@ Notes:
 
 - Qwen-Image uses 50 denoising steps at 1328x1328.
 - Each FlexCache point uses the same coffee-sign prompt with seed 42; the
-  `torch_sdpa` baseline reuses the existing three-seed attention-backend run.
+  Flash Attention baseline reuses the existing three-seed attention-backend run.
 - The result directory reuses completed PAB, BlockDance, MeanCache25, Cubic1.5,
   and Cubic3.0 runs via symlinks, then adds two batched sweeps for MeanCache
   and the missing PAB/BlockDance/Cubic points.
 - PAB, BlockDance, Cubic, and MeanCache each have three points, so the
   speed-quality plot shows method curves rather than isolated single markers.
-- Quality is measured against the `torch_sdpa` coffee image with PSNR, SSIM,
+- Quality is measured against the Flash Attention coffee image with PSNR, SSIM,
   and 1-LPIPS. HPSv3 is skipped for this FlexCache trade-off pass.
-- `speedup_vs_origin` uses the rank-0 `dit_forward` timer total, matching the
+- The speedup column uses the rank-0 `dit_forward` timer total, matching the
   other ChituBench FlexCache summaries.
 
 ### Summary
 
-| case | DiT forward mean (s) | speedup vs origin | PSNR | SSIM | 1-LPIPS |
+| case | DiT forward mean (s) | speedup vs Flash Attention | PSNR | SSIM | 1-LPIPS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| torch_sdpa | 113.564 | 1.000 | inf | 1.0000 | 1.0000 |
+| Flash Attention | 113.564 | 1.000 | inf | 1.0000 | 1.0000 |
 | qwen_pab50_cfp2 | 49.907 | 2.276 | 20.817 | 0.9083 | 0.9514 |
 | qwen_blockdance50_cfp2 | 57.362 | 1.980 | 23.826 | 0.9500 | 0.9596 |
 | qwen_cubic15_50_cfp2 | 51.216 | 2.217 | 19.108 | 0.8657 | 0.9162 |
