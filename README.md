@@ -59,6 +59,7 @@ Optional extras are available for acceleration and evaluation:
 uv sync --extra sage
 uv sync --extra sparge
 uv sync --extra flash
+uv sync --extra flashinfer
 uv sync --extra eval
 uv sync --extra vbench
 ```

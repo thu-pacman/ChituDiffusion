@@ -206,6 +206,7 @@ def plot(
         "meancache": ("#6d28d9", "X"),
         "taylorseer": ("#d97706", "v"),
         "sage": ("#0f766e", "X"),
+        "flashinfer": ("#0891b2", "p"),
         "sparge": ("#9333ea", "*"),
         "torch_sdpa": ("#64748b", "h"),
         "other": ("#6b7280", "o"),
@@ -218,7 +219,7 @@ def plot(
                 break
         if case == "origin_flash":
             return "origin"
-        for family in ("teacache", "meancache", "pab", "blockdance", "cubic", "taylorseer", "sage", "sparge"):
+        for family in ("teacache", "meancache", "pab", "blockdance", "cubic", "taylorseer", "sage", "flashinfer", "sparge"):
             if case.startswith(family):
                 return family
         if case.startswith("torch_sdpa"):
@@ -228,6 +229,7 @@ def plot(
     def display_label(case: str) -> str:
         qwen_labels = {
             "torch_sdpa": "torch_sdpa",
+            "flashinfer": "flashinfer",
             "qwen_pab50_cfp2": "pab50",
             "qwen_blockdance50_cfp2": "bd50",
             "qwen_cubic15_50_cfp2": "cubic1.5",
@@ -370,11 +372,12 @@ def plot(
             "meancache": "MeanCache",
             "taylorseer": "TaylorSeer",
             "sage": "Sage",
+            "flashinfer": "FlashInfer",
             "sparge": "Sparge",
             "torch_sdpa": "Torch SDPA",
             "other": "Other",
         }
-        order = ["origin", "blockdance", "cubic", "pab", "taylorseer", "teacache", "meancache", "sage", "sparge", "torch_sdpa", "other"]
+        order = ["origin", "blockdance", "cubic", "pab", "taylorseer", "teacache", "meancache", "sage", "flashinfer", "sparge", "torch_sdpa", "other"]
         handles = [legend_handles[key] for key in order if key in legend_handles]
         labels = [family_labels[key] for key in order if key in legend_handles]
         fig.legend(

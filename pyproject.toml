@@ -114,6 +114,7 @@ eval = [
     "hpsv3==1.0.0",
 ]
 flash = ["flash_attn"]
+flashinfer = ["flashinfer-python", "ninja"]
 sage = ["sageattention"]
 sparge = ["spas_sage_attn"]
 vbench = ["vbench"]

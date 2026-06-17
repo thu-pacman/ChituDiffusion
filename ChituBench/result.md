@@ -244,6 +244,8 @@ Family: attention backend, no parallelism, no FlexCache
 
 Run: `qwen_image_attn_50step_20260615_1550`
 
+Additional FlashInfer probe: `chitubench-qwen-image-attn-flashinfer-20260617_121208-flashinfer`
+
 Command:
 
 ```bash
@@ -265,6 +267,9 @@ Notes:
   sheet labels.
 - Qwen-Image currently supports this benchmark on single-GPU attention only;
   sequence/context parallel attention is not included yet.
+- FlashInfer was added as a follow-up single-prompt probe after the original
+  four-backend sweep. Its first run includes JIT compilation; the table below
+  reports a warmed 50-step run with the JIT cache already populated.
 
 ### Summary
 
@@ -272,6 +277,7 @@ Notes:
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | torch_sdpa | 3 | 113.564 | 1.000 | inf | 1.0000 | 1.0000 | 12.761 |
 | torch_sdpa_math | 3 | 335.033 | 0.339 | 34.913 | 0.9785 | 0.9942 | 12.677 |
+| flashinfer | 1 | 125.264 | 0.907 | - | - | - | - |
 | sage | 3 | 105.093 | 1.081 | 19.742 | 0.8222 | 0.9032 | 12.494 |
 | sparge | 3 | 101.954 | 1.114 | 15.742 | 0.6549 | 0.7377 | 12.929 |
 
@@ -281,6 +287,11 @@ Notes:
   adapter, because this run does not include an origin-flash path.
 - `torch_sdpa_math` is the slow native math SDPA control. It preserves outputs
   relatively closely but runs at about 0.34x the speed of `torch_sdpa`.
+- `flashinfer` is functional through the Chitu attention backend and ran the
+  Qwen-Image 50-step coffee prompt end to end, but this dense full-attention
+  workload is slower than `torch_sdpa` in the measured single-image run
+  (125.264s vs 113.564s DiT-forward latency). It is not a better default for
+  Qwen-Image yet.
 - `sage` gives a modest 1.08x DiT-forward speedup, but it introduces visible
   output drift in this Qwen-Image processor path. Treat it as an experimental
   performance point rather than an accepted quality-preserving backend.

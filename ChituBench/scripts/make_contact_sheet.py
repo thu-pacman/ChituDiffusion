@@ -50,6 +50,7 @@ FAMILY_STYLES = {
     "teacache": {"label": "TeaCache", "color": "#a855f7"},
     "taylorseer": {"label": "TaylorSeer", "color": "#d97706"},
     "sage": {"label": "SageAttention", "color": "#0f766e"},
+    "flashinfer": {"label": "FlashInfer", "color": "#0891b2"},
     "sparge": {"label": "SpargeAttn", "color": "#9333ea"},
     "other": {"label": "Other", "color": "#6b7280"},
 }
@@ -62,7 +63,7 @@ def family_for_case(case: str) -> str:
             break
     if case == "origin_flash":
         return "origin"
-    for family in ("torch_sdpa", "pab", "blockdance", "cubic", "meancache", "teacache", "taylorseer", "sage", "sparge"):
+    for family in ("torch_sdpa", "pab", "blockdance", "cubic", "meancache", "teacache", "taylorseer", "sage", "flashinfer", "sparge"):
         if case.startswith(family):
             return family
     return "other"
@@ -72,6 +73,7 @@ def display_case(case: str) -> str:
     labels = {
         "torch_sdpa": "torch_sdpa",
         "origin_flash": "origin_flash",
+        "flashinfer": "flashinfer",
         "qwen_pab50_cfp2": "pab50",
         "qwen_blockdance50_cfp2": "bd50",
         "qwen_cubic15_50_cfp2": "cubic1.5",
@@ -190,7 +192,7 @@ def main() -> int:
             case = str(row.get("case") or "")
             if case and case not in seen_cases:
                 seen_cases.append(case)
-        preferred = ["origin_flash", "torch_sdpa", "torch_sdpa_math", "sage", "sparge", "baseline_1gpu"]
+        preferred = ["origin_flash", "torch_sdpa", "torch_sdpa_math", "flashinfer", "sage", "sparge", "baseline_1gpu"]
         cases = [case for case in preferred if case in seen_cases] + [case for case in seen_cases if case not in preferred]
     prompts = []
     for row in rows:

@@ -6,7 +6,7 @@ to run on the Slurm GPU partition configured in each YAML file.
 Install optional backends before running the full matrix:
 
 ```bash
-uv sync --extra flash --extra sage --extra sparge --extra vbench
+uv sync --extra flash --extra flashinfer --extra sage --extra sparge --extra vbench
 ```
 
 Run Flux attention backends:
@@ -41,7 +41,7 @@ CHITU_FLUX_FLEXCACHE_STRATEGIES="teacache pab" test/run_flexcache_smoke.sh
 Useful environment overrides:
 
 - `CHITU_BIN=/path/to/chitu`
-- `CHITU_ATTN_BACKENDS="torch_sdpa flash sage sparge"`
+- `CHITU_ATTN_BACKENDS="torch_sdpa flash flashinfer sage sparge"`
 - `CHITU_CP_ATTN_BACKENDS="sage sparge"`
 - `CHITU_WAN_STEPS=3`
 - `CHITU_FLEXCACHE_STRATEGIES="teacache,pab,blockdance,taylorseer,cubic"`

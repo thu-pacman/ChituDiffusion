@@ -22,6 +22,12 @@ except ImportError:
     FLASH_ATTN_2_AVAILABLE = False
 
 try:
+    import flashinfer
+    FLASHINFER_AVAILABLE = True
+except ImportError:
+    FLASHINFER_AVAILABLE = False
+
+try:
     import sageattention
     from sageattention import sageattn,sageattn_varlen
     SAGE_ATTENTION_AVAILABLE = True
@@ -44,8 +50,9 @@ class DiffusionAttnBackend:
     2. Fallback to PyTorch SDPA as default
     
     Supported types:
-    - auto: prefer sparge, then sage, then flash_attn, then torch_sdpa
+    - auto: prefer sparge, then sage, then flashinfer, then flash_attn, then torch_sdpa
     - flash_attn: Flash Attention v2
+    - flashinfer: FlashInfer prefill attention
     - sage: SageAttention
     - sparge: Sparge/Sparse SageAttention
     - torch_sdpa: PyTorch scaled_dot_product_attention with PyTorch's kernel auto selection
@@ -58,7 +65,7 @@ class DiffusionAttnBackend:
         requested = self._normalize_attn_type(attn_type)
 
         if requested == "auto":
-            for candidate in ("sparge", "sage", "flash_attn", "torch_sdpa"):
+            for candidate in ("sparge", "sage", "flashinfer", "flash_attn", "torch_sdpa"):
                 if self._is_available(candidate):
                     self.impl = candidate
                     break
@@ -83,6 +90,8 @@ class DiffusionAttnBackend:
             "flash2": "flash_attn",
             "flash_v2": "flash_attn",
             "fa2": "flash_attn",
+            "fi": "flashinfer",
+            "flash_infer": "flashinfer",
             "sdpa": "torch_sdpa",
             "torch": "torch_sdpa",
             "ref": "torch_sdpa",
@@ -98,6 +107,8 @@ class DiffusionAttnBackend:
     def _is_available(backend: str) -> bool:
         if backend == "flash_attn":
             return FLASH_ATTN_2_AVAILABLE
+        if backend == "flashinfer":
+            return FLASHINFER_AVAILABLE
         if backend == "sage":
             return SAGE_ATTENTION_AVAILABLE
         if backend == "sparge":
@@ -110,6 +121,7 @@ class DiffusionAttnBackend:
     def availability_report() -> str:
         return (
             f"flash_attn={FLASH_ATTN_2_AVAILABLE}, "
+            f"flashinfer={FLASHINFER_AVAILABLE}, "
             f"sage={SAGE_ATTENTION_AVAILABLE}, "
             f"sparge={SPAS_SAGE_ATTN_AVAILABLE}, "
             f"torch_sdpa={hasattr(torch.nn.functional, 'scaled_dot_product_attention')}"
@@ -170,6 +182,16 @@ class DiffusionAttnBackend:
                 dropout_p, softmax_scale,
                 causal, window_size,
                 deterministic, return_attn_probs,
+                use_varlen,
+            )
+        elif self.impl == "flashinfer":
+            return self._fwd_flashinfer(
+                q, k, v,
+                cu_seqlens_q, cu_seqlens_k,
+                max_seqlen_q, max_seqlen_k,
+                dropout_p, softmax_scale,
+                causal, window_size,
+                return_attn_probs,
                 use_varlen,
             )
         elif self.impl in {"torch_sdpa", "torch_sdpa_math"}:
@@ -271,6 +293,92 @@ class DiffusionAttnBackend:
                 scale=softmax_scale,
             )
         return out.transpose(1, 2).contiguous(), None, None
+
+    def _fwd_flashinfer(
+        self,
+        q, k, v,
+        cu_seqlens_q, cu_seqlens_k,
+        max_seqlen_q, max_seqlen_k,
+        dropout_p,
+        softmax_scale,
+        causal,
+        window_size,
+        return_attn_probs,
+        use_varlen: bool,
+    ):
+        if dropout_p != 0.0:
+            raise NotImplementedError("FlashInfer backend does not support dropout in ChituDiffusion.")
+        if window_size != (-1, -1):
+            raise NotImplementedError("FlashInfer backend currently supports full attention only in ChituDiffusion.")
+
+        if use_varlen:
+            outputs = []
+            lses = []
+            batch = int(cu_seqlens_q.numel() - 1)
+            for idx in range(batch):
+                q_start = int(cu_seqlens_q[idx].item())
+                q_end = int(cu_seqlens_q[idx + 1].item())
+                k_start = int(cu_seqlens_k[idx].item())
+                k_end = int(cu_seqlens_k[idx + 1].item())
+                out, lse = self._flashinfer_single_prefill(
+                    q[q_start:q_end],
+                    k[k_start:k_end],
+                    v[k_start:k_end],
+                    softmax_scale=softmax_scale,
+                    causal=causal,
+                    return_lse=return_attn_probs,
+                )
+                outputs.append(out)
+                if return_attn_probs:
+                    lses.append(lse.transpose(0, 1).contiguous())
+            out = torch.cat(outputs, dim=0) if outputs else q.new_empty(q.shape)
+            lse = torch.cat(lses, dim=1) if return_attn_probs and lses else None
+            return out, lse, None
+
+        outputs = []
+        lses = []
+        for idx in range(q.shape[0]):
+            out, lse = self._flashinfer_single_prefill(
+                q[idx],
+                k[idx],
+                v[idx],
+                softmax_scale=softmax_scale,
+                causal=causal,
+                return_lse=return_attn_probs,
+            )
+            outputs.append(out)
+            if return_attn_probs:
+                lses.append(lse.transpose(0, 1).contiguous())
+        out = torch.stack(outputs, dim=0)
+        lse = torch.stack(lses, dim=0) if return_attn_probs and lses else None
+        return out, lse, None
+
+    @staticmethod
+    def _flashinfer_prefill_kwargs(softmax_scale, causal):
+        kwargs = {
+            "causal": causal,
+            "kv_layout": "NHD",
+        }
+        if softmax_scale is not None:
+            kwargs["sm_scale"] = softmax_scale
+        return kwargs
+
+    def _flashinfer_single_prefill(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        *,
+        softmax_scale: Optional[float],
+        causal: bool,
+        return_lse: bool,
+    ):
+        kwargs = self._flashinfer_prefill_kwargs(softmax_scale, causal)
+        if return_lse:
+            out, lse = flashinfer.prefill.single_prefill_with_kv_cache_return_lse(q, k, v, **kwargs)
+            return out, lse
+        out = flashinfer.prefill.single_prefill_with_kv_cache(q, k, v, **kwargs)
+        return out, None
 
     # ------------- v2 分支 -------------
     def _fwd_v2(

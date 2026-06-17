@@ -54,6 +54,7 @@ run_case() {
 
 run_case torch_sdpa "$BENCH_DIR/configs/qwen_image/attention/torch_sdpa.yaml"
 run_case torch_sdpa_math "$BENCH_DIR/configs/qwen_image/attention/torch_sdpa_math.yaml"
+run_case flashinfer "$BENCH_DIR/configs/qwen_image/attention/flashinfer.yaml"
 run_case sage "$BENCH_DIR/configs/qwen_image/attention/sage.yaml"
 run_case sparge "$BENCH_DIR/configs/qwen_image/attention/sparge.yaml"
 
@@ -96,7 +97,7 @@ fi
 "$PYTHON_BIN" "$BENCH_DIR/scripts/make_contact_sheet.py" "$RESULT_ROOT" \
   --seed "$CHITUBENCH_BASE_SEED" \
   --title "$CONTACT_TITLE" \
-  --cases torch_sdpa torch_sdpa_math sage sparge
+  --cases torch_sdpa torch_sdpa_math flashinfer sage sparge
 
 mkdir -p "$BENCH_DIR/plots/$EXPERIMENT_ID"
 cp "$RESULT_ROOT/plots/speed_quality.png" "$BENCH_DIR/plots/$EXPERIMENT_ID/speed_quality_${RUN_ID}.png"
