@@ -1,0 +1,4 @@
+interface:
+  display_name: "FlexCache Bench Visualizer"
+  short_description: "FlexCache bench plots and sheets"
+  default_prompt: "Build a FlexCache benchmark summary using reused results where possible, sweep enough points per strategy, and generate consistent speed-quality and visual contact-sheet plots."

@@ -220,6 +220,22 @@ Run tests with:
 pytest test
 ```
 
+### Codex Skills
+
+Repository-specific Codex skills live under `.codex/skills/`. They capture
+ChituDiffusion conventions for model adaptation, FlexCache benchmarking, result
+visualization, cleanup, and commit slicing.
+
+Install them into the local Codex skill directory after cloning:
+
+```bash
+./.venv/bin/python script/install_codex_skills.py --force
+```
+
+By default this creates symlinks in `${CODEX_HOME:-~/.codex}/skills`, so updates
+pulled from the repository are visible to Codex without reinstalling. Use
+`--copy` if symlinks are not desired.
+
 Some tests require CUDA, local checkpoints, and distributed launch settings.
 
 ## License

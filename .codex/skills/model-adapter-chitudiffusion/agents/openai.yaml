@@ -1,0 +1,4 @@
+interface:
+  display_name: "ChituDiffusion Model Adapter"
+  short_description: "Adapt new image diffusion models into ChituDiffusion."
+  default_prompt: "Adapt <model name> into ChituDiffusion, starting from refs and validating the real launcher path."
