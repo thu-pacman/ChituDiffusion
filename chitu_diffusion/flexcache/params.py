@@ -48,6 +48,13 @@ class CubicParams(FlexCacheParams):
 
 
 @dataclass
+class MeanCacheParams(FlexCacheParams):
+    strategy: Optional[str] = "meancache"
+    fresh_steps: int = 25
+    use_jvp: bool = True
+
+
+@dataclass
 class TaylorSeerParams(FlexCacheParams):
     strategy: Optional[str] = "taylorseer"
     fresh_threshold: int = 5
@@ -87,6 +94,7 @@ FLEXCACHE_PARAM_CLASSES = {
     "pab": PABParams,
     "blockdance": BlockDanceParams,
     "cubic": CubicParams,
+    "meancache": MeanCacheParams,
     "taylorseer": TaylorSeerParams,
     "ditango": DiTangoParams,
 }

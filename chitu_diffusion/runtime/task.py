@@ -87,9 +87,10 @@ class DiffusionUserParams:
                 return None
             params_cls = FLEXCACHE_PARAM_CLASSES.get(strategy)
             if params_cls is None:
+                supported = ", ".join(sorted(FLEXCACHE_PARAM_CLASSES))
                 raise ValueError(
                     f"Unsupported acceleration strategy '{strategy}'. "
-                    "Supported strategies are: blockdance, teacache, pab, cubic, taylorseer, ditango."
+                    f"Supported strategies are: {supported}."
                 )
             params = params_cls()
 
@@ -97,10 +98,11 @@ class DiffusionUserParams:
         if strategy in {"", "none", "off", "disable", "disabled"}:
             return None
 
-        if strategy not in {"blockdance", "teacache", "pab", "cubic", "taylorseer", "ditango"}:
+        if strategy not in FLEXCACHE_PARAM_CLASSES:
+            supported = ", ".join(sorted(FLEXCACHE_PARAM_CLASSES))
             raise ValueError(
                 f"Unsupported acceleration strategy '{params.strategy}'. "
-                "Supported strategies are: blockdance, teacache, pab, cubic, taylorseer, ditango."
+                f"Supported strategies are: {supported}."
             )
 
         warmup = int(params.warmup)

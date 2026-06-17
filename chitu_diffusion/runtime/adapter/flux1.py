@@ -38,6 +38,14 @@ class FluxRuntimeAdapter(DiffusionRuntimeAdapter):
 
 @register_model_runtime("flux1-dev", "FLUX.1-dev")
 class Flux1RuntimeAdapter(FluxRuntimeAdapter):
+    @staticmethod
+    def _normalize_flux_tokens(tensor: torch.Tensor, name: str) -> torch.Tensor:
+        while tensor.ndim > 3 and tensor.shape[1] == 1:
+            tensor = tensor.squeeze(1)
+        if tensor.ndim != 3:
+            raise ValueError(f"FLUX1 {name} must be [batch, sequence, channels], got {tuple(tensor.shape)}.")
+        return tensor
+
     def load_text_encoder(self, args: Any, init_device: torch.device):
         from chitu_diffusion.modules.encoders.clip_t5 import CLIPT5TextEncoder
 
@@ -152,7 +160,32 @@ class Flux1RuntimeAdapter(FluxRuntimeAdapter):
         if guidance is not None:
             guidance = guidance.to(device=latents.device, dtype=torch.float32)
         timestep_vec = timestep.expand(latents.shape[0]).to(latents.dtype)
+        flex_strategy = getattr(getattr(backend, "flexcache", None), "strategy", None)
+        meancache_strategy = flex_strategy if getattr(flex_strategy, "type", None) == "meancache" else None
+        step_index = int(task.buffer.current_step)
+        sigma_pre = None
+        sigma_next = None
+        if meancache_strategy is not None:
+            sigmas = getattr(task.buffer.sampler, "sigmas", None)
+            if sigmas is not None and step_index + 1 < len(sigmas):
+                sigma_pre = sigmas[step_index]
+                sigma_next = sigmas[step_index + 1]
+            reuse_key = meancache_strategy.get_reuse_key(step=step_index)
+            if reuse_key is not None:
+                noise_pred = meancache_strategy.reuse(step=step_index).to(device=latents.device, dtype=latents.dtype)
+                noise_pred = self._normalize_flux_tokens(noise_pred, "meancache reuse noise_pred")
+                backend.flexcache.record_compute(
+                    baseline_units=1.0,
+                    actual_units=0.0,
+                    task_id=task.task_id,
+                    scope="meancache_step",
+                    unit="dit_forward",
+                    extra={"decision": "reuse", "step": step_index},
+                )
+                latents = task.buffer.sampler.step(noise_pred, timestep, latents, return_dict=False)[0]
+                return self._normalize_flux_tokens(latents, "scheduler output")
 
+        latents_pre = latents.detach()
         noise_pred = run_dit_forward(
             task,
             "pos",
@@ -166,7 +199,29 @@ class Flux1RuntimeAdapter(FluxRuntimeAdapter):
             joint_attention_kwargs=None,
             return_dict=False,
         )[0]
-        return task.buffer.sampler.step(noise_pred, timestep, latents, return_dict=False)[0]
+        noise_pred = self._normalize_flux_tokens(noise_pred, "fresh noise_pred")
+        latents = task.buffer.sampler.step(noise_pred, timestep, latents, return_dict=False)[0]
+        latents = self._normalize_flux_tokens(latents, "scheduler output")
+        if meancache_strategy is not None:
+            if sigma_pre is None or sigma_next is None:
+                raise RuntimeError("MeanCache requires scheduler sigmas for Flux1-dev.")
+            meancache_strategy.store(
+                step=step_index,
+                latents_pre=latents_pre,
+                latents=latents,
+                sigma_pre=sigma_pre,
+                sigma=sigma_next,
+                noise_pred=noise_pred,
+            )
+            backend.flexcache.record_compute(
+                baseline_units=1.0,
+                actual_units=1.0,
+                task_id=task.task_id,
+                scope="meancache_step",
+                unit="dit_forward",
+                extra={"decision": "compute", "step": step_index},
+            )
+        return latents
 
     def decode_latents(self, task, generator, backend) -> Optional[torch.Tensor]:
         if torch.distributed.get_rank() != 0:

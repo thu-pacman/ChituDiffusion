@@ -1,4 +1,5 @@
 from chitu_diffusion.flexcache.modules.flux_cubic_forward import FluxCubicSelectiveForwardEngine
+from chitu_diffusion.flexcache.modules.qwen_image_cubic_forward import QwenImageCubicSelectiveForwardEngine
 from chitu_diffusion.flexcache.modules.wan_cubic_forward import WanCubicSelectiveForwardEngine
 
-__all__ = ["FluxCubicSelectiveForwardEngine", "WanCubicSelectiveForwardEngine"]
+__all__ = ["FluxCubicSelectiveForwardEngine", "QwenImageCubicSelectiveForwardEngine", "WanCubicSelectiveForwardEngine"]

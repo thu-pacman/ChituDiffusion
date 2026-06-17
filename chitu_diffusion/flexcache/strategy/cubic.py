@@ -10,7 +10,11 @@ import torch
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheStrategy
-from chitu_diffusion.flexcache.modules import FluxCubicSelectiveForwardEngine, WanCubicSelectiveForwardEngine
+from chitu_diffusion.flexcache.modules import (
+    FluxCubicSelectiveForwardEngine,
+    QwenImageCubicSelectiveForwardEngine,
+    WanCubicSelectiveForwardEngine,
+)
 from chitu_diffusion.modules.utils.flux import unpack_flux1_latents
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
 from chitu_diffusion.runtime.output_layout import debug_output_dir
@@ -89,6 +93,19 @@ class CubicWanModelParams(CubicModelParams):
 
 
 @dataclass
+class CubicQwenImageModelParams(CubicModelParams):
+    patch_size: Tuple[int, int, int] = (1, 1, 1)
+    num_layers: int = 60
+    partition_mode: str = "uniform_square"
+    uniform_square_min_splits: int = 8
+    min_block_size: int = 8
+    max_block_size: int = 8
+    alpha: float = 2.0
+    beta: float = 4.0
+    curvature_contrast_gamma: float = 1.8
+
+
+@dataclass
 class CubicConfig(CubicModelParams):
     target_speedup: float = 2.0
     warmup_fraction: float = 0.15
@@ -116,6 +133,7 @@ class CubicStrategy(FlexCacheStrategy):
         target_speedup = float(target_speedup)
         self.model_name = getattr(getattr(getattr(DiffusionBackend, "args", None), "models", None), "name", None)
         is_flux1 = self.model_name in {"Flux1-dev", "FLUX.1-dev"}
+        is_qwen_image = self.model_name in {"Qwen-Image", "qwen-image"}
         self.config = CubicConfig(
             target_speedup=target_speedup,
             warmup_fraction=warmup_fraction,
@@ -148,9 +166,12 @@ class CubicStrategy(FlexCacheStrategy):
         self.partitioner = AdaptivePartitioner(self.config)
         self.frequency_optimizer = UpdateFrequencyOptimizer(self.config)
         self.step_scheduler = SelectiveStepScheduler(self.config)
-        self.selective_forward = (
-            FluxCubicSelectiveForwardEngine(self.config) if is_flux1 else WanCubicSelectiveForwardEngine()
-        )
+        if is_flux1:
+            self.selective_forward = FluxCubicSelectiveForwardEngine(self.config)
+        elif is_qwen_image:
+            self.selective_forward = QwenImageCubicSelectiveForwardEngine(self.config)
+        else:
+            self.selective_forward = WanCubicSelectiveForwardEngine()
         self.current_partition = None
         self.current_frequency_plan = None
         self.current_step_plan = None
@@ -179,6 +200,9 @@ class CubicStrategy(FlexCacheStrategy):
 
         if self.model_name in {"Flux1-dev", "FLUX.1-dev"}:
             self._wrap_flux1_module(module, original_forward)
+            return
+        if self.model_name in {"Qwen-Image", "qwen-image"}:
+            self._wrap_qwen_image_module(module, original_forward)
             return
 
         @functools.wraps(original_forward)
@@ -282,6 +306,79 @@ class CubicStrategy(FlexCacheStrategy):
         module.forward = forward_with_cubic
         logger.info(
             "Module %s wrapped with Flux Cubic strategy: target_speedup=%.3f partition_mode=%s uniform_square_min_splits=%d",
+            module.__class__.__name__,
+            self.config.target_speedup,
+            self.config.partition_mode,
+            self.config.uniform_square_min_splits,
+        )
+
+    def _wrap_qwen_image_module(self, module: torch.nn.Module, original_forward) -> None:
+        @functools.wraps(original_forward)
+        def forward_with_cubic(
+            hidden_states,
+            encoder_hidden_states=None,
+            encoder_hidden_states_mask=None,
+            timestep=None,
+            img_shapes=None,
+            txt_seq_lens=None,
+            guidance=None,
+            attention_kwargs=None,
+            controlnet_block_samples=None,
+            additional_t_cond=None,
+            return_dict=True,
+        ):
+            if txt_seq_lens is not None:
+                return original_forward(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_hidden_states_mask=encoder_hidden_states_mask,
+                    timestep=timestep,
+                    img_shapes=img_shapes,
+                    txt_seq_lens=txt_seq_lens,
+                    guidance=guidance,
+                    attention_kwargs=attention_kwargs,
+                    controlnet_block_samples=controlnet_block_samples,
+                    additional_t_cond=additional_t_cond,
+                    return_dict=return_dict,
+                )
+
+            step = self._current_step()
+            phase = self._phase(step)
+            self._prepare_step_plan(step, phase)
+            branch_key = self._branch_key()
+            output = self.selective_forward.forward(
+                transformer=module,
+                original_forward=original_forward,
+                hidden_states=hidden_states,
+                timestep=timestep,
+                guidance=guidance,
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_hidden_states_mask=encoder_hidden_states_mask,
+                img_shapes=img_shapes,
+                attention_kwargs=attention_kwargs,
+                controlnet_block_samples=controlnet_block_samples,
+                additional_t_cond=additional_t_cond,
+                step_plan=self.current_step_plan,
+                cache_key=branch_key,
+            )
+            if self._should_monitor(step, phase):
+                self._update_qwen_image_anchor_state(
+                    latents=hidden_states,
+                    output=output,
+                    img_shapes=img_shapes,
+                    t=timestep,
+                    step=step,
+                )
+            self._publish_cache_refs()
+            self._record_compute_metric(step, phase, branch_key)
+            self._record_step_trace(step, phase)
+            if not return_dict:
+                return (output,)
+            return Transformer2DModelOutput(sample=output)
+
+        module.forward = forward_with_cubic
+        logger.info(
+            "Module %s wrapped with Qwen-Image Cubic strategy: target_speedup=%.3f partition_mode=%s uniform_square_min_splits=%d",
             module.__class__.__name__,
             self.config.target_speedup,
             self.config.partition_mode,
@@ -448,6 +545,48 @@ class CubicStrategy(FlexCacheStrategy):
             self.next_anchor_step,
         )
 
+    def _update_qwen_image_anchor_state(self, latents, output, img_shapes, t, step: int):
+        latents_unpacked = self.selective_forward.unpack_qwen_sequence(latents, img_shapes)
+        output_unpacked = self.selective_forward.unpack_qwen_sequence(output, img_shapes)
+        t_unit = self._normalize_t_to_unit_interval(t)
+        curvature_map = self.monitor.update(
+            x=latents_unpacked.unsqueeze(0),
+            v=output_unpacked.unsqueeze(0),
+            t=t_unit,
+            step_idx=step,
+        )
+        if curvature_map is None:
+            self.current_anchor_gap = 1
+            self.next_anchor_step = step + self.current_anchor_gap
+            return
+
+        ft, ht, wt = curvature_map.shape
+        self.current_partition = self.partitioner.partition(Ft=ft, Ht=ht, Wt=wt, curvature_map=curvature_map)
+        block_curvatures = self.monitor.get_block_curvatures(self.current_partition, curvature_map=curvature_map)
+        self.current_frequency_plan = self.frequency_optimizer.optimize(
+            partition=self.current_partition,
+            block_curvatures=block_curvatures,
+        )
+        self.current_anchor_gap = max(1, 2 * int(self.current_frequency_plan.max_interval))
+        self.next_anchor_step = min(self.total_steps - 1, step + self.current_anchor_gap)
+        self.current_step_plan = self.step_scheduler.build_step_plan(
+            partition=self.current_partition,
+            block_intervals=self.current_frequency_plan.block_intervals,
+            phase=self.CubicPhase.CRUISE_ANCHOR,
+            step_idx=step,
+            selective_step_idx=max(0, step - int(self.total_steps * self.config.warmup_fraction)),
+        )
+        logger.info(
+            "[flexcache-cubic-qwen] step=%d curvature=%s blocks=%d tau_min=%d tau_max=%d achieved_speedup=%.3f next_anchor_step=%d",
+            step,
+            tuple(curvature_map.shape),
+            len(self.current_partition.blocks),
+            self.current_frequency_plan.min_interval,
+            self.current_frequency_plan.max_interval,
+            self.current_frequency_plan.achieved_speedup,
+            self.next_anchor_step,
+        )
+
     @staticmethod
     def _unpack_flux_sequence(sequence: torch.Tensor, img_ids: torch.Tensor | None) -> torch.Tensor:
         if img_ids is not None:
@@ -475,6 +614,9 @@ class CubicStrategy(FlexCacheStrategy):
             full_compute = bool(self.current_step_plan.is_full_compute)
         elif self.current_partition is not None:
             total_tokens = int(self.current_partition.total_tokens)
+            active_tokens = total_tokens
+        else:
+            total_tokens = self._current_latent_token_count()
             active_tokens = total_tokens
         forward_mode = self.selective_forward.last_forward_mode
         if forward_mode == "cached_residual":
@@ -509,6 +651,9 @@ class CubicStrategy(FlexCacheStrategy):
         elif self.current_partition is not None:
             total_tokens = int(self.current_partition.total_tokens)
             active_tokens = total_tokens
+        else:
+            total_tokens = self._current_latent_token_count()
+            active_tokens = total_tokens
         if total_tokens <= 0:
             return
         forward_mode = self.selective_forward.last_forward_mode
@@ -537,6 +682,14 @@ class CubicStrategy(FlexCacheStrategy):
                 "forward_mode": forward_mode,
             },
         )
+
+    @staticmethod
+    def _current_latent_token_count() -> int:
+        task = DiffusionBackend.generator.current_task
+        latents = getattr(getattr(task, "buffer", None), "latents", None)
+        if isinstance(latents, torch.Tensor) and latents.ndim >= 2:
+            return int(latents.shape[1])
+        return 0
 
     def _publish_cache_refs(self):
         if DiffusionBackend.flexcache is None:

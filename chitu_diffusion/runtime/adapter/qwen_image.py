@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from logging import getLogger
+from math import prod
 from typing import Any, Callable, Optional
 
 import numpy as np
@@ -117,9 +118,154 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         )
         if attn_backend is not None:
             self._install_attention_processor(transformer, attn_backend)
+        self._install_backbone_api(transformer)
         transformer.eval().requires_grad_(False)
         self.transformer = transformer
         return transformer
+
+    def _install_backbone_api(self, transformer) -> None:
+        """Expose Qwen-Image's block loop through the shared FlexCache backbone API."""
+        import types
+
+        from diffusers.models.modeling_outputs import Transformer2DModelOutput
+        from diffusers.models.transformers.transformer_qwenimage import compute_text_seq_len_from_mask
+
+        from chitu_diffusion.core.models.backbone import BackboneBlockInfo, BackboneState, detach_backbone_value
+
+        def backbone_blocks(model_self):
+            return [
+                BackboneBlockInfo(index=index, name=f"transformer_blocks.{index}", module=block)
+                for index, block in enumerate(model_self.transformer_blocks)
+            ]
+
+        def backbone_attention_modules(model_self):
+            return [
+                (block_info.index, "self", block_info.module.attn)
+                for block_info in model_self.backbone_blocks()
+                if hasattr(block_info.module, "attn")
+            ]
+
+        def backbone_make_state(model_self, hidden_states: torch.Tensor, **kwargs) -> BackboneState:
+            return BackboneState({"hidden_states": hidden_states, **kwargs})
+
+        def block_compute(model_self, block_info: BackboneBlockInfo, state: BackboneState) -> BackboneState:
+            encoder_hidden_states, hidden_states = block_info.module(
+                hidden_states=state["hidden_states"],
+                encoder_hidden_states=state["encoder_hidden_states"],
+                encoder_hidden_states_mask=None,
+                temb=state["temb"],
+                image_rotary_emb=state["image_rotary_emb"],
+                joint_attention_kwargs=state["block_attention_kwargs"],
+                modulate_index=state["modulate_index"],
+            )
+            controlnet_block_samples = state.get("controlnet_block_samples")
+            if controlnet_block_samples is not None:
+                interval_control = len(model_self.transformer_blocks) / len(controlnet_block_samples)
+                interval_control = int(np.ceil(interval_control))
+                hidden_states = hidden_states + controlnet_block_samples[block_info.index // interval_control]
+            state["encoder_hidden_states"] = encoder_hidden_states
+            state["hidden_states"] = hidden_states
+            return state
+
+        def backbone_cache_state(model_self, state: BackboneState):
+            return detach_backbone_value(
+                {
+                    "hidden_states": state["hidden_states"],
+                    "encoder_hidden_states": state["encoder_hidden_states"],
+                }
+            )
+
+        def backbone_restore_cached_state(model_self, state: BackboneState, cached_state):
+            state["hidden_states"] = cached_state["hidden_states"]
+            state["encoder_hidden_states"] = cached_state["encoder_hidden_states"]
+            return state
+
+        def backbone_finalize_state(model_self, state: BackboneState) -> torch.Tensor:
+            temb = state["temb"]
+            if model_self.zero_cond_t:
+                temb = temb.chunk(2, dim=0)[0]
+            hidden_states = model_self.norm_out(state["hidden_states"], temb)
+            return model_self.proj_out(hidden_states)
+
+        def model_compute(model_self, hidden_states: torch.Tensor, **kwargs) -> torch.Tensor:
+            state = model_self.backbone_make_state(hidden_states, **kwargs)
+            for block_info in model_self.backbone_blocks():
+                state = model_self.block_compute(block_info, state)
+            return model_self.backbone_finalize_state(state)
+
+        def forward_with_backbone(
+            model_self,
+            hidden_states: torch.Tensor,
+            encoder_hidden_states: torch.Tensor = None,
+            encoder_hidden_states_mask: torch.Tensor = None,
+            timestep: torch.Tensor = None,
+            img_shapes: list[tuple[int, int, int]] | None = None,
+            txt_seq_lens: list[int] | None = None,
+            guidance: torch.Tensor = None,
+            attention_kwargs: dict[str, Any] | None = None,
+            controlnet_block_samples=None,
+            additional_t_cond=None,
+            return_dict: bool = True,
+        ):
+            hidden_states = model_self.img_in(hidden_states)
+            timestep = timestep.to(hidden_states.dtype)
+
+            if model_self.zero_cond_t:
+                timestep = torch.cat([timestep, timestep * 0], dim=0)
+                modulate_index = torch.tensor(
+                    [[0] * prod(sample[0]) + [1] * sum([prod(s) for s in sample[1:]]) for sample in img_shapes],
+                    device=timestep.device,
+                    dtype=torch.int,
+                )
+            else:
+                modulate_index = None
+
+            encoder_hidden_states = model_self.txt_norm(encoder_hidden_states)
+            encoder_hidden_states = model_self.txt_in(encoder_hidden_states)
+            text_seq_len, _, encoder_hidden_states_mask = compute_text_seq_len_from_mask(
+                encoder_hidden_states,
+                encoder_hidden_states_mask,
+            )
+
+            if guidance is not None:
+                guidance = guidance.to(hidden_states.dtype) * 1000
+            temb = (
+                model_self.time_text_embed(timestep, hidden_states, additional_t_cond)
+                if guidance is None
+                else model_self.time_text_embed(timestep, guidance, hidden_states, additional_t_cond)
+            )
+
+            image_rotary_emb = model_self.pos_embed(img_shapes, max_txt_seq_len=text_seq_len, device=hidden_states.device)
+
+            block_attention_kwargs = attention_kwargs.copy() if attention_kwargs is not None else {}
+            if encoder_hidden_states_mask is not None:
+                batch_size, image_seq_len = hidden_states.shape[:2]
+                image_mask = torch.ones((batch_size, image_seq_len), dtype=torch.bool, device=hidden_states.device)
+                block_attention_kwargs["attention_mask"] = torch.cat([encoder_hidden_states_mask, image_mask], dim=1)
+
+            output = model_self.model_compute(
+                hidden_states,
+                encoder_hidden_states=encoder_hidden_states,
+                temb=temb,
+                image_rotary_emb=image_rotary_emb,
+                block_attention_kwargs=block_attention_kwargs,
+                modulate_index=modulate_index,
+                controlnet_block_samples=controlnet_block_samples,
+            )
+            if not return_dict:
+                return (output,)
+            return Transformer2DModelOutput(sample=output)
+
+        transformer.backbone_blocks = types.MethodType(backbone_blocks, transformer)
+        transformer.backbone_attention_modules = types.MethodType(backbone_attention_modules, transformer)
+        transformer.backbone_make_state = types.MethodType(backbone_make_state, transformer)
+        transformer.block_compute = types.MethodType(block_compute, transformer)
+        transformer.backbone_cache_state = types.MethodType(backbone_cache_state, transformer)
+        transformer.backbone_restore_cached_state = types.MethodType(backbone_restore_cached_state, transformer)
+        transformer.backbone_finalize_state = types.MethodType(backbone_finalize_state, transformer)
+        transformer.model_compute = types.MethodType(model_compute, transformer)
+        transformer.forward = types.MethodType(forward_with_backbone, transformer)
+        logger.info("Installed Qwen-Image FlexCache backbone API.")
 
     def _install_attention_processor(self, transformer, attn_backend) -> None:
         if attn_backend is None:
@@ -137,11 +283,11 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         up = int(getattr(backend.args.infer.diffusion, "up", 1))
         if cp_size <= 1:
             return
-        if up != cp_size:
+        if up < 1 or cp_size % up != 0:
             raise NotImplementedError(
-                "Qwen-Image context parallel currently supports Ulysses-only mode; "
-                f"set infer.diffusion.up equal to cp_size ({cp_size})."
-        )
+                "Qwen-Image context parallel requires infer.diffusion.up to divide cp_size; "
+                f"got up={up}, cp_size={cp_size}."
+            )
         self._wrap_transformer_forward_with_cp(backend)
 
     def handles_context_parallel(self, args: Any) -> bool:
@@ -178,29 +324,14 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 split_dim=1,
                 name="qwen_image_hidden_states",
             )
-            local_encoder, text_offset = self._split_sequence_with_offset(
-                encoder_hidden_states,
-                split_dim=1,
-                name="qwen_image_encoder_hidden_states",
-            )
-
-            mask = kwargs.get("encoder_hidden_states_mask")
-            if mask is not None:
-                local_mask, _ = self._split_sequence_with_offset(
-                    mask,
-                    split_dim=1,
-                    name="qwen_image_encoder_hidden_states_mask",
-                )
-                kwargs["encoder_hidden_states_mask"] = local_mask
 
             attention_kwargs = dict(kwargs.get("attention_kwargs") or {})
             attention_kwargs["qwen_cp_info"] = {
                 "image_offset": image_offset,
-                "text_offset": text_offset,
+                "image_seq_len": hidden_states.shape[1],
             }
             kwargs["attention_kwargs"] = attention_kwargs
             kwargs["hidden_states"] = local_hidden
-            kwargs["encoder_hidden_states"] = local_encoder
 
             output = original_forward(*args, **kwargs)
             if isinstance(output, tuple):
@@ -361,6 +492,14 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             if isinstance(value, torch.Tensor):
                 setattr(task.buffer, name, value.to(device))
 
+    @staticmethod
+    def _normalize_latent_tokens(tensor: torch.Tensor, name: str) -> torch.Tensor:
+        while tensor.ndim > 3 and tensor.shape[1] == 1:
+            tensor = tensor.squeeze(1)
+        if tensor.ndim != 3:
+            raise ValueError(f"Qwen-Image {name} must be [batch, sequence, channels], got {tuple(tensor.shape)}.")
+        return tensor
+
     def _transformer_forward(
         self,
         task,
@@ -377,7 +516,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         timestep = task.buffer.timesteps[task.buffer.current_step]
         timestep_vec = timestep.expand(latents.shape[0]).to(latents.dtype)
         with pipe.transformer.cache_context(cache_tag):
-            return generator._run_dit_forward(
+            output = generator._run_dit_forward(
                 task,
                 cache_tag,
                 hidden_states=latents,
@@ -389,6 +528,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 attention_kwargs=pipe.attention_kwargs,
                 return_dict=False,
             )[0]
+        return self._normalize_latent_tokens(output, f"{cache_tag} transformer output")
 
     def denoise_step(self, task, generator, backend, run_dit_forward: Callable[..., torch.Tensor]) -> torch.Tensor:
         device = torch.device(torch.cuda.current_device())
@@ -397,6 +537,43 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         latents = task.buffer.latents
         timestep = task.buffer.timesteps[task.buffer.current_step]
         guidance_scale = float(backend.args.models.sampler.guidance_scale[0])
+        flex_strategy = getattr(getattr(backend, "flexcache", None), "strategy", None)
+        meancache_strategy = flex_strategy if getattr(flex_strategy, "type", None) == "meancache" else None
+        step_index = int(task.buffer.current_step)
+        sigma_pre = None
+        sigma_next = None
+        if meancache_strategy is not None:
+            sigmas = getattr(pipe.scheduler, "sigmas", None)
+            if sigmas is not None and step_index + 1 < len(sigmas):
+                sigma_pre = sigmas[step_index]
+                sigma_next = sigmas[step_index + 1]
+            reuse_key = meancache_strategy.get_reuse_key(step=step_index)
+            if reuse_key is not None:
+                local_noise_pred = meancache_strategy.reuse(step=step_index).to(device=device, dtype=latents.dtype)
+                backend.flexcache.record_compute(
+                    baseline_units=1.0,
+                    actual_units=0.0,
+                    task_id=task.task_id,
+                    scope="meancache_step",
+                    unit="dit_forward",
+                    extra={"decision": "reuse", "step": step_index},
+                )
+                if guidance_scale > 1.0 and generator.cfg_size == 2:
+                    noise_pred, neg_noise_pred = generator.cfg_dispatcher.all_gather_cfg_noise_preds(local_noise_pred)
+                    combined = neg_noise_pred + guidance_scale * (noise_pred - neg_noise_pred)
+                    cond_norm = torch.norm(noise_pred, dim=-1, keepdim=True)
+                    noise_norm = torch.norm(combined, dim=-1, keepdim=True)
+                    noise_pred = combined * (cond_norm / noise_norm)
+                else:
+                    noise_pred = local_noise_pred
+                latents_dtype = latents.dtype
+                latents = pipe.scheduler.step(noise_pred, timestep, latents, return_dict=False)[0]
+                latents = self._normalize_latent_tokens(latents, "scheduler output")
+                if latents.dtype != latents_dtype:
+                    latents = latents.to(latents_dtype)
+                return latents
+
+        latents_pre = latents.detach()
         if guidance_scale > 1.0:
             if generator.cfg_size == 2:
                 if generator.cfg_dispatcher.group.rank_in_group == 0:
@@ -441,6 +618,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
                     torch.distributed.get_rank(),
                     task.buffer.current_step,
                 )
+                fresh_noise_pred_for_cache = local_noise_pred
             else:
                 set_cfg_type(backend, "pos")
                 noise_pred = self._transformer_forward(
@@ -460,6 +638,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
                     task.buffer.negative_embeddings,
                     task.buffer.negative_embeddings_mask,
                 )
+                fresh_noise_pred_for_cache = noise_pred
             combined = neg_noise_pred + guidance_scale * (noise_pred - neg_noise_pred)
             logger.debug(
                 "[denoise_step] Qwen-Image CFG rank=%s combined guidance step=%s",
@@ -484,6 +663,10 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 task.buffer.text_embeddings,
                 task.buffer.text_embeddings_mask,
             )
+            fresh_noise_pred_for_cache = noise_pred
+
+        if meancache_strategy is not None and not (guidance_scale > 1.0 and generator.cfg_size == 2):
+            fresh_noise_pred_for_cache = noise_pred
 
         latents_dtype = latents.dtype
         logger.debug(
@@ -492,6 +675,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             task.buffer.current_step,
         )
         latents = pipe.scheduler.step(noise_pred, timestep, latents, return_dict=False)[0]
+        latents = self._normalize_latent_tokens(latents, "scheduler output")
         logger.debug(
             "[denoise_step] Qwen-Image rank=%s finished scheduler step=%s",
             torch.distributed.get_rank(),
@@ -499,6 +683,25 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         )
         if latents.dtype != latents_dtype:
             latents = latents.to(latents_dtype)
+        if meancache_strategy is not None:
+            if sigma_pre is None or sigma_next is None:
+                raise RuntimeError("MeanCache requires scheduler sigmas for Qwen-Image.")
+            meancache_strategy.store(
+                step=step_index,
+                latents_pre=latents_pre,
+                latents=latents,
+                sigma_pre=sigma_pre,
+                sigma=sigma_next,
+                noise_pred=fresh_noise_pred_for_cache,
+            )
+            backend.flexcache.record_compute(
+                baseline_units=1.0,
+                actual_units=1.0,
+                task_id=task.task_id,
+                scope="meancache_step",
+                unit="dit_forward",
+                extra={"decision": "compute", "step": step_index},
+            )
         return latents
 
     def decode_latents(self, task, generator, backend) -> Optional[torch.Tensor]:

@@ -20,7 +20,7 @@ from chitu_diffusion.core.logging_utils import (
     should_log_on_rank,
 )
 from chitu_diffusion.runtime.backend import BackendState, DiffusionBackend
-from chitu_diffusion.flexcache.params import CubicParams, DiTangoParams, FlexCacheParams
+from chitu_diffusion.flexcache.params import CubicParams, DiTangoParams, FlexCacheParams, MeanCacheParams
 from chitu_diffusion.runtime.task import (
     DiffusionTask,
     DiffusionTaskType,
@@ -604,12 +604,24 @@ class Generator:
             raise ValueError("DiTango requires cp world size > 1.")
         if spec.strategy == "cubic" and self.cp_size != 1:
             raise ValueError("FlexCache Cubic requires cp world size = 1.")
+        model_name = getattr(DiffusionBackend.args.models, "name", "")
+        if spec.strategy == "meancache" and self.cp_size != 1 and model_name not in {"Qwen-Image", "qwen-image"}:
+            raise ValueError("FlexCache MeanCache currently requires cp_size = 1 outside Qwen-Image.")
+        if spec.strategy == "meancache" and self.cfg_size not in {1, 2}:
+            raise ValueError("FlexCache MeanCache currently supports cfg_size = 1 or 2.")
         return spec
 
     def _build_flexcache_strategy(self, task: DiffusionTask, spec: FlexCacheParams):
         strategy = spec.strategy
         warmup_steps = spec.warmup
         cooldown_steps = spec.cooldown
+        model_name = getattr(DiffusionBackend.args.models, "name", "")
+
+        if model_name in {"Qwen-Image", "qwen-image"} and strategy in {"teacache", "taylorseer"}:
+            raise NotImplementedError(
+                f"FlexCache strategy '{strategy}' is not enabled for Qwen-Image; "
+                "use blockdance or pab for now."
+            )
 
         if strategy == "teacache":
             from chitu_diffusion.flexcache.strategy.teacache import TeaCacheStrategy
@@ -647,14 +659,35 @@ class Generator:
                 end_fraction=getattr(spec, "end_fraction", 0.95),
             )
 
+        if strategy == "meancache":
+            from chitu_diffusion.flexcache.strategy.meancache import MeanCacheStrategy
+
+            if not isinstance(spec, MeanCacheParams):
+                raise TypeError("FlexCache meancache requires MeanCacheParams.")
+            if model_name not in {"Qwen-Image", "qwen-image", "Flux1-dev", "FLUX.1-dev"}:
+                raise NotImplementedError("FlexCache MeanCache is currently implemented only for Qwen-Image and Flux1-dev.")
+            return MeanCacheStrategy(
+                task=task,
+                fresh_steps=getattr(spec, "fresh_steps", 25),
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+                use_jvp=getattr(spec, "use_jvp", True),
+            )
+
         if strategy == "cubic":
-            from chitu_diffusion.flexcache.strategy.cubic import CubicFluxModelParams, CubicStrategy, CubicWanModelParams
+            from chitu_diffusion.flexcache.strategy.cubic import (
+                CubicFluxModelParams,
+                CubicQwenImageModelParams,
+                CubicStrategy,
+                CubicWanModelParams,
+            )
 
             if not isinstance(spec, CubicParams):
                 raise TypeError("FlexCache cubic requires CubicParams.")
-            model_name = getattr(DiffusionBackend.args.models, "name", "")
             if model_name in {"Flux1-dev", "FLUX.1-dev"}:
                 model_params = CubicFluxModelParams()
+            elif model_name in {"Qwen-Image", "qwen-image"}:
+                model_params = CubicQwenImageModelParams()
             else:
                 model_params = CubicWanModelParams()
             if spec.block_size is not None:
@@ -819,6 +852,9 @@ class Generator:
             resolved_log["group_size"] = cache_strategy.group_size
             resolved_log["start_step"] = cache_strategy.start_step
             resolved_log["end_step"] = cache_strategy.end_step
+        elif spec.strategy == "meancache":
+            resolved_log["fresh_steps"] = cache_strategy.fresh_steps
+            resolved_log["use_jvp"] = cache_strategy.use_jvp
         elif spec.strategy == "cubic":
             resolved_log["target_speedup"] = cache_strategy.config.target_speedup
             resolved_log["tau_max"] = cache_strategy.config.anchor_interval
