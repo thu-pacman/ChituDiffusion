@@ -1,82 +1,127 @@
 # ChituDiffusion
 
-ChituDiffusion is a high-performance diffusion inference framework focused on
-video generation workloads. It provides a compact runtime for distributed
-inference, multiple attention backends, FlexCache and DiTango acceleration, and
-optional evaluation utilities.
+<p align="center">
+  <img src="docs/assets/chitudiffusion-title.png" alt="ChituDiffusion title banner" width="760">
+</p>
 
-The project is under active development. The current public interface is the
-`chitu` command plus the configuration in `system_config.yaml`.
+![Python](https://img.shields.io/badge/python-3.12%2B-blue)
+![CUDA](https://img.shields.io/badge/CUDA-GPU%20required-76B900)
+![License](https://img.shields.io/badge/license-Apache--2.0-green)
+![Benchmarks](https://img.shields.io/badge/benchmarks-ChituBench-orange)
 
-## Features
+**ChituDiffusion is a high-performance diffusion inference framework for fast
+image and video generation at research scale.**
 
-- Distributed diffusion inference with context parallelism and CFG parallelism.
-- Attention backend selection for FlashAttention, SageAttention, and
-  SpargeAttention.
-- FlexCache strategies including TeaCache and PAB, plus independent DiTango
-  planner/runtime acceleration.
-- Optional low-memory execution modes.
-- Built-in timing, logging, output naming, and evaluation helpers.
-- Initial model support for Wan text-to-video models.
+It brings together distributed inference, modern attention backends, FlexCache
+acceleration, DiTango runtime experiments, reproducible benchmarking, and a
+single `chitu` CLI for running real model workloads.
 
-## Requirements
+<p align="center">
+  <a href="#quick-start">Quick Start</a> |
+  <a href="ChituBench/result.md">ChituBench Results</a> |
+  <a href="ChituBench/README.md">Benchmark Protocol</a> |
+  <a href="chitu_diffusion/flexcache/README.md">FlexCache</a> |
+  <a href="service_framework/README.md">Service Framework</a>
+</p>
 
-- Python 3.12 or newer
-- CUDA-capable NVIDIA GPU
-- CUDA and PyTorch versions compatible with the selected `pyproject.toml`
-  package index
-- `uv` is recommended for dependency management
+## Why ChituDiffusion
 
-## Installation
+- **One runtime for serious diffusion inference.** Run Wan, Flux, and
+  Qwen-Image style workloads through the same `chitu run` entry point.
+- **Distributed from the start.** Context parallelism, CFG parallelism, ring,
+  Ulysses, and combined parallel layouts are wired into the runtime.
+- **Acceleration is measurable, not just implemented.** Attention backends,
+  FlexCache strategies, and parallel scaling are tracked in ChituBench with
+  speed, quality metrics, and visual contact sheets.
+- **Research features stay close to production paths.** FlexCache, DiTango,
+  timing, memory, logging, and evaluation are exercised through the real launch
+  flow instead of isolated demos.
 
-Clone the repository and initialize optional submodules as needed:
+## News
+
+- **2026-06-17:** Qwen-Image attention now includes a FlashInfer probe in
+  ChituBench; FlashInfer is functional but not yet faster than Flash Attention
+  on the dense 50-step coffee prompt.
+- **2026-06-16:** Qwen-Image parallel scaling reaches **5.404x** DiT-forward
+  speedup on 8 GPUs with CFG parallel + image context parallelism.
+- **2026-06-16:** Qwen-Image FlexCache now has PAB, BlockDance, Cubic, and
+  MeanCache trade-off curves, including a **9.092x** MeanCache upper-speed point.
+- **2026-06-16:** Flux1-dev FlexCache results were consolidated with MeanCache;
+  the best MeanCache point reaches **4.989x** DiT-forward speedup.
+- **2026-06-13:** ChituBench was reset as the public benchmark workspace with
+  numeric result tables, plots, and visual contact sheets.
+
+## ChituBench Highlights
+
+Full tables, commands, notes, and figures live in
+[ChituBench/result.md](ChituBench/result.md).
+
+| Workload | Best headline result | Link |
+| --- | --- | --- |
+| Flux1-dev attention | SageAttention reaches **1.160x** speedup vs origin flash with close HPSv3 | [result](ChituBench/result.md#flux1_dev_attention) |
+| Flux1-dev FlexCache | MeanCache reaches **4.989x**; Cubic and TaylorSeer cover the middle/high-speed frontier | [result](ChituBench/result.md#flux1_dev_flexcache) |
+| Flux1-dev sequence parallel | 8-GPU Ulysses reaches **4.843x** speedup vs 1 GPU | [result](ChituBench/result.md#flux1_dev_sequence_parallel) |
+| Flux2-klein attention | SageAttention reaches **1.163x** speedup with moderate drift | [result](ChituBench/result.md#flux2_klein_attention) |
+| Qwen-Image parallel | 8-GPU CFG parallel + image CP4 reaches **5.404x** speedup | [result](ChituBench/result.md#qwen_image_parallel) |
+| Qwen-Image FlexCache | MeanCache spans **3.616x**, **5.331x**, and **9.092x** speed-quality points | [result](ChituBench/result.md#qwen_image_flexcache) |
+
+### Speed-Quality Snapshots
+
+![Flux1-dev FlexCache speed-quality trade-off](ChituBench/plots/flux1_dev_flexcache/speed_quality_flux1_flexcache_with_meancache_50step_20260616.png)
+
+![Qwen-Image FlexCache speed-quality trade-off](ChituBench/plots/qwen_image_flexcache/speed_quality_qwen_image_flexcache_50step_20260616.png)
+
+### Visual Samples
+
+![Flux1-dev FlexCache contact sheet](ChituBench/plots/flux1_dev_flexcache/contact_sheet_flux1_flexcache_with_meancache_50step_20260616.png)
+
+![Qwen-Image FlexCache contact sheet](ChituBench/plots/qwen_image_flexcache/contact_sheet_qwen_image_flexcache_coffee_50step_20260616.png)
+
+## Feature Map
+
+| Area | What is included |
+| --- | --- |
+| Runtime | `chitu run`, config loading, distributed launch, task execution, output packaging |
+| Parallelism | CFG parallelism, context parallelism, ring, Ulysses, mixed CP/CFG layouts |
+| Attention | Torch SDPA, FlashAttention, SageAttention, SpargeAttention, FlashInfer experiments |
+| FlexCache | TeaCache, PAB, BlockDance, Cubic, MeanCache, TaylorSeer, DiTango request params |
+| DiTango | Planner/runtime experiments for cache-aware distributed attention |
+| Evaluation | PSNR, SSIM, LPIPS, HPSv3, VBench-oriented utilities |
+| Observability | Timing JSON, memory JSON, run logs, task metadata, debug visualizations |
+
+## Supported Models
+
+Current model configuration includes:
+
+- `Wan2.1-T2V-1.3B`
+- `Wan2.1-T2V-14B`
+- `Wan2.2-T2V-A14B`
+- `Flux1-dev`
+- `FLUX.2-klein-4B`
+- `Qwen-Image`
+
+Availability depends on local checkpoint paths and the corresponding config
+under `chitu_diffusion/core/config/models/`.
+
+## Quick Start
+
+Install the base environment:
 
 ```bash
 git clone <repo-url>
 cd ChituDiffusion
 git submodule update --init --recursive
-```
-
-Install the base environment:
-
-```bash
 uv sync
 ```
 
-`uv sync` installs the CLI into the project virtual environment. Activate it
-before using the bare `chitu` command:
+Activate the project environment, or use `uv run chitu ...`:
 
 ```bash
 source .venv/bin/activate
 chitu --help
 ```
 
-If you do not want to activate the environment, use `uv run chitu ...`.
-
-Optional extras are available for acceleration and evaluation:
-
-```bash
-uv sync --extra sage
-uv sync --extra sparge
-uv sync --extra flash
-uv sync --extra flashinfer
-uv sync --extra eval
-uv sync --extra vbench
-```
-
-Build CUDA extension extras on a GPU compute node whose CUDA toolkit matches
-the selected PyTorch build.
-
-For manual environments:
-
-```bash
-pip install -r requirements.txt
-pip install -e .
-```
-
-## Configuration
-
-Edit `system_config.yaml` before running:
+Point `system_config.yaml` to a local checkpoint:
 
 ```yaml
 model:
@@ -95,55 +140,51 @@ infer:
   attn_type: torch_sdpa
 ```
 
-The most important field is `model.ckpt_dir`; it must point to a local model
-checkpoint directory.
-
-## Usage
-
-Run generation through the single repository entry point:
+Run generation:
 
 ```bash
 chitu run system_config.yaml
 ```
 
-Common overrides:
+Common launch overrides:
 
 ```bash
 chitu run system_config.yaml --gpus-per-node 8 --cfp 2
 ```
 
-`chitu run` reads `system_config.yaml`, builds dotlist overrides, and launches
-the configured Python entry through the runtime script.
+## Optional Extras
 
-## Supported Models
+Install only the acceleration or evaluation stack you need:
 
-The current configuration set includes:
-
-- `Wan2.1-T2V-1.3B`
-- `Wan2.1-T2V-14B`
-- `Wan2.2-T2V-A14B`
-- `FLUX.2-klein-4B`
-
-Model availability depends on the local checkpoint path and the corresponding
-configuration under the project config directory.
-
-## Repository Layout
-
-```text
-chitu_diffusion/core/            Configuration, schemas, distributed utilities, registry
-chitu_diffusion/runtime/         Backend, generator, scheduler, task, main runtime API
-chitu_diffusion/modules/         Model-specific and reusable diffusion modules
-chitu_diffusion/flexcache/       [DiT Cache] FlexCache strategies and shared cache utilities
-chitu_diffusion/ditango/         [HPDC'26] DiTango planner, runtime attention, visualization
-chitu_diffusion/evaluation/      Evaluation manager, strategies, metric helpers
-chitu_diffusion/observability/   Timing and magnitude logging helpers
-script/                         Launch helpers for local and Slurm execution
-test/                           Generation and acceleration test entry points
-system_config.yaml              Default runtime configuration
+```bash
+uv sync --extra sage
+uv sync --extra sparge
+uv sync --extra flash
+uv sync --extra flashinfer
+uv sync --extra eval
+uv sync --extra vbench
 ```
 
-This layout will continue to be simplified as the project is prepared for
-public release.
+Build CUDA extension extras on a GPU compute node whose CUDA toolkit matches
+the selected PyTorch build.
+
+Manual environments are also supported:
+
+```bash
+pip install -r requirements.txt
+pip install -e .
+```
+
+## Using FlexCache
+
+FlexCache is request-driven: include strategy params when a task should use an
+acceleration strategy, and omit them for the default full-compute path. The
+current strategy set is documented in
+[chitu_diffusion/flexcache/README.md](chitu_diffusion/flexcache/README.md).
+
+Current strategy families include TeaCache, PAB, BlockDance, Cubic, MeanCache,
+and TaylorSeer. DiTango is an independent planner/runtime path with request
+params wired through the same task flow.
 
 ## Evaluation
 
@@ -155,15 +196,18 @@ eval:
   reference_path: /path/to/reference/videos
 ```
 
-Additional metric dependencies are installed with:
+Install metric dependencies with:
 
 ```bash
 uv sync --extra eval
 ```
 
+For reproducible public results, prefer the ChituBench scripts and protocol in
+[ChituBench/README.md](ChituBench/README.md).
+
 ## Outputs
 
-Each run writes to:
+Each run writes a structured output directory:
 
 ```text
 outputs/<tag>-<YYYYMMDD_HHMMSS>-<taskid>/
@@ -191,16 +235,26 @@ outputs/<tag>-<YYYYMMDD_HHMMSS>-<taskid>/
 ```
 
 `results/<task_id>/` contains generated media and sidecar metadata. `metrics/`
-contains JSON-only timing, memory, and quality files in separate subdirectories.
-Timing JSON includes aggregate timer stats; `timers.dit_forward.total_ms` is the
-overall DiT forward time, and `records.dit_forward_step` stores per-timestep DiT
-forward times. Memory JSON is grouped by rank, so `model_loaded`,
-`task_complete`, and `final` events for the same rank live in one file.
-`output.memory` toggles memory metrics. `output.log_ranks` controls which ranks
-write memory metrics and Python logs. Quality JSON includes `by_task_id` groups
-for multi-request runs. `logs/` contains process logs and per-task debug
-visualizations. `command.log` captures the full launch command output,
-including `chitu run`, `srun`, wrapper output, and Python stdout/stderr.
+contains timing, memory, and quality JSON. `logs/command.log` captures the full
+launch output, including `chitu run`, Slurm wrapper output, and Python stdout or
+stderr.
+
+## Repository Layout
+
+```text
+chitu_diffusion/core/            Configuration, schemas, distributed utilities, registry
+chitu_diffusion/runtime/         Backend, generator, scheduler, task, runtime API
+chitu_diffusion/modules/         Model-specific and reusable diffusion modules
+chitu_diffusion/flexcache/       FlexCache strategies and shared cache utilities
+chitu_diffusion/ditango/         DiTango planner, runtime attention, visualization
+chitu_diffusion/evaluation/      Evaluation manager, strategies, metric helpers
+chitu_diffusion/observability/   Timing and magnitude logging helpers
+ChituBench/                      Reproducible benchmark workspace and result figures
+service_framework/               Long-lived service workflow
+script/                          Launch helpers for local and Slurm execution
+test/                            Generation and acceleration test entry points
+system_config.yaml               Default runtime configuration
+```
 
 ## Development
 
@@ -221,6 +275,8 @@ Run tests with:
 pytest test
 ```
 
+Some tests require CUDA, local checkpoints, and distributed launch settings.
+
 ### Codex Skills
 
 Repository-specific Codex skills live under `.codex/skills/`. They capture
@@ -237,9 +293,7 @@ By default this creates symlinks in `${CODEX_HOME:-~/.codex}/skills`, so updates
 pulled from the repository are visible to Codex without reinstalling. Use
 `--copy` if symlinks are not desired.
 
-Some tests require CUDA, local checkpoints, and distributed launch settings.
-
 ## License
 
-This project is licensed under the Apache License 2.0. See `LICENSE` for
-details.
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE)
+for details.

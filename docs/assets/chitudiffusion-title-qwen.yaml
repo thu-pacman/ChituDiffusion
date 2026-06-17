@@ -1,0 +1,39 @@
+launch:
+  tag: chitudiffusion-title-qwen
+  num_nodes: 1
+  gpus_per_node: 1
+  python_script: ChituBench/scripts/qwen_image_benchmark.py
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    mem_per_gpu: 242144
+    job_name: chitudiffusion-title
+
+runtime:
+  chitu_debug: true
+  cuda_launch_blocking: false
+
+model:
+  name: Qwen-Image
+  ckpt_dir: /home/chenyy/WORK/models/Qwen-Image
+
+parallel:
+  cfp: 1
+  up: 1
+
+infer:
+  attn_type: torch_sdpa
+  low_mem_level: 0
+
+eval:
+  eval_type: []
+  reference_path: null
+
+output:
+  root_dir: docs/assets/title-runs
+  run_log: false
+  memory: false
+  timer: true
+  log_ranks: [0]
+
+overrides: []
