@@ -15,6 +15,7 @@ SCRIPT_ARGS=("${@:4}")
 PARTITION=${SRUN_PARTITION:-debug}
 CPUS_PER_GPU=${SRUN_CPUS_PER_GPU:-24}
 MEM_PER_GPU=${SRUN_MEM_PER_GPU:-242144}
+SRUN_EXTRA_ARGS=${SRUN_EXTRA_ARGS:-}
 DEFAULT_JOB_NAME="${USER:-user}-chitu"
 JOB_NAME=${SRUN_JOB_NAME:-$DEFAULT_JOB_NAME}
 
@@ -27,7 +28,7 @@ NUM_CPUS=$((NUM_GPUS * CPUS_PER_GPU))
 NUM_MEMS=$((NUM_GPUS * MEM_PER_GPU))
 
 # 设置 master port
-export MASTER_PORT=$(expr $RANDOM % 10000 + 50000)
+export MASTER_PORT=${MASTER_PORT:-$(expr $RANDOM % 10000 + 50000)}
 
 # 优化 NCCL
 export NCCL_GRAPH_MIXING_SUPPORT=${NCCL_GRAPH_MIXING_SUPPORT:-0}
@@ -42,12 +43,14 @@ echo "Running with $NODES nodes, $NUM_GPUS GPUs per node"
 echo "Partition: $PARTITION"
 echo "Job name: $JOB_NAME"
 echo "MASTER_PORT: $MASTER_PORT"
+echo "Extra srun args: ${SRUN_EXTRA_ARGS:-<none>}"
 
 # 若从 login 或过期 salloc 运行，清除旧 SLURM 变量，让 srun 申请新分配，避免 "Invalid job id"
 unset SLURM_JOB_ID SLURM_STEP_ID SLURM_NTASKS SLURM_NTASKS_PER_NODE 2>/dev/null || true
 
 # 使用 wrapper 脚本
 srun -p "$PARTITION" \
+     $SRUN_EXTRA_ARGS \
      --job-name $JOB_NAME \
      --nodes $NODES \
      --ntasks-per-node $NUM_GPUS \

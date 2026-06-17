@@ -56,6 +56,37 @@ def _size() -> tuple[int, int]:
     return width, height
 
 
+def _flexcache_params() -> dict | None:
+    raw = os.getenv("CHITUBENCH_FLEXCACHE_PARAMS", "").strip()
+    if not raw:
+        return None
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("CHITUBENCH_FLEXCACHE_PARAMS must be a JSON object.")
+    return payload
+
+
+def _flexcache_sweep() -> list[tuple[str, dict | None]] | None:
+    raw = os.getenv("CHITUBENCH_FLEXCACHE_SWEEP", "").strip()
+    if not raw:
+        return None
+    payload = json.loads(raw)
+    if not isinstance(payload, list):
+        raise ValueError("CHITUBENCH_FLEXCACHE_SWEEP must be a JSON list.")
+    sweep = []
+    for idx, item in enumerate(payload):
+        if not isinstance(item, dict):
+            raise ValueError(f"CHITUBENCH_FLEXCACHE_SWEEP item #{idx} must be a JSON object.")
+        case_id = str(item.get("case_id") or item.get("id") or "").strip()
+        if not case_id:
+            raise ValueError(f"CHITUBENCH_FLEXCACHE_SWEEP item #{idx} must include case_id.")
+        params = item.get("flexcache_params")
+        if params is not None and not isinstance(params, dict):
+            raise ValueError(f"CHITUBENCH_FLEXCACHE_SWEEP item #{idx}.flexcache_params must be an object or null.")
+        sweep.append((case_id, params))
+    return sweep
+
+
 def build_requests(args: ServeConfig) -> list[DiffusionUserRequest]:
     case_id = os.getenv("CHITUBENCH_CASE_ID", "").strip() or str(args.infer.attn_type)
     prompt_file = Path(os.getenv("CHITUBENCH_PROMPT_FILE", str(DEFAULT_PROMPT_FILE))).resolve()
@@ -63,6 +94,7 @@ def build_requests(args: ServeConfig) -> list[DiffusionUserRequest]:
     seeds = _seeds()
     steps = _steps(args)
     size = _size()
+    sweep = _flexcache_sweep() or [(case_id, _flexcache_params())]
     requests = []
 
     warmup_runs = int(os.getenv("CHITUBENCH_WARMUP_RUNS", "1"))
@@ -80,27 +112,30 @@ def build_requests(args: ServeConfig) -> list[DiffusionUserRequest]:
                     size=size,
                     num_inference_steps=steps,
                     sample_solver="flowmatch_euler",
+                    flexcache_params=sweep[0][1],
                 ),
             )
         )
 
-    for prompt_item in prompt_items:
-        for seed in seeds:
-            requests.append(
-                DiffusionUserRequest(
-                    request_id=f"{case_id}_{prompt_item['id']}_seed{seed}",
-                    params=DiffusionUserParams(
-                        role=case_id,
-                        prompt=prompt_item["prompt"],
-                        negative_prompt=" ",
-                        seed=seed,
-                        frame_num=1,
-                        size=size,
-                        num_inference_steps=steps,
-                        sample_solver="flowmatch_euler",
-                    ),
+    for request_case_id, flexcache_params in sweep:
+        for prompt_item in prompt_items:
+            for seed in seeds:
+                requests.append(
+                    DiffusionUserRequest(
+                        request_id=f"{request_case_id}_{prompt_item['id']}_seed{seed}",
+                        params=DiffusionUserParams(
+                            role=request_case_id,
+                            prompt=prompt_item["prompt"],
+                            negative_prompt=" ",
+                            seed=seed,
+                            frame_num=1,
+                            size=size,
+                            num_inference_steps=steps,
+                            sample_solver="flowmatch_euler",
+                            flexcache_params=flexcache_params,
+                        ),
+                    )
                 )
-            )
     return requests
 
 

@@ -1,0 +1,21 @@
+[
+  {
+    "experiment_id": "qwen_image_parallel",
+    "run_dir": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/qwen_image_parallel/qwen_image_cfp2up4_8gpu_20260616_154411/chitubench-qwen-image-parallel-cfp2up4_8gpu-20260616_154411-cfp2up4_8gpu",
+    "run_name": "chitubench-qwen-image-parallel-cfp2up4_8gpu-20260616_154411-cfp2up4_8gpu",
+    "case": "cfp2up4_8gpu",
+    "task_id": "cfp2up4_8gpu_coffee_sign_seed42",
+    "prompt": "A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee $2 per cup\", with a neon light beside it displaying \"ChituDiffusion\". Ultra HD, 4K, cinematic composition.",
+    "seed": 42,
+    "steps": 50,
+    "attn_type": "flash_attn",
+    "cp_size": 4,
+    "dit_forward_ms": 25688.183788210154,
+    "dit_forward_s": 25.688183788210154,
+    "dit_forward_samples": 50,
+    "psnr": null,
+    "ssim": null,
+    "one_minus_lpips": null,
+    "hpsv3_score": null
+  }
+]

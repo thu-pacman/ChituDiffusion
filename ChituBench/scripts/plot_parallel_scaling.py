@@ -15,6 +15,11 @@ CASE_ORDER = [
     "ring_8gpu",
     "usp_r4u2_8gpu",
     "ulysses_8gpu",
+    "cfp1up2_2gpu",
+    "cfp2_2gpu",
+    "cfp2up2_4gpu",
+    "cfp2ring2_4gpu",
+    "cfp2up4_8gpu",
 ]
 CASE_LABELS = {
     "baseline_1gpu": "1 GPU",
@@ -26,6 +31,11 @@ CASE_LABELS = {
     "ring_8gpu": "Ring",
     "usp_r4u2_8gpu": "USP r4u2",
     "ulysses_8gpu": "Ulysses",
+    "cfp1up2_2gpu": "CFP1+UP2",
+    "cfp2_2gpu": "CFP2",
+    "cfp2up2_4gpu": "CFP2+UP2",
+    "cfp2ring2_4gpu": "CFP2+Ring2",
+    "cfp2up4_8gpu": "CFP2+UP4",
 }
 GPU_COUNT = {
     "baseline_1gpu": 1,
@@ -37,24 +47,58 @@ GPU_COUNT = {
     "ring_8gpu": 8,
     "usp_r4u2_8gpu": 8,
     "ulysses_8gpu": 8,
+    "cfp1up2_2gpu": 2,
+    "cfp2_2gpu": 2,
+    "cfp2up2_4gpu": 4,
+    "cfp2ring2_4gpu": 4,
+    "cfp2up4_8gpu": 8,
 }
 COLORS = {
     "baseline": "#2f3437",
     "ring": "#3b82f6",
     "ulysses": "#ef8a47",
     "usp": "#10a37f",
+    "cfg": "#10a37f",
+    "cfg_ring": "#3b82f6",
+    "cfg_up": "#ef8a47",
 }
-MARKERS = {"baseline": "o", "ring": "o", "ulysses": "s", "usp": "^"}
-X_OFFSETS = {"baseline": 0.0, "ring": -0.08, "usp": 0.0, "ulysses": 0.08}
+MARKERS = {"baseline": "o", "ring": "o", "ulysses": "s", "usp": "^", "cfg": "^", "cfg_ring": "o", "cfg_up": "s"}
+METHOD_LABELS = {
+    "baseline": "1 GPU baseline",
+    "ring": "Ring",
+    "ulysses": "Ulysses",
+    "usp": "USP",
+    "cfg": "CFP",
+    "cfg_ring": "CFP + Ring",
+    "cfg_up": "CFP + UP",
+}
+X_OFFSETS = {
+    "baseline": 0.0,
+    "ring": -0.08,
+    "usp": 0.0,
+    "ulysses": 0.08,
+    "cfg": 0.0,
+    "cfg_ring": -0.08,
+    "cfg_up": 0.08,
+}
 LABEL_OFFSETS = {
     "baseline": (0, 8),
     "ring": (-8, -18),
     "usp": (0, 9),
     "ulysses": (8, 10),
+    "cfg": (0, 9),
+    "cfg_ring": (-8, -18),
+    "cfg_up": (8, 10),
 }
 
 
 def method_for_case(case: str) -> str:
+    if case == "cfp2_2gpu":
+        return "cfg"
+    if "ring" in case:
+        return "cfg_ring" if case.startswith("cfp") else "ring"
+    if "up" in case:
+        return "cfg_up" if case.startswith("cfp") else "ulysses"
     if case.startswith("ring"):
         return "ring"
     if case.startswith("ulysses"):
@@ -164,20 +208,32 @@ def main() -> int:
     axes[1].set_xticks(gpu_ticks)
     axes[0].set_xlim(min(gpu_ticks) - 0.45, max(gpu_ticks) + 0.45)
     axes[1].set_xlim(min(gpu_ticks) - 0.45, max(gpu_ticks) + 0.45)
-    axes[0].set_xlabel("CP size / GPUs")
-    axes[1].set_xlabel("CP size / GPUs")
+    axes[0].set_xlabel("GPUs")
+    axes[1].set_xlabel("GPUs")
     axes[0].set_ylabel("Mean DiT forward time (s)")
     axes[1].set_ylabel("Speedup vs 1 GPU")
     axes[0].set_title("Latency")
     axes[1].set_title("Scaling")
 
+    methods = []
+    for row in ordered:
+        method = method_for_case(row["case"])
+        if method not in methods:
+            methods.append(method)
     legend_items = [
-        Line2D([0], [0], marker=MARKERS["baseline"], color="none", markerfacecolor=COLORS["baseline"], markeredgecolor="white", markersize=9, label="1 GPU baseline"),
-        Line2D([0], [0], marker=MARKERS["ring"], color="none", markerfacecolor=COLORS["ring"], markeredgecolor="white", markersize=9, label="Ring"),
-        Line2D([0], [0], marker=MARKERS["ulysses"], color="none", markerfacecolor=COLORS["ulysses"], markeredgecolor="white", markersize=9, label="Ulysses"),
-        Line2D([0], [0], marker=MARKERS["usp"], color="none", markerfacecolor=COLORS["usp"], markeredgecolor="white", markersize=9, label="USP"),
-        Line2D([0], [0], color="#a79f92", linewidth=1.2, linestyle=(0, (4, 4)), label="Ideal"),
+        Line2D(
+            [0],
+            [0],
+            marker=MARKERS[method],
+            color="none",
+            markerfacecolor=COLORS[method],
+            markeredgecolor="white",
+            markersize=9,
+            label=METHOD_LABELS[method],
+        )
+        for method in methods
     ]
+    legend_items.append(Line2D([0], [0], color="#a79f92", linewidth=1.2, linestyle=(0, (4, 4)), label="Ideal"))
     fig.legend(handles=legend_items, loc="lower center", ncol=5, frameon=False, bbox_to_anchor=(0.5, -0.01))
     fig.suptitle(args.title, fontsize=15, fontweight="semibold", color="#25211d")
     fig.tight_layout(rect=(0, 0.09, 1, 0.92), w_pad=2.0)

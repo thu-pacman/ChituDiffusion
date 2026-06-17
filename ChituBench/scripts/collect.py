@@ -3,6 +3,7 @@ import argparse
 import csv
 import json
 import math
+import re
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -175,7 +176,14 @@ def merge_rows(existing: list[dict[str, Any]], new_rows: list[dict[str, Any]]) -
     return list(merged.values())
 
 
-def plot(experiment_dir: Path, summary_rows: list[dict[str, Any]], title: str, experiment_id: str) -> None:
+def plot(
+    experiment_dir: Path,
+    summary_rows: list[dict[str, Any]],
+    title: str,
+    experiment_id: str,
+    *,
+    point_labels: bool = True,
+) -> None:
     try:
         import matplotlib.pyplot as plt
     except Exception as exc:
@@ -191,10 +199,11 @@ def plot(experiment_dir: Path, summary_rows: list[dict[str, Any]], title: str, e
     ]
     family_style = {
         "origin": ("#222222", "o"),
-        "teacache": ("#7c3aed", "P"),
+        "teacache": ("#a855f7", "P"),
         "pab": ("#dc2626", "s"),
         "blockdance": ("#2563eb", "^"),
         "cubic": ("#059669", "D"),
+        "meancache": ("#6d28d9", "X"),
         "taylorseer": ("#d97706", "v"),
         "sage": ("#0f766e", "X"),
         "sparge": ("#9333ea", "*"),
@@ -203,27 +212,92 @@ def plot(experiment_dir: Path, summary_rows: list[dict[str, Any]], title: str, e
     }
 
     def family_for_case(case: str) -> str:
+        for prefix in ("qwen_", "flux1_", "flux2_"):
+            if case.startswith(prefix):
+                case = case[len(prefix) :]
+                break
         if case == "origin_flash":
             return "origin"
-        for family in ("teacache", "pab", "blockdance", "cubic", "taylorseer", "sage", "sparge"):
+        for family in ("teacache", "meancache", "pab", "blockdance", "cubic", "taylorseer", "sage", "sparge"):
             if case.startswith(family):
                 return family
         if case.startswith("torch_sdpa"):
             return "torch_sdpa"
         return "other"
+
+    def display_label(case: str) -> str:
+        qwen_labels = {
+            "torch_sdpa": "torch_sdpa",
+            "qwen_pab50_cfp2": "pab50",
+            "qwen_blockdance50_cfp2": "bd50",
+            "qwen_cubic15_50_cfp2": "cubic1.5",
+            "qwen_cubic30_w9c1_tau10_50_cfp2": "cubic3.0",
+            "qwen_meancache25_50_cfp2": "mc25",
+            "qwen_meancache17_50_cfp2": "mc17",
+            "qwen_meancache10_50_cfp2": "mc10",
+        }
+        if case in qwen_labels:
+            return qwen_labels[case]
+        match = re.match(r"(?:qwen|flux1|flux2)_pab_s(\d+)c(\d+)_", case)
+        if match:
+            return f"pab{match.group(1)}/{match.group(2)}"
+        match = re.match(r"(?:qwen|flux1|flux2)_blockdance_g(\d+)_", case)
+        if match:
+            return f"bd-g{match.group(1)}"
+        match = re.match(r"(?:qwen|flux1|flux2)_cubic(\d+)_", case)
+        if match:
+            value = int(match.group(1)) / 10.0
+            return f"cubic{value:g}"
+        match = re.match(r"(?:qwen|flux1|flux2)_meancache(\d+)_", case)
+        if match:
+            return f"mc{match.group(1)}"
+        label = case
+        for prefix in ("qwen_", "teacache_", "meancache_", "blockdance_", "taylorseer_", "cubic_"):
+            if label.startswith(prefix):
+                label = label[len(prefix) :]
+        return label
+
+    def label_offset(label: str, metric: str) -> tuple[int, int]:
+        offsets = {
+            "bd50": (7, 10),
+            "bd-g3": (7, -4),
+            "bd-g4": (7, -16),
+            "pab50": (7, 5),
+            "pab3/4": (7, -12),
+            "pab4/5": (7, 12),
+            "cubic1.5": (7, 5),
+            "cubic2": (7, 8),
+            "cubic3": (7, -12),
+            "torch_sdpa": (7, 8),
+        }
+        if metric == "one_minus_lpips_mean":
+            offsets.update(
+                {
+                    "bd50": (7, 9),
+                    "bd-g3": (7, 0),
+                    "bd-g4": (7, -10),
+                    "pab50": (7, 4),
+                    "pab3/4": (7, -13),
+                    "pab4/5": (7, 12),
+                    "cubic2": (7, 8),
+                    "cubic3": (7, -13),
+                }
+            )
+        return offsets.get(label, (6, 5))
+
     x_metric = "dit_forward_s_mean" if experiment_id == "qwen_image_attention" else "speedup_vs_origin"
-    x_label = "DiT forward latency (s, lower is better)" if experiment_id == "qwen_image_attention" else "Speedup vs origin_flash"
+    x_label = "DiT forward latency (s, lower is better)" if experiment_id == "qwen_image_attention" else "Speedup vs torch_sdpa" if experiment_id == "qwen_image_flexcache" else "Speedup vs origin_flash"
     rows = [row for row in summary_rows if row.get(x_metric) is not None and math.isfinite(float(row[x_metric]))]
     plt.rcParams.update(
         {
-            "font.size": 10,
-            "axes.titlesize": 12,
+            "font.size": 9.5,
+            "axes.titlesize": 11.5,
             "axes.labelsize": 10,
-            "xtick.labelsize": 9,
-            "ytick.labelsize": 9,
+            "xtick.labelsize": 8.5,
+            "ytick.labelsize": 8.5,
         }
     )
-    fig, axes = plt.subplots(1, 2, figsize=(11.7, 4.4), sharex=True)
+    fig, axes = plt.subplots(1, 2, figsize=(10.8, 4.15), sharex=True)
     legend_handles = {}
     for ax, (metric, panel_title, ylabel) in zip(axes, metrics):
         points = [row for row in rows if row.get(metric) is not None and math.isfinite(float(row[metric]))]
@@ -254,28 +328,32 @@ def plot(experiment_dir: Path, summary_rows: list[dict[str, Any]], title: str, e
                 x_values,
                 y_values,
                 color=color,
-                linewidth=1.7 if len(family_points) > 1 else 0,
-                alpha=0.78,
+                linewidth=1.85 if len(family_points) > 1 else 0,
+                alpha=0.85,
                 zorder=2,
             )[0]
             scatter = ax.scatter(
                 x_values,
                 y_values,
-                s=88,
+                s=78,
                 color=color,
                 marker=marker,
                 edgecolor="white",
-                linewidth=1.1,
+                linewidth=1.0,
                 zorder=3,
             )
             legend_handles.setdefault(family, scatter if len(family_points) == 1 else line)
-            for row, x, y in zip(family_points, x_values, y_values):
-                case = str(row["case"])
-                label = case
-                for prefix in ("teacache_", "blockdance_", "taylorseer_", "cubic_"):
-                    if label.startswith(prefix):
-                        label = label[len(prefix) :]
-                ax.annotate(label, (x, y), xytext=(6, 5), textcoords="offset points", fontsize=7.5, color="#374151")
+            if point_labels:
+                for row, x, y in zip(family_points, x_values, y_values):
+                    label = display_label(str(row["case"]))
+                    ax.annotate(
+                        label,
+                        (x, y),
+                        xytext=label_offset(label, metric),
+                        textcoords="offset points",
+                        fontsize=7.5,
+                        color="#374151",
+                    )
         if experiment_id != "qwen_image_attention":
             ax.axvline(1.0, color="#9ca3af", linewidth=1, linestyle="--")
         ax.set_title(panel_title)
@@ -289,18 +367,31 @@ def plot(experiment_dir: Path, summary_rows: list[dict[str, Any]], title: str, e
             "pab": "PAB",
             "blockdance": "BlockDance",
             "cubic": "Cubic",
+            "meancache": "MeanCache",
             "taylorseer": "TaylorSeer",
-            "sage": "SageAttention",
-            "sparge": "SpargeAttn",
+            "sage": "Sage",
+            "sparge": "Sparge",
             "torch_sdpa": "Torch SDPA",
             "other": "Other",
         }
-        order = ["origin", "blockdance", "cubic", "pab", "taylorseer", "teacache", "sage", "sparge", "torch_sdpa", "other"]
+        order = ["origin", "blockdance", "cubic", "pab", "taylorseer", "teacache", "meancache", "sage", "sparge", "torch_sdpa", "other"]
         handles = [legend_handles[key] for key in order if key in legend_handles]
         labels = [family_labels[key] for key in order if key in legend_handles]
-        fig.legend(handles, labels, loc="lower center", ncol=min(len(labels), 6), frameon=False, fontsize=9)
-    fig.suptitle(title, y=0.99, fontsize=14, fontweight="semibold")
-    fig.tight_layout(rect=(0, 0.08, 1, 0.94), w_pad=2.0)
+        fig.legend(
+            handles,
+            labels,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 0.015),
+            ncol=max(1, len(labels)),
+            frameon=False,
+            fontsize=8.8,
+            handlelength=1.8,
+            columnspacing=1.1,
+            handletextpad=0.5,
+            borderaxespad=0.0,
+        )
+    fig.suptitle(title, y=0.965, fontsize=13.5, fontweight="semibold")
+    fig.tight_layout(rect=(0, 0.095, 1, 0.91), w_pad=1.7)
     fig.savefig(plot_dir / "speed_quality.png", dpi=220)
     plt.close(fig)
 
@@ -311,6 +402,7 @@ def main() -> int:
     parser.add_argument("--experiment-id", default="flux1_dev_attention")
     parser.add_argument("--allow-partial", action="store_true")
     parser.add_argument("--title", default="Flux Attention Backend Trade-off")
+    parser.add_argument("--no-point-labels", action="store_true", help="Hide per-point text labels on the plot.")
     args = parser.parse_args()
 
     experiment_dir = Path(args.experiment_dir).resolve()
@@ -339,7 +431,7 @@ def main() -> int:
     write_table(experiment_dir / "summary.csv", summary_rows)
     (experiment_dir / "raw_rows.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
     (experiment_dir / "summary.json").write_text(json.dumps(summary_rows, indent=2), encoding="utf-8")
-    plot(experiment_dir, summary_rows, args.title, args.experiment_id)
+    plot(experiment_dir, summary_rows, args.title, args.experiment_id, point_labels=not args.no_point_labels)
     print(f"Wrote {experiment_dir / 'summary.csv'}")
     return 0
 
