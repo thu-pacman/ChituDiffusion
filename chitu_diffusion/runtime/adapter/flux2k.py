@@ -16,6 +16,7 @@ from chitu_diffusion.modules.utils.flux import (
 )
 from chitu_diffusion.runtime.adapter.base import as_list, device_scope, register_model_runtime, set_cfg_type
 from chitu_diffusion.runtime.adapter.flux1 import FluxRuntimeAdapter
+from chitu_diffusion.runtime.parallel_vae import parallel_tiled_vae_decode
 
 logger = getLogger(__name__)
 
@@ -147,8 +148,11 @@ class Flux2RuntimeAdapter(FluxRuntimeAdapter):
         return task.buffer.sampler.step(pred, t_curr, task.buffer.latents, return_dict=False)[0]
 
     def decode_latents(self, task, generator, backend) -> Optional[torch.Tensor]:
-        if torch.distributed.get_rank() != 0:
-            return None
+        # Latents are replicated on every rank after denoise, so all ranks prepare
+        # them identically and split the VAE decode spatially (parallel_vae). For a
+        # 4-step distilled model the DiT is tiny, so VAE decode dominates end-to-end
+        # latency -- this is where parallel decode pays off most. Falls back to
+        # rank-0-only decode when disabled or single-GPU.
         latents = unpack_flux2_latents_with_ids(task.buffer.latents, task.buffer.latent_image_ids)
         latents_bn_mean = backend.vae.bn.running_mean.view(1, -1, 1, 1).to(latents.device, latents.dtype)
         latents_bn_std = torch.sqrt(
@@ -156,5 +160,17 @@ class Flux2RuntimeAdapter(FluxRuntimeAdapter):
         ).to(latents.device, latents.dtype)
         latents = latents * latents_bn_std + latents_bn_mean
         latents = unpatchify_flux2_latents(latents)
-        with device_scope(backend.vae, backend):
-            return backend.vae.decode(latents, return_dict=False)[0]
+
+        def _decode(z: torch.Tensor) -> torch.Tensor:
+            with device_scope(backend.vae, backend):
+                return backend.vae.decode(z, return_dict=False)[0]
+
+        # latents: [B, C, H_lat, W_lat] -> split on H_lat (dim 2);
+        # decoded pixels: [B, 3, H, W] -> H is dim 2; AutoencoderKLFlux2 upsamples 8x.
+        return parallel_tiled_vae_decode(
+            latents,
+            _decode,
+            latent_split_dim=2,
+            pixel_split_dim=2,
+            scale=8,
+        )

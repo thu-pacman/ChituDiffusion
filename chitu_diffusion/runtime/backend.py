@@ -329,6 +329,70 @@ class DiffusionBackend:
         )
 
     @staticmethod
+    def gpu_mem_info() -> tuple[int, int]:
+        """Return (free_bytes, total_bytes) for the current CUDA device.
+
+        Reports true device-level free memory (driver view), not just the
+        PyTorch allocator's reserved pool, so residency decisions reflect what
+        other processes / NCCL buffers are actually using.
+        """
+        if not torch.cuda.is_available():
+            return (0, 0)
+        try:
+            return torch.cuda.mem_get_info()
+        except Exception:
+            props = torch.cuda.get_device_properties(torch.cuda.current_device())
+            total = int(props.total_memory)
+            return (total - int(torch.cuda.memory_reserved()), total)
+
+    @staticmethod
+    def _offload_policy() -> str:
+        env = os.getenv("CHITU_OFFLOAD_POLICY")
+        if env:
+            return env.strip().lower()
+        try:
+            return str(getattr(DiffusionBackend.args.infer.diffusion, "offload_policy", "auto")).lower()
+        except Exception:
+            return "auto"
+
+    @staticmethod
+    def should_keep_resident(model: torch.nn.Module, already_resident: bool) -> bool:
+        """Decide whether `device_scope` should keep `model` on GPU after use.
+
+        Policy (config `infer.diffusion.offload_policy`, env `CHITU_OFFLOAD_POLICY`):
+          * never_offload -> always keep resident.
+          * always_offload -> never keep resident (legacy: move back + empty_cache).
+          * auto (default):
+              - models already resident on the current GPU stay resident; offloading
+                them would only churn the allocator (empty_cache) for no benefit,
+                since they were loaded on GPU precisely because memory allowed it;
+              - a CPU-offloaded model that was just promoted is kept resident only
+                when comfortable headroom remains (>=15% of total or >=3 GB free),
+                otherwise it is offloaded again as before.
+        """
+        policy = DiffusionBackend._offload_policy()
+        if policy in ("never_offload", "never", "resident", "keep"):
+            return True
+        if policy in ("always_offload", "always", "offload"):
+            return False
+        # auto
+        if already_resident:
+            return True
+        free, total = DiffusionBackend.gpu_mem_info()
+        if total <= 0:
+            return False
+        min_free = max(int(0.15 * total), 3 * 1024**3)
+        keep = free >= min_free
+        logger.info(
+            "[device_scope][auto] promote-to-resident=%s free=%.2fGB total=%.2fGB threshold=%.2fGB",
+            keep,
+            free / 1024**3,
+            total / 1024**3,
+            min_free / 1024**3,
+        )
+        return keep
+
+    @staticmethod
     def switch_active_model(flush: bool):
         """
         Switch the active DiT model on GPU.

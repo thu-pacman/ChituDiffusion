@@ -20,6 +20,7 @@ from chitu_diffusion.runtime.adapter.base import (
     register_model_runtime,
     set_cfg_type,
 )
+from chitu_diffusion.runtime.parallel_vae import parallel_tiled_vae_decode
 
 logger = getLogger(__name__)
 
@@ -224,8 +225,9 @@ class Flux1RuntimeAdapter(FluxRuntimeAdapter):
         return latents
 
     def decode_latents(self, task, generator, backend) -> Optional[torch.Tensor]:
-        if torch.distributed.get_rank() != 0:
-            return None
+        # Latents are replicated on every rank after denoise, so all ranks prepare
+        # them identically and split the VAE decode spatially (parallel_vae); falls
+        # back to rank-0-only decode when disabled or single-GPU.
         width, height = task.buffer.image_size or task.req.params.size
         latents = unpack_flux1_latents(
             task.buffer.latents,
@@ -234,5 +236,17 @@ class Flux1RuntimeAdapter(FluxRuntimeAdapter):
             vae_scale_factor=16,
         )
         latents = (latents / backend.vae.config.scaling_factor) + backend.vae.config.shift_factor
-        with device_scope(backend.vae, backend):
-            return backend.vae.decode(latents, return_dict=False)[0]
+
+        def _decode(z: torch.Tensor) -> torch.Tensor:
+            with device_scope(backend.vae, backend):
+                return backend.vae.decode(z, return_dict=False)[0]
+
+        # latents: [B, C, H_lat, W_lat] -> split on H_lat (dim 2);
+        # decoded pixels: [B, 3, H, W] -> H is dim 2; the AutoencoderKL upsamples 8x.
+        return parallel_tiled_vae_decode(
+            latents,
+            _decode,
+            latent_split_dim=2,
+            pixel_split_dim=2,
+            scale=8,
+        )

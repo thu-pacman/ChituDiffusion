@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from logging import getLogger
 from math import prod
 from typing import Any, Callable, Optional
@@ -11,6 +12,7 @@ import torch.distributed as dist
 from chitu_diffusion.core.distributed.parallel_state import get_cp_group
 from chitu_diffusion.runtime.adapter.base import DiffusionRuntimeAdapter, register_model_runtime, set_cfg_type
 from chitu_diffusion.runtime.parallel_utils import SequencePadder
+from chitu_diffusion.runtime.parallel_vae import parallel_tiled_vae_decode
 
 logger = getLogger(__name__)
 
@@ -25,9 +27,18 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         self.transformer = None
         self._configured_attn_backend = None
         self._cp_wrapped = False
+        self._pipeline_device = None
 
     def schedule_each_stage(self) -> bool:
-        return True
+        # Re-dispatching the full task (including buffer tensors) after every stage
+        # is redundant for Qwen-Image: `_update_task_stage_and_buffer` advances
+        # current_step/latents deterministically on every rank, initial noise is
+        # built from a seed-only CUDA generator (identical across ranks), and CFG
+        # all_gather + identical scheduler steps keep buffers replicated. Pinning the
+        # task across stages (like Flux/Wan) avoids 50+ serialize+broadcast round
+        # trips per image. Set CHITU_QWEN_SCHEDULE_EACH_STAGE=1 to restore the old
+        # per-stage re-dispatch behavior.
+        return os.getenv("CHITU_QWEN_SCHEDULE_EACH_STAGE", "0") == "1"
 
     def supports_cfg(self, args: Any) -> bool:
         return float(args.models.sampler.guidance_scale[0]) > 1.0
@@ -40,7 +51,16 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
 
     def _ensure_pipeline(self, args: Any, device: torch.device):
         if self.pipeline is not None:
-            self.pipeline.to(device)
+            # `.to(device)` walks every parameter/buffer of the whole pipeline
+            # (transformer + VAE + text encoder); doing it on every stage call
+            # (denoise runs it 1-2x per step) costs ~tens of ms per step for no
+            # reason once the pipeline is resident. Only move when the target
+            # device actually changes, or when low-memory offload is active and
+            # modules may have been swapped to CPU between stages.
+            low_mem = int(getattr(getattr(args.infer, "diffusion", None), "low_mem_level", 0) or 0)
+            if low_mem > 0 or self._pipeline_device != device:
+                self.pipeline.to(device)
+                self._pipeline_device = device
             return self.pipeline
 
         if self.text_encoder is None or self.vae is None or self.transformer is None:
@@ -70,6 +90,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         pipe.set_progress_bar_config(disable=True)
         pipe._attention_kwargs = {}
         self.pipeline = pipe
+        self._pipeline_device = device
         logger.info("Initialized Qwen-Image stage helper pipeline.")
         return pipe
 
@@ -705,8 +726,9 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         return latents
 
     def decode_latents(self, task, generator, backend) -> Optional[torch.Tensor]:
-        if torch.distributed.get_rank() != 0:
-            return None
+        # The full latent is replicated on every rank after denoise, so all ranks
+        # prepare it identically and split the VAE decode spatially (parallel_vae);
+        # this falls back to rank-0-only decode when disabled or single-GPU.
         device = torch.device(torch.cuda.current_device())
         self._move_task_tensors_to_device(task, device)
         pipe = self._ensure_pipeline(backend.args, device)
@@ -725,7 +747,19 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             .to(latents.device, latents.dtype)
         )
         latents = latents / latents_std + latents_mean
-        return pipe.vae.decode(latents, return_dict=False)[0][:, :, 0]
+
+        def _decode(z: torch.Tensor) -> torch.Tensor:
+            return pipe.vae.decode(z, return_dict=False)[0][:, :, 0]
+
+        # latents: [B, C, 1, H_lat, W_lat] -> split on H_lat (dim 3);
+        # decoded pixels: [B, 3, H, W] -> H is dim 2; VAE upsamples by vae_scale_factor.
+        return parallel_tiled_vae_decode(
+            latents,
+            _decode,
+            latent_split_dim=3,
+            pixel_split_dim=2,
+            scale=int(pipe.vae_scale_factor),
+        )
 
     def save_output(self, task, output: Optional[torch.Tensor], generator, backend) -> None:
         if torch.distributed.get_rank() == 0:

@@ -14,25 +14,51 @@ logger = getLogger(__name__)
 
 @contextmanager
 def device_scope(model: torch.nn.Module, backend):
-    original_device = None
-    if model is not None and torch.cuda.is_available():
-        try:
-            first_param = next(model.parameters())
-            original_device = first_param.device
-        except StopIteration:
-            original_device = None
-        model.to(torch.cuda.current_device())
+    """Make `model` available on the current CUDA device for the duration.
+
+    Residency is decided adaptively by `backend.should_keep_resident` (config
+    `infer.diffusion.offload_policy`): when VRAM is ample, an already-resident
+    model is left in place and we skip the `empty_cache()` that would otherwise
+    churn the allocator every stage; under memory pressure (or `always_offload`)
+    the model is moved back to its origin device and the cache is emptied, as
+    before. This keeps the low-memory path intact while removing per-stage
+    offload overhead when it is not needed.
+    """
+    if model is None or not torch.cuda.is_available():
+        yield model
+        return
+
+    cur_idx = torch.cuda.current_device()
+    try:
+        original_device = next(model.parameters()).device
+    except StopIteration:
+        original_device = None
+    already_resident = (
+        original_device is not None
+        and original_device.type == "cuda"
+        and original_device.index == cur_idx
+    )
+    if not already_resident:
+        model.to(cur_idx)
+
+    keep_resident = True
+    try:
+        keep_resident = backend.should_keep_resident(model, already_resident)
+    except Exception:
+        # Be conservative on any policy error: fall back to legacy offload.
+        keep_resident = False
 
     try:
-        backend.memory_used(f"Loaded model to {torch.cuda.current_device()}")
         yield model
     finally:
-        if model is not None:
-            target_device = original_device if original_device is not None else "cpu"
-            model.to(target_device)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            backend.memory_used(f"Offloaded {target_device}")
+        if keep_resident:
+            # Leave the model on GPU and intentionally skip empty_cache() to avoid
+            # allocator thrash; the cached blocks are reused by the next stage.
+            return
+        target_device = original_device if original_device is not None else torch.device("cpu")
+        model.to(target_device)
+        torch.cuda.empty_cache()
+        backend.memory_used(f"Offloaded {target_device}")
 
 
 @dataclass(frozen=True)

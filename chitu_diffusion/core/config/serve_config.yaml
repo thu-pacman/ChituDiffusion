@@ -42,6 +42,7 @@ infer:
     cp_size: 1
     up: 8
     low_mem_level: 0
+    offload_policy: auto # one of: auto, always_offload, never_offload
 
 eval:
   eval_type: [] # list items in: vbench, fid, fvd, psnr, ssim, lpips

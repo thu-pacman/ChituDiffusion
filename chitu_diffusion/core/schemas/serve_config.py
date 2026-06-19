@@ -66,6 +66,12 @@ class InferConfig:
         cp_size: int = MISSING
         up: int = MISSING
         low_mem_level: int = MISSING # In low gpu memory mode, models will be offloaded to cpu and only loaded in needed stage. 
+        # Controls per-stage model residency (device_scope) for VAE / text encoder:
+        #   "auto"           -> keep already-resident models on GPU (skip empty_cache thrash);
+        #                       promote CPU-offloaded models to resident when free VRAM allows.
+        #   "always_offload" -> legacy behavior: move back to origin + empty_cache every stage.
+        #   "never_offload"  -> always keep models resident on GPU.
+        offload_policy: str = "auto"
 
     diffusion: DiffusionConfig = MISSING
 
