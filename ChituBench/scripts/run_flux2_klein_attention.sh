@@ -72,7 +72,8 @@ fi
   --title "$PLOT_TITLE"
 "$PYTHON_BIN" "$BENCH_DIR/scripts/make_contact_sheet.py" "$RESULT_ROOT" \
   --seed "$CHITUBENCH_BASE_SEED" \
-  --title "$CONTACT_TITLE"
+  --title "$CONTACT_TITLE" \
+  --experiment-id "$EXPERIMENT_ID"
 
 mkdir -p "$BENCH_DIR/plots/$EXPERIMENT_ID"
 cp "$RESULT_ROOT/plots/speed_quality.png" "$BENCH_DIR/plots/$EXPERIMENT_ID/speed_quality_${RUN_ID}.png"

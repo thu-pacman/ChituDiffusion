@@ -13,6 +13,8 @@ import torch.nn.functional as F
 from PIL import Image
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
+from chitu_diffusion.evaluation.utils.reference_metrics import align_video_pair, load_video_frames
+
 
 def read_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as f:
@@ -43,22 +45,60 @@ def sidecar_for_image(image_path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def image_for_task(run_dir: Path, task_id: str) -> Path | None:
+def output_for_task(run_dir: Path, task_id: str) -> Path | None:
     task_dir = run_dir / "results" / task_id
     if not task_dir.exists():
         return None
     for sidecar in sorted(task_dir.glob("*.json")):
         payload = maybe_json(sidecar)
         if isinstance(payload, dict) and payload.get("filename"):
-            image_path = task_dir / str(payload["filename"])
-            if image_path.exists():
-                return image_path
+            output_path = task_dir / str(payload["filename"])
+            if output_path.exists():
+                return output_path
     matches = sorted(task_dir.glob("*.png"))
+    if matches:
+        return matches[0]
+    matches = sorted(task_dir.glob("*.mp4"))
     return matches[0] if matches else None
 
 
 def load_rgb(path: Path) -> np.ndarray:
     return np.asarray(Image.open(path).convert("RGB"), dtype=np.float32)
+
+
+def is_video_path(path: Path) -> bool:
+    return path.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+
+
+def representative_rgb(path: Path, frame_index: int = -1) -> np.ndarray:
+    if not is_video_path(path):
+        return load_rgb(path)
+    frames = load_video_frames(str(path), max_frames=-1)
+    if len(frames) == 0:
+        raise ValueError(f"failed to read frames from {path}")
+    idx = len(frames) // 2 if frame_index < 0 else min(max(frame_index, 0), len(frames) - 1)
+    return frames[idx].astype(np.float32)
+
+
+def representative_image_for_hpsv3(path: Path, output_dir: Path, frame_index: int = -1) -> Path:
+    if not is_video_path(path):
+        return path
+    cache_dir = output_dir / "hpsv3_frames"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / f"{path.stem}_frame{'mid' if frame_index < 0 else frame_index}.png"
+    if not cache_path.exists():
+        frame = representative_rgb(path, frame_index=frame_index).clip(0, 255).astype("uint8")
+        Image.fromarray(frame).save(cache_path)
+    return cache_path
+
+
+def aligned_arrays(gen_path: Path, ref_path: Path, max_frames: int) -> tuple[np.ndarray, np.ndarray]:
+    if is_video_path(gen_path) or is_video_path(ref_path):
+        gen_frames = load_video_frames(str(gen_path), max_frames=-1)
+        ref_frames = load_video_frames(str(ref_path), max_frames=-1)
+        gen_aligned, ref_aligned = align_video_pair(gen_frames, ref_frames, max_frames=max_frames)
+        return gen_aligned, ref_aligned
+    return load_rgb(gen_path), load_rgb(ref_path)
 
 
 def compute_lpips_rows(pairs: list[tuple[Path, Path]]) -> list[float | None]:
@@ -74,8 +114,8 @@ def compute_lpips_rows(pairs: list[tuple[Path, Path]]) -> list[float | None]:
     scores = []
     with torch.no_grad():
         for gen_path, ref_path in pairs:
-            gen = torch.from_numpy(load_rgb(gen_path)).permute(2, 0, 1).unsqueeze(0).to(device=device, dtype=torch.float32)
-            ref = torch.from_numpy(load_rgb(ref_path)).permute(2, 0, 1).unsqueeze(0).to(device=device, dtype=torch.float32)
+            gen = torch.from_numpy(representative_rgb(gen_path)).permute(2, 0, 1).unsqueeze(0).to(device=device, dtype=torch.float32)
+            ref = torch.from_numpy(representative_rgb(ref_path)).permute(2, 0, 1).unsqueeze(0).to(device=device, dtype=torch.float32)
             gen = gen / 127.5 - 1.0
             ref = ref / 127.5 - 1.0
             if gen.shape[-2:] != (224, 224):
@@ -95,9 +135,9 @@ def build_reference_index(origin_dir: Path) -> dict[tuple[str, int], Path]:
         params = request.get("params") or {}
         prompt = str(params.get("prompt") or "")
         seed = params.get("seed")
-        image_path = image_for_task(origin_dir, task_id)
-        if seed is not None and image_path is not None:
-            index[(prompt, int(seed))] = image_path
+        output_path = output_for_task(origin_dir, task_id)
+        if seed is not None and output_path is not None:
+            index[(prompt, int(seed))] = output_path
     return index
 
 
@@ -107,7 +147,7 @@ def ensure_hpsv3_compat() -> None:
         image_utils.VideoInput = Any
 
 
-def compute_hpsv3(rows: list[dict[str, Any]], output_dir: Path, config_path: Path | None, checkpoint_path: Path | None, batch_size: int) -> dict[str, float]:
+def compute_hpsv3(rows: list[dict[str, Any]], output_dir: Path, config_path: Path | None, checkpoint_path: Path | None, batch_size: int, frame_index: int) -> dict[str, float]:
     if not rows:
         return {}
     ensure_hpsv3_compat()
@@ -141,13 +181,17 @@ def compute_hpsv3(rows: list[dict[str, Any]], output_dir: Path, config_path: Pat
     with torch.no_grad():
         for start in range(0, len(rows), batch_size):
             batch = rows[start : start + batch_size]
-            image_paths = [str(Path(row["generated"]).resolve()) for row in batch]
-            prompts = [str(row.get("prompt") or sidecar_for_image(Path(path)).get("prompt", "")) for path, row in zip(image_paths, batch)]
+            generated_paths = [Path(row["generated"]).resolve() for row in batch]
+            image_paths = [
+                str(representative_image_for_hpsv3(path, output_dir, frame_index=frame_index).resolve())
+                for path in generated_paths
+            ]
+            prompts = [str(row.get("prompt") or sidecar_for_image(path).get("prompt", "")) for path, row in zip(generated_paths, batch)]
             rewards = inferencer.reward(image_paths, prompts)
-            for image_path, prompt, reward in zip(image_paths, prompts, rewards):
+            for generated_path, image_path, prompt, reward in zip(generated_paths, image_paths, prompts, rewards):
                 score = float(reward[0].detach().cpu().item())
-                out[image_path] = score
-                raw.append({"image_path": image_path, "prompt": prompt, "hpsv3_score": score})
+                out[str(generated_path)] = score
+                raw.append({"generated_path": str(generated_path), "image_path": image_path, "prompt": prompt, "hpsv3_score": score})
             write_json(output_dir / "hpsv3_raw.json", raw)
             print(f"HPSv3 scored {min(start + batch_size, len(rows))}/{len(rows)} images.", flush=True)
     return out
@@ -169,7 +213,7 @@ def case_for_request(run_dir: Path, cfg: dict[str, Any], request: dict[str, Any]
     return "origin_flash" if case == "flash" else case
 
 
-def collect_rows(experiment_dir: Path, origin_dir: Path) -> list[dict[str, Any]]:
+def collect_rows(experiment_dir: Path, origin_dir: Path, max_frames: int) -> list[dict[str, Any]]:
     ref_index = build_reference_index(origin_dir)
     runs = [
         path
@@ -188,14 +232,27 @@ def collect_rows(experiment_dir: Path, origin_dir: Path) -> list[dict[str, Any]]
             params = request.get("params") or {}
             prompt = str(params.get("prompt") or "")
             seed = params.get("seed")
-            gen_path = image_for_task(run_dir, task_id)
+            gen_path = output_for_task(run_dir, task_id)
             ref_path = ref_index.get((prompt, int(seed))) if seed is not None else None
             if gen_path is None or ref_path is None:
                 continue
-            gen = load_rgb(gen_path)
-            ref = load_rgb(ref_path)
+            gen, ref = aligned_arrays(gen_path, ref_path, max_frames=max_frames)
             if gen.shape != ref.shape:
                 continue
+            gen_metric = gen.reshape((-1, *gen.shape[-3:])) if gen.ndim == 4 else gen
+            ref_metric = ref.reshape((-1, *ref.shape[-3:])) if ref.ndim == 4 else ref
+            if gen_metric.ndim == 4:
+                psnr = mean(
+                    float(peak_signal_noise_ratio(ref_frame, gen_frame, data_range=255.0))
+                    for gen_frame, ref_frame in zip(gen_metric, ref_metric)
+                )
+                ssim = mean(
+                    float(structural_similarity(ref_frame, gen_frame, channel_axis=-1, data_range=255.0))
+                    for gen_frame, ref_frame in zip(gen_metric, ref_metric)
+                )
+            else:
+                psnr = float(peak_signal_noise_ratio(ref_metric, gen_metric, data_range=255.0))
+                ssim = float(structural_similarity(ref_metric, gen_metric, channel_axis=-1, data_range=255.0))
             rows.append(
                 {
                     "run_dir": str(run_dir),
@@ -206,8 +263,8 @@ def collect_rows(experiment_dir: Path, origin_dir: Path) -> list[dict[str, Any]]
                     "seed": seed,
                     "generated": str(gen_path.resolve()),
                     "reference": str(ref_path.resolve()),
-                    "psnr": float(peak_signal_noise_ratio(ref, gen, data_range=255.0)),
-                    "ssim": float(structural_similarity(ref, gen, channel_axis=-1, data_range=255.0)),
+                    "psnr": psnr,
+                    "ssim": ssim,
                     "one_minus_lpips": None,
                     "hpsv3_score": None,
                 }
@@ -253,14 +310,16 @@ def main() -> int:
     parser.add_argument("experiment_dir")
     parser.add_argument("--origin-dir")
     parser.add_argument("--skip-hpsv3", action="store_true")
+    parser.add_argument("--max-frames", type=int, default=-1, help="Maximum aligned video frames for PSNR/SSIM; <=0 uses all frames.")
     parser.add_argument("--hpsv3-batch-size", type=int, default=4)
     parser.add_argument("--hpsv3-config-path")
     parser.add_argument("--hpsv3-checkpoint-path")
+    parser.add_argument("--hpsv3-frame-index", type=int, default=-1, help="Video frame index for HPSv3; -1 uses the middle frame.")
     args = parser.parse_args()
 
     experiment_dir = Path(args.experiment_dir).resolve()
     origin_dir = Path(args.origin_dir).resolve() if args.origin_dir else next(sorted(experiment_dir.glob("*flash*")).__iter__())
-    rows = collect_rows(experiment_dir, origin_dir)
+    rows = collect_rows(experiment_dir, origin_dir, args.max_frames)
     quality_dir = experiment_dir / "quality"
     if not args.skip_hpsv3:
         scores = compute_hpsv3(
@@ -269,6 +328,7 @@ def main() -> int:
             Path(args.hpsv3_config_path).resolve() if args.hpsv3_config_path else None,
             Path(args.hpsv3_checkpoint_path).resolve() if args.hpsv3_checkpoint_path else None,
             max(1, args.hpsv3_batch_size),
+            args.hpsv3_frame_index,
         )
         for row in rows:
             row["hpsv3_score"] = scores.get(str(Path(row["generated"]).resolve()))

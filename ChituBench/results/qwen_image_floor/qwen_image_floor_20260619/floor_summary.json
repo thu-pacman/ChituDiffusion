@@ -1,0 +1,62 @@
+[
+  {
+    "case": "baseline_1gpu",
+    "run_name": "chitubench-qwen-image-floor-baseline_1gpu-20260619_152901-baseline_1gpu",
+    "overall_s": 135.8033106327057,
+    "dit_forward_s": 124.96408707648516,
+    "serial_floor_s": 10.839223556220531,
+    "text_encode_s": 3.5926488284021616,
+    "denoise_s": 130.01866272464395,
+    "denoise_overhead_s": 5.054575648158789,
+    "vae_decode_s": 1.229831462725997,
+    "other_s": 0.9621676169335842,
+    "num_tasks": 1,
+    "e2e_speedup": 1.0,
+    "dit_speedup": 1.0
+  },
+  {
+    "case": "cfp2up4_8gpu",
+    "run_name": "chitubench-qwen-image-floor-cfp2up4_8gpu-20260619_153550-cfp2up4_8gpu",
+    "overall_s": 32.02908802032471,
+    "dit_forward_s": 23.577272403985262,
+    "serial_floor_s": 8.451815616339445,
+    "text_encode_s": 0.812241930514574,
+    "denoise_s": 27.015205519273877,
+    "denoise_overhead_s": 3.4379331152886152,
+    "vae_decode_s": 0.5967418439686298,
+    "other_s": 3.604898726567626,
+    "num_tasks": 1,
+    "e2e_speedup": 4.239999295219675,
+    "dit_speedup": 5.300192699786702
+  },
+  {
+    "case": "mc17_cfp2_2gpu",
+    "run_name": "chitubench-qwen-image-floor-mc17_cfp2_2gpu-20260619_153433-mc17_cfp2_2gpu",
+    "overall_s": 27.142021417617798,
+    "dit_forward_s": 21.3499217890203,
+    "serial_floor_s": 5.792099628597498,
+    "text_encode_s": 0.7868177630007267,
+    "denoise_s": 23.60164475813508,
+    "denoise_overhead_s": 2.2517229691147804,
+    "vae_decode_s": 0.568098334595561,
+    "other_s": 2.18546056188643,
+    "num_tasks": 1,
+    "e2e_speedup": 5.003433920531659,
+    "dit_speedup": 5.853140274300718
+  },
+  {
+    "case": "mc17_cfp2up4_8gpu",
+    "run_name": "chitubench-qwen-image-floor-mc17_cfp2up4_8gpu-20260619_153820-mc17_cfp2up4_8gpu",
+    "overall_s": 15.07935881614685,
+    "dit_forward_s": 8.355142749845982,
+    "serial_floor_s": 6.724216066300869,
+    "text_encode_s": 0.6849480830132961,
+    "denoise_s": 10.375304270535707,
+    "denoise_overhead_s": 2.020161520689726,
+    "vae_decode_s": 0.5523229762911797,
+    "other_s": 3.4667834863066673,
+    "num_tasks": 1,
+    "e2e_speedup": 9.005907498353885,
+    "dit_speedup": 14.956547221026085
+  }
+]

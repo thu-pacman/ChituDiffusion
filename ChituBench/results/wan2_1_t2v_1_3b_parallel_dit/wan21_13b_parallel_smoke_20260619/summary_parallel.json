@@ -1,0 +1,44 @@
+[
+  {
+    "case": "baseline_1gpu",
+    "num_tasks": "2",
+    "dit_forward_s_mean": "1.727218322455883",
+    "dit_forward_s_min": "1.5610114950686693",
+    "dit_forward_s_max": "1.8934251498430967",
+    "psnr_mean": "",
+    "ssim_mean": "",
+    "one_minus_lpips_mean": "",
+    "hpsv3_score_mean": "",
+    "speedup_vs_origin": "1.0",
+    "speedup_vs_1gpu": 1.0,
+    "parallel_efficiency": 1.0
+  },
+  {
+    "case": "cfp2_2gpu",
+    "num_tasks": "2",
+    "dit_forward_s_mean": "0.8402854213491082",
+    "dit_forward_s_min": "0.7821985892951488",
+    "dit_forward_s_max": "0.8983722534030676",
+    "psnr_mean": "",
+    "ssim_mean": "",
+    "one_minus_lpips_mean": "",
+    "hpsv3_score_mean": "",
+    "speedup_vs_origin": "2.0555138510945157",
+    "speedup_vs_1gpu": 2.0555138510945157,
+    "parallel_efficiency": 1.0277569255472578
+  },
+  {
+    "case": "up2_2gpu",
+    "num_tasks": "2",
+    "dit_forward_s_mean": "1.1626379191875458",
+    "dit_forward_s_min": "0.9953809641301632",
+    "dit_forward_s_max": "1.3298948742449284",
+    "psnr_mean": "",
+    "ssim_mean": "",
+    "one_minus_lpips_mean": "",
+    "hpsv3_score_mean": "",
+    "speedup_vs_origin": "1.485602949938935",
+    "speedup_vs_1gpu": 1.485602949938935,
+    "parallel_efficiency": 0.7428014749694675
+  }
+]

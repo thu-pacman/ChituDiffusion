@@ -1,0 +1,32 @@
+[
+  {
+    "case": "cfp2up4_8gpu",
+    "run_name": "chitubench-qwen-image-floor-cfp2up4_8gpu-20260619_155410-cfp2up4_8gpu",
+    "overall_s": 25.359036684036255,
+    "dit_forward_s": 23.05185383744538,
+    "serial_floor_s": 2.3071828465908766,
+    "text_encode_s": 0.673741152510047,
+    "denoise_s": 23.452480241656303,
+    "denoise_overhead_s": 0.4006264042109251,
+    "vae_decode_s": 0.5219866652041674,
+    "other_s": 0.7108286246657372,
+    "num_tasks": 1,
+    "e2e_speedup": null,
+    "dit_speedup": null
+  },
+  {
+    "case": "mc17_cfp2up4_8gpu",
+    "run_name": "chitubench-qwen-image-floor-mc17_cfp2up4_8gpu-20260619_155518-mc17_cfp2up4_8gpu",
+    "overall_s": 9.957417249679565,
+    "dit_forward_s": 7.872936682775617,
+    "serial_floor_s": 2.084480566903949,
+    "text_encode_s": 0.6810079123824835,
+    "denoise_s": 8.029897581785917,
+    "denoise_overhead_s": 0.15696089901030064,
+    "vae_decode_s": 0.524873249232769,
+    "other_s": 0.7216385062783957,
+    "num_tasks": 1,
+    "e2e_speedup": null,
+    "dit_speedup": null
+  }
+]

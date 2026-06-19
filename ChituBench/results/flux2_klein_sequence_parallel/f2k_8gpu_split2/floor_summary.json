@@ -1,0 +1,19 @@
+[
+  {
+    "case": "ulysses_8gpu",
+    "run_name": "chitubench-flux2-sp-ulysses-8gpu-20260619_170547-ulysses_8gpu",
+    "overall_s": 9.942504644393921,
+    "serving_s": 8.206436416134238,
+    "bench_overhead_s": 1.7360682282596827,
+    "dit_forward_s": 0.26986356886724633,
+    "serial_floor_s": 7.936572847266992,
+    "text_encode_s": 0.5211415886878967,
+    "denoise_s": 7.309969497844577,
+    "denoise_overhead_s": 7.04010592897733,
+    "vae_decode_s": 0.33107017911970615,
+    "other_s": 0.044255150482058525,
+    "num_tasks": 3,
+    "e2e_speedup": 1.0,
+    "dit_speedup": 1.0
+  }
+]

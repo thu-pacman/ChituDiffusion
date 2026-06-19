@@ -1,0 +1,16 @@
+[
+  {
+    "case": "ulysses_4gpu",
+    "num_tasks": "3",
+    "dit_forward_s_mean": "12.17380809535583",
+    "dit_forward_s_min": "11.615295173600316",
+    "dit_forward_s_max": "13.201761713251472",
+    "psnr_mean": "",
+    "ssim_mean": "",
+    "one_minus_lpips_mean": "",
+    "hpsv3_score_mean": "",
+    "speedup_vs_origin": "1.0",
+    "speedup_vs_1gpu": 1.0,
+    "parallel_efficiency": 0.25
+  }
+]

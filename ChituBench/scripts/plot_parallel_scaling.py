@@ -20,6 +20,10 @@ CASE_ORDER = [
     "cfp2up2_4gpu",
     "cfp2ring2_4gpu",
     "cfp2up4_8gpu",
+    "ring2up4_8gpu",
+    "cfp2ring2up4_16gpu",
+    "up2_2gpu",
+    "up4_4gpu",
 ]
 CASE_LABELS = {
     "baseline_1gpu": "1 GPU",
@@ -36,6 +40,10 @@ CASE_LABELS = {
     "cfp2up2_4gpu": "CFP2+UP2",
     "cfp2ring2_4gpu": "CFP2+Ring2",
     "cfp2up4_8gpu": "CFP2+UP4",
+    "ring2up4_8gpu": "Ring2+UP4",
+    "cfp2ring2up4_16gpu": "CFP2+Ring2+UP4",
+    "up2_2gpu": "UP2",
+    "up4_4gpu": "UP4",
 }
 GPU_COUNT = {
     "baseline_1gpu": 1,
@@ -52,6 +60,10 @@ GPU_COUNT = {
     "cfp2up2_4gpu": 4,
     "cfp2ring2_4gpu": 4,
     "cfp2up4_8gpu": 8,
+    "ring2up4_8gpu": 8,
+    "cfp2ring2up4_16gpu": 16,
+    "up2_2gpu": 2,
+    "up4_4gpu": 4,
 }
 COLORS = {
     "baseline": "#2f3437",
@@ -61,8 +73,22 @@ COLORS = {
     "cfg": "#10a37f",
     "cfg_ring": "#3b82f6",
     "cfg_up": "#ef8a47",
+    "up": "#8b5cf6",
+    "ring_up": "#14b8a6",
+    "cfg_ring_up": "#d946ef",
 }
-MARKERS = {"baseline": "o", "ring": "o", "ulysses": "s", "usp": "^", "cfg": "^", "cfg_ring": "o", "cfg_up": "s"}
+MARKERS = {
+    "baseline": "o",
+    "ring": "o",
+    "ulysses": "s",
+    "usp": "^",
+    "cfg": "^",
+    "cfg_ring": "o",
+    "cfg_up": "s",
+    "up": "D",
+    "ring_up": "P",
+    "cfg_ring_up": "X",
+}
 METHOD_LABELS = {
     "baseline": "1 GPU baseline",
     "ring": "Ring",
@@ -71,6 +97,9 @@ METHOD_LABELS = {
     "cfg": "CFP",
     "cfg_ring": "CFP + Ring",
     "cfg_up": "CFP + UP",
+    "up": "UP / Ulysses CP",
+    "ring_up": "Ring + UP",
+    "cfg_ring_up": "CFP + Ring + UP",
 }
 X_OFFSETS = {
     "baseline": 0.0,
@@ -80,6 +109,9 @@ X_OFFSETS = {
     "cfg": 0.0,
     "cfg_ring": -0.08,
     "cfg_up": 0.08,
+    "up": -0.08,
+    "ring_up": 0.08,
+    "cfg_ring_up": 0.12,
 }
 LABEL_OFFSETS = {
     "baseline": (0, 8),
@@ -89,16 +121,21 @@ LABEL_OFFSETS = {
     "cfg": (0, 9),
     "cfg_ring": (-8, -18),
     "cfg_up": (8, 10),
+    "up": (-8, -18),
+    "ring_up": (8, 10),
+    "cfg_ring_up": (10, -18),
 }
 
 
 def method_for_case(case: str) -> str:
     if case == "cfp2_2gpu":
         return "cfg"
+    if "ring" in case and "up" in case:
+        return "cfg_ring_up" if case.startswith("cfp") else "ring_up"
     if "ring" in case:
         return "cfg_ring" if case.startswith("cfp") else "ring"
     if "up" in case:
-        return "cfg_up" if case.startswith("cfp") else "ulysses"
+        return "cfg_up" if case.startswith("cfp") else "up"
     if case.startswith("ring"):
         return "ring"
     if case.startswith("ulysses"):

@@ -8,6 +8,8 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
+from chitu_diffusion.evaluation.utils.reference_metrics import load_video_frames
+
 
 def read_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as f:
@@ -42,7 +44,7 @@ def short_case(case: str, limit: int = 22) -> str:
 
 FAMILY_STYLES = {
     "origin": {"label": "Origin", "color": "#222222"},
-    "torch_sdpa": {"label": "Flash Attention", "color": "#64748b"},
+    "torch_sdpa": {"label": "Torch SDPA", "color": "#64748b"},
     "torch": {"label": "Torch", "color": "#94a3b8"},
     "pab": {"label": "PAB", "color": "#dc2626"},
     "blockdance": {"label": "BlockDance", "color": "#2563eb"},
@@ -72,9 +74,10 @@ def family_for_case(case: str) -> str:
     return "other"
 
 
-def display_case(case: str) -> str:
+def display_case(case: str, is_qwen: bool = False) -> str:
+    if case == "torch_sdpa":
+        return "Flash Attention" if is_qwen else "Torch SDPA"
     labels = {
-        "torch_sdpa": "Flash Attention",
         "torch_sdpa_math": "Torch",
         "origin_flash": "origin_flash",
         "flashinfer": "flashinfer",
@@ -154,6 +157,17 @@ def fit_cover(image: Image.Image, size: tuple[int, int]) -> Image.Image:
     return resized.crop((left, top, left + target_w, top + target_h))
 
 
+def load_visual(path: str, frame_index: int = -1) -> Image.Image:
+    source = Path(path)
+    if source.suffix.lower() not in {".mp4", ".mov", ".avi", ".mkv", ".webm"}:
+        return Image.open(source)
+    frames = load_video_frames(str(source), max_frames=-1)
+    if len(frames) == 0:
+        raise ValueError(f"failed to read frames from {source}")
+    idx = len(frames) // 2 if frame_index < 0 else min(max(frame_index, 0), len(frames) - 1)
+    return Image.fromarray(frames[idx].clip(0, 255).astype("uint8"))
+
+
 def draw_rounded_label(
     draw: ImageDraw.ImageDraw,
     xy: tuple[int, int, int, int],
@@ -176,13 +190,18 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", default="visuals/contact_sheet.png")
     parser.add_argument("--title", default="Flux Attention Backend Visual Check")
+    parser.add_argument("--experiment-id", default="", help="Experiment id; controls model-specific case labels.")
     parser.add_argument("--cases", nargs="*", help="Optional explicit case order.")
     parser.add_argument("--prompt-id", help="Optional prompt id filter; keeps only rows whose task id contains this id.")
     parser.add_argument("--columns", type=int, default=0, help="Number of case columns before wrapping.")
     parser.add_argument("--group-by-family", action="store_true", help="Draw family-colored group boxes around cases.")
+    parser.add_argument("--frame-index", type=int, default=-1, help="Video frame index to show; -1 uses the middle frame.")
     args = parser.parse_args()
 
     experiment_dir = Path(args.experiment_dir).resolve()
+    is_qwen = str(args.experiment_id or "").startswith("qwen")
+    if is_qwen:
+        FAMILY_STYLES["torch_sdpa"]["label"] = "Flash Attention"
     rows = read_json(experiment_dir / "quality" / "quality_rows.json")
     if args.prompt_id:
         prompt_id = str(args.prompt_id)
@@ -267,7 +286,7 @@ def main() -> int:
             y = group_y + 30 if args.group_by_family else group_y
             family = family_for_case(case)
             color = hex_to_rgb(FAMILY_STYLES[family]["color"])
-            draw_rounded_label(draw, (x, y, x + tile_w, y + 30), short_case(display_case(case)), case_font, color, (255, 255, 255))
+            draw_rounded_label(draw, (x, y, x + tile_w, y + 30), short_case(display_case(case, is_qwen)), case_font, color, (255, 255, 255))
 
         prompt_base_y = group_y + header_h
         for row_idx, prompt in enumerate(prompts):
@@ -284,7 +303,7 @@ def main() -> int:
                     draw.rounded_rectangle((x, image_y, x + tile_w, image_y + tile_h), radius=8, outline="#cbd5e1", width=2)
                     draw.text((x + 22, image_y + 22), "missing", fill="#7f1d1d", font=case_font)
                     continue
-                image = fit_cover(Image.open(item["generated"]), (tile_w, tile_h))
+                image = fit_cover(load_visual(item["generated"], args.frame_index), (tile_w, tile_h))
                 sheet.paste(image, (x, image_y))
                 draw.rounded_rectangle((x, image_y, x + tile_w, image_y + tile_h), radius=8, outline=color, width=3)
                 summary = summary_by_case.get(case, {})

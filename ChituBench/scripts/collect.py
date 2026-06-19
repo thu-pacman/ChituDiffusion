@@ -219,6 +219,8 @@ def plot(
         "other": ("#6b7280", "o"),
     }
 
+    is_qwen = str(experiment_id or "").startswith("qwen")
+
     def family_for_case(case: str) -> str:
         for prefix in ("qwen_", "flux1_", "flux2_"):
             if case.startswith(prefix):
@@ -236,8 +238,9 @@ def plot(
         return "other"
 
     def display_label(case: str) -> str:
+        if case == "torch_sdpa":
+            return "Flash Attention" if is_qwen else "Torch SDPA"
         qwen_labels = {
-            "torch_sdpa": "Flash Attention",
             "torch_sdpa_math": "Torch",
             "flashinfer": "flashinfer",
             "qwen_pab50_cfp2": "pab50",
@@ -385,7 +388,7 @@ def plot(
             "sage": "Sage",
             "flashinfer": "FlashInfer",
             "sparge": "Sparge",
-            "torch_sdpa": "Flash Attention",
+            "torch_sdpa": "Flash Attention" if is_qwen else "Torch SDPA",
             "torch": "Torch",
             "other": "Other",
         }

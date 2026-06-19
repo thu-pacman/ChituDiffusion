@@ -1,0 +1,18 @@
+[
+  {
+    "case": "origin_flash",
+    "num_tasks": 2,
+    "psnr_mean": Infinity,
+    "ssim_mean": 1.0,
+    "one_minus_lpips_mean": 1.0,
+    "hpsv3_score_mean": null
+  },
+  {
+    "case": "pab_s2c3",
+    "num_tasks": 2,
+    "psnr_mean": 23.011255450968033,
+    "ssim_mean": 0.8607858419418335,
+    "one_minus_lpips_mean": 0.8470825776457787,
+    "hpsv3_score_mean": null
+  }
+]

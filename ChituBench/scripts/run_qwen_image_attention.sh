@@ -97,6 +97,7 @@ fi
 "$PYTHON_BIN" "$BENCH_DIR/scripts/make_contact_sheet.py" "$RESULT_ROOT" \
   --seed "$CHITUBENCH_BASE_SEED" \
   --title "$CONTACT_TITLE" \
+  --experiment-id "$EXPERIMENT_ID" \
   --cases torch_sdpa torch_sdpa_math flashinfer sage sparge
 
 mkdir -p "$BENCH_DIR/plots/$EXPERIMENT_ID"

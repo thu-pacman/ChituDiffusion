@@ -1,0 +1,14 @@
+[
+  {
+    "case": "ulysses_8gpu",
+    "num_tasks": 3,
+    "dit_forward_s_mean": 0.26954368439813453,
+    "dit_forward_s_min": 0.2688296902924776,
+    "dit_forward_s_max": 0.27095407992601395,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.0
+  }
+]

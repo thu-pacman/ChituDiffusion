@@ -42,6 +42,9 @@ real model workloads.
 
 ## News
 
+- **2026-06-17:** Wan2.1-T2V-1.3B video attention benchmark is now in
+  ChituBench; Sparge reaches **2.228x** DiT-forward speedup, while Torch SDPA is
+  the closest quality-preserving point on the two-video set.
 - **2026-06-17:** Qwen-Image attention now includes a FlashInfer probe in
   ChituBench; FlashInfer is functional but not yet faster than Flash Attention
   on the dense 50-step coffee prompt.
@@ -65,6 +68,7 @@ Full tables, commands, notes, and figures live in
 | Flux1-dev FlexCache | MeanCache reaches **4.989x**; Cubic and TaylorSeer cover the middle/high-speed frontier | [result](ChituBench/result.md#flux1_dev_flexcache) |
 | Flux1-dev sequence parallel | 8-GPU Ulysses reaches **4.843x** speedup vs 1 GPU | [result](ChituBench/result.md#flux1_dev_sequence_parallel) |
 | Flux2-klein attention | SageAttention reaches **1.163x** speedup with moderate drift | [result](ChituBench/result.md#flux2_klein_attention) |
+| Wan2.1-T2V-1.3B attention | Sparge reaches **2.228x** speedup; Torch SDPA keeps the closest quality metrics | [result](ChituBench/result.md#wan2_1_t2v_1_3b_attention) |
 | Qwen-Image parallel | 8-GPU CFG parallel + image CP4 reaches **5.404x** speedup | [result](ChituBench/result.md#qwen_image_parallel) |
 | Qwen-Image FlexCache | MeanCache spans **3.616x**, **5.331x**, and **9.092x** speed-quality points | [result](ChituBench/result.md#qwen_image_flexcache) |
 

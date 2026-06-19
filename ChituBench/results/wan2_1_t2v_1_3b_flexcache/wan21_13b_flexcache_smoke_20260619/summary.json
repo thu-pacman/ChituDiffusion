@@ -1,0 +1,26 @@
+[
+  {
+    "case": "origin_flash",
+    "num_tasks": 2,
+    "dit_forward_s_mean": 1.6207903074100614,
+    "dit_forward_s_min": 1.5641517750918865,
+    "dit_forward_s_max": 1.6774288397282362,
+    "psnr_mean": Infinity,
+    "ssim_mean": 1.0,
+    "one_minus_lpips_mean": 1.0,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.0
+  },
+  {
+    "case": "pab_s2c3",
+    "num_tasks": 2,
+    "dit_forward_s_mean": 1.3882567966356874,
+    "dit_forward_s_min": 1.3277681712061167,
+    "dit_forward_s_max": 1.448745422065258,
+    "psnr_mean": 23.011255450968033,
+    "ssim_mean": 0.8607858419418335,
+    "one_minus_lpips_mean": 0.8470825776457787,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.1675003582463257
+  }
+]

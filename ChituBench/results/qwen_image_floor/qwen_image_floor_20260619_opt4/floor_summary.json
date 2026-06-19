@@ -1,0 +1,17 @@
+[
+  {
+    "case": "mc17_cfp2up4_8gpu",
+    "run_name": "chitubench-qwen-image-floor-mc17_cfp2up4_8gpu-20260619_162058-mc17_cfp2up4_8gpu",
+    "overall_s": 9.711673259735107,
+    "dit_forward_s": 7.90688306838274,
+    "serial_floor_s": 1.8047901913523674,
+    "text_encode_s": 0.6968937963247299,
+    "denoise_s": 8.06732895411551,
+    "denoise_overhead_s": 0.16044588573276997,
+    "vae_decode_s": 0.22551918029785156,
+    "other_s": 0.721931328997016,
+    "num_tasks": 1,
+    "e2e_speedup": null,
+    "dit_speedup": null
+  }
+]
