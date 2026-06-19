@@ -1,5 +1,3 @@
-# ChituDiffusion
-
 <p align="center">
   <img src="docs/assets/chitudiffusion-brand.png" alt="ChituDiffusion" width="760">
 </p>
