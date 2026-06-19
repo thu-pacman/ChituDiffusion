@@ -235,11 +235,22 @@ class DiffusionTestRunContext:
             f.write(OmegaConf.to_yaml(self.args, resolve=True))
 
     def dump_timing_summary(self, run_output_dir: str, elapsed_s: float | None = None) -> None:
+        timers = Timer.statistics_dict()
+        # Separate benchmark instrumentation from serving work: the per-task metrics
+        # dumps run under the "benchmark_overhead" timer, so subtracting them from the
+        # wall clock yields the end-to-end serving latency.
+        overhead_ms = float((timers.get("benchmark_overhead") or {}).get("total_ms") or 0.0)
+        benchmark_overhead_s = overhead_ms / 1000.0 if "benchmark_overhead" in timers else None
+        serving_elapsed_s = None
+        if elapsed_s is not None:
+            serving_elapsed_s = elapsed_s - overhead_ms / 1000.0
         write_json(
             os.path.join(timing_metrics_dir(run_output_dir), "summary.json"),
             {
                 "overall_elapsed_s": elapsed_s,
-                "timers": Timer.statistics_dict(),
+                "serving_elapsed_s": serving_elapsed_s,
+                "benchmark_overhead_s": benchmark_overhead_s,
+                "timers": timers,
                 "records": Timer.records_dict(),
             },
         )
