@@ -72,6 +72,27 @@ class InferConfig:
         #   "always_offload" -> legacy behavior: move back to origin + empty_cache every stage.
         #   "never_offload"  -> always keep models resident on GPU.
         offload_policy: str = "auto"
+        # torch.compile mode applied per backbone block. One of:
+        #   "off"                          -> eager (no compile);
+        #   "default"                      -> torch.compile() Inductor fusion, no cudagraph;
+        #   "reduce-overhead"              -> Inductor + CUDA Graph (cudagraph trees);
+        #   "max-autotune-no-cudagraphs"   -> stronger autotuned fusion, no cudagraph.
+        compile_mode: str = "off"
+        # Granularity at which compile_mode is applied:
+        #   "block" -> torch.compile each backbone block (robust; composes with
+        #              block-level FlexCache and CP/ring graph-breaks gracefully);
+        #   "model" -> torch.compile the whole DiT block stack as one graph (lower
+        #              overhead, enables a single model-level CUDA Graph; composes
+        #              with step-level FlexCache that decides replay/skip outside the
+        #              model forward). Falls back to block scope where unsupported.
+        compile_scope: str = "block"
+        # Capture the whole context-parallel ring loop (p2p comm + attention + LSE
+        # merge) into a single CUDA Graph and replay it per attention call. Removes
+        # per-step NCCL launch / req.wait scheduling overhead; benefit grows with
+        # cp_size. Only applies to the pure-ring path (up == 1, cp_size > 1,
+        # non-varlen). Requires env NCCL_GRAPH_MIXING_SUPPORT=1 when other
+        # (uncaptured) NCCL ops run in the same process.
+        ring_cudagraph: bool = False
 
     diffusion: DiffusionConfig = MISSING
 

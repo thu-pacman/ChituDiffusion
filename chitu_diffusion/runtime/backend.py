@@ -604,7 +604,11 @@ class DiffusionBackend:
         DiffusionBackend.attn = attn
 
         if args.infer.diffusion.cp_size > 1:
-            attn = DiffusionAttention_with_CP(attn, args.infer.diffusion.up)
+            attn = DiffusionAttention_with_CP(
+                attn,
+                args.infer.diffusion.up,
+                ring_cudagraph=getattr(args.infer.diffusion, "ring_cudagraph", False),
+            )
         return attn
     
     @staticmethod
@@ -655,10 +659,75 @@ class DiffusionBackend:
                 attn_backend,
                 rope_impl,
             )
+            model = DiffusionBackend._maybe_compile_model(model, args)
             DiffusionBackend.model_pool.append(model)
 
         gc.collect()
         torch.cuda.empty_cache()
+
+    @staticmethod
+    def _maybe_compile_model(model, args):
+        """Optionally apply torch.compile, at block or model granularity.
+
+        Mode is driven by `infer.diffusion.compile_mode` ("reduce-overhead" also
+        enables CUDA Graph). Granularity by `infer.diffusion.compile_scope`:
+          - "block": compile each backbone block (default; robust, composes with
+            block-level FlexCache and CP graph-breaks);
+          - "model": compile the whole DiT block stack as one graph via the model's
+            `_dit_core` hook (lower overhead, single model-level graph; composes with
+            step-level FlexCache). Falls back to block scope if the model lacks the
+            hook.
+        """
+        mode = str(getattr(args.infer.diffusion, "compile_mode", "off") or "off").strip().lower()
+        if mode in {"off", "none", ""}:
+            return model
+
+        if mode == "default":
+            compile_kwargs = {}
+        elif mode in {"reduce-overhead", "reduce_overhead"}:
+            compile_kwargs = {"mode": "reduce-overhead"}
+        elif mode in {"max-autotune-no-cudagraphs", "max_autotune_no_cudagraphs", "max-autotune", "max_autotune"}:
+            compile_kwargs = {"mode": "max-autotune-no-cudagraphs"}
+        else:
+            compile_kwargs = {"mode": mode}
+
+        scope = str(getattr(args.infer.diffusion, "compile_scope", "block") or "block").strip().lower()
+
+        if scope == "model":
+            if hasattr(model, "_dit_core"):
+                model._compiled_core = torch.compile(
+                    model._dit_core, fullgraph=False, dynamic=False, **compile_kwargs
+                )
+                logger.info(
+                    "[compile] torch.compile applied at model scope via _dit_core (mode=%s, kwargs=%s)",
+                    mode,
+                    compile_kwargs,
+                )
+                return model
+            logger.warning(
+                "[compile] compile_scope=model requested but %s has no _dit_core hook; "
+                "falling back to block scope.",
+                type(model).__name__,
+            )
+
+        block_list_names = ["blocks", "transformer_blocks", "single_transformer_blocks"]
+        compiled = 0
+        for name in block_list_names:
+            module_list = getattr(model, name, None)
+            if module_list is None or not hasattr(module_list, "__setitem__"):
+                continue
+            for idx in range(len(module_list)):
+                module_list[idx] = torch.compile(
+                    module_list[idx], fullgraph=False, dynamic=False, **compile_kwargs
+                )
+                compiled += 1
+        logger.info(
+            "[compile] torch.compile applied to %d backbone block(s) (mode=%s, kwargs=%s)",
+            compiled,
+            mode,
+            compile_kwargs,
+        )
+        return model
 
     @staticmethod
     def _build_and_setup_single_model(args, ckpt_path, attn_backend, rope_impl):

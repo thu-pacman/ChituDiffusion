@@ -294,6 +294,12 @@ class Generator:
         forward_call_index = getattr(task.buffer, "_dit_forward_call_index", 0)
         setattr(task.buffer, "_dit_forward_call_index", forward_call_index + 1)
 
+        # When compile uses CUDA Graph (cudagraph trees), signal a new step so the
+        # runtime knows the previous step's static output buffers are free to reuse.
+        compile_mode = str(getattr(DiffusionBackend.args.infer.diffusion, "compile_mode", "off") or "off").lower()
+        if "reduce-overhead" in compile_mode or "reduce_overhead" in compile_mode:
+            torch.compiler.cudagraph_mark_step_begin()
+
         output, elapsed_ms = Timer.time_call("dit_forward", DiffusionBackend.active_model, *args, **kwargs)
         Timer.record_event(
             "dit_forward",
@@ -616,8 +622,17 @@ class Generator:
         if spec.strategy == "cubic" and self.cp_size != 1:
             raise ValueError("FlexCache Cubic requires cp world size = 1.")
         model_name = getattr(DiffusionBackend.args.models, "name", "")
-        if spec.strategy == "meancache" and self.cp_size != 1 and model_name not in {"Qwen-Image", "qwen-image"}:
-            raise ValueError("FlexCache MeanCache currently requires cp_size = 1 outside Qwen-Image.")
+        # MeanCache is a step-level strategy: it caches the full noise prediction and
+        # reuses it via a finite-difference JVP in the denoise loop, never touching the
+        # model forward internals. It is therefore orthogonal to context parallelism
+        # (the linear JVP commutes with sequence sharding). Validated for Flux1-dev and
+        # Qwen-Image under cp>1; other models stay gated until checked.
+        if (
+            spec.strategy == "meancache"
+            and self.cp_size != 1
+            and model_name not in {"Qwen-Image", "qwen-image", "Flux1-dev"}
+        ):
+            raise ValueError("FlexCache MeanCache currently requires cp_size = 1 outside Qwen-Image / Flux1-dev.")
         if spec.strategy == "meancache" and self.cfg_size not in {1, 2}:
             raise ValueError("FlexCache MeanCache currently supports cfg_size = 1 or 2.")
         return spec

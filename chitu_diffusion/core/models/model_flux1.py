@@ -323,6 +323,18 @@ class Flux1Model(
 
         self.gradient_checkpointing = False
 
+        # RoPE cos/sin only depend on the position `ids`, which are identical across
+        # all denoise steps of a generation. Memoize the last (ids -> cos/sin) so we
+        # skip the per-step float64 pos_embed recompute (also keeps the float64 work
+        # out of any compiled region).
+        self._rope_cache_ids = None
+        self._rope_cache_val = None
+        # Set by the runtime when compile_scope == "model": a torch.compile-wrapped
+        # `_dit_core`. When present (and no controlnet), forward routes through it so
+        # the whole block stack is one compiled graph (compatible with step-level
+        # FlexCache that decides replay/skip outside the model forward).
+        self._compiled_core = None
+
     def get_teacache_modulated_input(self, hidden_states: torch.Tensor, temb: torch.Tensor) -> torch.Tensor:
         modulated_inp, *_ = self.transformer_blocks[0].norm1(hidden_states, emb=temb)
         return modulated_inp
@@ -469,6 +481,56 @@ class Flux1Model(
         if "encoder_hidden_states" in delta:
             state["encoder_hidden_states"] = state["encoder_hidden_states"] + delta["encoder_hidden_states"]
         return state
+
+    def _cached_rope(self, ids: torch.Tensor):
+        """Return RoPE (cos, sin) for `ids`, memoizing the last result.
+
+        Positions are constant across denoise steps, so this turns the per-step
+        float64 pos_embed recompute into a cheap tensor-equality check on hits.
+        """
+        cached_ids = self._rope_cache_ids
+        if (
+            cached_ids is not None
+            and cached_ids.shape == ids.shape
+            and cached_ids.device == ids.device
+            and torch.equal(cached_ids, ids)
+        ):
+            return self._rope_cache_val
+        val = self.pos_embed(ids)
+        self._rope_cache_ids = ids
+        self._rope_cache_val = val
+        return val
+
+    def _dit_core(
+        self,
+        hidden_states: torch.Tensor,
+        encoder_hidden_states: torch.Tensor,
+        temb: torch.Tensor,
+        image_rotary_emb,
+        text_seq_len: int,
+    ) -> torch.Tensor:
+        """Pure-tensor DiT block stack (joint stream then single stream).
+
+        Inlines the block loop without BackboneState/BackboneBlockInfo so the whole
+        stack traces cleanly as a single graph for model-scope torch.compile. Does
+        not support controlnet / joint_attention_kwargs; the caller falls back to
+        `model_compute` when those are present.
+        """
+        for block in self.transformer_blocks:
+            encoder_hidden_states, hidden_states = block(
+                hidden_states=hidden_states,
+                encoder_hidden_states=encoder_hidden_states,
+                temb=temb,
+                image_rotary_emb=image_rotary_emb,
+            )
+        hidden_states = torch.cat([encoder_hidden_states, hidden_states], dim=1)
+        for block in self.single_transformer_blocks:
+            hidden_states = block(
+                hidden_states=hidden_states,
+                temb=temb,
+                image_rotary_emb=image_rotary_emb,
+            )
+        return hidden_states[:, text_seq_len:, ...]
 
     def model_compute(
         self,
@@ -693,23 +755,40 @@ class Flux1Model(
             img_ids = img_ids[0]
 
         ids = torch.cat((txt_ids, img_ids), dim=0)
-        image_rotary_emb = self.pos_embed(ids)
+        image_rotary_emb = self._cached_rope(ids)
 
         if joint_attention_kwargs is not None and "ip_adapter_image_embeds" in joint_attention_kwargs:
             ip_adapter_image_embeds = joint_attention_kwargs.pop("ip_adapter_image_embeds")
             ip_hidden_states = self.encoder_hid_proj(ip_adapter_image_embeds)
             joint_attention_kwargs.update({"ip_hidden_states": ip_hidden_states})
 
-        hidden_states = self.model_compute(
-            hidden_states,
-            encoder_hidden_states=encoder_hidden_states,
-            temb=temb,
-            image_rotary_emb=image_rotary_emb,
-            joint_attention_kwargs=joint_attention_kwargs,
-            controlnet_block_samples=controlnet_block_samples,
-            controlnet_single_block_samples=controlnet_single_block_samples,
-            controlnet_blocks_repeat=controlnet_blocks_repeat,
+        # Model-scope compile fast path: one compiled graph over the whole block
+        # stack. Only valid without controlnet / extra joint-attention kwargs.
+        use_compiled_core = (
+            self._compiled_core is not None
+            and controlnet_block_samples is None
+            and controlnet_single_block_samples is None
+            and not joint_attention_kwargs
         )
+        if use_compiled_core:
+            hidden_states = self._compiled_core(
+                hidden_states,
+                encoder_hidden_states,
+                temb,
+                image_rotary_emb,
+                encoder_hidden_states.shape[1],
+            )
+        else:
+            hidden_states = self.model_compute(
+                hidden_states,
+                encoder_hidden_states=encoder_hidden_states,
+                temb=temb,
+                image_rotary_emb=image_rotary_emb,
+                joint_attention_kwargs=joint_attention_kwargs,
+                controlnet_block_samples=controlnet_block_samples,
+                controlnet_single_block_samples=controlnet_single_block_samples,
+                controlnet_blocks_repeat=controlnet_blocks_repeat,
+            )
 
         hidden_states = self.norm_out(hidden_states, temb)
         output = self.proj_out(hidden_states)

@@ -43,6 +43,9 @@ infer:
     up: 8
     low_mem_level: 0
     offload_policy: auto # one of: auto, always_offload, never_offload
+    compile_mode: "off" # one of: off, default, reduce-overhead, max-autotune-no-cudagraphs
+    compile_scope: "block" # one of: block, model (model = whole DiT stack as one graph)
+    ring_cudagraph: false # capture the pure-ring CP loop into a CUDA Graph (up==1, cp_size>1)
 
 eval:
   eval_type: [] # list items in: vbench, fid, fvd, psnr, ssim, lpips

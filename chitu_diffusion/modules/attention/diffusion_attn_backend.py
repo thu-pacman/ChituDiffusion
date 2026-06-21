@@ -202,6 +202,7 @@ class DiffusionAttnBackend:
                 dropout_p, softmax_scale,
                 causal,
                 use_varlen,
+                return_attn_probs,
             )
         raise RuntimeError(f"Unknown attention backend implementation '{self.impl}'.")
 
@@ -275,12 +276,31 @@ class DiffusionAttnBackend:
         softmax_scale,
         causal,
         use_varlen: bool,
+        return_attn_probs: bool = False,
     ):
         if use_varlen:
             raise NotImplementedError("torch_sdpa backend does not support varlen attention in ChituDiffusion.")
         q_in = q.transpose(1, 2)
         k_in = k.transpose(1, 2)
         v_in = v.transpose(1, 2)
+        # Ring context parallelism needs the per-block logsumexp to merge partial
+        # attention outputs across ring steps. The public SDPA API does not expose
+        # the LSE, so route through the ATen flash op (Dynamo-traceable, also
+        # CUDA-Graph capturable) which returns (out, logsumexp). The math fallback
+        # cannot return LSE, so it is unsupported on the ring path.
+        if return_attn_probs:
+            if self.impl == "torch_sdpa_math":
+                raise NotImplementedError(
+                    "torch_sdpa_math cannot return logsumexp; use torch_sdpa for ring CP."
+                )
+            out, lse = torch.ops.aten._scaled_dot_product_flash_attention(
+                q_in, k_in, v_in,
+                dropout_p=dropout_p,
+                is_causal=causal,
+                return_debug_mask=False,
+                scale=softmax_scale,
+            )[:2]
+            return out.transpose(1, 2).contiguous(), lse, None
         kernel_ctx = sdpa_kernel(SDPBackend.MATH) if self.impl == "torch_sdpa_math" else nullcontext()
         with kernel_ctx:
             out = torch.nn.functional.scaled_dot_product_attention(
@@ -427,13 +447,20 @@ class DiffusionAttnBackend:
         return out, lse, s_mask
 
 class DiffusionAttention_with_CP:
-    def __init__(self, attn, ulysses_limit):
+    def __init__(self, attn, ulysses_limit, ring_cudagraph: bool = False):
         self.attn = attn
         self.ulysses_limit = ulysses_limit
         self.group = get_cp_group()
         self.cp_size = self.group.group_size
         self.global_rank = torch.distributed.get_rank()
         self.local_chunk_id = self.group.rank_in_group
+        # Optional: capture the whole context-parallel attention (ulysses all-to-all
+        # + ring p2p loop + attn + lse merge) into a single CUDA Graph and replay it
+        # per attention call, eliminating per-step NCCL launch / req.wait scheduling
+        # overhead. Used for any CP path (pure ring, pure ulysses, unified SP);
+        # non-varlen, cp_size>1.
+        self.use_ring_cudagraph = bool(ring_cudagraph)
+        self._ring_graph_cache: dict = {}
 
     
     def async_ring_p2p_commit(self, tensors: Tuple[torch.Tensor, ...], src_rank: int, dst_rank: int):
@@ -496,7 +523,6 @@ class DiffusionAttention_with_CP:
         Will choose between flash_attn_func and flash_attn_varlen_func based on inputs
         '''
         cp_size = self.cp_size
-        local_rank = self.local_chunk_id
         timer_start = None
         if Timer.is_enabled():
             if torch.cuda.is_available():
@@ -504,8 +530,6 @@ class DiffusionAttention_with_CP:
             timer_start = time.perf_counter()
 
         ulysses_size = cp_size if cp_size <= self.ulysses_limit else self.ulysses_limit
-        if ulysses_size > 1:
-            ulysses_group = get_up_group(ulysses_size)
         ring_steps = cp_size // ulysses_size
         if ring_steps > 1 and self.attn.impl in {"sage", "sparge"}:
             raise NotImplementedError(
@@ -516,28 +540,84 @@ class DiffusionAttention_with_CP:
         use_varlen = cu_seqlens_q is not None and cu_seqlens_k is not None and \
             max_seqlen_q is not None and max_seqlen_k is not None
 
+        attn_kwargs = dict(
+            cu_seqlens_q=cu_seqlens_q,
+            cu_seqlens_k=cu_seqlens_k,
+            max_seqlen_q=max_seqlen_q,
+            max_seqlen_k=max_seqlen_k,
+            dropout_p=dropout_p,
+            softmax_scale=softmax_scale,
+            causal=causal,
+            window_size=window_size,
+            deterministic=deterministic,
+            use_varlen=use_varlen,
+            ulysses_size=ulysses_size,
+            ring_steps=ring_steps,
+        )
+
+        # CUDA Graph fast path: capture the whole context-parallel attention once
+        # (ulysses all-to-all + ring p2p loop + all-to-all back) and replay it --
+        # q/k/v shapes are identical across all layers and denoise steps. all-to-all
+        # is a capturable NCCL collective just like the ring p2p, so this covers the
+        # unified-SP path (ulysses_size > 1) as well as pure ring / pure ulysses.
+        use_graph = (
+            self.use_ring_cudagraph
+            and cp_size > 1
+            and not use_varlen
+            and q.is_cuda
+        )
+        if use_graph:
+            out = self._cp_forward_graphed(q, k, v, attn_kwargs)
+        else:
+            out = self._cp_forward(q, k, v, attn_kwargs)
+
+        if timer_start is not None:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            elapsed_ms = (time.perf_counter() - timer_start) * 1000.0
+            Timer.record(f"cp{cp_size}_attn", elapsed_ms)
+
+        return out, None, None
+
+    def _cp_forward(self, q, k, v, attn_kwargs: dict) -> torch.Tensor:
+        """Core context-parallel attention (ulysses all-to-all + ring p2p loop).
+
+        Returns the local attention output tensor. Side-effect free w.r.t. Python
+        state except the comm group's transient p2p op/req buffers (cleared each step),
+        which makes it safe to run under CUDA Graph capture.
+        """
+        cp_size = self.cp_size
+        local_rank = self.local_chunk_id
+        ulysses_size = attn_kwargs["ulysses_size"]
+        ring_steps = attn_kwargs["ring_steps"]
+        use_varlen = attn_kwargs["use_varlen"]
+        cu_seqlens_q = attn_kwargs["cu_seqlens_q"]
+        cu_seqlens_k = attn_kwargs["cu_seqlens_k"]
+        max_seqlen_q = attn_kwargs["max_seqlen_q"]
+        max_seqlen_k = attn_kwargs["max_seqlen_k"]
+
+        if ulysses_size > 1:
+            ulysses_group = get_up_group(ulysses_size)
+
         if use_varlen:
             seq_dim = 0
             head_dim = 1
-            max_seqlen_q *= ulysses_size
-            max_seqlen_k *= ulysses_size
+            max_seqlen_q = max_seqlen_q * ulysses_size
+            max_seqlen_k = max_seqlen_k * ulysses_size
         else:
             seq_dim = 1
-            head_dim=2
+            head_dim = 2
 
         ring_next_rank = (local_rank - ulysses_size) % cp_size
         ring_prev_rank = (local_rank + ulysses_size) % cp_size
         out, lse = None, None
         fresh_out, fresh_lse = None, None
-        
+
         if ulysses_size > 1:
-            q = ulysses_group.all_to_all(q, head_dim, seq_dim)  
+            q = ulysses_group.all_to_all(q, head_dim, seq_dim)
             k = ulysses_group.all_to_all(k, head_dim, seq_dim)
             v = ulysses_group.all_to_all(v, head_dim, seq_dim)
-        # for tensor in [q,k,v]:
-        #     assert not torch.isnan(tensor).any(), f"NaN detected in qkv: {tensor}"
 
-        
         for ring_step in range(ring_steps):
             if ring_step + 1 != ring_steps:
                 if use_varlen:
@@ -550,21 +630,20 @@ class DiffusionAttention_with_CP:
                     src_rank=ring_prev_rank,
                     dst_rank=ring_next_rank,
                 )
-            
+
             block_out, block_lse, _ = self.attn(
                 q, k, v,
                 cu_seqlens_q,
                 cu_seqlens_k,
                 max_seqlen_q,
                 max_seqlen_k,
-                dropout_p=dropout_p,
-                softmax_scale=softmax_scale,
-                causal=causal,
-                window_size=window_size,
-                deterministic=deterministic,
+                dropout_p=attn_kwargs["dropout_p"],
+                softmax_scale=attn_kwargs["softmax_scale"],
+                causal=attn_kwargs["causal"],
+                window_size=attn_kwargs["window_size"],
+                deterministic=attn_kwargs["deterministic"],
                 return_attn_probs=ring_steps > 1,
             )
-            # assert not torch.isnan(block_out).any(), f"NaN detected in blockout: {block_out}"
 
             if ring_steps == 1 and block_lse is None:
                 fresh_out = block_out
@@ -572,15 +651,12 @@ class DiffusionAttention_with_CP:
             else:
                 fresh_out, fresh_lse = update_out_and_lse(fresh_out, fresh_lse, block_out, block_lse)
 
-            # for tensor in [fresh_out, fresh_lse]:
-            #     assert not torch.isnan(tensor).any(), f"NaN detected in fresh out lse: {tensor}"
-
             if ring_step + 1 != ring_steps:
                 if use_varlen:
                     k, v, cu_seqlens_k = self.async_ring_p2p_wait_and_update(nxt_data_pack)
                 else:
                     k, v = self.async_ring_p2p_wait_and_update(nxt_data_pack)
-            
+
             if fresh_lse is not None:
                 fresh_lse = squeeze_and_transpose(fresh_lse)
 
@@ -596,13 +672,56 @@ class DiffusionAttention_with_CP:
                 out, lse = update_out_and_lse(out, lse, fresh_out, fresh_lse)
             fresh_out, fresh_lse = None, None
 
-        # assert not torch.isnan(out).any(), f"NaN detected in only output"
+        return out
 
-        if timer_start is not None:
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-            elapsed_ms = (time.perf_counter() - timer_start) * 1000.0
-            Timer.record(f"cp{cp_size}_attn", elapsed_ms)
+    def _cp_forward_graphed(self, q, k, v, attn_kwargs: dict) -> torch.Tensor:
+        """Capture the whole context-parallel attention into a CUDA Graph and replay it.
 
-        return out, None, None
+        The captured graph is keyed by tensor shape/dtype, so a single graph is
+        reused across all attention layers and denoise steps (identical shapes).
+        Inputs are copied into static buffers before replay; the static output is
+        cloned out so the next replay can safely overwrite it.
+        """
+        key = (tuple(q.shape), tuple(k.shape), tuple(v.shape), q.dtype,
+               bool(attn_kwargs["causal"]), attn_kwargs["softmax_scale"])
+        entry = self._ring_graph_cache.get(key)
+        if entry is None:
+            static_q = q.clone()
+            static_k = k.clone()
+            static_v = v.clone()
+
+            # Warmup on a side stream (required before capture; also initializes
+            # NCCL p2p connections so they are not established during capture).
+            side = torch.cuda.Stream()
+            side.wait_stream(torch.cuda.current_stream())
+            with torch.cuda.stream(side):
+                for _ in range(3):
+                    self._cp_forward(static_q, static_k, static_v, attn_kwargs)
+            torch.cuda.current_stream().wait_stream(side)
+            torch.cuda.synchronize()
+
+            graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(graph):
+                static_out = self._cp_forward(static_q, static_k, static_v, attn_kwargs)
+            torch.cuda.synchronize()
+
+            entry = {
+                "graph": graph,
+                "q": static_q,
+                "k": static_k,
+                "v": static_v,
+                "out": static_out,
+            }
+            self._ring_graph_cache[key] = entry
+            logger.info(
+                "[ring-cudagraph] captured ring loop graph for shape q=%s (cp_size=%d)",
+                tuple(q.shape),
+                self.cp_size,
+            )
+
+        entry["q"].copy_(q)
+        entry["k"].copy_(k)
+        entry["v"].copy_(v)
+        entry["graph"].replay()
+        return entry["out"].clone()
             
