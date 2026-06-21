@@ -124,6 +124,14 @@ ChituBench/results/**/plots/
 ChituBench/results/**/configs/
 ChituBench/results/hpsv3_assets/
 
+# CUDA Graph / compile showcase raw outputs (curated images live in docs bundle)
+ChituBench/results/cudagraph_showcase/
+
+# Zhihu article reproducibility bundles are published as GitHub Release assets.
+docs/zhihu_cudagraph_compile/*
+!docs/zhihu_cudagraph_compile/
+!docs/zhihu_cudagraph_compile/article.md
+
 # Local algorithm references
 third_party/Cubic/
 
