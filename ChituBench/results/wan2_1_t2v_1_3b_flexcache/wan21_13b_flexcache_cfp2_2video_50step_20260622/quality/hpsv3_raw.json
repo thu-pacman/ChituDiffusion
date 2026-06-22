@@ -1,0 +1,146 @@
+[
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-blockdance_b18g2-20260622_151621-blockdance_b18g2/results/blockdance_b18g2_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_eb34b585fc_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 9.359090805053711
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-blockdance_b18g2-20260622_151621-blockdance_b18g2/results/blockdance_b18g2_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_f6ce2dd34c_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": 10.674440383911133
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-cubic_s20_tau8_4x4_w8c2-20260622_152348-cubic_s20_tau8_4x4_w8c2/results/cubic_s20_tau8_4x4_w8c2_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_fa1877ea06_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 9.402425765991211
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-cubic_s20_tau8_4x4_w8c2-20260622_152348-cubic_s20_tau8_4x4_w8c2/results/cubic_s20_tau8_4x4_w8c2_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_0efb7a1533_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": 9.879921913146973
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-cubic_s30_tau8_4x4_w8c2-20260622_171726-cubic_s30_tau8_4x4_w8c2/results/cubic_s30_tau8_4x4_w8c2_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_215af90b18_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 9.382416725158691
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-cubic_s30_tau8_4x4_w8c2-20260622_171726-cubic_s30_tau8_4x4_w8c2/results/cubic_s30_tau8_4x4_w8c2_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_5c8b1ce5f0_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": 10.146628379821777
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-cubic_s40_tau8_4x4_w8c2-20260622_172153-cubic_s40_tau8_4x4_w8c2/results/cubic_s40_tau8_4x4_w8c2_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_bc3310b229_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 9.184163093566895
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-cubic_s40_tau8_4x4_w8c2-20260622_172153-cubic_s40_tau8_4x4_w8c2/results/cubic_s40_tau8_4x4_w8c2_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_63e5731679_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": 9.523152351379395
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-meancache17-20260622_160619-meancache17/results/meancache17_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_8b73163985_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 2.6119225025177
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-meancache17-20260622_160619-meancache17/results/meancache17_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_42448ef023_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": -1.8838337659835815
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-meancache30-20260622_165850-meancache30/results/meancache30_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_f62f98171f_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 9.389463424682617
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-meancache30-20260622_165850-meancache30/results/meancache30_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_cb979e89a6_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": 10.95777416229248
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-origin_flash-20260622_150643-origin_flash/results/origin_flash_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_cad64b2a27_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 9.453977584838867
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-origin_flash-20260622_150643-origin_flash/results/origin_flash_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_45c77496c7_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": 10.998467445373535
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-pab_s2c3-20260622_151232-pab_s2c3/results/pab_s2c3_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_c15e462020_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 10.275897026062012
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-pab_s2c3-20260622_151232-pab_s2c3/results/pab_s2c3_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_09ad3eabed_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": 11.188193321228027
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-taylorseer_f2o1-20260622_165458-taylorseer_f2o1/results/taylorseer_f2o1_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_fb8f2e4244_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 11.187812805175781
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-taylorseer_f2o1-20260622_165458-taylorseer_f2o1/results/taylorseer_f2o1_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_c5a1e345d0_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": 6.406035900115967
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-taylorseer_f3o1-20260622_152105-taylorseer_f3o1/results/taylorseer_f3o1_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_23f3401813_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 9.07227897644043
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-taylorseer_f3o1-20260622_152105-taylorseer_f3o1/results/taylorseer_f3o1_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_3ce10b69b3_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": -2.0365335941314697
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-teacache_t010-20260622_170232-teacache_t010/results/teacache_t010_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_9ddc123821_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 11.560112953186035
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-teacache_t010-20260622_170232-teacache_t010/results/teacache_t010_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_047535759f_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": 9.65310001373291
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-teacache_t020-20260622_163040-teacache_t020/results/teacache_t020_text_sign_seed42/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_steady_video_of_a_small_storefront_sign_that_clearly_reads_chi_seed42_step50_47f01c25cd_framemid.png",
+    "prompt": "A steady video of a small storefront sign that clearly reads CHITU BENCH, warm indoor light, gentle camera movement.",
+    "hpsv3_score": 9.557452201843262
+  },
+  {
+    "generated_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/chitubench-wan21-13b-flexcache-teacache_t020-20260622_163040-teacache_t020/results/teacache_t020_cat_grass_seed42/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50.mp4",
+    "image_path": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/wan2_1_t2v_1_3b_flexcache/wan21_13b_flexcache_cfp2_2video_50step_20260622/quality/hpsv3_frames/a_cat_walking_on_grass,_natural_daylight,_smooth_realistic_motio_seed42_step50_91200797c3_framemid.png",
+    "prompt": "A cat walking on grass, natural daylight, smooth realistic motion, no text or subtitles.",
+    "hpsv3_score": 6.729675769805908
+  }
+]

@@ -625,14 +625,14 @@ class Generator:
         # MeanCache is a step-level strategy: it caches the full noise prediction and
         # reuses it via a finite-difference JVP in the denoise loop, never touching the
         # model forward internals. It is therefore orthogonal to context parallelism
-        # (the linear JVP commutes with sequence sharding). Validated for Flux1-dev and
-        # Qwen-Image under cp>1; other models stay gated until checked.
+        # (the linear JVP commutes with sequence sharding). Validated for Flux1-dev,
+        # Qwen-Image, and Wan under cp>1; other models stay gated until checked.
         if (
             spec.strategy == "meancache"
             and self.cp_size != 1
-            and model_name not in {"Qwen-Image", "qwen-image", "Flux1-dev"}
+            and model_name not in {"Qwen-Image", "qwen-image", "Flux1-dev", "FLUX.1-dev", "Wan2.1-T2V-1.3B"}
         ):
-            raise ValueError("FlexCache MeanCache currently requires cp_size = 1 outside Qwen-Image / Flux1-dev.")
+            raise ValueError("FlexCache MeanCache currently requires cp_size = 1 outside Qwen-Image / Flux1-dev / Wan.")
         if spec.strategy == "meancache" and self.cfg_size not in {1, 2}:
             raise ValueError("FlexCache MeanCache currently supports cfg_size = 1 or 2.")
         return spec
@@ -690,8 +690,8 @@ class Generator:
 
             if not isinstance(spec, MeanCacheParams):
                 raise TypeError("FlexCache meancache requires MeanCacheParams.")
-            if model_name not in {"Qwen-Image", "qwen-image", "Flux1-dev", "FLUX.1-dev"}:
-                raise NotImplementedError("FlexCache MeanCache is currently implemented only for Qwen-Image and Flux1-dev.")
+            if model_name not in {"Qwen-Image", "qwen-image", "Flux1-dev", "FLUX.1-dev", "Wan2.1-T2V-1.3B"}:
+                raise NotImplementedError("FlexCache MeanCache is currently implemented only for Qwen-Image, Flux1-dev, and Wan.")
             return MeanCacheStrategy(
                 task=task,
                 fresh_steps=getattr(spec, "fresh_steps", 25),

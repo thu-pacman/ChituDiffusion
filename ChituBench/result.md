@@ -10,7 +10,7 @@ are the compact result view. (`plots/` paths are relative to this folder.)
 | --- | --- | --- |
 | [Attention Backend](result_attention.md) | pluggable attention kernels (Flash / Sage / Sparge / FlashInfer) vs origin | ~1.16x quality-preserving (Flux), up to 2.23x on Wan video |
 | [Parallel DiT](result_parallel_dit.md) | CFG + context/sequence parallel on the denoise stage | up to 12.81x (Wan2.1-T2V-1.3B, 16 GPU CFP2+Ring2+UP4); Qwen 5.40x |
-| [FlexCache](result_flexcache.md) | step/block-level caching (MeanCache, TeaCache, TaylorSeer, Cubic, PAB, BlockDance) | MeanCache 2.94x@26 dB (Flux.1) / 3.62x@24.5 dB (Qwen), up to 9x |
+| [FlexCache](result_flexcache.md) | step/block-level caching (MeanCache, TeaCache, TaylorSeer, Cubic, PAB, BlockDance) | MeanCache 2.94x@26 dB (Flux.1) / 3.62x@24.5 dB (Qwen); Wan MeanCache30 1.66x@35.6 dB, Cubic reaches 2.20x@26.2 dB |
 | [Parallel VAE](result_parallel_vae.md) | tile-parallel VAE decode + adaptive offload + serving/benchmark split | decode 2.3-2.9x; serving latency cleaned of harness I/O |
 
 ## How to read each module
@@ -24,4 +24,4 @@ are the compact result view. (`plots/` paths are relative to this folder.)
 ## Models covered
 
 Flux.1-dev, Flux2-klein-4B (4-step distilled), Qwen-Image, and Wan2.1-T2V-1.3B
-(video attention and Parallel DiT).
+(video attention, Parallel DiT, and FlexCache).

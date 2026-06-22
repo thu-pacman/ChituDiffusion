@@ -8,19 +8,22 @@ from chitu_diffusion.flexcache.params import (
     BlockDanceParams,
     CubicParams,
     DiTangoParams,
+    MeanCacheParams,
     PABParams,
     TaylorSeerParams,
     TeaCacheParams,
 )
+from chitu_diffusion.flexcache.strategy.meancache import MeanCacheStrategy
 from chitu_diffusion.flexcache.strategy.blockdance import BlockDanceStrategy
 from chitu_diffusion.flexcache.strategy.taylorseer import TaylorSeerStrategy
 from chitu_diffusion.flexcache.strategy.teacache import TeaCacheStrategy
+from chitu_diffusion.runtime.generator import Generator
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend
 from chitu_diffusion.runtime.task import DiffusionUserParams
 
 
 def test_flexcache_strategies_are_accepted():
-    for cls in (BlockDanceParams, TeaCacheParams, PABParams, CubicParams, TaylorSeerParams, DiTangoParams):
+    for cls in (BlockDanceParams, TeaCacheParams, PABParams, CubicParams, MeanCacheParams, TaylorSeerParams, DiTangoParams):
         params = DiffusionUserParams(
             flexcache_params=cls()
         ).resolve_flexcache_params()
@@ -56,6 +59,33 @@ def test_ditango_param_dict_accepts_group_size_limit():
     assert params.intra_group_size_limit == 2
     assert params.locality_group_compute_boost == 1.5
     assert params.groupwise_reuse_stale_kv is True
+
+
+def test_wan_meancache_strategy_can_be_built(monkeypatch):
+    class ReqParams:
+        num_inference_steps = 8
+
+    class Req:
+        params = ReqParams()
+
+    class Task:
+        req = Req()
+
+    class Models:
+        name = "Wan2.1-T2V-1.3B"
+
+    class Args:
+        models = Models()
+
+    generator = object.__new__(Generator)
+    generator.cp_size = 1
+    generator.cfg_size = 2
+    monkeypatch.setattr(DiffusionBackend, "args", Args())
+
+    spec = MeanCacheParams(fresh_steps=10, warmup=1, cooldown=1)
+    strategy = generator._build_flexcache_strategy(Task(), spec)
+    assert isinstance(strategy, MeanCacheStrategy)
+    assert strategy.fresh_steps == 10
 
 
 def test_concrete_params_are_strategy_specific():

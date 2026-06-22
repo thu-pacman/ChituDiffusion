@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import csv
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -85,7 +86,8 @@ def representative_image_for_hpsv3(path: Path, output_dir: Path, frame_index: in
         return path
     cache_dir = output_dir / "hpsv3_frames"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = cache_dir / f"{path.stem}_frame{'mid' if frame_index < 0 else frame_index}.png"
+    digest = hashlib.sha1(str(path.resolve()).encode("utf-8")).hexdigest()[:10]
+    cache_path = cache_dir / f"{path.stem}_{digest}_frame{'mid' if frame_index < 0 else frame_index}.png"
     if not cache_path.exists():
         frame = representative_rgb(path, frame_index=frame_index).clip(0, 255).astype("uint8")
         Image.fromarray(frame).save(cache_path)

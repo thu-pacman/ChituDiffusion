@@ -12,6 +12,9 @@ CONFIG="$BENCH_DIR/configs/wan2_1_t2v_1_3b/flexcache/base_flash.yaml"
 PLOT_TITLE="Wan2.1 T2V 1.3B FlexCache Trade-off"
 CONTACT_TITLE="Wan2.1 T2V 1.3B FlexCache Visual Check"
 REFERENCE_DIR="${CHITUBENCH_REFERENCE_DIR:-}"
+GPUS_PER_NODE="${CHITUBENCH_GPUS_PER_NODE:-2}"
+CFP="${CHITUBENCH_CFP:-2}"
+UP="${CHITUBENCH_UP:-1}"
 
 PROMPT_FILE="${CHITUBENCH_PROMPT_FILE:-$BENCH_DIR/prompts/wan2_1_t2v_1_3b_attention.json}"
 export CHITUBENCH_PROMPT_FILE="$PROMPT_FILE"
@@ -21,7 +24,7 @@ export CHITUBENCH_BASE_SEED="${CHITUBENCH_BASE_SEED:-42}"
 export CHITUBENCH_WARMUP_RUNS="${CHITUBENCH_WARMUP_RUNS:-0}"
 export CHITUBENCH_VIDEO_SIZE="${CHITUBENCH_VIDEO_SIZE:-832,480}"
 export CHITUBENCH_FRAME_NUM="${CHITUBENCH_FRAME_NUM:-81}"
-export CHITUBENCH_CASES="${CHITUBENCH_CASES:-origin_flash pab_s2c3 blockdance_b18g2 taylorseer_f3o1 cubic_s20_tau8_4x4_w8c2}"
+export CHITUBENCH_CASES="${CHITUBENCH_CASES:-origin_flash pab_s2c3 blockdance_b18g2 taylorseer_f3o1 cubic_s20_tau8_4x4_w8c2 cubic_s30_tau8_4x4_w8c2 cubic_s40_tau8_4x4_w8c2 meancache17 teacache_t020 meancache30 taylorseer_f2o1 teacache_t010}"
 
 if (( CHITUBENCH_STEPS <= 10 )); then
   FLEXCACHE_WARMUP="${CHITUBENCH_FLEXCACHE_WARMUP:-1}"
@@ -30,23 +33,31 @@ else
   FLEXCACHE_WARMUP="${CHITUBENCH_FLEXCACHE_WARMUP:-3}"
   FLEXCACHE_COOLDOWN="${CHITUBENCH_FLEXCACHE_COOLDOWN:-3}"
 fi
-CUBIC_WARMUP="${CHITUBENCH_CUBIC_WARMUP:-8}"
-CUBIC_COOLDOWN="${CHITUBENCH_CUBIC_COOLDOWN:-2}"
+if (( CHITUBENCH_STEPS <= 10 )); then
+  CUBIC_WARMUP="${CHITUBENCH_CUBIC_WARMUP:-1}"
+  CUBIC_COOLDOWN="${CHITUBENCH_CUBIC_COOLDOWN:-1}"
+else
+  CUBIC_WARMUP="${CHITUBENCH_CUBIC_WARMUP:-8}"
+  CUBIC_COOLDOWN="${CHITUBENCH_CUBIC_COOLDOWN:-2}"
+fi
 
 mkdir -p "$RESULT_ROOT/configs"
 
 render_config() {
   local output_config="$1"
   local tag="$2"
-  "$PYTHON_BIN" - "$CONFIG" "$output_config" "$RESULT_ROOT" "$tag" <<'PY'
+  "$PYTHON_BIN" - "$CONFIG" "$output_config" "$RESULT_ROOT" "$tag" "$GPUS_PER_NODE" "$CFP" "$UP" <<'PY'
 import sys
 from pathlib import Path
 import yaml
 
-source, output, result_root, tag = sys.argv[1:5]
+source, output, result_root, tag, gpus_per_node, cfp, up = sys.argv[1:8]
 cfg = yaml.safe_load(Path(source).read_text(encoding="utf-8"))
 cfg.setdefault("launch", {})["tag"] = tag
 cfg.setdefault("launch", {}).setdefault("srun", {})["job_name"] = tag
+cfg["launch"]["gpus_per_node"] = int(gpus_per_node)
+cfg.setdefault("parallel", {})["cfp"] = int(cfp)
+cfg["parallel"]["up"] = int(up)
 cfg.setdefault("output", {})["root_dir"] = result_root
 Path(output).parent.mkdir(parents=True, exist_ok=True)
 Path(output).write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
@@ -102,8 +113,8 @@ run_case() {
   else
     unset CHITUBENCH_FLEXCACHE_PARAMS || true
   fi
-  echo "=== ChituBench [$EXPERIMENT_ID] $case_id ==="
-  "$CHITU_BIN" run "$rendered" --gpus-per-node 1
+  echo "=== ChituBench [$EXPERIMENT_ID] $case_id gpus_per_node=$GPUS_PER_NODE cfp=$CFP up=$UP ==="
+  "$CHITU_BIN" run "$rendered" --gpus-per-node "$GPUS_PER_NODE" --cfp "$CFP"
   "$PYTHON_BIN" "$BENCH_DIR/scripts/collect.py" "$RESULT_ROOT" \
     --experiment-id "$EXPERIMENT_ID" \
     --title "$PLOT_TITLE" \
@@ -142,7 +153,14 @@ run_case origin_flash ""
 run_case pab_s2c3 "$(fc_json '{"strategy":"pab","skip_self_range":2,"skip_cross_range":3}')"
 run_case blockdance_b18g2 "$(fc_json '{"strategy":"blockdance","boundary_block":18,"group_size":2,"start_fraction":0.25,"end_fraction":0.90}')"
 run_case taylorseer_f3o1 "$(fc_json '{"strategy":"taylorseer","fresh_threshold":3,"max_order":1,"first_enhance":1}')"
+run_case taylorseer_f2o1 "$(fc_json '{"strategy":"taylorseer","fresh_threshold":2,"max_order":1,"first_enhance":1}')"
 run_case cubic_s20_tau8_4x4_w8c2 "$(cubic_json '{"strategy":"cubic","target_speedup":2.0,"tau_max":8,"block_size":16,"uniform_square_min_splits":4}')"
+run_case cubic_s30_tau8_4x4_w8c2 "$(cubic_json '{"strategy":"cubic","target_speedup":3.0,"tau_max":8,"block_size":16,"uniform_square_min_splits":4}')"
+run_case cubic_s40_tau8_4x4_w8c2 "$(cubic_json '{"strategy":"cubic","target_speedup":4.0,"tau_max":8,"block_size":16,"uniform_square_min_splits":4}')"
+run_case meancache17 "$(fc_json '{"strategy":"meancache","fresh_steps":17,"use_jvp":true}')"
+run_case meancache30 "$(fc_json '{"strategy":"meancache","fresh_steps":30,"use_jvp":true}')"
+run_case teacache_t020 "$(fc_json '{"strategy":"teacache","teacache_thresh":0.20,"use_ref_steps":true}')"
+run_case teacache_t010 "$(fc_json '{"strategy":"teacache","teacache_thresh":0.10,"use_ref_steps":true}')"
 
 unset CHITUBENCH_FLEXCACHE_PARAMS || true
 
@@ -227,7 +245,9 @@ fi
   --seed "$CHITUBENCH_BASE_SEED" \
   --title "$CONTACT_TITLE" \
   --experiment-id "$EXPERIMENT_ID" \
-  --cases origin_flash pab_s2c3 blockdance_b18g2 taylorseer_f3o1 cubic_s20_tau8_4x4_w8c2 \
+  --columns 4 \
+  --group-by-family \
+  --cases cubic_s20_tau8_4x4_w8c2 cubic_s30_tau8_4x4_w8c2 cubic_s40_tau8_4x4_w8c2 origin_flash meancache30 meancache17 teacache_t010 teacache_t020 taylorseer_f2o1 taylorseer_f3o1 blockdance_b18g2 pab_s2c3 \
   --frame-index -1
 
 mkdir -p "$BENCH_DIR/plots/$EXPERIMENT_ID"

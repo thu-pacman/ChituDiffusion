@@ -77,12 +77,13 @@ Full tables, commands, notes, and figures live in
 | Workload | Best headline result | Link |
 | --- | --- | --- |
 | Flux1-dev attention | SageAttention reaches **1.160x** speedup vs origin flash with close HPSv3 | [result](ChituBench/result.md#flux1_dev_attention) |
-| Flux1-dev FlexCache | MeanCache reaches **4.989x**; Cubic and TaylorSeer cover the middle/high-speed frontier | [result](ChituBench/result.md#flux1_dev_flexcache) |
+| Flux1-dev FlexCache | MeanCache reaches **4.989x**; Cubic and TaylorSeer cover the middle/high-speed frontier | [result](ChituBench/result_flexcache.md#flux1_dev_flexcache) |
 | Flux1-dev sequence parallel | 8-GPU Ulysses reaches **4.843x** speedup vs 1 GPU | [result](ChituBench/result.md#flux1_dev_sequence_parallel) |
 | Flux2-klein attention | SageAttention reaches **1.163x** speedup with moderate drift | [result](ChituBench/result.md#flux2_klein_attention) |
 | Wan2.1-T2V-1.3B attention | Sparge reaches **2.228x** speedup; Torch SDPA keeps the closest quality metrics | [result](ChituBench/result.md#wan2_1_t2v_1_3b_attention) |
+| Wan2.1-T2V-1.3B FlexCache | MeanCache30 reaches **1.658x** with PSNR 35.60 / 1-LPIPS 0.990; Cubic now spans **1.568-2.203x** | [result](ChituBench/result_flexcache.md#wan2_1_t2v_1_3b_flexcache) |
 | Qwen-Image parallel | 8-GPU CFG parallel + image CP4 reaches **5.404x** speedup | [result](ChituBench/result.md#qwen_image_parallel) |
-| Qwen-Image FlexCache | MeanCache spans **3.616x**, **5.331x**, and **9.092x** speed-quality points | [result](ChituBench/result.md#qwen_image_flexcache) |
+| Qwen-Image FlexCache | MeanCache spans **3.616x**, **5.331x**, and **9.092x** speed-quality points | [result](ChituBench/result_flexcache.md#qwen_image_flexcache) |
 
 ### Speed-Quality Snapshots
 
@@ -90,11 +91,15 @@ Full tables, commands, notes, and figures live in
 
 ![Qwen-Image FlexCache speed-quality trade-off](ChituBench/plots/qwen_image_flexcache/speed_quality_qwen_image_flexcache_50step_20260616.png)
 
+![Wan2.1-T2V-1.3B FlexCache speed-quality trade-off](ChituBench/plots/wan2_1_t2v_1_3b_flexcache/speed_quality_wan21_13b_flexcache_cfp2_2video_50step_20260622.png)
+
 ### Visual Samples
 
 ![Flux1-dev FlexCache contact sheet](ChituBench/plots/flux1_dev_flexcache/contact_sheet_flux1_flexcache_with_meancache_50step_20260616.png)
 
 ![Qwen-Image FlexCache contact sheet](ChituBench/plots/qwen_image_flexcache/contact_sheet_qwen_image_flexcache_coffee_50step_20260616.png)
+
+![Wan2.1-T2V-1.3B FlexCache contact sheet](ChituBench/plots/wan2_1_t2v_1_3b_flexcache/contact_sheet_wan21_13b_flexcache_cfp2_2video_50step_20260622.png)
 
 ## Feature Map
 

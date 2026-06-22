@@ -275,11 +275,14 @@ def main() -> int:
                 color = hex_to_rgb(FAMILY_STYLES[family]["color"])
                 x0 = margin + start_col * (tile_w + gap) - 8
                 x1 = margin + end_col * (tile_w + gap) + tile_w + 8
-                y0 = group_y + 2
-                y1 = group_y + group_h - 2
-                draw.rounded_rectangle((x0, y0, x1, y1), radius=14, outline=color, width=3)
-                draw.rounded_rectangle((x0 + 10, y0 - 1, x0 + 158, y0 + 24), radius=8, fill=color)
-                draw.text((x0 + 19, y0 + 2), FAMILY_STYLES[family]["label"], fill="#ffffff", font=family_font)
+                y0 = group_y - 6
+                y1 = group_y + group_h + 6
+                draw.rounded_rectangle((x0, y0, x1, y1), radius=18, outline=color, width=5)
+                label = FAMILY_STYLES[family]["label"]
+                label_box = draw.textbbox((0, 0), label, font=family_font)
+                label_w = min(x1 - x0 - 20, label_box[2] - label_box[0] + 28)
+                draw.rounded_rectangle((x0 + 10, y0 - 2, x0 + 10 + label_w, y0 + 27), radius=9, fill=color)
+                draw.text((x0 + 24, y0 + 3), label, fill="#ffffff", font=family_font)
 
         for col, case in enumerate(row_cases):
             x = margin + col * (tile_w + gap)
