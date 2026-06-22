@@ -6,10 +6,10 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> |
-  <a href="ChituBench/result.md">ChituBench Results</a> |
-  <a href="ChituBench/README.md">Benchmark Protocol</a> |
+  <a href="ChituBench/README.md">ChituBench</a> |
   <a href="chitu_diffusion/flexcache/README.md">FlexCache</a> |
-  <a href="service_framework/README.md">Service Framework</a>
+  <a href="service_framework/README.md">Service</a> |
+  <a href="docs/zhihu_cudagraph_compile/README.md">Docs</a>
 </p>
 
 <p align="center">
@@ -38,36 +38,16 @@ real model workloads.
   timing, memory, logging, and evaluation are exercised through the real launch
   flow instead of isolated demos.
 
-## News
+## What we've been through
 
-- 🚀 **2026-06-21 | Optimization:** Added `torch.compile`, CUDA Graph, and
-  graphed Ring Attention support for DiT runtime, targeting launch-bound
-  parallel diffusion workloads.
-- ⚙️ **2026-06-19 | Engineering:** Expanded ChituBench with attention,
-  FlexCache, parallel DiT, and parallel VAE reports, while separating benchmark
-  overhead from serving latency.
-- ⚙️ **2026-06-17 | Engineering:** Completed Qwen-Image runtime adaptation with
-  stage support, FlexCache strategies, and ChituBench coverage for attention,
-  parallel DiT, and FlexCache trade-offs.
-- ⚙️ **2026-06-13 | Engineering:** Introduced the unified `chitu` CLI entry and
-  native SDPA / Ulysses CP backends, making the full launch path the standard
-  runtime path.
-- ⚙️ **2026-06-04 | Engineering:** Refactored diffusion runtime adapters around
-  model stages and backbone block hooks, enabling cleaner model adaptation and
-  strategy integration.
-- 🚀 **2026-05-27 | Optimization:** Released FlexCache with TeaCache, PAB, and
-  model-level cache construction; the strategy stack later expanded to
-  BlockDance, Cubic, MeanCache, and TaylorSeer.
-- 📄 **2026-03-31 | Paper:** DiTango was accepted by **HPDC'26**, providing a
-  cache-accelerated parallelism path for communication-limited diffusion
-  generation.
-- 📄 **2026-03-13 | Paper:** Jano, the predecessor of FlexCache Cubic, was
-  accepted by **CVPR Findings 2026** and inspired region-aware sequence-sparse
-  DiT acceleration ([arXiv](https://arxiv.org/abs/2603.00519)).
-- ⚙️📄 **2026-01-09 | Engineering / Paper:** Initialized the original chitu-core /
-  chitu-diffusion codebase, following the Difflow / PPoPP'26 serving-system line
-  that inspired stage-level scheduling
-  ([paper](https://dl.acm.org/doi/10.1145/3774934.3786424)).
+- ⚡ **CUDA Graph + `torch.compile` + Ring Attention**：面向高吞吐 diffusion serving 的近无损加速。
+- 📊 **ChituBench**：Attention / Parallel DiT / FlexCache / Parallel VAE 的统一评测面板。
+- 🎬 **Wan2.1-T2V-1.3B**：16 GPU Parallel DiT 达到 **12.813x**，FlexCache 覆盖视频生成。
+- 🖼️ **Qwen-Image**：运行时适配完成，8 GPU CFG + image CP 达到 **5.404x**。
+- 🧠 **FlexCache**：MeanCache / Cubic(Jano) / TaylorSeer / BlockDance / TeaCache / PAB。
+- 🎉 **DiTango @ HPDC'26**：通信受限场景下的 cache-accelerated parallelism。
+- 🎉 **[Jano](https://arxiv.org/abs/2603.00519) @ CVPR Findings 2026**：FlexCache-Cubic 的前身。
+- 🎉 **[Difflow](https://dl.acm.org/doi/10.1145/3774934.3786424) @ PPoPP'26**：ChituDiffusion 的 stage-level scheduling 起点。
 
 ## ChituBench Highlights
 
@@ -81,6 +61,7 @@ Full tables, commands, notes, and figures live in
 | Flux1-dev sequence parallel | 8-GPU Ulysses reaches **4.843x** speedup vs 1 GPU | [result](ChituBench/result.md#flux1_dev_sequence_parallel) |
 | Flux2-klein attention | SageAttention reaches **1.163x** speedup with moderate drift | [result](ChituBench/result.md#flux2_klein_attention) |
 | Wan2.1-T2V-1.3B attention | Sparge reaches **2.228x** speedup; Torch SDPA keeps the closest quality metrics | [result](ChituBench/result.md#wan2_1_t2v_1_3b_attention) |
+| Wan2.1-T2V-1.3B parallel | 16-GPU CFP2+Ring2+UP4 reaches **12.813x** speedup vs 1 GPU | [result](ChituBench/result_parallel_dit.md#wan2_1_t2v_1_3b_parallel) |
 | Wan2.1-T2V-1.3B FlexCache | MeanCache30 reaches **1.658x** with PSNR 35.60 / 1-LPIPS 0.990; Cubic now spans **1.568-2.203x** | [result](ChituBench/result_flexcache.md#wan2_1_t2v_1_3b_flexcache) |
 | Qwen-Image parallel | 8-GPU CFG parallel + image CP4 reaches **5.404x** speedup | [result](ChituBench/result.md#qwen_image_parallel) |
 | Qwen-Image FlexCache | MeanCache spans **3.616x**, **5.331x**, and **9.092x** speed-quality points | [result](ChituBench/result_flexcache.md#qwen_image_flexcache) |

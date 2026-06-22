@@ -24,6 +24,42 @@
     "speedup_vs_origin": 2.000613708037611
   },
   {
+    "case": "cfp2graph_ring2up4_16gpu",
+    "num_tasks": 2,
+    "dit_forward_s_mean": 24.54611831624061,
+    "dit_forward_s_min": 22.571202028542757,
+    "dit_forward_s_max": 26.52103460393846,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 12.686796432707965
+  },
+  {
+    "case": "cfp2graph_ring4_8gpu",
+    "num_tasks": 2,
+    "dit_forward_s_mean": 43.67355801630765,
+    "dit_forward_s_min": 42.824152670800686,
+    "dit_forward_s_max": 44.52296336181462,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 7.1304381972961375
+  },
+  {
+    "case": "cfp2graph_ring8_16gpu",
+    "num_tasks": 2,
+    "dit_forward_s_mean": 25.853311660699546,
+    "dit_forward_s_min": 25.16920286975801,
+    "dit_forward_s_max": 26.537420451641083,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 12.045327514644704
+  },
+  {
     "case": "cfp2ring2up4_16gpu",
     "num_tasks": 2,
     "dit_forward_s_mean": 24.304629117250443,
@@ -58,6 +94,18 @@
     "one_minus_lpips_mean": null,
     "hpsv3_score_mean": null,
     "speedup_vs_origin": 7.252375862364149
+  },
+  {
+    "case": "graph_ring4_4gpu",
+    "num_tasks": 2,
+    "dit_forward_s_mean": 86.03244755137712,
+    "dit_forward_s_min": 85.52129441313446,
+    "dit_forward_s_max": 86.54360068961978,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 3.6196994872816943
   },
   {
     "case": "ring2up4_8gpu",

@@ -216,11 +216,15 @@ def main(args: ServeConfig):
 
 
 if __name__ == "__main__":
+    args = load_config_from_cli()
+    ring_cudagraph = bool(getattr(args.infer.diffusion, "ring_cudagraph", False))
     try:
-        main(load_config_from_cli())
+        main(args)
         logger.info("Waiting for all ranks to finish...")
         if torch.distributed.is_available() and torch.distributed.is_initialized():
             torch.distributed.barrier(device_ids=[torch.cuda.current_device()])
+        if ring_cudagraph:
+            os._exit(0)
     finally:
         if torch.distributed.is_available() and torch.distributed.is_initialized():
             torch.distributed.destroy_process_group()

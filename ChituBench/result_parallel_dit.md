@@ -17,7 +17,7 @@ Best parallel point at each GPU count (DiT-forward speedup vs 1 GPU):
 | Flux.1-dev (50-step, Ulysses) | 1.00x | 3.28x | 4.84x | - |
 | Flux2-klein-4B (4-step, Ulysses) | 1.00x | 3.32x | 4.88x | - |
 | Qwen-Image (50-step, CFG+CP) | 1.00x | 3.36x | 5.40x | - |
-| Wan2.1-T2V-1.3B (50-step video, CFP+Ring+UP) | 1.00x | 3.85x | 7.25x | 12.81x |
+| Wan2.1-T2V-1.3B (50-step video, CFP+Ring/UP) | 1.00x | 3.85x | 7.25x | 12.81x |
 
 ## flux1_dev_sequence_parallel
 
@@ -210,6 +210,10 @@ Notes:
   and `cfp=2`, the CP group is only 4 ranks, so an `up8` request would be capped
   by CP size; the explicit 8-rank CP tests use `ring2up4_8gpu`, and the 16-GPU
   test uses two 8-rank CP groups via `cfp2ring2up4_16gpu`.
+- Graph Ring retest points were kept in the raw result directory but omitted
+  from this summary and plot because they did not improve the best USP points.
+  The closest retest, `cfp2graph_ring2up4_16gpu`, reached 24.546s / 12.687x vs
+  24.305s / 12.813x for `cfp2ring2up4_16gpu`.
 
 ### Summary
 
