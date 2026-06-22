@@ -254,3 +254,82 @@ Notes:
 ### Visual Contact Sheet
 
 ![qwen_image_flexcache coffee contact sheet](plots/qwen_image_flexcache/contact_sheet_qwen_image_flexcache_coffee_50step_20260616.png)
+
+## wan2_1_t2v_1_3b_flexcache
+
+Model: `Wan2.1-T2V-1.3B`
+
+Family: FlexCache strategies, Flash Attention backend, CFP2
+
+Run: `wan21_13b_flexcache_cfp2_2video_50step_20260622`
+
+Command:
+
+```bash
+CHITUBENCH_RUN_ID=wan21_13b_flexcache_cfp2_2video_50step_20260622 \
+CHITUBENCH_STEPS=50 \
+CHITUBENCH_FRAME_NUM=81 \
+CHITUBENCH_NUM_SEEDS=1 \
+CHITUBENCH_WARMUP_RUNS=0 \
+bash ChituBench/scripts/run_wan2_1_t2v_1_3b_flexcache.sh
+```
+
+Notes:
+
+- Wan video FlexCache uses two prompts, one seed, 50 denoising steps, and
+  81-frame 832x480 videos.
+- All cases use 2 GPUs with CFG parallelism enabled as `cfp=2`, `cp=1`, and
+  `up=1`. The baseline is `origin_flash` from the same run directory.
+- FlexCache is request-driven through per-case `flexcache_params`; the
+  `origin_flash` requests do not carry FlexCache params.
+- Required quality metrics are present: PSNR, 1-LPIPS, and HPSv3. HPSv3 is
+  nearly constant in this two-video representative-frame setup, so the readout
+  uses PSNR and 1-LPIPS for quality separation.
+- MeanCache17, TeaCache t0.20, MeanCache30, TaylorSeer f2o1, TeaCache t0.10,
+  Cubic s30, and Cubic s40 were added after the initial Wan FlexCache pass,
+  reusing the same `origin_flash` baseline and benchmark settings. MeanCache30
+  adds a conservative 30-fresh-step schedule for Wan; the older MeanCache17,
+  TaylorSeer f3o1, and TeaCache t0.20 points are kept as aggressive drift
+  references rather than recommended settings.
+- Cubic is now swept at target speedups 2.0 / 3.0 / 4.0. Other methods remain
+  representative points rather than complete multi-point sweeps.
+
+### Summary
+
+| case | tasks | DiT forward mean (s) | speedup vs origin | PSNR | SSIM | 1-LPIPS | HPSv3 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| origin_flash | 2 | 155.950 | 1.000 | inf | 1.0000 | 1.0000 | 10.017 |
+| blockdance_b18g2 | 2 | 124.396 | 1.254 | 35.342 | 0.9680 | 0.9941 | 10.017 |
+| cubic_s20_tau8_4x4_w8c2 | 2 | 99.443 | 1.568 | 30.472 | 0.9375 | 0.9834 | 10.017 |
+| cubic_s30_tau8_4x4_w8c2 | 2 | 88.541 | 1.761 | 27.842 | 0.9140 | 0.9715 | 10.017 |
+| cubic_s40_tau8_4x4_w8c2 | 2 | 70.803 | 2.203 | 26.212 | 0.8902 | 0.9571 | 10.017 |
+| meancache30 | 2 | 94.085 | 1.658 | 35.596 | 0.9666 | 0.9902 | 10.017 |
+| pab_s2c3 | 2 | 97.350 | 1.602 | 20.187 | 0.7962 | 0.8703 | 10.017 |
+| meancache17 | 2 | 56.757 | 2.748 | 17.868 | 0.7593 | 0.8504 | 10.017 |
+| teacache_t010 | 2 | 62.882 | 2.480 | 17.824 | 0.7315 | 0.8201 | 10.017 |
+| teacache_t020 | 2 | 44.346 | 3.517 | 16.257 | 0.6920 | 0.7718 | 10.017 |
+| taylorseer_f2o1 | 2 | 89.877 | 1.735 | 13.894 | 0.5890 | 0.6790 | 10.017 |
+| taylorseer_f3o1 | 2 | 64.700 | 2.410 | 11.005 | 0.4713 | 0.5331 | 10.017 |
+
+### Readout
+
+- MeanCache30 is the strongest Wan FlexCache point in this pass: 1.66x speedup
+  while keeping PSNR 35.60 and 1-LPIPS 0.9902.
+- BlockDance is the most conservative quality-preserving point: 1.25x speedup
+  with PSNR 35.34 and the highest non-origin 1-LPIPS at 0.9941.
+- Cubic now forms a clean three-point speed-quality curve: s20 keeps PSNR
+  30.47 / 1-LPIPS 0.9834 at 1.57x, s30 reaches 1.76x with PSNR 27.84, and
+  s40 reaches 2.20x with PSNR 26.21.
+- PAB has similar speed to Cubic but much larger visual drift on the two video
+  prompts.
+- MeanCache17, TeaCache t0.10, TeaCache t0.20, and both TaylorSeer points are
+  useful as speed/drift references, but none are visually competitive with
+  MeanCache30, BlockDance, or the Cubic curve on this two-video Wan setup.
+
+### Speed-Quality Trade-off
+
+![wan2_1_t2v_1_3b_flexcache speed-quality trade-off](plots/wan2_1_t2v_1_3b_flexcache/speed_quality_wan21_13b_flexcache_cfp2_2video_50step_20260622.png)
+
+### Visual Contact Sheet
+
+![wan2_1_t2v_1_3b_flexcache contact sheet](plots/wan2_1_t2v_1_3b_flexcache/contact_sheet_wan21_13b_flexcache_cfp2_2video_50step_20260622.png)

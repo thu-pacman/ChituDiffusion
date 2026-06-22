@@ -27,6 +27,14 @@ logger = getLogger(__name__)
 
 @register_model_runtime("diffusion-wan", "Wan2.1-T2V-1.3B", "Wan2.1-T2V-14B", "Wan2.2-T2V-A14B")
 class WanRuntimeAdapter(DiffusionRuntimeAdapter):
+    @staticmethod
+    def _normalize_wan_latent(tensor: torch.Tensor, name: str) -> torch.Tensor:
+        while tensor.ndim > 4 and tensor.shape[0] == 1:
+            tensor = tensor.squeeze(0)
+        if tensor.ndim != 4:
+            raise ValueError(f"Wan {name} must be [channels, frames, height, width], got {tuple(tensor.shape)}.")
+        return tensor
+
     def rope_impl(self, args: Any):
         if args.infer.diffusion.cp_size > 1:
             from functools import partial
@@ -174,6 +182,51 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
     def denoise_step(self, task, generator, backend, run_dit_forward: Callable[..., torch.Tensor]) -> torch.Tensor:
         latent_model_input = task.buffer.latents
         timestep = task.buffer.timesteps[task.buffer.current_step]
+        flex_strategy = getattr(getattr(backend, "flexcache", None), "strategy", None)
+        meancache_strategy = flex_strategy if getattr(flex_strategy, "type", None) == "meancache" else None
+        step_index = int(task.buffer.current_step)
+        sigma_pre = None
+        sigma_next = None
+        if meancache_strategy is not None:
+            sigmas = getattr(task.buffer.sampler, "sigmas", None)
+            if sigmas is not None and step_index + 1 < len(sigmas):
+                sigma_pre = sigmas[step_index]
+                sigma_next = sigmas[step_index + 1]
+            reuse_key = meancache_strategy.get_reuse_key(step=step_index)
+            if reuse_key is not None:
+                local_noise_pred = self._normalize_wan_latent(
+                    meancache_strategy.reuse(step=step_index).to(
+                        device=latent_model_input.device,
+                        dtype=latent_model_input.dtype,
+                    ),
+                    "MeanCache reuse noise_pred",
+                )
+                backend.flexcache.record_compute(
+                    baseline_units=1.0,
+                    actual_units=0.0,
+                    task_id=task.task_id,
+                    scope="meancache_step",
+                    unit="dit_forward",
+                    extra={"decision": "reuse", "step": step_index},
+                )
+                if backend.guidance_scale > 0 and generator.cfg_size == 2:
+                    noise_pred_cond, noise_pred_uncond = generator.cfg_dispatcher.all_gather_cfg_noise_preds(
+                        local_noise_pred
+                    )
+                    noise_pred = noise_pred_uncond + backend.guidance_scale * (noise_pred_cond - noise_pred_uncond)
+                else:
+                    noise_pred = local_noise_pred
+                noise_pred = self._normalize_wan_latent(noise_pred, "MeanCache guided noise_pred")
+                return self._normalize_wan_latent(
+                    task.buffer.sampler.step(
+                        noise_pred.unsqueeze(0),
+                        timestep,
+                        task.buffer.latents.unsqueeze(0),
+                        return_dict=False,
+                        generator=task.buffer.seed_g,
+                    )[0],
+                    "MeanCache scheduler output",
+                )
 
         if backend.guidance_scale > 0:
             if generator.cfg_size == 2:
@@ -192,9 +245,14 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
                     context=context,
                     seq_len=task.buffer.seq_len,
                 )
+                cfg_partial_noise_pred = self._normalize_wan_latent(
+                    cfg_partial_noise_pred,
+                    "CFG local noise_pred",
+                )
                 noise_pred_cond, noise_pred_uncond = generator.cfg_dispatcher.all_gather_cfg_noise_preds(
                     cfg_partial_noise_pred
                 )
+                fresh_noise_pred_for_cache = cfg_partial_noise_pred
             else:
                 set_cfg_type(backend, "pos")
                 noise_pred_cond = run_dit_forward(
@@ -205,6 +263,7 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
                     context=task.buffer.text_embeddings,
                     seq_len=task.buffer.seq_len,
                 )
+                noise_pred_cond = self._normalize_wan_latent(noise_pred_cond, "cond noise_pred")
                 set_cfg_type(backend, "neg")
                 noise_pred_uncond = run_dit_forward(
                     task,
@@ -214,6 +273,8 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
                     context=task.buffer.negative_embeddings,
                     seq_len=task.buffer.seq_len,
                 )
+                noise_pred_uncond = self._normalize_wan_latent(noise_pred_uncond, "uncond noise_pred")
+                fresh_noise_pred_for_cache = noise_pred_cond
             noise_pred = noise_pred_uncond + backend.guidance_scale * (noise_pred_cond - noise_pred_uncond)
         else:
             set_cfg_type(backend, "pos")
@@ -225,6 +286,12 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
                 context=task.buffer.text_embeddings,
                 seq_len=task.buffer.seq_len,
             )
+            noise_pred = self._normalize_wan_latent(noise_pred, "fresh noise_pred")
+            fresh_noise_pred_for_cache = noise_pred
+
+        noise_pred = self._normalize_wan_latent(noise_pred, "guided noise_pred")
+        if meancache_strategy is not None and not (backend.guidance_scale > 0 and generator.cfg_size == 2):
+            fresh_noise_pred_for_cache = noise_pred
 
         cache_strategy = getattr(backend.flexcache, "strategy", None)
         observe_guided_output = getattr(cache_strategy, "observe_guided_output", None)
@@ -236,13 +303,37 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
                 step=int(task.buffer.current_step),
             )
 
-        return task.buffer.sampler.step(
-            noise_pred.unsqueeze(0),
-            timestep,
-            task.buffer.latents.unsqueeze(0),
-            return_dict=False,
-            generator=task.buffer.seed_g,
-        )[0].squeeze(0)
+        latents_pre = latent_model_input.detach()
+        latents = self._normalize_wan_latent(
+            task.buffer.sampler.step(
+                noise_pred.unsqueeze(0),
+                timestep,
+                task.buffer.latents.unsqueeze(0),
+                return_dict=False,
+                generator=task.buffer.seed_g,
+            )[0],
+            "scheduler output",
+        )
+        if meancache_strategy is not None:
+            if sigma_pre is None or sigma_next is None:
+                raise RuntimeError("MeanCache requires scheduler sigmas for Wan.")
+            meancache_strategy.store(
+                step=step_index,
+                latents_pre=latents_pre,
+                latents=latents,
+                sigma_pre=sigma_pre,
+                sigma=sigma_next,
+                noise_pred=fresh_noise_pred_for_cache,
+            )
+            backend.flexcache.record_compute(
+                baseline_units=1.0,
+                actual_units=1.0,
+                task_id=task.task_id,
+                scope="meancache_step",
+                unit="dit_forward",
+                extra={"decision": "compute", "step": step_index},
+            )
+        return latents
 
     def decode_latents(self, task, generator, backend) -> Optional[torch.Tensor]:
         target_decode_device = 0

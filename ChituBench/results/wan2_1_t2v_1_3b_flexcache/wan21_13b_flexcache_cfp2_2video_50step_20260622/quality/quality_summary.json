@@ -1,0 +1,98 @@
+[
+  {
+    "case": "blockdance_b18g2",
+    "num_tasks": 2,
+    "psnr_mean": 35.341665867678955,
+    "ssim_mean": 0.9680237424226454,
+    "one_minus_lpips_mean": 0.9940560698742047,
+    "hpsv3_score_mean": 10.016765594482422
+  },
+  {
+    "case": "cubic_s20_tau8_4x4_w8c2",
+    "num_tasks": 2,
+    "psnr_mean": 30.471939134526757,
+    "ssim_mean": 0.9374557854952635,
+    "one_minus_lpips_mean": 0.9834380792453885,
+    "hpsv3_score_mean": 10.016765594482422
+  },
+  {
+    "case": "cubic_s30_tau8_4x4_w8c2",
+    "num_tasks": 2,
+    "psnr_mean": 27.841884541062484,
+    "ssim_mean": 0.9139658245775435,
+    "one_minus_lpips_mean": 0.9715401479043067,
+    "hpsv3_score_mean": 10.016765594482422
+  },
+  {
+    "case": "cubic_s40_tau8_4x4_w8c2",
+    "num_tasks": 2,
+    "psnr_mean": 26.21150524829242,
+    "ssim_mean": 0.8902422601794019,
+    "one_minus_lpips_mean": 0.9570913827046752,
+    "hpsv3_score_mean": 10.016765594482422
+  },
+  {
+    "case": "meancache17",
+    "num_tasks": 2,
+    "psnr_mean": 17.86822987259302,
+    "ssim_mean": 0.7592627755653711,
+    "one_minus_lpips_mean": 0.8504439070820808,
+    "hpsv3_score_mean": 10.016765594482422
+  },
+  {
+    "case": "meancache30",
+    "num_tasks": 2,
+    "psnr_mean": 35.59629815678596,
+    "ssim_mean": 0.9666368854634555,
+    "one_minus_lpips_mean": 0.9901858712546527,
+    "hpsv3_score_mean": 10.016765594482422
+  },
+  {
+    "case": "origin_flash",
+    "num_tasks": 2,
+    "psnr_mean": Infinity,
+    "ssim_mean": 1.0,
+    "one_minus_lpips_mean": 1.0,
+    "hpsv3_score_mean": 10.016765594482422
+  },
+  {
+    "case": "pab_s2c3",
+    "num_tasks": 2,
+    "psnr_mean": 20.18692493954115,
+    "ssim_mean": 0.7962441120618655,
+    "one_minus_lpips_mean": 0.8703434020280838,
+    "hpsv3_score_mean": 10.016765594482422
+  },
+  {
+    "case": "taylorseer_f2o1",
+    "num_tasks": 2,
+    "psnr_mean": 13.893724638524391,
+    "ssim_mean": 0.5890383416855777,
+    "one_minus_lpips_mean": 0.6790154874324799,
+    "hpsv3_score_mean": 10.016765594482422
+  },
+  {
+    "case": "taylorseer_f3o1",
+    "num_tasks": 2,
+    "psnr_mean": 11.00507587956534,
+    "ssim_mean": 0.47125533039187206,
+    "one_minus_lpips_mean": 0.5330870896577835,
+    "hpsv3_score_mean": 10.016765594482422
+  },
+  {
+    "case": "teacache_t010",
+    "num_tasks": 2,
+    "psnr_mean": 17.824302014201848,
+    "ssim_mean": 0.7314576458783797,
+    "one_minus_lpips_mean": 0.8201159238815308,
+    "hpsv3_score_mean": 10.016765594482422
+  },
+  {
+    "case": "teacache_t020",
+    "num_tasks": 2,
+    "psnr_mean": 16.257045484525563,
+    "ssim_mean": 0.6919779457427837,
+    "one_minus_lpips_mean": 0.7718341946601868,
+    "hpsv3_score_mean": 10.016765594482422
+  }
+]

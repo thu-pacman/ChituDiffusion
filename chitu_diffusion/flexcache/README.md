@@ -6,7 +6,7 @@ denoising steps according to a strategy-specific policy.
 
 ## Status
 
-- `meancache`: complete step-level strategy for Flux and Qwen-Image. It caches
+- `meancache`: complete step-level strategy for Flux, Qwen-Image, and Wan. It caches
   full noise predictions and can reuse them through the MeanCache JVP /
   average-velocity update outside the model forward.
 - `cubic`: Jano-derived region-aware / token-selective strategy. Jano has an
@@ -37,7 +37,7 @@ this repository.
 
 | Strategy | Technical source | Venue / status | ChituDiffusion adaptation |
 | --- | --- | --- | --- |
-| `meancache` | [MeanCache: From Instantaneous to Average Velocity for Accelerating Flow Matching Inference](https://openreview.net/forum?id=GMCyL7Xs9R) | ICLR 2026 | Step-level full-noise cache with optional JVP reuse for Flux and Qwen-Image. |
+| `meancache` | [MeanCache: From Instantaneous to Average Velocity for Accelerating Flow Matching Inference](https://openreview.net/forum?id=GMCyL7Xs9R) | ICLR 2026 | Step-level full-noise cache with optional JVP reuse for Flux, Qwen-Image, and Wan. |
 | `teacache` | [Timestep Embedding Tells: It's Time to Cache for Video Diffusion Model](https://openaccess.thecvf.com/content/CVPR2025/html/Liu_Timestep_Embedding_Tells_Its_Time_to_Cache_for_Video_Diffusion_CVPR_2025_paper.html) | CVPR 2025 | Model-output residual cache driven by accumulated timestep-embedding change. |
 | `pab` | [Real-Time Video Generation with Pyramid Attention Broadcast](https://openreview.net/forum?id=hDBrQ4DApF) | ICLR 2025 | Attention-output broadcast at fixed self/cross-attention intervals. |
 | `cubic` | [Jano: Adaptive Diffusion Generation with Early-stage Convergence Awareness](https://arxiv.org/abs/2603.00519) | CVPR Findings 2026 | Region-aware / token-selective forward path exposed as the `cubic` FlexCache strategy. |

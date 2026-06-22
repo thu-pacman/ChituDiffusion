@@ -14,7 +14,7 @@ by optimization module under the result pages below.
 | --- | --- | --- |
 | [Attention Backend](result_attention.md) | Pluggable attention kernels: Flash, Sage, Sparge, FlashInfer, and Torch SDPA | About 1.16x quality-preserving speedup on Flux; up to 2.23x on Wan video |
 | [Parallel DiT](result_parallel_dit.md) | CFG parallelism plus context/sequence parallelism on the denoise stage | Up to 12.81x on Wan2.1-T2V-1.3B with 16 GPUs; Qwen-Image reaches 5.40x |
-| [FlexCache](result_flexcache.md) | Step/block-level caching with MeanCache, TeaCache, TaylorSeer, Cubic, PAB, and BlockDance | MeanCache reaches 2.94x at 26 dB on Flux.1 and 3.62x at 24.5 dB on Qwen; aggressive points reach about 9x |
+| [FlexCache](result_flexcache.md) | Step/block-level caching with MeanCache, TeaCache, TaylorSeer, Cubic, PAB, and BlockDance | MeanCache reaches 2.94x at 26 dB on Flux.1 and 3.62x at 24.5 dB on Qwen; Wan MeanCache30 keeps 35.6 dB at 1.66x, Cubic reaches 2.20x |
 | [Parallel VAE](result_parallel_vae.md) | Tile-parallel VAE decode, adaptive offload, and serving/benchmark latency split | VAE decode reaches 2.3-2.9x; serving latency is reported without benchmark I/O overhead |
 
 ## Visual Highlights
@@ -40,12 +40,16 @@ quality for each strategy family.
 
 ![Qwen-Image FlexCache speed-quality trade-off](plots/qwen_image_flexcache/speed_quality_qwen_image_flexcache_50step_20260616.png)
 
+![Wan2.1-T2V-1.3B FlexCache speed-quality trade-off](plots/wan2_1_t2v_1_3b_flexcache/speed_quality_wan21_13b_flexcache_cfp2_2video_50step_20260622.png)
+
 ### Visual Contact Sheets
 
 Contact sheets keep the benchmark grounded in generated samples, not only scalar
 metrics.
 
 ![Flux1-dev FlexCache contact sheet](plots/flux1_dev_flexcache/contact_sheet_flux1_flexcache_with_meancache_50step_20260616.png)
+
+![Wan2.1-T2V-1.3B FlexCache contact sheet](plots/wan2_1_t2v_1_3b_flexcache/contact_sheet_wan21_13b_flexcache_cfp2_2video_50step_20260622.png)
 
 ![Wan2.1-T2V-1.3B attention contact sheet](plots/wan2_1_t2v_1_3b_attention/contact_sheet_wan21_13b_attn_2video_50step_20260617.png)
 

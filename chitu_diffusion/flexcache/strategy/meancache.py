@@ -12,12 +12,75 @@ logger = getLogger(__name__)
 
 
 _FRESH_STEP_TABLE = {
+    30: [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        24,
+        28,
+        32,
+        36,
+        40,
+        43,
+        45,
+        47,
+        48,
+        49,
+    ],
     25: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 24, 32, 40, 43, 45, 47, 48, 49],
     17: [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 17, 24, 31, 38, 45, 48, 49],
     10: [0, 1, 3, 7, 14, 21, 28, 35, 42, 49],
 }
 
 _EDGE_SOURCE = {
+    30: [
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "chain",
+        "v_diff_mean",
+        "v_diff_mean",
+        "v_diff_mean",
+        "v_diff_mean",
+        "v_diff_mean",
+        "v_diff_mean_jvp1_s5",
+        "v_diff_mean_jvp1_s5",
+        "v_diff_mean_jvp1_s5",
+        "chain",
+        "chain",
+    ],
     25: [
         "chain",
         "chain",
@@ -237,7 +300,7 @@ class MeanCacheStrategy(FlexCacheStrategy):
         x_end = self.log_dict["latents"][i1]
         s_start = self.log_dict["sigmas_pre"][i0]
         s_end = self.log_dict["sigmas"][i1]
-        denom = s_end - s_start
+        denom = (s_end - s_start).to(device=x_start.device, dtype=x_start.dtype)
         denom_b = denom.view(-1, *([1] * (x_start.ndim - denom.dim())))
         avg_u = (x_end - x_start) / denom_b
         inst_u = self.log_dict["v"][i0]
