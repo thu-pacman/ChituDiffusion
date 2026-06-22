@@ -40,20 +40,34 @@ real model workloads.
 
 ## News
 
-- **2026-06-17:** Wan2.1-T2V-1.3B video attention benchmark is now in
-  ChituBench; Sparge reaches **2.228x** DiT-forward speedup, while Torch SDPA is
-  the closest quality-preserving point on the two-video set.
-- **2026-06-17:** Qwen-Image attention now includes a FlashInfer probe in
-  ChituBench; FlashInfer is functional but not yet faster than Flash Attention
-  on the dense 50-step coffee prompt.
-- **2026-06-16:** Qwen-Image parallel scaling reaches **5.404x** DiT-forward
-  speedup on 8 GPUs with CFG parallel + image context parallelism.
-- **2026-06-16:** Qwen-Image FlexCache now has PAB, BlockDance, Cubic, and
-  MeanCache trade-off curves, including a **9.092x** MeanCache upper-speed point.
-- **2026-06-16:** Flux1-dev FlexCache results were consolidated with MeanCache;
-  the best MeanCache point reaches **4.989x** DiT-forward speedup.
-- **2026-06-13:** ChituBench was reset as the public benchmark workspace with
-  numeric result tables, plots, and visual contact sheets.
+- 🚀 **2026-06-21 | Optimization:** Added `torch.compile`, CUDA Graph, and
+  graphed Ring Attention support for DiT runtime, targeting launch-bound
+  parallel diffusion workloads.
+- ⚙️ **2026-06-19 | Engineering:** Expanded ChituBench with attention,
+  FlexCache, parallel DiT, and parallel VAE reports, while separating benchmark
+  overhead from serving latency.
+- ⚙️ **2026-06-17 | Engineering:** Completed Qwen-Image runtime adaptation with
+  stage support, FlexCache strategies, and ChituBench coverage for attention,
+  parallel DiT, and FlexCache trade-offs.
+- ⚙️ **2026-06-13 | Engineering:** Introduced the unified `chitu` CLI entry and
+  native SDPA / Ulysses CP backends, making the full launch path the standard
+  runtime path.
+- ⚙️ **2026-06-04 | Engineering:** Refactored diffusion runtime adapters around
+  model stages and backbone block hooks, enabling cleaner model adaptation and
+  strategy integration.
+- 🚀 **2026-05-27 | Optimization:** Released FlexCache with TeaCache, PAB, and
+  model-level cache construction; the strategy stack later expanded to
+  BlockDance, Cubic, MeanCache, and TaylorSeer.
+- 📄 **2026-03-31 | Paper:** DiTango was accepted by **HPDC'26**, providing a
+  cache-accelerated parallelism path for communication-limited diffusion
+  generation.
+- 📄 **2026-03-13 | Paper:** Jano, the predecessor of FlexCache Cubic, was
+  accepted by **CVPR Findings 2026** and inspired region-aware sequence-sparse
+  DiT acceleration ([arXiv](https://arxiv.org/abs/2603.00519)).
+- ⚙️📄 **2026-01-09 | Engineering / Paper:** Initialized the original chitu-core /
+  chitu-diffusion codebase, following the Difflow / PPoPP'26 serving-system line
+  that inspired stage-level scheduling
+  ([paper](https://dl.acm.org/doi/10.1145/3774934.3786424)).
 
 ## ChituBench Highlights
 
