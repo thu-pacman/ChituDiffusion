@@ -55,6 +55,14 @@ class MeanCacheParams(FlexCacheParams):
 
 
 @dataclass
+class FreeCacheParams(FlexCacheParams):
+    strategy: Optional[str] = "freecache"
+    tol: float = 0.30
+    max_gap: int = 8
+    jvp_order: int = 1
+
+
+@dataclass
 class TaylorSeerParams(FlexCacheParams):
     strategy: Optional[str] = "taylorseer"
     fresh_threshold: int = 5
@@ -95,6 +103,7 @@ FLEXCACHE_PARAM_CLASSES = {
     "blockdance": BlockDanceParams,
     "cubic": CubicParams,
     "meancache": MeanCacheParams,
+    "freecache": FreeCacheParams,
     "taylorseer": TaylorSeerParams,
     "ditango": DiTangoParams,
 }

@@ -114,7 +114,6 @@ logs/*
 *.mp4
 output/*
 srun_wan_demo.sh
-experiments/
 vbench_out/*
 
 # ChituBench runtime artifacts
