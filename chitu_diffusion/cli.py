@@ -157,6 +157,7 @@ def run_command(args: argparse.Namespace) -> int:
     up = int(_get(cfg, "parallel.up", 8))
     attn_type = str(_get(cfg, "infer.attn_type", "torch_sdpa"))
     low_mem_level = int(_get(cfg, "infer.low_mem_level", 0))
+    cp_backend = str(_get(cfg, "infer.cp_backend", "auto"))
     eval_reference_path = _get(cfg, "eval.reference_path", None)
     output_root_dir = str(_get(cfg, "output.root_dir", "outputs"))
     output_run_log = bool(_get(cfg, "output.run_log", True))
@@ -232,6 +233,7 @@ def run_command(args: argparse.Namespace) -> int:
         f"infer.diffusion.up={up}",
         f"infer.attn_type={attn_type}",
         f"infer.diffusion.low_mem_level={low_mem_level}",
+        f"infer.diffusion.cp_backend={cp_backend}",
         f"eval.eval_type={eval_type_override}",
         f"eval.reference_path={'null' if eval_reference_path is None else eval_reference_path}",
         f"output.root_dir={output_root_dir}",

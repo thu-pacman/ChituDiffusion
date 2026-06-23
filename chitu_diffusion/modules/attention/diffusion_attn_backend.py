@@ -447,7 +447,7 @@ class DiffusionAttnBackend:
         return out, lse, s_mask
 
 class DiffusionAttention_with_CP:
-    def __init__(self, attn, ulysses_limit, ring_cudagraph: bool = False):
+    def __init__(self, attn, ulysses_limit, ring_cudagraph: bool = False, cp_backend: str = "ucp"):
         self.attn = attn
         self.ulysses_limit = ulysses_limit
         self.group = get_cp_group()
@@ -461,6 +461,23 @@ class DiffusionAttention_with_CP:
         # non-varlen, cp_size>1.
         self.use_ring_cudagraph = bool(ring_cudagraph)
         self._ring_graph_cache: dict = {}
+        self.cp_backend = self._validate_cp_backend(cp_backend)
+        logger.info(
+            "Context parallel attention backend: %s (cp_size=%s, up=%s)",
+            self.cp_backend,
+            self.cp_size,
+            self.ulysses_limit,
+        )
+
+    @staticmethod
+    def _validate_cp_backend(cp_backend: str) -> str:
+        mode = str(cp_backend or "ucp").strip().lower()
+        if mode not in {"agcp", "ucp"}:
+            raise ValueError(f"Resolved CP backend must be one of agcp, ucp; got {cp_backend!r}.")
+        return mode
+
+    def uses_agcp(self) -> bool:
+        return self.cp_backend == "agcp"
 
     
     def async_ring_p2p_commit(self, tensors: Tuple[torch.Tensor, ...], src_rank: int, dst_rank: int):
@@ -539,6 +556,23 @@ class DiffusionAttention_with_CP:
 
         use_varlen = cu_seqlens_q is not None and cu_seqlens_k is not None and \
             max_seqlen_q is not None and max_seqlen_k is not None
+        if self.uses_agcp():
+            if use_varlen:
+                raise NotImplementedError("AGCP does not support varlen attention yet.")
+            k = self._all_gather_sequence(k, gather_dim=1)
+            v = self._all_gather_sequence(v, gather_dim=1)
+            out = self.attn(
+                q,
+                k,
+                v,
+                dropout_p=dropout_p,
+                softmax_scale=softmax_scale,
+                causal=causal,
+                window_size=window_size,
+                deterministic=deterministic,
+                return_attn_probs=False,
+            )[0]
+            return out, None, None
 
         attn_kwargs = dict(
             cu_seqlens_q=cu_seqlens_q,
@@ -578,6 +612,11 @@ class DiffusionAttention_with_CP:
             Timer.record(f"cp{cp_size}_attn", elapsed_ms)
 
         return out, None, None
+
+    def _all_gather_sequence(self, tensor: torch.Tensor, gather_dim: int) -> torch.Tensor:
+        pieces = [torch.empty_like(tensor) for _ in range(self.cp_size)]
+        torch.distributed.all_gather(pieces, tensor.contiguous(), group=self.group.gpu_group)
+        return torch.cat(pieces, dim=gather_dim).contiguous()
 
     def _cp_forward(self, q, k, v, attn_kwargs: dict) -> torch.Tensor:
         """Core context-parallel attention (ulysses all-to-all + ring p2p loop).
@@ -673,6 +712,131 @@ class DiffusionAttention_with_CP:
             fresh_out, fresh_lse = None, None
 
         return out
+
+    def cp_attn_with_full_txt(
+        self,
+        txt_q: torch.Tensor,
+        txt_k: torch.Tensor,
+        txt_v: torch.Tensor,
+        img_q: torch.Tensor,
+        img_k: torch.Tensor,
+        img_v: torch.Tensor,
+        *,
+        image_seq_len: Optional[int] = None,
+        dropout_p: float = 0.0,
+        softmax_scale: Optional[float] = None,
+        causal: bool = False,
+        window_size: Tuple[int, int] = (-1, -1),
+        deterministic: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Qwen-Image CP attention with replicated text and sharded image tokens.
+
+        Text Q/K/V stay full and replicated on every CP rank. Image Q/K/V are
+        sharded by sequence. The first block attends to local text+image K/V;
+        later ring steps stream only remote image K/V chunks. Outputs are
+        returned as (full text output, local image output).
+        """
+        if causal:
+            raise NotImplementedError("Qwen full-text CP attention only supports non-causal attention.")
+        if self.cp_size <= 1:
+            q = torch.cat([txt_q, img_q], dim=1)
+            k = torch.cat([txt_k, img_k], dim=1)
+            v = torch.cat([txt_v, img_v], dim=1)
+            out = self.attn(
+                q,
+                k,
+                v,
+                dropout_p=dropout_p,
+                softmax_scale=softmax_scale,
+                causal=False,
+                window_size=window_size,
+                deterministic=deterministic,
+                return_attn_probs=False,
+            )[0]
+            return out[:, : txt_q.shape[1]], out[:, txt_q.shape[1] :]
+
+        ulysses_size = self.cp_size if self.cp_size <= self.ulysses_limit else self.ulysses_limit
+        ring_steps = self.cp_size // ulysses_size
+        if self.attn.impl in {"sage", "sparge", "torch_sdpa_math"}:
+            raise NotImplementedError(
+                f"{self.attn.impl} cannot provide LSE for Qwen full-text ring attention."
+            )
+
+        local_rank = self.local_chunk_id
+        ring_next_rank = (local_rank - ulysses_size) % self.cp_size
+        ring_prev_rank = (local_rank + ulysses_size) % self.cp_size
+        seq_dim = 1
+        head_dim = 2
+        if ulysses_size > 1:
+            ulysses_group = get_up_group(ulysses_size)
+            ulysses_rank = ulysses_group.rank_in_group
+            txt_q = torch.tensor_split(txt_q, ulysses_size, head_dim)[ulysses_rank].contiguous()
+            txt_k = torch.tensor_split(txt_k, ulysses_size, head_dim)[ulysses_rank].contiguous()
+            txt_v = torch.tensor_split(txt_v, ulysses_size, head_dim)[ulysses_rank].contiguous()
+            img_q = ulysses_group.all_to_all(img_q, head_dim, seq_dim)
+            img_k = ulysses_group.all_to_all(img_k, head_dim, seq_dim)
+            img_v = ulysses_group.all_to_all(img_v, head_dim, seq_dim)
+
+        img_seq_len = int(image_seq_len if image_seq_len is not None else img_k.shape[1] * self.cp_size)
+        original_local_img_len = img_q.shape[1] // ulysses_size if ulysses_size > 1 else img_q.shape[1]
+        ring_block_seq = img_k.shape[1]
+        local_img_len = img_q.shape[1]
+        txt_len = txt_q.shape[1]
+        q = torch.cat([txt_q, img_q], dim=1)
+
+        out, lse = None, None
+        cur_img_k, cur_img_v = img_k, img_v
+        ring_block = local_rank // ulysses_size
+        for ring_step in range(ring_steps):
+            owner_block = (ring_block + ring_step) % ring_steps
+            start = owner_block * ring_block_seq
+            valid_len = max(0, min(cur_img_k.shape[1], img_seq_len - start))
+
+            if ring_step + 1 != ring_steps:
+                nxt_data_pack = self.async_ring_p2p_commit(
+                    (cur_img_k, cur_img_v),
+                    src_rank=ring_prev_rank,
+                    dst_rank=ring_next_rank,
+                )
+
+            if ring_step == 0:
+                block_k = torch.cat([txt_k, cur_img_k[:, :valid_len]], dim=1)
+                block_v = torch.cat([txt_v, cur_img_v[:, :valid_len]], dim=1)
+            else:
+                block_k = cur_img_k[:, :valid_len]
+                block_v = cur_img_v[:, :valid_len]
+
+            if block_k.shape[1] > 0:
+                block_out, block_lse, _ = self.attn(
+                    q,
+                    block_k,
+                    block_v,
+                    dropout_p=dropout_p,
+                    softmax_scale=softmax_scale,
+                    causal=False,
+                    window_size=window_size,
+                    deterministic=deterministic,
+                    return_attn_probs=ring_steps > 1,
+                )
+                if ring_steps == 1 and block_lse is None:
+                    out, lse = block_out, None
+                else:
+                    out, lse = update_out_and_lse(out, lse, block_out, block_lse)
+
+            if ring_step + 1 != ring_steps:
+                cur_img_k, cur_img_v = self.async_ring_p2p_wait_and_update(nxt_data_pack)
+
+        if out is None:
+            raise RuntimeError("Qwen full-text CP attention produced no output blocks.")
+        txt_out = out[:, :txt_len]
+        img_out = out[:, txt_len : txt_len + local_img_len]
+        if ulysses_size > 1:
+            img_out = ulysses_group.all_to_all(img_out, seq_dim, head_dim)
+            img_out = img_out[:, :original_local_img_len]
+            gathered_txt = [torch.empty_like(txt_out) for _ in range(ulysses_size)]
+            torch.distributed.all_gather(gathered_txt, txt_out.contiguous(), group=ulysses_group.gpu_group)
+            txt_out = torch.cat(gathered_txt, dim=head_dim).contiguous()
+        return txt_out, img_out
 
     def _cp_forward_graphed(self, q, k, v, attn_kwargs: dict) -> torch.Tensor:
         """Capture the whole context-parallel attention into a CUDA Graph and replay it.

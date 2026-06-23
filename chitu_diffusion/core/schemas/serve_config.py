@@ -93,6 +93,11 @@ class InferConfig:
         # non-varlen). Requires env NCCL_GRAPH_MIXING_SUPPORT=1 when other
         # (uncaptured) NCCL ops run in the same process.
         ring_cudagraph: bool = False
+        # Context-parallel attention backend:
+        #   "agcp" -> all-gather K/V then run one local attention;
+        #   "ucp"  -> unified context parallel (ring / ulysses / USP);
+        #   "auto" -> choose AGCP when memory is plentiful, otherwise UCP.
+        cp_backend: str = "auto"
 
     diffusion: DiffusionConfig = MISSING
 

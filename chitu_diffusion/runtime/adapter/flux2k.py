@@ -5,7 +5,10 @@ from logging import getLogger
 from typing import Any, Callable, Optional
 
 import torch
+import torch.distributed as dist
 
+from chitu_diffusion.core.distributed.parallel_state import get_cp_group
+from chitu_diffusion.models.parallel import ModelParallelCapabilities
 from chitu_diffusion.modules.utils.flux import (
     compute_flux2_empirical_mu,
     flowmatch_sigmas,
@@ -14,15 +17,69 @@ from chitu_diffusion.modules.utils.flux import (
     unpack_flux2_latents_with_ids,
     unpatchify_flux2_latents,
 )
+from chitu_diffusion.parallel.state import ContextParallelLatentState, ParallelTaskState
+from chitu_diffusion.parallel.vae import parallel_tiled_vae_decode
 from chitu_diffusion.runtime.adapter.base import as_list, device_scope, register_model_runtime, set_cfg_type
 from chitu_diffusion.runtime.adapter.flux1 import FluxRuntimeAdapter
-from chitu_diffusion.runtime.parallel_vae import parallel_tiled_vae_decode
+from chitu_diffusion.runtime.parallel_utils import SequencePadder
 
 logger = getLogger(__name__)
+
+# Sequence-padder name used for the persistent latent shard. Must match the name
+# the generic CP wrapper uses for image tokens so gather trims the same padding.
+_CP_LATENT_NAME = "hidden_states"
 
 
 @register_model_runtime("flux2-klein", "FLUX.2-klein-4B")
 class Flux2RuntimeAdapter(FluxRuntimeAdapter):
+    def parallel_capabilities(self, args: Any) -> ModelParallelCapabilities:
+        # Flux2-klein uses the generic CP path (it does not own attention CP), but
+        # it can keep the latent shard local across scheduler steps (parallel
+        # sampler), so it advertises sampler_local_latent. With only 4 denoise
+        # steps the DiT is tiny, so the relative weight of the per-step latent
+        # gather is larger here than on a 50-step model.
+        return ModelParallelCapabilities(
+            dit_context_parallel=True,
+            dit_cfg_parallel=False,
+            vae_tile_parallel=True,
+            sampler_local_latent=True,
+            model_specific_context_parallel=False,
+        )
+
+    def _persistent_cp_latents_enabled(self, backend) -> bool:
+        if os.getenv("CHITU_FLUX2_PERSISTENT_CP_LATENTS", "1") == "0":
+            return False
+        if int(getattr(backend.args.infer.diffusion, "cp_size", 1)) <= 1:
+            return False
+        plan = getattr(backend, "parallel_plan", None)
+        sampler_plan = getattr(plan, "sampler", None)
+        if sampler_plan is not None and not bool(getattr(sampler_plan, "enabled", False)):
+            return False
+        # FlexCache caches full-latent blocks/steps; keep latents replicated then.
+        if getattr(getattr(backend, "flexcache", None), "strategy", None) is not None:
+            return False
+        return True
+
+    @staticmethod
+    def _local_cp_state(task) -> Optional[ContextParallelLatentState]:
+        return getattr(getattr(task.buffer, "parallel", None), "cp_latents", None)
+
+    @staticmethod
+    def _split_local_latents(latents: torch.Tensor) -> torch.Tensor:
+        group = get_cp_group()
+        pieces = SequencePadder.split_sequence_padding(
+            latents, group.group_size, split_dim=1, name=_CP_LATENT_NAME
+        )
+        return pieces[group.rank_in_group]
+
+    @staticmethod
+    def _gather_local_latents(latents: torch.Tensor) -> torch.Tensor:
+        group = get_cp_group()
+        pieces = [torch.empty_like(latents) for _ in range(group.group_size)]
+        dist.all_gather(pieces, latents.contiguous(), group=group.gpu_group)
+        return SequencePadder.remove_sequence_padding_and_concat(
+            pieces, gather_dim=1, name=_CP_LATENT_NAME
+        )
     def load_text_encoder(self, args: Any, init_device: torch.device):
         from chitu_diffusion.modules.encoders.qwen3 import Qwen3CausalLMTextEncoder
 
@@ -118,14 +175,35 @@ class Flux2RuntimeAdapter(FluxRuntimeAdapter):
         task.buffer.image_size = (width, height)
 
         backend.switch_active_model(flush=True)
+        generator._configure_flexcache_for_task(task)
+
+        cp_local = False
+        use_local = self._persistent_cp_latents_enabled(backend)
+        cp_dispatcher = getattr(generator, "cp_dispatcher", None)
+        if cp_dispatcher is not None:
+            cp_dispatcher.local_latent_mode = use_local
+        if use_local:
+            full_seq_len = int(latents.shape[1])
+            local_latents = self._split_local_latents(latents)
+            if getattr(task.buffer, "parallel", None) is None:
+                task.buffer.parallel = ParallelTaskState()
+            task.buffer.parallel.cp_latents = ContextParallelLatentState(
+                image_offset=0,
+                image_seq_len=full_seq_len,
+                is_local=True,
+            )
+            task.buffer.latents = local_latents
+            latents = local_latents
+            cp_local = True
+
         logger.info(
-            "[Pre Denoise FLUX2] latents=%s latent_ids=%s steps=%s mu=%.4f",
+            "[Pre Denoise FLUX2] latents=%s latent_ids=%s steps=%s mu=%.4f cp_local=%s",
             tuple(latents.shape),
             tuple(latent_ids.shape),
             len(timesteps),
             mu,
+            cp_local,
         )
-        generator._configure_flexcache_for_task(task)
 
     def denoise_step(self, task, generator, backend, run_dit_forward: Callable[..., torch.Tensor]) -> torch.Tensor:
         x = task.buffer.latents.to(backend.active_model.dtype)
@@ -153,6 +231,12 @@ class Flux2RuntimeAdapter(FluxRuntimeAdapter):
         # 4-step distilled model the DiT is tiny, so VAE decode dominates end-to-end
         # latency -- this is where parallel decode pays off most. Falls back to
         # rank-0-only decode when disabled or single-GPU.
+        # Parallel-sampler path keeps only the rank-local latent shard during
+        # denoise; gather once here before unpack / parallel VAE decode.
+        cp_state = self._local_cp_state(task)
+        if cp_state is not None and cp_state.is_local:
+            task.buffer.latents = self._gather_local_latents(task.buffer.latents)
+            cp_state.is_local = False
         latents = unpack_flux2_latents_with_ids(task.buffer.latents, task.buffer.latent_image_ids)
         latents_bn_mean = backend.vae.bn.running_mean.view(1, -1, 1, 1).to(latents.device, latents.dtype)
         latents_bn_std = torch.sqrt(

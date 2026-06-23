@@ -17,6 +17,7 @@ from collections import deque
 from chitu_diffusion.runtime.backend import DiffusionBackend
 from chitu_diffusion.core.distributed.parallel_state import get_cfg_group
 from chitu_diffusion.flexcache.params import FLEXCACHE_PARAM_CLASSES, FlexCacheParams
+from chitu_diffusion.parallel.state import ParallelTaskState
 
 logger = getLogger(__name__)
 
@@ -258,6 +259,7 @@ class DiffusionTaskBuffer:
     text_ids: Optional[torch.Tensor] = field(default=None)
     latent_image_ids: Optional[torch.Tensor] = field(default=None)
     image_size: Optional[tuple[int, int]] = field(default=None)
+    parallel: ParallelTaskState = field(default_factory=ParallelTaskState)
 
 class DiffusionTask:
     

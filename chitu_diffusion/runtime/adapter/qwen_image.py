@@ -10,9 +10,11 @@ import torch
 import torch.distributed as dist
 
 from chitu_diffusion.core.distributed.parallel_state import get_cp_group
+from chitu_diffusion.models.parallel import ModelParallelCapabilities
+from chitu_diffusion.parallel.state import ContextParallelLatentState, ParallelTaskState
+from chitu_diffusion.parallel.vae import parallel_tiled_vae_decode
 from chitu_diffusion.runtime.adapter.base import DiffusionRuntimeAdapter, register_model_runtime, set_cfg_type
 from chitu_diffusion.runtime.parallel_utils import SequencePadder
-from chitu_diffusion.runtime.parallel_vae import parallel_tiled_vae_decode
 
 logger = getLogger(__name__)
 
@@ -151,7 +153,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         from diffusers.models.modeling_outputs import Transformer2DModelOutput
         from diffusers.models.transformers.transformer_qwenimage import compute_text_seq_len_from_mask
 
-        from chitu_diffusion.core.models.backbone import BackboneBlockInfo, BackboneState, detach_backbone_value
+        from chitu_diffusion.models.backbone import BackboneBlockInfo, BackboneState, detach_backbone_value
 
         def backbone_blocks(model_self):
             return [
@@ -314,12 +316,41 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
     def handles_context_parallel(self, args: Any) -> bool:
         return int(getattr(args.infer.diffusion, "cp_size", 1)) > 1
 
+    def parallel_capabilities(self, args: Any) -> ModelParallelCapabilities:
+        return ModelParallelCapabilities(
+            dit_context_parallel=self.handles_context_parallel(args),
+            dit_cfg_parallel=self.supports_cfg(args),
+            vae_tile_parallel=True,
+            sampler_local_latent=True,
+            model_specific_context_parallel=True,
+        )
+
     def _split_sequence_with_offset(self, tensor: torch.Tensor, split_dim: int, name: str) -> tuple[torch.Tensor, int]:
         group = get_cp_group()
         pieces = SequencePadder.split_sequence_padding(tensor, group.group_size, split_dim=split_dim, name=name)
         local = pieces[group.rank_in_group]
         offset = sum(piece.shape[split_dim] for piece in pieces[: group.rank_in_group])
         return local, offset
+
+    def _cp_enabled(self, backend) -> bool:
+        return int(getattr(backend.args.infer.diffusion, "cp_size", 1)) > 1
+
+    def _persistent_cp_latents_enabled(self, task, backend) -> bool:
+        if os.getenv("CHITU_QWEN_PERSISTENT_CP_LATENTS", "1") == "0":
+            return False
+        if not self._cp_enabled(backend):
+            return False
+        parallel_plan = getattr(backend, "parallel_plan", None)
+        sampler_plan = getattr(parallel_plan, "sampler", None)
+        if sampler_plan is not None and not bool(getattr(sampler_plan, "enabled", False)):
+            return False
+        flex_strategy = getattr(getattr(backend, "flexcache", None), "strategy", None)
+        if flex_strategy is not None:
+            return False
+        cp_state = getattr(getattr(task.buffer, "parallel", None), "cp_latents", None)
+        if cp_state is not None:
+            return bool(cp_state.is_local)
+        return bool(getattr(task.buffer, "_qwen_cp_latents_local", False))
 
     def _gather_sequence(self, tensor: torch.Tensor, gather_dim: int, name: str) -> torch.Tensor:
         group = get_cp_group()
@@ -340,21 +371,29 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             if hidden_states is None or encoder_hidden_states is None:
                 return original_forward(*args, **kwargs)
 
-            local_hidden, image_offset = self._split_sequence_with_offset(
-                hidden_states,
-                split_dim=1,
-                name="qwen_image_hidden_states",
-            )
-
             attention_kwargs = dict(kwargs.get("attention_kwargs") or {})
-            attention_kwargs["qwen_cp_info"] = {
-                "image_offset": image_offset,
-                "image_seq_len": hidden_states.shape[1],
-            }
+            cp_info = attention_kwargs.get("qwen_cp_info")
+            return_local = bool(attention_kwargs.pop("qwen_return_local", False))
+            if cp_info is None:
+                local_hidden, image_offset = self._split_sequence_with_offset(
+                    hidden_states,
+                    split_dim=1,
+                    name="qwen_image_hidden_states",
+                )
+                cp_info = {
+                    "image_offset": image_offset,
+                    "image_seq_len": hidden_states.shape[1],
+                }
+            else:
+                local_hidden = hidden_states
+
+            attention_kwargs["qwen_cp_info"] = cp_info
             kwargs["attention_kwargs"] = attention_kwargs
             kwargs["hidden_states"] = local_hidden
 
             output = original_forward(*args, **kwargs)
+            if return_local:
+                return output
             if isinstance(output, tuple):
                 local_sample = output[0]
                 gathered = self._gather_sequence(local_sample, gather_dim=1, name="qwen_image_hidden_states")
@@ -477,6 +516,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
 
         pipe.scheduler.set_begin_index(0)
         pipe._num_timesteps = len(timesteps)
+
         task.buffer.seed_g = seed_g
         task.buffer.sampler = pipe.scheduler
         task.buffer.latents = latents
@@ -485,14 +525,44 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         task.buffer.image_size = (width, height)
 
         backend.switch_active_model(flush=True)
+        generator._configure_flexcache_for_task(task)
+
+        cp_local = False
+        if (
+            os.getenv("CHITU_QWEN_PERSISTENT_CP_LATENTS", "1") != "0"
+            and self._cp_enabled(backend)
+            and getattr(getattr(getattr(backend, "parallel_plan", None), "sampler", None), "enabled", True)
+            and getattr(getattr(backend, "flexcache", None), "strategy", None) is None
+        ):
+            if bool(getattr(pipe.transformer, "zero_cond_t", False)):
+                raise NotImplementedError("Qwen-Image persistent CP latents do not support zero_cond_t yet.")
+            local_latents, image_offset = self._split_sequence_with_offset(
+                latents,
+                split_dim=1,
+                name="qwen_image_hidden_states",
+            )
+            if getattr(task.buffer, "parallel", None) is None:
+                task.buffer.parallel = ParallelTaskState()
+            task.buffer.parallel.cp_latents = ContextParallelLatentState(
+                image_offset=int(image_offset),
+                image_seq_len=int(latents.shape[1]),
+                is_local=True,
+            )
+            task.buffer._qwen_cp_full_latent_seq_len = int(latents.shape[1])
+            task.buffer._qwen_cp_image_offset = int(image_offset)
+            task.buffer._qwen_cp_latents_local = True
+            task.buffer.latents = local_latents
+            latents = local_latents
+            cp_local = True
+
         logger.info(
-            "[Pre Denoise Qwen-Image] latents=%s steps=%s mu=%.4f cfg=%.2f",
+            "[Pre Denoise Qwen-Image] latents=%s steps=%s mu=%.4f cfg=%.2f cp_local=%s",
             tuple(latents.shape),
             len(timesteps),
             mu,
             guidance_scale,
+            cp_local,
         )
-        generator._configure_flexcache_for_task(task)
 
     def _img_shapes(self, task, pipe) -> list[list[tuple[int, int, int]]]:
         width, height = task.buffer.image_size or task.req.params.size
@@ -536,6 +606,17 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         latents = task.buffer.latents
         timestep = task.buffer.timesteps[task.buffer.current_step]
         timestep_vec = timestep.expand(latents.shape[0]).to(latents.dtype)
+        attention_kwargs = dict(pipe.attention_kwargs)
+        if self._persistent_cp_latents_enabled(task, backend):
+            cp_state = getattr(getattr(task.buffer, "parallel", None), "cp_latents", None)
+            if cp_state is not None:
+                attention_kwargs["qwen_cp_info"] = cp_state.attention_kwargs()
+            else:
+                attention_kwargs["qwen_cp_info"] = {
+                    "image_offset": int(task.buffer._qwen_cp_image_offset),
+                    "image_seq_len": int(task.buffer._qwen_cp_full_latent_seq_len),
+                }
+            attention_kwargs["qwen_return_local"] = True
         with pipe.transformer.cache_context(cache_tag):
             output = generator._run_dit_forward(
                 task,
@@ -546,7 +627,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 encoder_hidden_states_mask=encoder_hidden_states_mask,
                 encoder_hidden_states=encoder_hidden_states,
                 img_shapes=self._img_shapes(task, pipe),
-                attention_kwargs=pipe.attention_kwargs,
+                attention_kwargs=attention_kwargs,
                 return_dict=False,
             )[0]
         return self._normalize_latent_tokens(output, f"{cache_tag} transformer output")
@@ -726,14 +807,21 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         return latents
 
     def decode_latents(self, task, generator, backend) -> Optional[torch.Tensor]:
-        # The full latent is replicated on every rank after denoise, so all ranks
-        # prepare it identically and split the VAE decode spatially (parallel_vae);
-        # this falls back to rank-0-only decode when disabled or single-GPU.
+        # In the persistent CP path denoise keeps only the local latent shard on
+        # each rank. Gather once here before unpacking/parallel VAE decode.
         device = torch.device(torch.cuda.current_device())
         self._move_task_tensors_to_device(task, device)
         pipe = self._ensure_pipeline(backend.args, device)
         width, height = task.buffer.image_size or task.req.params.size
-        latents = pipe._unpack_latents(task.buffer.latents, height, width, pipe.vae_scale_factor)
+        latent_tokens = task.buffer.latents
+        if self._persistent_cp_latents_enabled(task, backend):
+            latent_tokens = self._gather_sequence(latent_tokens, gather_dim=1, name="qwen_image_hidden_states")
+            task.buffer.latents = latent_tokens
+            cp_state = getattr(getattr(task.buffer, "parallel", None), "cp_latents", None)
+            if cp_state is not None:
+                cp_state.is_local = False
+            task.buffer._qwen_cp_latents_local = False
+        latents = pipe._unpack_latents(latent_tokens, height, width, pipe.vae_scale_factor)
         latents = latents.to(pipe.vae.dtype)
         latents_mean = (
             torch.tensor(pipe.vae.config.latents_mean)

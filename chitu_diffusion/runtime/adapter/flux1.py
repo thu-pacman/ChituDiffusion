@@ -13,6 +13,8 @@ from chitu_diffusion.modules.utils.flux import (
     retrieve_timesteps as retrieve_flowmatch_timesteps,
     unpack_flux1_latents,
 )
+from chitu_diffusion.models.parallel import ModelParallelCapabilities
+from chitu_diffusion.parallel.vae import parallel_tiled_vae_decode
 from chitu_diffusion.runtime.adapter.base import (
     DiffusionRuntimeAdapter,
     as_list,
@@ -20,7 +22,6 @@ from chitu_diffusion.runtime.adapter.base import (
     register_model_runtime,
     set_cfg_type,
 )
-from chitu_diffusion.runtime.parallel_vae import parallel_tiled_vae_decode
 
 logger = getLogger(__name__)
 
@@ -28,6 +29,15 @@ logger = getLogger(__name__)
 class FluxRuntimeAdapter(DiffusionRuntimeAdapter):
     def supports_cfg(self, args: Any) -> bool:
         return False
+
+    def parallel_capabilities(self, args: Any) -> ModelParallelCapabilities:
+        return ModelParallelCapabilities(
+            dit_context_parallel=True,
+            dit_cfg_parallel=False,
+            vae_tile_parallel=True,
+            sampler_local_latent=False,
+            model_specific_context_parallel=False,
+        )
 
     def load_vae(self, args: Any, init_device: torch.device):
         raise NotImplementedError

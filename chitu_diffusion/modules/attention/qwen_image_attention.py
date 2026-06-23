@@ -123,29 +123,59 @@ class QwenImageChituAttnProcessor:
             txt_key = self._ensure_sequence_major(txt_key, encoder_hidden_states.shape[1], attn.heads, "txt_key_rope")
 
         if qwen_cp_info is not None:
-            full_img_key = self._all_gather_sequence(img_key)
-            full_img_value = self._all_gather_sequence(img_value)
-            image_seq_len = int(qwen_cp_info.get("image_seq_len", full_img_key.shape[1]))
-            full_img_key = full_img_key[:, :image_seq_len]
-            full_img_value = full_img_value[:, :image_seq_len]
-            try:
-                joint_query = torch.cat([txt_query, img_query], dim=1)
-                joint_key = torch.cat([txt_key, full_img_key], dim=1)
-                joint_value = torch.cat([txt_value, full_img_value], dim=1)
-            except RuntimeError:
-                logger.exception(
-                    "Qwen attention shape mismatch rank=%s qwen_cp_info=%s txt_q=%s img_q=%s txt_k=%s full_img_k=%s "
-                    "txt_v=%s full_img_v=%s",
-                    dist.get_rank() if dist.is_available() and dist.is_initialized() else 0,
-                    qwen_cp_info,
-                    self._shape(txt_query),
-                    self._shape(img_query),
-                    self._shape(txt_key),
-                    self._shape(full_img_key),
-                    self._shape(txt_value),
-                    self._shape(full_img_value),
+            image_seq_len = int(qwen_cp_info.get("image_seq_len", img_key.shape[1] * get_cp_group().group_size))
+            use_agcp = (
+                hasattr(self.attn_backend, "uses_agcp")
+                and self.attn_backend.uses_agcp()
+            )
+            if hasattr(self.attn_backend, "cp_attn_with_full_txt") and not use_agcp:
+                target_dtype = img_value.dtype
+                txt_query = txt_query.to(target_dtype)
+                txt_key = txt_key.to(target_dtype)
+                img_query = img_query.to(target_dtype)
+                img_key = img_key.to(target_dtype)
+                txt_attn_output, img_attn_output = self.attn_backend.cp_attn_with_full_txt(
+                    txt_query,
+                    txt_key,
+                    txt_value,
+                    img_query,
+                    img_key,
+                    img_value,
+                    image_seq_len=image_seq_len,
+                    causal=False,
                 )
-                raise
+                joint_query_dtype = txt_query.dtype
+                txt_attn_output = txt_attn_output.flatten(2, 3).to(joint_query_dtype)
+                img_attn_output = img_attn_output.flatten(2, 3).to(joint_query_dtype)
+
+                img_attn_output = attn.to_out[0](img_attn_output.contiguous())
+                if len(attn.to_out) > 1:
+                    img_attn_output = attn.to_out[1](img_attn_output)
+                txt_attn_output = attn.to_add_out(txt_attn_output.contiguous())
+                return img_attn_output, txt_attn_output
+            else:
+                full_img_key = self._all_gather_sequence(img_key)
+                full_img_value = self._all_gather_sequence(img_value)
+                full_img_key = full_img_key[:, :image_seq_len]
+                full_img_value = full_img_value[:, :image_seq_len]
+                try:
+                    joint_query = torch.cat([txt_query, img_query], dim=1)
+                    joint_key = torch.cat([txt_key, full_img_key], dim=1)
+                    joint_value = torch.cat([txt_value, full_img_value], dim=1)
+                except RuntimeError:
+                    logger.exception(
+                        "Qwen attention shape mismatch rank=%s qwen_cp_info=%s txt_q=%s img_q=%s txt_k=%s full_img_k=%s "
+                        "txt_v=%s full_img_v=%s",
+                        dist.get_rank() if dist.is_available() and dist.is_initialized() else 0,
+                        qwen_cp_info,
+                        self._shape(txt_query),
+                        self._shape(img_query),
+                        self._shape(txt_key),
+                        self._shape(full_img_key),
+                        self._shape(txt_value),
+                        self._shape(full_img_value),
+                    )
+                    raise
         else:
             try:
                 joint_query = torch.cat([txt_query, img_query], dim=1)

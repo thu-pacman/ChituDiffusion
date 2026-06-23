@@ -7,7 +7,8 @@ from typing import Any, Callable, Optional
 
 import torch
 
-from chitu_diffusion.core.models.registry import ModelType, get_model_class
+from chitu_diffusion.models.parallel import ModelParallelCapabilities
+from chitu_diffusion.models.registry import ModelType, get_model_class
 
 logger = getLogger(__name__)
 
@@ -135,6 +136,15 @@ class DiffusionRuntimeAdapter:
 
     def handles_context_parallel(self, args: Any) -> bool:
         return False
+
+    def parallel_capabilities(self, args: Any) -> ModelParallelCapabilities:
+        return ModelParallelCapabilities(
+            dit_context_parallel=self.handles_context_parallel(args),
+            dit_cfg_parallel=self.supports_cfg(args),
+            vae_tile_parallel=True,
+            sampler_local_latent=False,
+            model_specific_context_parallel=self.handles_context_parallel(args),
+        )
 
     def supports_cfg(self, args: Any) -> bool:
         return all(x > 0 for x in args.models.sampler.guidance_scale)

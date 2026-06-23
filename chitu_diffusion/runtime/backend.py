@@ -30,9 +30,10 @@ from chitu_diffusion.core.distributed.parallel_state import (
     initialize_diffusion_parallel_groups,
     get_cp_group
 )
-from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend, DiffusionAttention_with_CP
+from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend
 
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheManager
+from chitu_diffusion.parallel import build_parallel_plan, wrap_attention_backend_for_dit_parallel
 from chitu_diffusion.runtime.adapter import get_model_runtime_spec
 
 # from chitu_diffusion.core.distributed.moe_token_dispatcher import init_token_dispatcher
@@ -116,6 +117,7 @@ class DiffusionBackend:
     # components
     attn = None
     scheduler: Optional["DiffusionScheduler"] = None
+    parallel_plan = None
 
     # mutable
     # ongoing_reqs: list["OngoingRequests"] = []
@@ -604,11 +606,11 @@ class DiffusionBackend:
         DiffusionBackend.attn = attn
 
         if args.infer.diffusion.cp_size > 1:
-            attn = DiffusionAttention_with_CP(
-                attn,
-                args.infer.diffusion.up,
-                ring_cudagraph=getattr(args.infer.diffusion, "ring_cudagraph", False),
-            )
+            parallel_plan = DiffusionBackend.parallel_plan
+            if parallel_plan is None:
+                parallel_plan = build_parallel_plan(args, DiffusionBackend.model_adapter)
+                DiffusionBackend.parallel_plan = parallel_plan
+            attn = wrap_attention_backend_for_dit_parallel(attn, args, parallel_plan)
         return attn
     
     @staticmethod
@@ -785,6 +787,8 @@ class DiffusionBackend:
 
         # Setup environment and basic configuration
         DiffusionBackend._setup_environment(args)
+        DiffusionBackend.parallel_plan = build_parallel_plan(args, DiffusionBackend.model_adapter)
+        logger.info("Resolved parallel runtime plan: %s", DiffusionBackend.parallel_plan)
 
         # Initialize tokenizer and formatter
         DiffusionBackend.text_encoder = DiffusionBackend._init_text_encoder(args)

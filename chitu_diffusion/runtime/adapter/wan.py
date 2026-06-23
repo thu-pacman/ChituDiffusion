@@ -14,6 +14,7 @@ from chitu_diffusion.modules.samplers.fm_solvers import (
     retrieve_timesteps,
 )
 from chitu_diffusion.modules.samplers.fm_solvers_unipc import FlowUniPCMultistepScheduler
+from chitu_diffusion.models.parallel import ModelParallelCapabilities
 from chitu_diffusion.runtime.adapter.base import (
     DiffusionRuntimeAdapter,
     as_list,
@@ -27,6 +28,15 @@ logger = getLogger(__name__)
 
 @register_model_runtime("diffusion-wan", "Wan2.1-T2V-1.3B", "Wan2.1-T2V-14B", "Wan2.2-T2V-A14B")
 class WanRuntimeAdapter(DiffusionRuntimeAdapter):
+    def parallel_capabilities(self, args: Any) -> ModelParallelCapabilities:
+        return ModelParallelCapabilities(
+            dit_context_parallel=True,
+            dit_cfg_parallel=self.supports_cfg(args),
+            vae_tile_parallel=False,
+            sampler_local_latent=False,
+            model_specific_context_parallel=False,
+        )
+
     @staticmethod
     def _normalize_wan_latent(tensor: torch.Tensor, name: str) -> torch.Tensor:
         while tensor.ndim > 4 and tensor.shape[0] == 1:

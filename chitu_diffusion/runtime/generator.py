@@ -43,6 +43,7 @@ from chitu_diffusion.runtime.output_layout import (
     timing_metrics_dir,
 )
 from chitu_diffusion.runtime.image_output import save_image_as_png
+from chitu_diffusion.parallel import should_wrap_model_compute_for_context_parallel
 
 
 logger = getLogger(__name__)
@@ -147,6 +148,14 @@ class ContextParallelDispatcher():
         self.rank = self.group.global_rank
         self.local_rank = self.group.local_rank
         self.rank_in_group = self.group.rank_in_group
+        # Parallel-sampler ("local latent") mode: when True the model_compute
+        # wrapper assumes the image tokens are *already* the rank-local shard, so
+        # it skips the per-call split of the latent and the final all-gather of the
+        # output. The latent is split once before denoise and gathered once before
+        # decode (see the adapter), keeping each rank's latent shard local across
+        # all scheduler steps. Text / id sequences are still split per call (cheap,
+        # comm-free, deterministic), so the math is identical to the replicated path.
+        self.local_latent_mode = False
 
     def dispatch(self, tokens: torch.Tensor, name: str = 'x'):
         return SequencePadder.split_sequence_padding(tokens, 
@@ -223,15 +232,19 @@ class ContextParallelDispatcher():
         def create_wrapped_forward(model_instance):
             original_forward = model_instance.model_compute
             def wrapped_compute(tokens, **kwargs):
+                local_mode = self.local_latent_mode
                 original_image_seq_len = tokens.size(1)
-                tokens = self.dispatch(tokens, name="hidden_states")
+                # Replicated path splits the full latent here; local-latent path
+                # receives the rank-local shard directly and leaves it untouched.
+                if not local_mode:
+                    tokens = self.dispatch(tokens, name="hidden_states")
                 if "seq_lens" in kwargs.keys():
                     kwargs["seq_lens"] = torch.tensor([tokens.size(1)])
                 text_seq_len = None
                 if "encoder_hidden_states" in kwargs and kwargs["encoder_hidden_states"] is not None:
                     text_seq_len = kwargs["encoder_hidden_states"].size(1)
                     self._last_text_seq_len = text_seq_len
-                    self._last_image_seq_len = original_image_seq_len
+                    self._last_image_seq_len = original_image_seq_len * self.cp_size if local_mode else original_image_seq_len
                     kwargs["encoder_hidden_states"] = self.dispatch(
                         kwargs["encoder_hidden_states"],
                         name="encoder_hidden_states",
@@ -241,12 +254,20 @@ class ContextParallelDispatcher():
                 if "img_ids" in kwargs and kwargs["img_ids"] is not None:
                     kwargs["img_ids"] = self.dispatch_id_sequence(kwargs["img_ids"], name="img_ids")
                 if "image_rotary_emb" in kwargs and kwargs["image_rotary_emb"] is not None and text_seq_len is not None:
+                    if local_mode:
+                        raise NotImplementedError(
+                            "Parallel-sampler local-latent mode does not support precomputed "
+                            "image_rotary_emb yet; rotary must be derived from sharded img_ids."
+                        )
                     kwargs["image_rotary_emb"] = self.dispatch_flux_rotary_emb(
                         kwargs["image_rotary_emb"],
                         text_seq_len=text_seq_len,
                     )
                 x = original_forward(tokens, **kwargs)
-                x = self.gather(x, name="hidden_states")
+                # Replicated path gathers back to the full latent; local-latent path
+                # keeps the local shard so the scheduler step stays sharded too.
+                if not local_mode:
+                    x = self.gather(x, name="hidden_states")
                 return x
             return wrapped_compute
 
@@ -267,7 +288,11 @@ class Generator:
         self.cfg_size = get_cfg_group().group_size
         if self.cp_size > 1:
             self.cp_dispatcher = ContextParallelDispatcher()
-            if not DiffusionBackend.model_adapter.handles_context_parallel(args):
+            if should_wrap_model_compute_for_context_parallel(
+                args,
+                DiffusionBackend.model_adapter,
+                DiffusionBackend.parallel_plan,
+            ):
                 self.cp_dispatcher.wrap_model_compute_with_cp()
         if self.cfg_size == 2:
             self.cfg_dispatcher = CfgDispatcher()
@@ -364,6 +389,13 @@ class Generator:
             if start is not None:
                 elapsed_ms = (time.perf_counter() - start) * 1000.0
                 log_perf(logger, task_id=task_id, stage_name=stage.name, elapsed_ms=elapsed_ms)
+                # Record per-task stage wall time so the per-task timing JSON can be
+                # used to reconstruct a clean per-image end-to-end latency (warmup
+                # tasks are named `warmup_*` and can be filtered out downstream).
+                Timer.record_event(
+                    "stage_elapsed",
+                    {"task_id": task_id, "stage": stage.name, "elapsed_ms": elapsed_ms},
+                )
 
 
     def step(self, task: Optional[DiffusionTask]) -> torch.Tensor:
