@@ -178,6 +178,261 @@ Notes:
 
 ![qwen_image_parallel scaling](plots/qwen_image_parallel/parallel_scaling_qwen_parallel_50step_20260616_cfp1up2_cfp2up4.png)
 
+## qwen_image_cp_backend (AGCP vs UCP)
+
+Model: `Qwen-Image`
+
+Family: Parallel DiT context-parallel backend ablation. The context-parallel
+attention backend is selected with `infer.cp_backend`: **AGCP** (all-gather the
+image K/V then run one local joint attention) vs **UCP** (the ring / Ulysses
+joint-attention path with LSE merge). Everything else is held fixed (Flash
+Attention, parallel sampler on, same prompt/seed/resolution/steps), so the only
+variable per pair is the CP backend.
+
+Run: `qwen_cp_backend_50step_20260622`
+
+Command:
+
+```bash
+CHITUBENCH_PARTITION=ci \
+SRUN_EXTRA_ARGS='--exclusive' \
+CHITUBENCH_RUN_ID=qwen_cp_backend_50step_20260622 \
+CHITUBENCH_STEPS=50 \
+CHITUBENCH_NUM_SEEDS=1 \
+CHITUBENCH_WARMUP_RUNS=0 \
+CHITUBENCH_IMAGE_SIZE=1328,1328 \
+CHITUBENCH_ATTN_TYPE=flash_attn \
+bash ChituBench/scripts/run_qwen_image_cp_backend.sh
+
+./.venv/bin/python ChituBench/scripts/plot_qwen_parallel_ablation.py \
+  ChituBench/results/qwen_image_cp_backend/qwen_cp_backend_50step_20260622 --kind cp_backend
+```
+
+Notes:
+
+- 50 denoising steps at 1328x1328, single coffee-sign prompt, seed 42, one image
+  per case. Speed only; quality omitted (both backends are numerically
+  equivalent up to LSE-merge ordering).
+- Each pair fixes the GPU layout (`cfp`/`up`) and toggles only `infer.cp_backend`.
+- AGCP is what the `auto` heuristic already selects for `cp_size <= 4`, so this
+  ablation confirms the heuristic on Qwen.
+
+### Summary
+
+| layout | GPUs | backend | DiT forward (s) | denoise (s) | speedup vs 1 GPU | AGCP advantage |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| CP2 | 2 | AGCP | 80.846 | 81.614 | 1.724 | - |
+| CP2 | 2 | UCP | 81.373 | 82.128 | 1.712 | +0.7% |
+| CFP2+CP2 | 4 | AGCP | 40.565 | 40.980 | 3.435 | - |
+| CFP2+CP2 | 4 | UCP | 41.071 | 41.460 | 3.393 | +1.2% |
+| CFP2+CP4 | 8 | AGCP | 25.257 | 25.645 | 5.517 | - |
+| CFP2+CP4 | 8 | UCP | 27.023 | 27.465 | 5.157 | +7.0% |
+
+(1-GPU baseline DiT forward: 139.344 s.)
+
+### Readout
+
+- AGCP is faster than UCP at every tested context-parallel layout, and the gap
+  widens with CP size: +0.7% at CP2, +1.2% at CP4-over-4-GPU, and +7.0% at
+  CP4-over-8-GPU (`cfp2cp4`).
+- The reason is structural: AGCP replaces the ring's per-step P2P sends and
+  online-softmax merge with a single all-gather plus one fused attention kernel.
+  For Qwen at this resolution the gathered image K/V still fits comfortably in
+  memory, so the kernel-launch/merge savings dominate.
+- The crossover where UCP wins (large `cp_size`, memory-tight, gathered K/V too
+  big for one kernel) is beyond this 8-GPU / 1328x1328 sweep; within it AGCP is
+  the right default, matching the `cp_backend=auto` policy.
+
+![qwen_image_cp_backend ablation](plots/qwen_image_cp_backend/ablation_qwen_cp_backend_50step_20260622.png)
+
+## qwen_image_sampler (Parallel DiT vs Parallel DiT + Sampler)
+
+Model: `Qwen-Image`
+
+Family: Parallel sampler ablation on top of Parallel DiT. **Parallel sampler**
+(Qwen `local_latent` plan, toggled with `CHITU_QWEN_PERSISTENT_CP_LATENTS`) keeps
+each rank's latent shard local across scheduler steps instead of gathering the
+full latent at every DiT-forward exit and re-splitting it on entry. It only
+applies when `cp_size > 1`, so every case uses a context-parallel layout; AGCP is
+pinned so the only variable per pair is the sampler toggle.
+
+Run: `qwen_sampler_50step_20260622`
+
+Command:
+
+```bash
+CHITUBENCH_PARTITION=ci \
+SRUN_EXTRA_ARGS='--exclusive' \
+CHITUBENCH_RUN_ID=qwen_sampler_50step_20260622 \
+CHITUBENCH_STEPS=50 \
+CHITUBENCH_NUM_SEEDS=1 \
+CHITUBENCH_WARMUP_RUNS=0 \
+CHITUBENCH_IMAGE_SIZE=1328,1328 \
+CHITUBENCH_ATTN_TYPE=flash_attn \
+bash ChituBench/scripts/run_qwen_image_sampler.sh
+
+./.venv/bin/python ChituBench/scripts/plot_qwen_parallel_ablation.py \
+  ChituBench/results/qwen_image_sampler/qwen_sampler_50step_20260622 --kind sampler
+```
+
+Notes:
+
+- 50 denoising steps at 1328x1328, single coffee-sign prompt, seed 42, one image
+  per case. Speed only; output is identical with and without parallel sampler.
+- "Parallel DiT only" sets `CHITU_QWEN_PERSISTENT_CP_LATENTS=0` (latents gathered
+  every step); "Parallel DiT + Sampler" leaves it at the default `1`.
+- `denoise` (the full per-image denoise loop) is reported alongside `dit_forward`
+  because the sampler benefit (avoided per-step latent gather + sharded scheduler
+  math) lives partly outside the DiT forward.
+
+### Summary
+
+| layout | GPUs | variant | DiT forward (s) | denoise (s) | speedup vs 1 GPU | sampler delta |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| CP2 | 2 | Parallel DiT only | 80.708 | 81.439 | 1.729 | - |
+| CP2 | 2 | + Parallel sampler | 80.640 | 81.380 | 1.730 | +0.1% |
+| CFP2+CP2 | 4 | Parallel DiT only | 40.442 | 40.838 | 3.449 | - |
+| CFP2+CP2 | 4 | + Parallel sampler | 40.418 | 40.839 | 3.452 | +0.1% |
+| CFP2+CP4 | 8 | Parallel DiT only | 25.287 | 25.669 | 5.517 | - |
+| CFP2+CP4 | 8 | + Parallel sampler | 25.188 | 25.578 | 5.539 | +0.4% |
+
+(1-GPU baseline DiT forward: 139.504 s. Peak GPU memory is identical with and
+without parallel sampler: 58.11 GB at CP2, 56.31 GB at CP4.)
+
+### Readout
+
+- On Qwen-Image text-to-image, parallel sampler adds essentially nothing on top
+  of parallel DiT: +0.1% at CP2/CP4-over-4-GPU and +0.4% at CP4-over-8-GPU on
+  DiT forward, with denoise and peak memory effectively unchanged.
+- The effect is directionally positive and grows slightly with `cp_size` (a
+  larger latent gather is avoided per step), but the Qwen image latent
+  (`1 x 6889 x 64`) is tiny relative to the DiT compute, so the avoided
+  gather/scatter and the sharded scheduler math are below the noise floor here.
+- Parallel sampler is therefore best viewed as a correctness/consistency feature
+  that keeps latents sharded to match the sharded DiT I/O (and avoids redundant
+  gather/scatter), rather than a speedup for single-image T2I. Its payoff should
+  grow for workloads with much larger latents (very high resolution, large
+  batches, or video), which is left as future work.
+
+![qwen_image_sampler ablation](plots/qwen_image_sampler/ablation_qwen_sampler_50step_20260622.png)
+
+## flux2_klein_sampler (Parallel DiT vs Parallel DiT + Sampler)
+
+Model: `Flux2-klein-4B`
+
+Family: Parallel sampler ablation on top of Parallel DiT, ported to Flux2-klein.
+Flux2 uses the **generic** CP path (it does not own attention CP), so the parallel
+sampler is implemented by adding a `local_latent_mode` to the generic
+`ContextParallelDispatcher`: when enabled the model-compute wrapper receives the
+rank-local latent shard directly and skips both the per-call latent split and the
+per-call output all-gather. The latent is split once before denoise and gathered
+once before VAE decode (toggled with `CHITU_FLUX2_PERSISTENT_CP_LATENTS`). Flux2
+has no CFG parallel, so each context-parallel layout is pure Ulysses (`up=gpus`).
+The motivation: Flux2-klein is a 4-step distilled model, so the per-rank DiT
+compute is ~12x smaller than the 50-step Qwen case and the fixed per-step gather
+is a relatively larger share of the loop.
+
+Run: `flux2_sampler_full`
+
+Command:
+
+```bash
+CHITUBENCH_PARTITION=ci \
+CHITUBENCH_RUN_ID=flux2_sampler_full \
+bash ChituBench/scripts/run_flux2_klein_sampler.sh
+
+./.venv/bin/python ChituBench/scripts/plot_qwen_parallel_ablation.py \
+  ChituBench/results/flux2_klein_sampler/flux2_sampler_full --kind sampler_flux2
+```
+
+Notes:
+
+- 4 denoising steps at 1024x1024 (latent `1 x 4096 x 128`), 3 prompts x 3 seeds = 9
+  measured images per case, 1 warmup. Output is **bit-identical** with and without
+  parallel sampler (max |pixel diff| = 0 across all prompts) -- flow-match Euler is
+  elementwise, so stepping on shards equals stepping on the full latent.
+- "Parallel DiT only" sets `CHITU_FLUX2_PERSISTENT_CP_LATENTS=0`; "Parallel DiT +
+  Sampler" leaves it at the default `1`.
+- The avoided all-gather happens inside the wrapped `model_compute`, so its saving
+  shows up in `dit_forward` (not in the denoise-minus-DiT overhead).
+
+### Summary
+
+| layout | GPUs | variant | DiT forward (s) | denoise (s) | DiT speedup vs 1 GPU | sampler delta |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| CP2 | 2 | Parallel DiT only | 0.727 | 0.730 | 1.856 | - |
+| CP2 | 2 | + Parallel sampler | 0.726 | 0.729 | 1.858 | +0.1% |
+| CP4 | 4 | Parallel DiT only | 0.401 | 0.404 | 3.366 | - |
+| CP4 | 4 | + Parallel sampler | 0.401 | 0.404 | 3.366 | ~0.0% |
+| CP8 | 8 | Parallel DiT only | 0.278 | 0.273 | 4.860 | - |
+| CP8 | 8 | + Parallel sampler | 0.273 | 0.272 | 4.938 | +1.6% |
+
+(1-GPU baseline DiT forward: 1.349 s. `denoise` is the clean per-image denoise
+loop from the `debug`-partition `flux2_sampler_e2e` run, warmup excluded; it
+tracks `dit_forward` closely because the scheduler step is negligible.)
+
+### Readout
+
+- The hypothesis holds **directionally**: with only 4 steps the relative saving is
+  more visible than on 50-step Qwen and it grows as the per-rank shard shrinks --
+  within noise at CP2/CP4, but **+1.6% DiT forward at CP8** (vs ~0.4% on Qwen).
+  As `cp_size` rises the per-rank DiT compute shrinks while the fixed 4 output
+  gathers stay, so the gather is a larger fraction of the (smaller) per-rank work.
+- It is still a small absolute win (~5 ms over 4 steps at CP8): saving *4* gathers
+  on a tiny `4096 x 128` latent is latency-bound, and the denoise loop at CP8 is
+  dominated by Ulysses comm + Python/scheduler overhead rather than the latent
+  gather. For this 4-step model VAE decode, not denoise, is the end-to-end
+  bottleneck.
+- Net: parallel sampler is a free, output-exact consistency feature for Flux2 that
+  keeps latents sharded to match the sharded DiT I/O; its speed payoff is marginal
+  but real and increases with CP degree (and would grow further with larger
+  latents / more steps).
+
+![flux2_klein_sampler ablation](plots/flux2_klein_sampler/ablation_sampler_flux2.png)
+
+### End-to-end (parallel VAE + DiT + Sampler)
+
+Per-image end-to-end latency (TextEncode + Denoise + VAEDecode) with all three
+parallel features on, reconstructed from the per-task `stage_elapsed` records
+(warmup excluded). VAE decode is split spatially (`parallel_tiled_vae_decode`),
+the DiT is context-parallel, and the sampler keeps latents sharded. Run on the
+`debug` partition (`flux2_sampler_e2e`).
+
+Command:
+
+```bash
+CHITUBENCH_PARTITION=debug CHITUBENCH_RUN_ID=flux2_sampler_e2e \
+bash ChituBench/scripts/run_flux2_klein_sampler.sh
+./.venv/bin/python ChituBench/scripts/plot_e2e_ablation.py \
+  ChituBench/results/flux2_klein_sampler/flux2_sampler_e2e \
+  --order baseline_1gpu,cp2_dit_only,cp2_dit_sampler,cp4_dit_only,cp4_dit_sampler,cp8_dit_only,cp8_dit_sampler
+```
+
+| case | TextEncode (s) | Denoise (s) | VAEDecode (s) | End-to-end (s) | E2E speedup vs 1 GPU |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| baseline_1gpu | 0.050 | 1.364 | 0.171 | 1.586 | 1.00x |
+| cp2 (DiT only) | 0.050 | 0.730 | 0.094 | 0.873 | 1.82x |
+| cp2 (DiT + sampler) | 0.049 | 0.729 | 0.094 | 0.872 | 1.82x |
+| cp4 (DiT only) | 0.049 | 0.404 | 0.063 | 0.517 | 3.07x |
+| cp4 (DiT + sampler) | 0.049 | 0.404 | 0.063 | 0.517 | 3.07x |
+| cp8 (DiT only) | 0.049 | 0.273 | 0.044 | 0.366 | 4.33x |
+| cp8 (DiT + sampler) | 0.049 | 0.272 | 0.044 | 0.365 | 4.34x |
+
+Readout:
+
+- End-to-end the combined parallelism scales well: **1.82x / 3.07x / 4.34x at
+  2 / 4 / 8 GPUs**. Both the parallel DiT (Denoise) and parallel VAE (VAEDecode)
+  stages scale near-linearly; TextEncode (~50 ms) is replicated and becomes the
+  fixed floor (≈13% of the 8-GPU end-to-end).
+- The parallel-sampler toggle moves the end-to-end number by only +0.15% / 0% /
+  +0.30% (CP2/CP4/CP8) -- the avoided 4 latent gathers are a tiny share of the
+  whole pipeline, matching the DiT-forward ablation above.
+- Falling short of ideal linear scaling (4.34x on 8 GPUs, not 8x) is expected:
+  the replicated TextEncode floor plus per-step Ulysses comm in the 4-step DiT
+  cap the achievable speedup, not the sampler.
+
+![flux2_klein_sampler end-to-end](plots/flux2_klein_sampler/e2e_ablation.png)
+
 ## wan2_1_t2v_1_3b_parallel
 
 Model: `Wan2.1-T2V-1.3B`

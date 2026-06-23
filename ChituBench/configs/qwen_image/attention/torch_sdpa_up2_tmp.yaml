@@ -1,0 +1,40 @@
+launch:
+  tag: chitubench-qwen-image-attn-torch-sdpa-up2-tmp
+  num_nodes: 1
+  gpus_per_node: 2
+  python_script: ChituBench/scripts/qwen_image_benchmark.py
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    mem_per_gpu: 242144
+    job_name: chitubench-qwen-image-attn-sdpa-up2-tmp
+
+runtime:
+  chitu_debug: true
+  cuda_launch_blocking: false
+
+model:
+  name: Qwen-Image
+  ckpt_dir: /home/chenyy/WORK/models/Qwen-Image
+
+parallel:
+  cfp: 1
+  up: 2
+
+infer:
+  attn_type: torch_sdpa
+  cp_backend: ucp
+  low_mem_level: 0
+
+eval:
+  eval_type: []
+  reference_path: null
+
+output:
+  root_dir: ChituBench/results/qwen_image_attention
+  run_log: false
+  memory: true
+  timer: true
+  log_ranks: [0]
+
+overrides: []

@@ -1,0 +1,86 @@
+[
+  {
+    "case": "baseline_1gpu",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 1.358485180677639,
+    "dit_forward_s_min": 1.357907084748149,
+    "dit_forward_s_max": 1.3590234033763409,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.0
+  },
+  {
+    "case": "cp2_dit_only",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.7258034367114305,
+    "dit_forward_s_min": 0.72506351955235,
+    "dit_forward_s_max": 0.7269863933324814,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.8716984681594364
+  },
+  {
+    "case": "cp2_dit_sampler",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.7247481157796251,
+    "dit_forward_s_min": 0.7240198347717524,
+    "dit_forward_s_max": 0.7257674597203732,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.8744238875547696
+  },
+  {
+    "case": "cp4_dit_only",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.3996418064667119,
+    "dit_forward_s_min": 0.39899083226919174,
+    "dit_forward_s_max": 0.40150359831750393,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 3.3992569313210574
+  },
+  {
+    "case": "cp4_dit_sampler",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.3997279364201758,
+    "dit_forward_s_min": 0.3987008538097143,
+    "dit_forward_s_max": 0.4019783139228821,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 3.398524488540279
+  },
+  {
+    "case": "cp8_dit_only",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.2690108859290679,
+    "dit_forward_s_min": 0.26722176745533943,
+    "dit_forward_s_max": 0.2743661142885685,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 5.049926422069927
+  },
+  {
+    "case": "cp8_dit_sampler",
+    "num_tasks": 9,
+    "dit_forward_s_mean": 0.2679797104663319,
+    "dit_forward_s_min": 0.2667749095708132,
+    "dit_forward_s_max": 0.2692640498280525,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 5.069358341770112
+  }
+]

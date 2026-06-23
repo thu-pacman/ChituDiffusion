@@ -1,0 +1,86 @@
+[
+  {
+    "case": "baseline_1gpu",
+    "num_tasks": 1,
+    "dit_forward_s_mean": 139.34382918663323,
+    "dit_forward_s_min": 139.34382918663323,
+    "dit_forward_s_max": 139.34382918663323,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.0
+  },
+  {
+    "case": "cfp2cp2_agcp",
+    "num_tasks": 1,
+    "dit_forward_s_mean": 40.56493182294071,
+    "dit_forward_s_min": 40.56493182294071,
+    "dit_forward_s_max": 40.56493182294071,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 3.4350810644732808
+  },
+  {
+    "case": "cfp2cp2_ucp",
+    "num_tasks": 1,
+    "dit_forward_s_mean": 41.07127710059285,
+    "dit_forward_s_min": 41.07127710059285,
+    "dit_forward_s_max": 41.07127710059285,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 3.3927318316727444
+  },
+  {
+    "case": "cfp2cp4_agcp",
+    "num_tasks": 1,
+    "dit_forward_s_mean": 25.256781926378608,
+    "dit_forward_s_min": 25.256781926378608,
+    "dit_forward_s_max": 25.256781926378608,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 5.517085652194676
+  },
+  {
+    "case": "cfp2cp4_ucp",
+    "num_tasks": 1,
+    "dit_forward_s_mean": 27.0225517321378,
+    "dit_forward_s_min": 27.0225517321378,
+    "dit_forward_s_max": 27.0225517321378,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 5.156575536162717
+  },
+  {
+    "case": "cp2_agcp",
+    "num_tasks": 1,
+    "dit_forward_s_mean": 80.84566490910947,
+    "dit_forward_s_min": 80.84566490910947,
+    "dit_forward_s_max": 80.84566490910947,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.7235782443411178
+  },
+  {
+    "case": "cp2_ucp",
+    "num_tasks": 1,
+    "dit_forward_s_mean": 81.37317897565663,
+    "dit_forward_s_min": 81.37317897565663,
+    "dit_forward_s_max": 81.37317897565663,
+    "psnr_mean": null,
+    "ssim_mean": null,
+    "one_minus_lpips_mean": null,
+    "hpsv3_score_mean": null,
+    "speedup_vs_origin": 1.712404885009088
+  }
+]

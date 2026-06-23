@@ -1,0 +1,62 @@
+[
+  {
+    "layout": "cp2",
+    "layout_label": "CP2 (2 GPU)",
+    "gpus": 2,
+    "variant": "dit",
+    "case": "cp2_dit_only",
+    "dit_forward_s": 80.70761349797249,
+    "denoise_s": 81.43945995718241,
+    "dit_speedup_vs_1gpu": 1.7285085129249023
+  },
+  {
+    "layout": "cp2",
+    "layout_label": "CP2 (2 GPU)",
+    "gpus": 2,
+    "variant": "dit_sampler",
+    "case": "cp2_dit_sampler",
+    "dit_forward_s": 80.63978905789554,
+    "denoise_s": 81.38020800240338,
+    "dit_speedup_vs_1gpu": 1.7299623252851155
+  },
+  {
+    "layout": "cfp2cp2",
+    "layout_label": "CFP2+CP2 (4 GPU)",
+    "gpus": 4,
+    "variant": "dit",
+    "case": "cfp2cp2_dit_only",
+    "dit_forward_s": 40.44242797233164,
+    "denoise_s": 40.837592830881476,
+    "dit_speedup_vs_1gpu": 3.4494416874411837
+  },
+  {
+    "layout": "cfp2cp2",
+    "layout_label": "CFP2+CP2 (4 GPU)",
+    "gpus": 4,
+    "variant": "dit_sampler",
+    "case": "cfp2cp2_dit_sampler",
+    "dit_forward_s": 40.418017318472266,
+    "denoise_s": 40.83909975737333,
+    "dit_speedup_vs_1gpu": 3.451524994159986
+  },
+  {
+    "layout": "cfp2cp4",
+    "layout_label": "CFP2+CP4 (8 GPU)",
+    "gpus": 8,
+    "variant": "dit",
+    "case": "cfp2cp4_dit_only",
+    "dit_forward_s": 25.286770056933165,
+    "denoise_s": 25.66885037533939,
+    "dit_speedup_vs_1gpu": 5.516868966459749
+  },
+  {
+    "layout": "cfp2cp4",
+    "layout_label": "CFP2+CP4 (8 GPU)",
+    "gpus": 8,
+    "variant": "dit_sampler",
+    "case": "cfp2cp4_dit_sampler",
+    "dit_forward_s": 25.18795346468687,
+    "denoise_s": 25.577886249870062,
+    "dit_speedup_vs_1gpu": 5.53851257446066
+  }
+]

@@ -97,6 +97,9 @@ Examples:
 ChituBench/scripts/run_flux1_attention.sh
 ChituBench/scripts/run_flux1_flexcache.sh
 ChituBench/scripts/run_qwen_image_parallel.sh
+ChituBench/scripts/run_qwen_image_cp_backend.sh   # Parallel DiT: AGCP vs UCP
+ChituBench/scripts/run_qwen_image_sampler.sh      # Parallel DiT vs DiT + sampler
+ChituBench/scripts/run_flux2_klein_sampler.sh     # Flux2 4-step: DiT vs DiT + sampler
 ChituBench/scripts/run_wan2_1_t2v_1_3b_parallel_dit.sh
 ```
 
