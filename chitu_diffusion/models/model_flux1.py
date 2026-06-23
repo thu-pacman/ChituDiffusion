@@ -37,8 +37,8 @@ from diffusers.utils.torch_utils import maybe_allow_in_graph
 from diffusers.models.embeddings import CombinedTimestepGuidanceTextProjEmbeddings, CombinedTimestepTextProjEmbeddings, FluxPosEmbed
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 
-from chitu_diffusion.core.models.backbone import BackboneBlockInfo, BackboneMixin, BackboneState
-from chitu_diffusion.core.models.registry import ModelType, register_model
+from chitu_diffusion.models.backbone import BackboneBlockInfo, BackboneMixin, BackboneState
+from chitu_diffusion.models.registry import ModelType, register_model
 from chitu_diffusion.modules.attention.flux_attention import ChituFluxAttnProcessor2_0, FluxAttnProcessor2_0
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name

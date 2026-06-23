@@ -8,7 +8,7 @@ import torch
 import torch.amp as amp
 
 from chitu_diffusion.core.distributed.parallel_state import get_cp_group
-from chitu_diffusion.core.models.backbone import (
+from chitu_diffusion.models.backbone import (
     add_backbone_values,
     detach_backbone_value,
     scale_backbone_value,

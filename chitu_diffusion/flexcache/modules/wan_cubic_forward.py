@@ -3,7 +3,7 @@ from typing import Dict, Tuple
 import torch
 import torch.amp as amp
 
-from chitu_diffusion.core.models.model_wan import sinusoidal_embedding_1d
+from chitu_diffusion.models.model_wan import sinusoidal_embedding_1d
 from chitu_diffusion.modules.attention.wan_attention import flash_attention
 
 

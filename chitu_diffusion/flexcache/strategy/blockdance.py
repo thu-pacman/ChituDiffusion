@@ -5,7 +5,7 @@ from typing import Optional
 
 import torch
 
-from chitu_diffusion.core.models.backbone import detach_backbone_value
+from chitu_diffusion.models.backbone import detach_backbone_value
 from chitu_diffusion.core.distributed.parallel_state import get_cp_group
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheStrategy
 from chitu_diffusion.runtime.backend import CFGType, DiffusionBackend

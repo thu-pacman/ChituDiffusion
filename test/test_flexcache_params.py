@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from chitu_diffusion.core.models.backbone import BackboneMixin
+from chitu_diffusion.models.backbone import BackboneMixin
 from chitu_diffusion.flexcache.core.anchor_cache import AnchorCachePlanner
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheManager
 from chitu_diffusion.flexcache.params import (
@@ -571,7 +571,7 @@ def test_taylorseer_flux_double_block_caches_ungated_modules(monkeypatch):
             self.block = FakeFluxDoubleBlock()
 
         def backbone_blocks(self):
-            from chitu_diffusion.core.models.backbone import BackboneBlockInfo
+            from chitu_diffusion.models.backbone import BackboneBlockInfo
 
             return [BackboneBlockInfo(index=0, name="block", module=self.block)]
 

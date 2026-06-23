@@ -36,8 +36,8 @@ from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormContinuous
 
-from chitu_diffusion.core.models.backbone import BackboneBlockInfo, BackboneMixin, BackboneState
-from chitu_diffusion.core.models.registry import ModelType, register_model
+from chitu_diffusion.models.backbone import BackboneBlockInfo, BackboneMixin, BackboneState
+from chitu_diffusion.models.registry import ModelType, register_model
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
