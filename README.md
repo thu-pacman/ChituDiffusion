@@ -72,16 +72,6 @@ Full tables, commands, notes, and figures live in
 
 ![Qwen-Image FlexCache speed-quality trade-off](ChituBench/plots/qwen_image_flexcache/speed_quality_qwen_image_flexcache_50step_20260616.png)
 
-![Wan2.1-T2V-1.3B FlexCache speed-quality trade-off](ChituBench/plots/wan2_1_t2v_1_3b_flexcache/speed_quality_wan21_13b_flexcache_cfp2_2video_50step_20260622.png)
-
-### Visual Samples
-
-![Flux1-dev FlexCache contact sheet](ChituBench/plots/flux1_dev_flexcache/contact_sheet_flux1_flexcache_with_meancache_50step_20260616.png)
-
-![Qwen-Image FlexCache contact sheet](ChituBench/plots/qwen_image_flexcache/contact_sheet_qwen_image_flexcache_coffee_50step_20260616.png)
-
-![Wan2.1-T2V-1.3B FlexCache contact sheet](ChituBench/plots/wan2_1_t2v_1_3b_flexcache/contact_sheet_wan21_13b_flexcache_cfp2_2video_50step_20260622.png)
-
 ## Feature Map
 
 | Area | What is included |
