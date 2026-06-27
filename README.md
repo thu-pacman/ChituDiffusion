@@ -100,15 +100,15 @@ Full tables, commands, notes, and figures live in
 
 Legend: ✅ supported, ❌ unsupported or not applicable, TODO planned or still being validated.
 
-| Model | Runtime | Image | Video | FlashAttention | Sage/Sparge | CFG Parallel | Context Parallel | FlexCache | ChituBench |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `Flux1-dev` | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
-| `FLUX.2-klein-4B` | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | TODO | ✅ |
-| `Qwen-Image` | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `Z-Image` | ✅ | ✅ | ❌ | ✅ | TODO | ✅ | ❌ | ✅ | ✅ |
-| `Wan2.1-T2V-1.3B` | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `Wan2.1-T2V-14B` | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | TODO | TODO |
-| `Wan2.2-T2V-A14B` | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | TODO | TODO |
+| Model | Type | Runtime | Sage/Sparge | CFG Parallel | Hybrid CP | VAE Parallel | FlexCache | ChituBench |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `Flux1-dev` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| `FLUX.2-klein-4B` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | TODO | ✅ |
+| `Qwen-Image` | T2I | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `Z-Image` | T2I | ✅ | TODO | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `Wan2.1-T2V-1.3B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| `Wan2.1-T2V-14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | TODO | TODO |
+| `Wan2.2-T2V-A14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | TODO | TODO |
 
 Availability depends on local checkpoint paths and the corresponding config
 under `chitu_diffusion/core/config/models/`.
