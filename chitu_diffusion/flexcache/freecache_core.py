@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import torch
 
-STEP_LEVEL_CACHE_TYPES = frozenset({"meancache", "freecache"})
+STEP_LEVEL_CACHE_TYPES = frozenset({"meancache", "freecache", "steptrace", "traceplanner"})
 STEP_LEVEL_CACHE_KEY = "step_level_noise_pred"
 
 
@@ -39,6 +39,8 @@ def compute_jvp(
     count = len(log_dict["v"])
     if count == 0:
         return None
+    if int(order) <= 0:
+        return torch.zeros_like(log_dict["v"][-1])
     actual_steps = min(max(1, int(order)), count)
     i1 = count - 1
     i0 = count - actual_steps
@@ -47,7 +49,10 @@ def compute_jvp(
     s_start = log_dict["sigmas_pre"][i0]
     s_end = log_dict["sigmas"][i1]
     denom = (s_end - s_start).to(device=x_start.device, dtype=x_start.dtype)
-    denom_b = denom.view(-1, *([1] * (x_start.ndim - denom.dim())))
+    if denom.dim() == 0:
+        denom_b = denom.reshape(*([1] * x_start.ndim))
+    else:
+        denom_b = denom.view(*denom.shape, *([1] * (x_start.ndim - denom.dim())))
     avg_u = (x_end - x_start) / denom_b
     inst_u = log_dict["v"][i0]
     return (inst_u - avg_u) / denom_b
@@ -64,6 +69,8 @@ def jvp_predict_noise_pred(
     if not log_dict["v"]:
         raise RuntimeError("JVP predict requires at least one fresh velocity.")
     v_last = log_dict["v"][-1]
+    if int(order) <= 0:
+        return v_last.clone()
     jvp = compute_jvp(log_dict, order)
     if jvp is None or step + 1 >= len(sigmas):
         return v_last.clone()

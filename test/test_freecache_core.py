@@ -45,8 +45,8 @@ def test_jvp_predict_matches_finite_difference_on_smooth_segment():
     step = 3
     pred = jvp_predict_noise_pred(log, sigmas, step, order=1)
     v_ref = log["v"][-1]
-    assert pred.reshape_as(v_ref).shape == v_ref.shape
-    assert torch.isfinite(pred.reshape_as(v_ref)).all()
+    assert pred.shape == v_ref.shape
+    assert torch.isfinite(pred).all()
 
 
 def test_one_step_drift_is_small_on_smooth_segment():
@@ -82,4 +82,12 @@ def test_compute_jvp_shape_matches_velocity():
     jvp = compute_jvp(log, order=1)
     assert jvp is not None
     v_ref = log["v"][-1]
-    assert jvp.reshape_as(v_ref).shape == v_ref.shape
+    assert jvp.shape == v_ref.shape
+
+
+def test_zero_order_predict_reuses_last_fresh_velocity():
+    log, sigmas = _synthetic_log(num_fresh=3)
+    pred = jvp_predict_noise_pred(log, sigmas, step=2, order=0)
+    assert torch.equal(pred, log["v"][-1])
+    drift = one_step_jvp_drift(log, sigmas, step=2, order=0)
+    assert drift == 0.0

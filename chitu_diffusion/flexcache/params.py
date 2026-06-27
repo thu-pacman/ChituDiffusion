@@ -60,6 +60,31 @@ class FreeCacheParams(FlexCacheParams):
     tol: float = 0.30
     max_gap: int = 8
     jvp_order: int = 1
+    anchor_interval: Optional[int] = None
+    anchor_phase: int = 0
+    forced_compute_steps: Optional[list[int]] = None
+    forced_reuse_orders: Optional[dict[int, int]] = None
+    save_vectors: bool = False
+
+
+@dataclass
+class StepTraceParams(FlexCacheParams):
+    strategy: Optional[str] = "steptrace"
+    jvp_order: int = 1
+    save_vectors: bool = False
+
+
+@dataclass
+class TracePlannerParams(FlexCacheParams):
+    strategy: Optional[str] = "traceplanner"
+    budgets: Optional[list[int]] = None
+    beam_width: int = 8
+    max_gap: int = 8
+    hard_tol: float = 1.0e-2
+    alpha: float = 2.0
+    beta: float = 1.0
+    checkpoint_interval: int = 0
+    checkpoint_topk: int = 0
 
 
 @dataclass
@@ -104,6 +129,8 @@ FLEXCACHE_PARAM_CLASSES = {
     "cubic": CubicParams,
     "meancache": MeanCacheParams,
     "freecache": FreeCacheParams,
+    "steptrace": StepTraceParams,
+    "traceplanner": TracePlannerParams,
     "taylorseer": TaylorSeerParams,
     "ditango": DiTangoParams,
 }

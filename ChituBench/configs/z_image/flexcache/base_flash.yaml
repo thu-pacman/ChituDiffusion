@@ -1,0 +1,39 @@
+launch:
+  tag: chitubench-zimage-flexcache-base
+  num_nodes: 1
+  gpus_per_node: 1
+  python_script: ChituBench/scripts/z_image_benchmark.py
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    job_name: chitubench-zimage-flexcache
+
+runtime:
+  chitu_debug: true
+  cuda_launch_blocking: false
+
+model:
+  name: Z-Image
+  ckpt_dir: /home/chenyy/WORK/models/Z-Image
+
+parallel:
+  cfp: 1
+  up: 1
+
+infer:
+  attn_type: flash_attn
+  low_mem_level: 0
+  cp_backend: auto
+
+eval:
+  eval_type: []
+  reference_path: null
+
+output:
+  root_dir: ChituBench/results/z_image_flexcache
+  run_log: true
+  memory: true
+  timer: true
+  log_ranks: [0]
+
+overrides: []

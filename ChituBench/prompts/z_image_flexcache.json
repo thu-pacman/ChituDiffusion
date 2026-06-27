@@ -1,0 +1,10 @@
+[
+  {
+    "id": "desk_sign",
+    "prompt": "A compact workstation desk with a small sign reading \"Z-Image x ChituDiffusion\", soft morning light, crisp product photography, detailed cables and notebooks."
+  },
+  {
+    "id": "studio_product",
+    "prompt": "A polished transparent mechanical keyboard on a matte black table, tiny paper label reading \"single GPU flash attention\", realistic studio lighting, sharp reflections, 50mm lens."
+  }
+]

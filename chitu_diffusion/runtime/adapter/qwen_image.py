@@ -11,6 +11,7 @@ import torch.distributed as dist
 
 from chitu_diffusion.core.distributed.parallel_state import get_cp_group
 from chitu_diffusion.models.parallel import ModelParallelCapabilities
+from chitu_diffusion.flexcache.freecache_core import is_step_level_cache_strategy
 from chitu_diffusion.parallel.state import ContextParallelLatentState, ParallelTaskState
 from chitu_diffusion.parallel.vae import parallel_tiled_vae_decode
 from chitu_diffusion.runtime.adapter.base import DiffusionRuntimeAdapter, register_model_runtime, set_cfg_type
@@ -632,6 +633,151 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             )[0]
         return self._normalize_latent_tokens(output, f"{cache_tag} transformer output")
 
+    def _qwen_guided_noise_pred(self, task, generator, backend, guidance_scale: float) -> torch.Tensor:
+        if guidance_scale > 1.0:
+            if generator.cfg_size == 2:
+                if generator.cfg_dispatcher.group.rank_in_group == 0:
+                    set_cfg_type(backend, "pos")
+                    local_noise_pred = self._transformer_forward(
+                        task,
+                        generator,
+                        backend,
+                        "cond",
+                        task.buffer.text_embeddings,
+                        task.buffer.text_embeddings_mask,
+                    )
+                else:
+                    set_cfg_type(backend, "neg")
+                    local_noise_pred = self._transformer_forward(
+                        task,
+                        generator,
+                        backend,
+                        "uncond",
+                        task.buffer.negative_embeddings,
+                        task.buffer.negative_embeddings_mask,
+                    )
+                noise_pred, neg_noise_pred = generator.cfg_dispatcher.all_gather_cfg_noise_preds(local_noise_pred)
+            else:
+                set_cfg_type(backend, "pos")
+                noise_pred = self._transformer_forward(
+                    task,
+                    generator,
+                    backend,
+                    "cond",
+                    task.buffer.text_embeddings,
+                    task.buffer.text_embeddings_mask,
+                )
+                set_cfg_type(backend, "neg")
+                neg_noise_pred = self._transformer_forward(
+                    task,
+                    generator,
+                    backend,
+                    "uncond",
+                    task.buffer.negative_embeddings,
+                    task.buffer.negative_embeddings_mask,
+                )
+            combined = neg_noise_pred + guidance_scale * (noise_pred - neg_noise_pred)
+            cond_norm = torch.norm(noise_pred, dim=-1, keepdim=True)
+            noise_norm = torch.norm(combined, dim=-1, keepdim=True)
+            return combined * (cond_norm / noise_norm)
+
+        set_cfg_type(backend, "pos")
+        return self._transformer_forward(
+            task,
+            generator,
+            backend,
+            "cond",
+            task.buffer.text_embeddings,
+            task.buffer.text_embeddings_mask,
+        )
+
+    def _broadcast_checkpoint_latents(self, requests: list[torch.Tensor], device: torch.device) -> list[torch.Tensor]:
+        if not (dist.is_available() and dist.is_initialized()):
+            return [tensor.to(device=device) for tensor in requests]
+
+        rank = dist.get_rank()
+        count_tensor = torch.tensor([len(requests) if rank == 0 else 0], device=device, dtype=torch.long)
+        dist.broadcast(count_tensor, src=0)
+        count = int(count_tensor.item())
+        if count == 0:
+            return []
+
+        if rank == 0:
+            shape = tuple(requests[0].shape)
+            dtype = requests[0].dtype
+        else:
+            shape = ()
+            dtype = torch.float32
+        shape_len = torch.tensor([len(shape)], device=device, dtype=torch.long)
+        dist.broadcast(shape_len, src=0)
+        if rank == 0:
+            shape_tensor = torch.tensor(shape, device=device, dtype=torch.long)
+        else:
+            shape_tensor = torch.empty((int(shape_len.item()),), device=device, dtype=torch.long)
+        dist.broadcast(shape_tensor, src=0)
+        shape = tuple(int(value) for value in shape_tensor.tolist())
+
+        dtype_id = torch.tensor([0 if dtype == torch.float32 else 1], device=device, dtype=torch.long) if rank == 0 else torch.empty((1,), device=device, dtype=torch.long)
+        dist.broadcast(dtype_id, src=0)
+        dtype = torch.float32 if int(dtype_id.item()) == 0 else torch.bfloat16
+
+        broadcasted: list[torch.Tensor] = []
+        for idx in range(count):
+            if rank == 0:
+                tensor = requests[idx].to(device=device, dtype=dtype).contiguous()
+            else:
+                tensor = torch.empty(shape, device=device, dtype=dtype)
+            dist.broadcast(tensor, src=0)
+            broadcasted.append(tensor)
+        return broadcasted
+
+    def _traceplanner_checkpoint_noise_preds(
+        self,
+        task,
+        generator,
+        backend,
+        step_cache_strategy,
+        requests: list[torch.Tensor],
+        guidance_scale: float,
+        device: torch.device,
+    ) -> tuple[list[torch.Tensor], int]:
+        checkpoint_latents = self._broadcast_checkpoint_latents(requests, device)
+        if not checkpoint_latents:
+            return [], 0
+
+        if not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0:
+            logger.info(
+                "Qwen TracePlanner checkpoint step=%d count=%d",
+                int(task.buffer.current_step),
+                len(checkpoint_latents),
+            )
+
+        original_latents = task.buffer.latents
+        original_dtype = original_latents.dtype
+        predictions: list[torch.Tensor] = []
+        try:
+            for latent in checkpoint_latents:
+                task.buffer.latents = latent.to(device=device, dtype=original_dtype)
+                guided = self._qwen_guided_noise_pred(task, generator, backend, guidance_scale)
+                if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+                    continue
+                predictions.append(guided.detach())
+                backend.flexcache.record_compute(
+                    baseline_units=0.0,
+                    actual_units=1.0,
+                    task_id=task.task_id,
+                    scope="step_cache",
+                    unit="dit_forward",
+                    extra={
+                        "decision": "checkpoint",
+                        "step": int(task.buffer.current_step),
+                        "strategy": step_cache_strategy.type,
+                    },
+                )
+        finally:
+            task.buffer.latents = original_latents
+        return predictions, len(checkpoint_latents)
+
     def denoise_step(self, task, generator, backend, run_dit_forward: Callable[..., torch.Tensor]) -> torch.Tensor:
         device = torch.device(torch.cuda.current_device())
         self._move_task_tensors_to_device(task, device)
@@ -640,27 +786,36 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         timestep = task.buffer.timesteps[task.buffer.current_step]
         guidance_scale = float(backend.args.models.sampler.guidance_scale[0])
         flex_strategy = getattr(getattr(backend, "flexcache", None), "strategy", None)
-        meancache_strategy = flex_strategy if getattr(flex_strategy, "type", None) == "meancache" else None
+        step_cache_strategy = flex_strategy if is_step_level_cache_strategy(flex_strategy) else None
+        post_cfg_step_cache = os.getenv("CHITU_QWEN_STEP_CACHE_AFTER_CFG", "0").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         step_index = int(task.buffer.current_step)
         sigma_pre = None
         sigma_next = None
-        if meancache_strategy is not None:
+        if step_cache_strategy is not None:
             sigmas = getattr(pipe.scheduler, "sigmas", None)
             if sigmas is not None and step_index + 1 < len(sigmas):
                 sigma_pre = sigmas[step_index]
                 sigma_next = sigmas[step_index + 1]
-            reuse_key = meancache_strategy.get_reuse_key(step=step_index)
+            reuse_key = step_cache_strategy.get_reuse_key(step=step_index)
             if reuse_key is not None:
-                local_noise_pred = meancache_strategy.reuse(step=step_index).to(device=device, dtype=latents.dtype)
+                latents_pre = latents.detach()
+                local_noise_pred = step_cache_strategy.reuse(step=step_index).to(device=device, dtype=latents.dtype)
                 backend.flexcache.record_compute(
                     baseline_units=1.0,
                     actual_units=0.0,
                     task_id=task.task_id,
-                    scope="meancache_step",
+                    scope="step_cache",
                     unit="dit_forward",
-                    extra={"decision": "reuse", "step": step_index},
+                    extra={"decision": "reuse", "step": step_index, "strategy": step_cache_strategy.type},
                 )
-                if guidance_scale > 1.0 and generator.cfg_size == 2:
+                if post_cfg_step_cache:
+                    noise_pred = local_noise_pred
+                elif guidance_scale > 1.0 and generator.cfg_size == 2:
                     noise_pred, neg_noise_pred = generator.cfg_dispatcher.all_gather_cfg_noise_preds(local_noise_pred)
                     combined = neg_noise_pred + guidance_scale * (noise_pred - neg_noise_pred)
                     cond_norm = torch.norm(noise_pred, dim=-1, keepdim=True)
@@ -673,6 +828,17 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 latents = self._normalize_latent_tokens(latents, "scheduler output")
                 if latents.dtype != latents_dtype:
                     latents = latents.to(latents_dtype)
+                if hasattr(step_cache_strategy, "record_reuse_step"):
+                    if sigma_pre is None or sigma_next is None:
+                        raise RuntimeError("Step-level cache requires scheduler sigmas for Qwen-Image.")
+                    step_cache_strategy.record_reuse_step(
+                        step=step_index,
+                        latents_pre=latents_pre,
+                        latents=latents,
+                        sigma_pre=sigma_pre,
+                        sigma=sigma_next,
+                        noise_pred=noise_pred,
+                    )
                 return latents
 
         latents_pre = latents.detach()
@@ -767,7 +933,9 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             )
             fresh_noise_pred_for_cache = noise_pred
 
-        if meancache_strategy is not None and not (guidance_scale > 1.0 and generator.cfg_size == 2):
+        if step_cache_strategy is not None and not (guidance_scale > 1.0 and generator.cfg_size == 2):
+            fresh_noise_pred_for_cache = noise_pred
+        elif step_cache_strategy is not None and post_cfg_step_cache:
             fresh_noise_pred_for_cache = noise_pred
 
         latents_dtype = latents.dtype
@@ -785,24 +953,41 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         )
         if latents.dtype != latents_dtype:
             latents = latents.to(latents_dtype)
-        if meancache_strategy is not None:
+        if step_cache_strategy is not None:
             if sigma_pre is None or sigma_next is None:
-                raise RuntimeError("MeanCache requires scheduler sigmas for Qwen-Image.")
-            meancache_strategy.store(
-                step=step_index,
-                latents_pre=latents_pre,
-                latents=latents,
-                sigma_pre=sigma_pre,
-                sigma=sigma_next,
-                noise_pred=fresh_noise_pred_for_cache,
-            )
+                raise RuntimeError("Step-level cache requires scheduler sigmas for Qwen-Image.")
+            store_kwargs = {
+                "step": step_index,
+                "latents_pre": latents_pre,
+                "latents": latents,
+                "sigma_pre": sigma_pre,
+                "sigma": sigma_next,
+                "noise_pred": fresh_noise_pred_for_cache,
+                "guided_noise_pred": noise_pred,
+            }
+            checkpoint_count = 0
+            if hasattr(step_cache_strategy, "plan_checkpoint_requests"):
+                requests = step_cache_strategy.plan_checkpoint_requests(**store_kwargs)
+                checkpoint_noise_preds, checkpoint_count = self._traceplanner_checkpoint_noise_preds(
+                    task,
+                    generator,
+                    backend,
+                    step_cache_strategy,
+                    requests,
+                    guidance_scale,
+                    device,
+                )
+                if checkpoint_count > 0:
+                    step_cache_strategy.finish_checkpoint_requests(checkpoint_noise_preds)
+            if checkpoint_count == 0:
+                step_cache_strategy.store(**store_kwargs)
             backend.flexcache.record_compute(
                 baseline_units=1.0,
                 actual_units=1.0,
                 task_id=task.task_id,
-                scope="meancache_step",
+                scope="step_cache",
                 unit="dit_forward",
-                extra={"decision": "compute", "step": step_index},
+                extra={"decision": "compute", "step": step_index, "strategy": step_cache_strategy.type},
             )
         return latents
 

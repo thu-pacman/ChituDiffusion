@@ -15,6 +15,7 @@ from chitu_diffusion.modules.samplers.fm_solvers import (
 )
 from chitu_diffusion.modules.samplers.fm_solvers_unipc import FlowUniPCMultistepScheduler
 from chitu_diffusion.models.parallel import ModelParallelCapabilities
+from chitu_diffusion.flexcache.freecache_core import is_step_level_cache_strategy
 from chitu_diffusion.runtime.adapter.base import (
     DiffusionRuntimeAdapter,
     as_list,
@@ -193,31 +194,32 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
         latent_model_input = task.buffer.latents
         timestep = task.buffer.timesteps[task.buffer.current_step]
         flex_strategy = getattr(getattr(backend, "flexcache", None), "strategy", None)
-        meancache_strategy = flex_strategy if getattr(flex_strategy, "type", None) == "meancache" else None
+        step_cache_strategy = flex_strategy if is_step_level_cache_strategy(flex_strategy) else None
         step_index = int(task.buffer.current_step)
         sigma_pre = None
         sigma_next = None
-        if meancache_strategy is not None:
+        if step_cache_strategy is not None:
             sigmas = getattr(task.buffer.sampler, "sigmas", None)
             if sigmas is not None and step_index + 1 < len(sigmas):
                 sigma_pre = sigmas[step_index]
                 sigma_next = sigmas[step_index + 1]
-            reuse_key = meancache_strategy.get_reuse_key(step=step_index)
+            reuse_key = step_cache_strategy.get_reuse_key(step=step_index)
             if reuse_key is not None:
+                latents_pre = task.buffer.latents.detach()
                 local_noise_pred = self._normalize_wan_latent(
-                    meancache_strategy.reuse(step=step_index).to(
+                    step_cache_strategy.reuse(step=step_index).to(
                         device=latent_model_input.device,
                         dtype=latent_model_input.dtype,
                     ),
-                    "MeanCache reuse noise_pred",
+                    "Step-level cache reuse noise_pred",
                 )
                 backend.flexcache.record_compute(
                     baseline_units=1.0,
                     actual_units=0.0,
                     task_id=task.task_id,
-                    scope="meancache_step",
+                    scope="step_cache",
                     unit="dit_forward",
-                    extra={"decision": "reuse", "step": step_index},
+                    extra={"decision": "reuse", "step": step_index, "strategy": step_cache_strategy.type},
                 )
                 if backend.guidance_scale > 0 and generator.cfg_size == 2:
                     noise_pred_cond, noise_pred_uncond = generator.cfg_dispatcher.all_gather_cfg_noise_preds(
@@ -226,8 +228,8 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
                     noise_pred = noise_pred_uncond + backend.guidance_scale * (noise_pred_cond - noise_pred_uncond)
                 else:
                     noise_pred = local_noise_pred
-                noise_pred = self._normalize_wan_latent(noise_pred, "MeanCache guided noise_pred")
-                return self._normalize_wan_latent(
+                noise_pred = self._normalize_wan_latent(noise_pred, "Step-level cache guided noise_pred")
+                latents = self._normalize_wan_latent(
                     task.buffer.sampler.step(
                         noise_pred.unsqueeze(0),
                         timestep,
@@ -235,8 +237,20 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
                         return_dict=False,
                         generator=task.buffer.seed_g,
                     )[0],
-                    "MeanCache scheduler output",
+                    "Step-level cache scheduler output",
                 )
+                if hasattr(step_cache_strategy, "record_reuse_step"):
+                    if sigma_pre is None or sigma_next is None:
+                        raise RuntimeError("Step-level cache requires scheduler sigmas for Wan.")
+                    step_cache_strategy.record_reuse_step(
+                        step=step_index,
+                        latents_pre=latents_pre,
+                        latents=latents,
+                        sigma_pre=sigma_pre,
+                        sigma=sigma_next,
+                        noise_pred=noise_pred,
+                    )
+                return latents
 
         if backend.guidance_scale > 0:
             if generator.cfg_size == 2:
@@ -300,7 +314,7 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
             fresh_noise_pred_for_cache = noise_pred
 
         noise_pred = self._normalize_wan_latent(noise_pred, "guided noise_pred")
-        if meancache_strategy is not None and not (backend.guidance_scale > 0 and generator.cfg_size == 2):
+        if step_cache_strategy is not None and not (backend.guidance_scale > 0 and generator.cfg_size == 2):
             fresh_noise_pred_for_cache = noise_pred
 
         cache_strategy = getattr(backend.flexcache, "strategy", None)
@@ -324,10 +338,10 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
             )[0],
             "scheduler output",
         )
-        if meancache_strategy is not None:
+        if step_cache_strategy is not None:
             if sigma_pre is None or sigma_next is None:
-                raise RuntimeError("MeanCache requires scheduler sigmas for Wan.")
-            meancache_strategy.store(
+                raise RuntimeError("Step-level cache requires scheduler sigmas for Wan.")
+            step_cache_strategy.store(
                 step=step_index,
                 latents_pre=latents_pre,
                 latents=latents,
@@ -339,9 +353,9 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
                 baseline_units=1.0,
                 actual_units=1.0,
                 task_id=task.task_id,
-                scope="meancache_step",
+                scope="step_cache",
                 unit="dit_forward",
-                extra={"decision": "compute", "step": step_index},
+                extra={"decision": "compute", "step": step_index, "strategy": step_cache_strategy.type},
             )
         return latents
 

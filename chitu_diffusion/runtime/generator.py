@@ -20,7 +20,15 @@ from chitu_diffusion.core.logging_utils import (
     should_log_on_rank,
 )
 from chitu_diffusion.runtime.backend import BackendState, DiffusionBackend
-from chitu_diffusion.flexcache.params import CubicParams, DiTangoParams, FlexCacheParams, MeanCacheParams
+from chitu_diffusion.flexcache.params import (
+    CubicParams,
+    DiTangoParams,
+    FlexCacheParams,
+    FreeCacheParams,
+    MeanCacheParams,
+    StepTraceParams,
+    TracePlannerParams,
+)
 from chitu_diffusion.runtime.task import (
     DiffusionTask,
     DiffusionTaskType,
@@ -654,19 +662,23 @@ class Generator:
         if spec.strategy == "cubic" and self.cp_size != 1:
             raise ValueError("FlexCache Cubic requires cp world size = 1.")
         model_name = getattr(DiffusionBackend.args.models, "name", "")
-        # MeanCache is a step-level strategy: it caches the full noise prediction and
+        # MeanCache/FreeCache/StepTrace are step-level strategies: they cache the full noise prediction and
         # reuses it via a finite-difference JVP in the denoise loop, never touching the
         # model forward internals. It is therefore orthogonal to context parallelism
         # (the linear JVP commutes with sequence sharding). Validated for Flux1-dev,
         # Qwen-Image, and Wan under cp>1; other models stay gated until checked.
         if (
-            spec.strategy == "meancache"
+            spec.strategy in {"meancache", "freecache", "steptrace", "traceplanner"}
             and self.cp_size != 1
-            and model_name not in {"Qwen-Image", "qwen-image", "Flux1-dev", "FLUX.1-dev", "Wan2.1-T2V-1.3B"}
+            and model_name
+            not in {"Qwen-Image", "qwen-image", "Z-Image", "z-image", "Flux1-dev", "FLUX.1-dev", "Wan2.1-T2V-1.3B"}
         ):
-            raise ValueError("FlexCache MeanCache currently requires cp_size = 1 outside Qwen-Image / Flux1-dev / Wan.")
-        if spec.strategy == "meancache" and self.cfg_size not in {1, 2}:
-            raise ValueError("FlexCache MeanCache currently supports cfg_size = 1 or 2.")
+            raise ValueError(
+                "FlexCache step-level cache currently requires cp_size = 1 outside "
+                "Qwen-Image / Z-Image / Flux1-dev / Wan."
+            )
+        if spec.strategy in {"meancache", "freecache", "steptrace", "traceplanner"} and self.cfg_size not in {1, 2}:
+            raise ValueError("FlexCache step-level cache currently supports cfg_size = 1 or 2.")
         return spec
 
     def _build_flexcache_strategy(self, task: DiffusionTask, spec: FlexCacheParams):
@@ -722,14 +734,77 @@ class Generator:
 
             if not isinstance(spec, MeanCacheParams):
                 raise TypeError("FlexCache meancache requires MeanCacheParams.")
-            if model_name not in {"Qwen-Image", "qwen-image", "Flux1-dev", "FLUX.1-dev", "Wan2.1-T2V-1.3B"}:
-                raise NotImplementedError("FlexCache MeanCache is currently implemented only for Qwen-Image, Flux1-dev, and Wan.")
+            if model_name not in {"Qwen-Image", "qwen-image", "Z-Image", "z-image", "Flux1-dev", "FLUX.1-dev", "Wan2.1-T2V-1.3B"}:
+                raise NotImplementedError(
+                    "FlexCache MeanCache is currently implemented only for Qwen-Image, Z-Image, Flux1-dev, and Wan."
+                )
             return MeanCacheStrategy(
                 task=task,
                 fresh_steps=getattr(spec, "fresh_steps", 25),
                 warmup_steps=warmup_steps,
                 cooldown_steps=cooldown_steps,
                 use_jvp=getattr(spec, "use_jvp", True),
+            )
+
+        if strategy == "freecache":
+            from chitu_diffusion.flexcache.strategy.freecache import FreeCacheStrategy
+
+            if not isinstance(spec, FreeCacheParams):
+                raise TypeError("FlexCache freecache requires FreeCacheParams.")
+            if model_name not in {"Qwen-Image", "qwen-image", "Z-Image", "z-image", "Flux1-dev", "FLUX.1-dev", "Wan2.1-T2V-1.3B"}:
+                raise NotImplementedError(
+                    "FlexCache FreeCache is currently implemented only for Qwen-Image, Z-Image, Flux1-dev, and Wan."
+                )
+            return FreeCacheStrategy(
+                task=task,
+                tol=getattr(spec, "tol", 0.15),
+                max_gap=getattr(spec, "max_gap", 8),
+                jvp_order=getattr(spec, "jvp_order", 1),
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+                anchor_interval=getattr(spec, "anchor_interval", None),
+                anchor_phase=getattr(spec, "anchor_phase", 0),
+                forced_compute_steps=getattr(spec, "forced_compute_steps", None),
+                forced_reuse_orders=getattr(spec, "forced_reuse_orders", None),
+                save_vectors=getattr(spec, "save_vectors", False),
+            )
+
+        if strategy == "steptrace":
+            from chitu_diffusion.flexcache.strategy.steptrace import StepTraceStrategy
+
+            if not isinstance(spec, StepTraceParams):
+                raise TypeError("FlexCache steptrace requires StepTraceParams.")
+            if model_name not in {"Qwen-Image", "qwen-image", "Z-Image", "z-image", "Flux1-dev", "FLUX.1-dev", "Wan2.1-T2V-1.3B"}:
+                raise NotImplementedError(
+                    "FlexCache StepTrace is currently implemented only for Qwen-Image, Z-Image, Flux1-dev, and Wan."
+                )
+            return StepTraceStrategy(
+                task=task,
+                jvp_order=getattr(spec, "jvp_order", 1),
+                save_vectors=getattr(spec, "save_vectors", False),
+            )
+
+        if strategy == "traceplanner":
+            from chitu_diffusion.flexcache.strategy.traceplanner import TracePlannerStrategy
+
+            if not isinstance(spec, TracePlannerParams):
+                raise TypeError("FlexCache traceplanner requires TracePlannerParams.")
+            if model_name not in {"Qwen-Image", "qwen-image", "Z-Image", "z-image", "Flux1-dev", "FLUX.1-dev", "Wan2.1-T2V-1.3B"}:
+                raise NotImplementedError(
+                    "FlexCache TracePlanner is currently implemented only for Qwen-Image, Z-Image, Flux1-dev, and Wan."
+                )
+            return TracePlannerStrategy(
+                task=task,
+                budgets=getattr(spec, "budgets", None),
+                beam_width=getattr(spec, "beam_width", 8),
+                max_gap=getattr(spec, "max_gap", 8),
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+                hard_tol=getattr(spec, "hard_tol", 1.0e-2),
+                alpha=getattr(spec, "alpha", 2.0),
+                beta=getattr(spec, "beta", 1.0),
+                checkpoint_interval=getattr(spec, "checkpoint_interval", 0),
+                checkpoint_topk=getattr(spec, "checkpoint_topk", 0),
             )
 
         if strategy == "cubic":
@@ -913,6 +988,25 @@ class Generator:
         elif spec.strategy == "meancache":
             resolved_log["fresh_steps"] = cache_strategy.fresh_steps
             resolved_log["use_jvp"] = cache_strategy.use_jvp
+        elif spec.strategy == "freecache":
+            resolved_log["tol"] = cache_strategy.tol
+            resolved_log["max_gap"] = cache_strategy.max_gap
+            resolved_log["jvp_order"] = cache_strategy.jvp_order
+            resolved_log["anchor_interval"] = cache_strategy.anchor_interval
+            resolved_log["anchor_phase"] = cache_strategy.anchor_phase
+            if cache_strategy.forced_compute_steps is not None:
+                resolved_log["forced_compute_steps"] = sorted(cache_strategy.forced_compute_steps)
+            if cache_strategy.forced_reuse_orders is not None:
+                resolved_log["forced_reuse_orders"] = dict(sorted(cache_strategy.forced_reuse_orders.items()))
+            if cache_strategy.anchor_compute_steps is not None:
+                resolved_log["anchor_compute_steps"] = sorted(cache_strategy.anchor_compute_steps)
+        elif spec.strategy == "traceplanner":
+            resolved_log["budgets"] = cache_strategy.budgets
+            resolved_log["beam_width"] = cache_strategy.beam_width
+            resolved_log["max_gap"] = cache_strategy.max_gap
+            resolved_log["hard_tol"] = cache_strategy.hard_tol
+            resolved_log["checkpoint_interval"] = cache_strategy.checkpoint_interval
+            resolved_log["checkpoint_topk"] = cache_strategy.checkpoint_topk
         elif spec.strategy == "cubic":
             resolved_log["target_speedup"] = cache_strategy.config.target_speedup
             resolved_log["tau_max"] = cache_strategy.config.anchor_interval

@@ -1,0 +1,27 @@
+name: Z-Image
+type: z-image
+source: "https://www.modelscope.cn/models/Tongyi-MAI/Z-Image"
+ckpt_dir: null
+tokenizer_path: null
+tokenizer_type: "hf"
+
+task: t2i
+
+encoder:
+  name: "qwen3"
+  max_sequence_length: 512
+
+vae:
+  type: "autoencoder_kl"
+  checkpoint: "vae"
+  scale_factor: 8
+
+sampler:
+  sample_steps: 50
+  guidance_scale: [4.0]
+  boundary: []
+  num_train_timesteps: 1000
+  cfg_normalization: false
+  cfg_truncation: 1.0
+
+transformer: {}

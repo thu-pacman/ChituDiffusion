@@ -8,13 +8,19 @@ from chitu_diffusion.flexcache.params import (
     BlockDanceParams,
     CubicParams,
     DiTangoParams,
+    FreeCacheParams,
     MeanCacheParams,
     PABParams,
+    StepTraceParams,
     TaylorSeerParams,
     TeaCacheParams,
+    TracePlannerParams,
 )
 from chitu_diffusion.flexcache.strategy.meancache import MeanCacheStrategy
 from chitu_diffusion.flexcache.strategy.blockdance import BlockDanceStrategy
+from chitu_diffusion.flexcache.strategy.freecache import FreeCacheStrategy
+from chitu_diffusion.flexcache.strategy.steptrace import StepTraceStrategy
+from chitu_diffusion.flexcache.strategy.traceplanner import TracePlannerStrategy
 from chitu_diffusion.flexcache.strategy.taylorseer import TaylorSeerStrategy
 from chitu_diffusion.flexcache.strategy.teacache import TeaCacheStrategy
 from chitu_diffusion.runtime.generator import Generator
@@ -23,7 +29,18 @@ from chitu_diffusion.runtime.task import DiffusionUserParams
 
 
 def test_flexcache_strategies_are_accepted():
-    for cls in (BlockDanceParams, TeaCacheParams, PABParams, CubicParams, MeanCacheParams, TaylorSeerParams, DiTangoParams):
+    for cls in (
+        BlockDanceParams,
+        TeaCacheParams,
+        PABParams,
+        CubicParams,
+        MeanCacheParams,
+        FreeCacheParams,
+        StepTraceParams,
+        TracePlannerParams,
+        TaylorSeerParams,
+        DiTangoParams,
+    ):
         params = DiffusionUserParams(
             flexcache_params=cls()
         ).resolve_flexcache_params()
@@ -59,6 +76,151 @@ def test_ditango_param_dict_accepts_group_size_limit():
     assert params.intra_group_size_limit == 2
     assert params.locality_group_compute_boost == 1.5
     assert params.groupwise_reuse_stale_kv is True
+
+
+def test_freecache_param_dict_accepts_fixed_anchor_schedule():
+    params = DiffusionUserParams(
+        flexcache_params={
+            "strategy": "freecache",
+            "warmup": 8,
+            "cooldown": 1,
+            "anchor_interval": 3,
+            "anchor_phase": 1,
+        }
+    ).resolve_flexcache_params()
+    assert isinstance(params, FreeCacheParams)
+    assert params.warmup == 8
+    assert params.cooldown == 1
+    assert params.anchor_interval == 3
+    assert params.anchor_phase == 1
+
+
+def test_freecache_param_dict_accepts_forced_reuse_orders():
+    params = DiffusionUserParams(
+        flexcache_params={
+            "strategy": "freecache",
+            "forced_compute_steps": [0, 1, 3],
+            "forced_reuse_orders": {"2": 0, "4": 1},
+        }
+    ).resolve_flexcache_params()
+    assert isinstance(params, FreeCacheParams)
+    assert params.forced_reuse_orders == {"2": 0, "4": 1}
+
+
+def test_traceplanner_param_dict_accepts_search_controls():
+    params = DiffusionUserParams(
+        flexcache_params={
+            "strategy": "traceplanner",
+            "budgets": [20, 25],
+            "beam_width": 4,
+            "max_gap": 6,
+            "checkpoint_interval": 4,
+            "checkpoint_topk": 3,
+        }
+    ).resolve_flexcache_params()
+    assert isinstance(params, TracePlannerParams)
+    assert params.budgets == [20, 25]
+    assert params.beam_width == 4
+    assert params.max_gap == 6
+    assert params.checkpoint_interval == 4
+    assert params.checkpoint_topk == 3
+
+
+def test_freecache_fixed_anchor_schedule_uses_warmup_relative_phase():
+    class ReqParams:
+        num_inference_steps = 12
+
+    class Req:
+        params = ReqParams()
+
+    class Task:
+        task_id = "freecache_anchor"
+        req = Req()
+
+    strategy = FreeCacheStrategy(
+        task=Task(),
+        warmup_steps=3,
+        cooldown_steps=2,
+        anchor_interval=3,
+        anchor_phase=1,
+    )
+    assert sorted(strategy.anchor_compute_steps) == [0, 1, 2, 4, 7, 10, 11]
+
+
+def test_freecache_forced_reuse_orders_are_normalized():
+    class ReqParams:
+        num_inference_steps = 6
+
+    class Req:
+        params = ReqParams()
+
+    class Task:
+        task_id = "freecache_reuse_orders"
+        req = Req()
+
+    strategy = FreeCacheStrategy(
+        task=Task(),
+        forced_compute_steps=[0, 1, 3],
+        forced_reuse_orders={"2": 0, "4": 1},
+    )
+    assert strategy.forced_reuse_orders == {2: 0, 4: 1}
+    assert strategy._order_for_step(2) == 0
+    assert strategy._order_for_step(4) == 1
+    assert strategy._order_for_step(5) == 1
+
+
+def test_steptrace_records_full_compute_velocity_metrics(monkeypatch):
+    class ReqParams:
+        num_inference_steps = 3
+
+    class Req:
+        params = ReqParams()
+
+    class Task:
+        task_id = "steptrace"
+        req = Req()
+
+    class Sampler:
+        sigmas = torch.tensor([1.0, 0.7, 0.4, 0.1])
+
+    class Buffer:
+        sampler = Sampler()
+
+    class CurrentTask:
+        buffer = Buffer()
+
+    class Generator:
+        current_task = CurrentTask()
+
+    monkeypatch.setattr(DiffusionBackend, "generator", Generator())
+    monkeypatch.setattr(DiffusionBackend, "flexcache", FlexCacheManager(max_cache_memory=20))
+
+    strategy = StepTraceStrategy(task=Task(), jvp_order=1)
+    assert strategy.get_reuse_key(step=0) is None
+
+    x0 = torch.zeros(1, 2, 1, 1)
+    x1 = torch.ones(1, 2, 1, 1)
+    strategy.store(
+        step=0,
+        latents_pre=x0,
+        latents=x1,
+        sigma_pre=torch.tensor(1.0),
+        sigma=torch.tensor(0.7),
+        noise_pred=torch.ones(1, 2, 1, 1),
+    )
+    strategy.store(
+        step=1,
+        latents_pre=x1,
+        latents=x1 + 2,
+        sigma_pre=torch.tensor(0.7),
+        sigma=torch.tensor(0.4),
+        noise_pred=torch.full((1, 2, 1, 1), 2.0),
+    )
+
+    assert len(strategy.step_trace) == 2
+    assert "prev_rel_mse" in strategy.step_trace[1]
+    assert "zero_pred_rel_mse" in strategy.step_trace[1]
+    assert "jvp1_pred_rel_mse" in strategy.step_trace[1]
 
 
 def test_wan_meancache_strategy_can_be_built(monkeypatch):
