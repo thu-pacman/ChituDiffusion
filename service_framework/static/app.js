@@ -183,7 +183,6 @@ function ensureJobCard(job) {
         <label><input data-quality-metric="psnr" type="checkbox"> PSNR</label>
         <label><input data-quality-metric="ssim" type="checkbox"> SSIM</label>
         <label><input data-quality-metric="lpips" type="checkbox" checked> LPIPS</label>
-        <label><input data-quality-metric="vbench" type="checkbox"> VBench</label>
       </div>
       <button type="button" data-role="runEval">Run Eval</button>
       <div class="evalResult" data-role="evalResult"></div>

@@ -41,7 +41,7 @@ from chitu_diffusion.runtime.task import (
 
 
 CANCELLABLE_JOB_STATUSES = {"queued", "dispatching", "running", "cancelling"}
-QUALITY_METRICS = {"vbench", "fid", "fvd", "psnr", "ssim", "lpips"}
+QUALITY_METRICS = {"fid", "fvd", "psnr", "ssim", "lpips"}
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -174,7 +174,6 @@ def _quality_metric_availability() -> dict[str, dict[str, Any]]:
             "available": _module_available("torchmetrics") and _module_available("torch_fidelity"),
             "reason": None,
         },
-        "vbench": {"available": _module_available("vbench"), "reason": None},
     }
     reasons = {
         "psnr": "scikit-image is not installed.",
@@ -182,7 +181,6 @@ def _quality_metric_availability() -> dict[str, dict[str, Any]]:
         "lpips": "lpips is not installed.",
         "fid": "pytorch-fid is not installed.",
         "fvd": "torchmetrics and torch-fidelity are required for FVD.",
-        "vbench": "vbench is not installed.",
     }
     for metric, item in availability.items():
         if not item["available"]:
@@ -468,7 +466,7 @@ class ServiceState:
                 "availability": availability,
             },
             "quality": {
-                "metrics": ["fid", "fvd", "psnr", "ssim", "lpips", "vbench"],
+                "metrics": ["fid", "fvd", "psnr", "ssim", "lpips"],
                 "availability": _quality_metric_availability(),
             },
             "output": cfg.get("output", {}),

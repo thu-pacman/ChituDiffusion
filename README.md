@@ -27,8 +27,8 @@ real model workloads.
 
 ## Why ChituDiffusion
 
-- **One runtime for serious diffusion inference.** Run Wan, Flux, and
-  Qwen-Image style workloads through the same `chitu run` entry point.
+- **One runtime for serious diffusion inference.** Run Wan, Flux, Qwen-Image,
+  and Z-Image style workloads through the same `chitu run` entry point.
 - **Distributed from the start.** Context parallelism, CFG parallelism, ring,
   Ulysses, and combined parallel layouts are wired into the runtime.
 - **Acceleration is measurable, not just implemented.** Attention backends,
@@ -44,6 +44,7 @@ real model workloads.
 - 📊 **ChituBench**：Attention / Parallel DiT / FlexCache / Parallel VAE 的统一评测面板。
 - 🎬 **Wan2.1-T2V-1.3B**：16 GPU Parallel DiT 达到 **12.813x**，FlexCache 覆盖视频生成。
 - 🖼️ **Qwen-Image**：运行时适配完成，8 GPU CFG + image CP 达到 **5.404x**。
+- 🖼️ **Z-Image**：运行时适配完成，单卡 FlashAttention 与 step-level FlexCache 已接入。
 - 🧠 **FlexCache**：MeanCache / Cubic(Jano) / TaylorSeer / BlockDance / TeaCache / PAB。
 - 🎉 **DiTango @ HPDC'26**：通信受限场景下的 cache-accelerated parallelism。
 - 🎉 **[Jano](https://arxiv.org/abs/2603.00519) @ CVPR Findings 2026**：FlexCache-Cubic 的前身。
@@ -65,6 +66,7 @@ Full tables, commands, notes, and figures live in
 | Wan2.1-T2V-1.3B FlexCache | MeanCache30 reaches **1.658x** with PSNR 35.60 / 1-LPIPS 0.990; Cubic now spans **1.568-2.203x** | [result](ChituBench/result_flexcache.md#wan2_1_t2v_1_3b_flexcache) |
 | Qwen-Image parallel | 8-GPU CFG parallel + image CP4 reaches **5.404x** speedup | [result](ChituBench/result.md#qwen_image_parallel) |
 | Qwen-Image FlexCache | MeanCache spans **3.616x**, **5.331x**, and **9.092x** speed-quality points | [result](ChituBench/result_flexcache.md#qwen_image_flexcache) |
+| Z-Image FlexCache | Runtime path, single-GPU FlashAttention, MeanCache, FreeCache replay, and TracePlanner probes are integrated | [configs](ChituBench/configs/z_image/flexcache/base_flash.yaml) |
 
 ### Speed-Quality Snapshots
 
@@ -91,19 +93,22 @@ Full tables, commands, notes, and figures live in
 | Attention | Torch SDPA, FlashAttention, SageAttention, SpargeAttention, FlashInfer experiments |
 | FlexCache | TeaCache, PAB, BlockDance, Cubic, MeanCache, TaylorSeer, DiTango request params |
 | DiTango | Planner/runtime experiments for cache-aware distributed attention |
-| Evaluation | PSNR, SSIM, LPIPS, HPSv3, VBench-oriented utilities |
+| Evaluation | PSNR, SSIM, LPIPS, FID, FVD, HPSv3 utilities |
 | Observability | Timing JSON, memory JSON, run logs, task metadata, debug visualizations |
 
 ## Supported Models
 
-Current model configuration includes:
+Legend: ✅ supported, ❌ unsupported or not applicable, TODO planned or still being validated.
 
-- `Wan2.1-T2V-1.3B`
-- `Wan2.1-T2V-14B`
-- `Wan2.2-T2V-A14B`
-- `Flux1-dev`
-- `FLUX.2-klein-4B`
-- `Qwen-Image`
+| Model | Runtime | Image | Video | FlashAttention | Sage/Sparge | CFG Parallel | Context Parallel | FlexCache | ChituBench |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `Flux1-dev` | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `FLUX.2-klein-4B` | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | TODO | ✅ |
+| `Qwen-Image` | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `Z-Image` | ✅ | ✅ | ❌ | ✅ | TODO | ✅ | ❌ | ✅ | ✅ |
+| `Wan2.1-T2V-1.3B` | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `Wan2.1-T2V-14B` | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | TODO | TODO |
+| `Wan2.2-T2V-A14B` | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | TODO | TODO |
 
 Availability depends on local checkpoint paths and the corresponding config
 under `chitu_diffusion/core/config/models/`.
@@ -167,7 +172,6 @@ uv sync --extra sparge
 uv sync --extra flash
 uv sync --extra flashinfer
 uv sync --extra eval
-uv sync --extra vbench
 ```
 
 Build CUDA extension extras on a GPU compute node whose CUDA toolkit matches

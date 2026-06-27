@@ -72,6 +72,7 @@ metrics.
 - `Flux1-dev`
 - `FLUX.2-klein-4B`
 - `Qwen-Image`
+- `Z-Image`
 - `Wan2.1-T2V-1.3B`
 
 ## Directory Layout

@@ -6,7 +6,7 @@ to run on the Slurm GPU partition configured in each YAML file.
 Install optional backends before running the full matrix:
 
 ```bash
-uv sync --extra flash --extra flashinfer --extra sage --extra sparge --extra vbench
+uv sync --extra flash --extra flashinfer --extra sage --extra sparge
 ```
 
 Run Flux attention backends:

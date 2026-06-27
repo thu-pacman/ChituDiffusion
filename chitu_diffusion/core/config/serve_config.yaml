@@ -49,7 +49,7 @@ infer:
     cp_backend: auto # one of: auto, agcp, ucp
 
 eval:
-  eval_type: [] # list items in: vbench, fid, fvd, psnr, ssim, lpips
+  eval_type: [] # list items in: fid, fvd, psnr, ssim, lpips
   reference_path: null # required by fid/fvd/psnr/ssim/lpips
 
 output:

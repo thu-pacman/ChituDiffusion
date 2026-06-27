@@ -28,7 +28,6 @@ class EvalManager():
         self.strategy: Optional[EvalStrategy] = None
         self.eval_result: Dict[str, Dict[str, Any]] = {}
         self._strategy_registry = {
-            "vbench": self._build_vbench,
             "fid": self._build_fid,
             "fvd": self._build_fvd,
             "psnr": self._build_psnr,
@@ -61,13 +60,6 @@ class EvalManager():
         if value in {"", "none", "null"}:
             return []
         return [value]
-
-    def _build_vbench(self, output_dir: Optional[str] = None) -> EvalStrategy:
-        from chitu_diffusion.evaluation.strategy.vbench import VbenchStrategy
-
-        if output_dir:
-            return VbenchStrategy(output_dir=output_dir)
-        return VbenchStrategy()
 
     def _build_fid(self, output_dir: Optional[str] = None) -> EvalStrategy:
         from chitu_diffusion.evaluation.strategy.fid import FidStrategy

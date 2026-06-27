@@ -78,7 +78,6 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 sageattention = { git = "https://github.com/thu-ml/SageAttention.git" }
 spas_sage_attn = { git = "https://github.com/thu-ml/SpargeAttn.git" }
-vbench = { workspace = true }
 
 
 
@@ -117,8 +116,3 @@ flash = ["flash_attn"]
 flashinfer = ["flashinfer-python", "ninja"]
 sage = ["sageattention"]
 sparge = ["spas_sage_attn"]
-vbench = ["vbench"]
-[tool.uv.workspace]
-members = [
-    "third_party/vbench",
-]

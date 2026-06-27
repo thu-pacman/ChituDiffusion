@@ -158,7 +158,7 @@ def validate_config(config: DictConfig) -> None:
             f"infer.bind_thread_to_cpu must be one of ['physical_core', 'logical_core'], got {bind_thread_to_cpu}"
         )
 
-    allowed_eval = {"vbench", "fid", "fvd", "psnr", "ssim", "lpips"}
+    allowed_eval = {"fid", "fvd", "psnr", "ssim", "lpips"}
     invalid_eval = [item for item in _normalize_eval_types(config.eval.eval_type) if item not in allowed_eval]
     if invalid_eval:
         raise ValueError(f"eval.eval_type contains invalid items {invalid_eval}, allowed: {sorted(allowed_eval)}")
