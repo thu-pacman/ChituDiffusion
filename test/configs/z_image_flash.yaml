@@ -1,6 +1,5 @@
 launch:
   tag: zimage-attn-flash
-  backend: torchrun
   num_nodes: 1
   gpus_per_node: 1
   python_script: test/test_z_image.py
@@ -15,7 +14,7 @@ runtime:
 
 model:
   name: Z-Image
-  ckpt_dir: /dockerdata/Z-Image
+  ckpt_dir: /home/chenyy/WORK/models/Z-Image
 
 parallel:
   cfp: 1
@@ -30,11 +29,11 @@ eval:
   reference_path: null
 
 output:
-  root_dir: outputs/test-50step
+  root_dir: outputs/test-smoke
   run_log: true
   memory: true
   timer: true
   log_ranks: [0]
 
 overrides:
-  - models.sampler.sample_steps=50
+  - models.sampler.sample_steps=3
