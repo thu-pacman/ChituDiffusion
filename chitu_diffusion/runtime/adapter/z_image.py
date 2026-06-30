@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import time
 from logging import getLogger
 from typing import Any, Callable, Optional
 
@@ -10,8 +11,10 @@ import torch
 import torch.distributed as dist
 
 from chitu_diffusion.core.logging_utils import log_result
-from chitu_diffusion.flexcache.freecache_core import is_step_level_cache_strategy
+from chitu_diffusion.flexcache.step_level_core import is_step_level_cache_strategy
+from chitu_diffusion.core.distributed.parallel_state import get_cp_group
 from chitu_diffusion.models.parallel import ModelParallelCapabilities
+from chitu_diffusion.parallel.vae import parallel_tiled_vae_decode
 from chitu_diffusion.runtime.output_layout import task_results_dir
 from chitu_diffusion.runtime.adapter.base import (
     DiffusionRuntimeAdapter,
@@ -33,21 +36,23 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         self.transformer = None
         self._pipeline_device = None
         self._configured_attn_backend = None
+        self._z_attn_processor = None
+        self._cp_wrapped = False
 
     def supports_cfg(self, args: Any) -> bool:
         return float(args.models.sampler.guidance_scale[0]) > 1.0
 
     def parallel_capabilities(self, args: Any) -> ModelParallelCapabilities:
         return ModelParallelCapabilities(
-            dit_context_parallel=False,
+            dit_context_parallel=self.handles_context_parallel(args),
             dit_cfg_parallel=self.supports_cfg(args),
             vae_tile_parallel=True,
             sampler_local_latent=False,
-            model_specific_context_parallel=False,
+            model_specific_context_parallel=self.handles_context_parallel(args),
         )
 
     def handles_context_parallel(self, args: Any) -> bool:
-        return False
+        return int(getattr(args.infer.diffusion, "cp_size", 1)) > 1
 
     def denoise_completes_in_single_call(self) -> bool:
         return True
@@ -195,15 +200,232 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         processor = ZImageChituAttnProcessor(attn_backend)
         for block in list(transformer.noise_refiner) + list(transformer.context_refiner) + list(transformer.layers):
             block.attention.set_processor(processor)
+        self._z_attn_processor = processor
         self._configured_attn_backend = getattr(attn_backend, "impl", attn_backend.__class__.__name__)
         logger.info("Installed Z-Image Chitu attention processor: %s", self._configured_attn_backend)
 
     def configure_after_backend_build(self, backend) -> None:
         cp_size = int(getattr(backend.args.infer.diffusion, "cp_size", 1))
-        if cp_size != 1:
-            raise NotImplementedError("Z-Image adapter currently supports single-GPU/context-parallel size 1 only.")
         torch.set_default_dtype(torch.float32)
         logger.info("Z-Image runtime keeps torch default dtype at float32 for scheduler/sequence numerics.")
+        if cp_size > 1:
+            self._wrap_transformer_forward_with_cp(cp_size)
+
+    def _wrap_transformer_forward_with_cp(self, cp_size: int) -> None:
+        """Wrap the diffusers Z-Image transformer.forward with a context-parallel
+        variant. CP is fully encapsulated inside forward: inputs and the returned
+        noise prediction stay full-resolution, so the adapter's denoise loop, the
+        scheduler and the CFG aggregation remain unchanged.
+
+        Strategy (mirrors qwen_image's split-Q / all-gather-KV, adapted to the
+        Z-Image single-stream packing [image, text]):
+          * patchify + refiner stages + unified-sequence build run replicated on
+            every rank (cheap: 2+2 refiner layers);
+          * the image-token portion of the unified sequence is split across CP
+            ranks right before the 30 main `layers`, so attention AND FFN are
+            parallelized; attention all-gathers image K/V to stay exact;
+          * after `layers`, the local image tokens are all-gathered back and the
+            full sequence is reassembled for final_layer + unpatchify.
+        Only the basic (non-omni), single-sample (B==1), no-controlnet/siglip,
+        unpadded-mask path is parallelized; anything else transparently falls
+        back to the original forward.
+        """
+        transformer = self.transformer
+        if transformer is None:
+            logger.warning("Z-Image CP requested (cp_size=%d) but transformer is not built yet; skip.", cp_size)
+            return
+        if self._cp_wrapped:
+            return
+        if self._z_attn_processor is None:
+            raise NotImplementedError(
+                "Z-Image context parallel requires the Chitu attention processor; "
+                "unset CHITU_Z_IMAGE_USE_DIFFUSERS_ATTN to enable CP."
+            )
+
+        adapter = self
+        original_forward = transformer.forward
+
+        def cp_forward(
+            x,
+            t,
+            cap_feats,
+            return_dict: bool = True,
+            controlnet_block_samples=None,
+            siglip_feats=None,
+            image_noise_mask=None,
+            patch_size: int = 2,
+            f_patch_size: int = 1,
+        ):
+            group = get_cp_group()
+            cp = group.group_size if group is not None else 1
+            omni_mode = isinstance(x[0], list)
+
+            # Stage-level wall-clock breakdown (which parts of the DiT forward are
+            # CP-sharded vs replicated). Gated by CHITU_Z_IMAGE_STAGE_PROFILE=1.
+            # `_mark(name)` closes the previous interval and opens a new one; the
+            # elapsed time (after a CUDA sync) is attributed to the previous name.
+            _stage_prof = os.environ.get("CHITU_Z_IMAGE_STAGE_PROFILE", "0") == "1"
+
+            def _mark(name):
+                if not _stage_prof:
+                    return
+                torch.cuda.synchronize()
+                now = time.perf_counter()
+                st = adapter.__dict__.setdefault("_stage_times", {})
+                prev = adapter.__dict__.get("_stage_open")
+                if prev is not None:
+                    st[prev[0]] = st.get(prev[0], 0.0) + (now - prev[1])
+                if name == "embed":
+                    adapter._stage_nfwd = adapter.__dict__.get("_stage_nfwd", 0) + 1
+                adapter._stage_open = (name, now) if name is not None else None
+            if (
+                cp <= 1
+                or omni_mode
+                or siglip_feats is not None
+                or controlnet_block_samples is not None
+                or len(x) != 1
+            ):
+                return original_forward(
+                    x,
+                    t,
+                    cap_feats,
+                    return_dict=return_dict,
+                    controlnet_block_samples=controlnet_block_samples,
+                    siglip_feats=siglip_feats,
+                    image_noise_mask=image_noise_mask,
+                    patch_size=patch_size,
+                    f_patch_size=f_patch_size,
+                )
+
+            device = x[0].device
+            _mark("embed")
+            adaln_input = transformer.t_embedder(t * transformer.t_scale).type_as(x[0])
+
+            (
+                x_tok,
+                cap_tok,
+                x_size,
+                x_pos_ids,
+                cap_pos_ids,
+                x_pad_mask,
+                cap_pad_mask,
+            ) = transformer.patchify_and_embed(x, cap_feats, patch_size, f_patch_size)
+
+            # Image embed (replicated; cheap). The image is sharded only across
+            # the main layers (see below); the noise_refiner and final_layer run
+            # replicated on the full image.
+            x_seqlens = [len(xi) for xi in x_tok]
+            x_emb = transformer.all_x_embedder[f"{patch_size}-{f_patch_size}"](torch.cat(x_tok, dim=0))
+            x_seq, x_freqs, x_mask, _, x_noise_tensor = transformer._prepare_sequence(
+                list(x_emb.split(x_seqlens, dim=0)), x_pos_ids, x_pad_mask, transformer.x_pad_token, None, device
+            )
+
+            _mark("context_refiner")
+            # Caption embed + refine: pure text, kept replicated on every rank
+            # (only a handful of tokens). Run it BEFORE enabling CP so its
+            # text-only attention is not misread as the [image, text] CP layout.
+            cap_seqlens = [len(ci) for ci in cap_tok]
+            cap_emb = transformer.cap_embedder(torch.cat(cap_tok, dim=0))
+            cap_seq, cap_freqs, cap_mask, _, _ = transformer._prepare_sequence(
+                list(cap_emb.split(cap_seqlens, dim=0)), cap_pos_ids, cap_pad_mask, transformer.cap_pad_token, None, device
+            )
+            for layer in transformer.context_refiner:
+                cap_seq = layer(cap_seq, cap_mask, cap_freqs)
+
+            # Main-layer sequence sharding: build the full unified [image, text],
+            # shard the image portion across ranks for the 30 main layers, then
+            # gather it back (at the full hidden dim) right after the main layers.
+            # Disable with CHITU_Z_IMAGE_CP_SHARDED=0.
+            img_len = int(x_seqlens[0])
+            do_cp = (
+                cp > 1
+                and not omni_mode
+                and len(x_seqlens) == 1
+                and img_len % cp == 0
+                and x_mask is None
+                and cap_mask is None
+                and os.environ.get("CHITU_Z_IMAGE_CP_SHARDED", "1") == "1"
+            )
+            if os.environ.get("CHITU_Z_IMAGE_CP_PROFILE", "0") == "1" and not getattr(adapter, "_cp_diag_logged", False):
+                logger.info(
+                    "[Z-Image CP diag] cp=%d img_len=%d x_mask_is_none=%s do_cp=%s",
+                    cp, img_len, x_mask is None, do_cp,
+                )
+                adapter._cp_diag_logged = True
+            if not do_cp and cp > 1 and img_len % cp != 0:
+                logger.warning(
+                    "Z-Image CP skipped this step: image tokens=%d not divisible by cp_size=%d.", img_len, cp
+                )
+
+            _mark("noise_refiner")
+            for layer in transformer.noise_refiner:
+                x_seq = layer(x_seq, x_mask, x_freqs, adaln_input, x_noise_tensor, None, None)
+
+            _mark("build_unified")
+            # Full image + full text -> full [image, text] sequence.
+            unified, unified_freqs, unified_mask, unified_noise_tensor = transformer._build_unified_sequence(
+                x_seq,
+                x_freqs,
+                x_seqlens,
+                None,
+                cap_seq,
+                cap_freqs,
+                cap_seqlens,
+                None,
+                None,
+                None,
+                None,
+                None,
+                omni_mode,
+                device,
+            )
+
+            # Shard the image portion of the full sequence; the main layers run on
+            # [local_image_shard, text].
+            if do_cp:
+                chunk = img_len // cp
+                r = group.rank_in_group
+                lo, hi = r * chunk, (r + 1) * chunk
+                unified = torch.cat([unified[:, lo:hi], unified[:, img_len:]], dim=1).contiguous()
+                unified_freqs = torch.cat(
+                    [unified_freqs[:, lo:hi], unified_freqs[:, img_len:]], dim=1
+                ).contiguous()
+                adapter._z_attn_processor.enable_cp(group, chunk)
+
+            _mark("main_layers")
+            try:
+                for layer in transformer.layers:
+                    unified = layer(
+                        unified, unified_mask, unified_freqs, adaln_input, unified_noise_tensor, None, None
+                    )
+            finally:
+                if do_cp:
+                    adapter._z_attn_processor.disable_cp()
+
+            _mark("out_gather")
+            # Gather the image back to full length at the full hidden dim, so the
+            # final_layer can run replicated on the full sequence.
+            if do_cp:
+                chunk = img_len // cp
+                full_img_h = adapter._z_attn_processor._cp_all_gather_seq(
+                    unified[:, :chunk].contiguous(), group, kind="out"
+                )
+                unified = torch.cat([full_img_h, unified[:, chunk:]], dim=1)
+            _mark("final")
+            unified = transformer.all_final_layer[f"{patch_size}-{f_patch_size}"](unified, c=adaln_input)
+            full_img_out = unified[:, :img_len]
+            out = transformer.unpatchify(list(full_img_out.unbind(dim=0)), x_size, patch_size, f_patch_size, None)
+            _mark(None)
+
+            if not return_dict:
+                return (out,)
+            from diffusers.models.modeling_outputs import Transformer2DModelOutput
+
+            return Transformer2DModelOutput(sample=out)
+
+        transformer.forward = cp_forward
+        self._cp_wrapped = True
+        logger.info("Installed Z-Image context-parallel transformer forward wrapper (cp_size=%d).", cp_size)
 
     def encode_text(self, task, generator, backend):
         device = torch.device(torch.cuda.current_device())
@@ -382,6 +604,14 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         for idx, item in enumerate(prompt_embeds[:2]):
             self._debug_tensor(f"prompt_embeds[{idx}]", item, step=int(task.buffer.current_step), check=False)
 
+        # Announce the denoise step/cfg branch to the CP core so the AGKV
+        # cross-step KV cache (if enabled) can pick fresh vs stale per layer.
+        cp_core = getattr(getattr(self, "_z_attn_processor", None), "_cp", None)
+        if cp_core is not None and hasattr(cp_core, "begin_forward"):
+            cp_core.begin_forward(
+                int(task.buffer.current_step), len(task.buffer.timesteps), cache_tag
+            )
+
         autocast_device = "cuda" if device.type == "cuda" else device.type
         with torch.amp.autocast(autocast_device, enabled=False), self._transformer_cache_context(cache_tag):
             output_list = self.transformer(
@@ -478,7 +708,27 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
                     local_noise_pred = self._transformer_forward(task, generator, backend, "uncond", task.buffer.negative_embeddings)
                 pos_noise_pred, neg_noise_pred = generator.cfg_dispatcher.all_gather_cfg_noise_preds(local_noise_pred)
             else:
-                return self._transformer_forward_cfg_batch(task, generator, backend, guidance_scale, pipe)
+                # cfg_size==1: cond+uncond share the same ranks. The batched
+                # forward packs them as a length-2 input list, which the CP
+                # transformer wrapper cannot shard (it only shards a single
+                # sample), so under context parallelism it silently falls back
+                # to full replicated compute -> no CP speedup. When CP is active
+                # run the two CFG conditions as two separate (length-1) forwards
+                # so each is sequence-sharded across the CP group; this is the
+                # same path cfg_size==2 already uses. CFG and CP are orthogonal,
+                # so the result is numerically equivalent to the batched path.
+                cp_group = get_cp_group()
+                cp = cp_group.group_size if cp_group is not None else 1
+                if cp <= 1:
+                    return self._transformer_forward_cfg_batch(task, generator, backend, guidance_scale, pipe)
+                set_cfg_type(backend, "pos")
+                pos_noise_pred = self._transformer_forward(
+                    task, generator, backend, "cond", task.buffer.text_embeddings
+                )
+                set_cfg_type(backend, "neg")
+                neg_noise_pred = self._transformer_forward(
+                    task, generator, backend, "uncond", task.buffer.negative_embeddings
+                )
             return self._apply_cfg(pos_noise_pred, neg_noise_pred, guidance_scale, pipe._cfg_normalization)
 
         set_cfg_type(backend, "pos")
@@ -564,10 +814,114 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             task.buffer.latents = original_latents
         return predictions, len(checkpoint_latents)
 
+    def _report_cp_profile(self, task, denoise_seconds: float) -> None:
+        proc = self._z_attn_processor
+        stats = proc.cp_stats()
+        group = get_cp_group()
+        cp = group.group_size if group is not None else 1
+        mode = stats.get("mode", "agkv")
+        qkv_s = stats["qkv_seconds"]
+        attn_s = stats["attn_seconds"]
+        kv_s = stats["kv_seconds"]
+        out_s = stats["out_seconds"]
+        a2a_s = stats["a2a_seconds"]
+        ring_s = stats["ring_seconds"]
+        compute_s = qkv_s + attn_s
+        comm_s = kv_s + out_s + a2a_s + ring_s
+
+        def _gbps(bytes_, secs):
+            return (bytes_ / secs / 1e9) if secs > 0 else 0.0
+
+        def _pct(secs):
+            return (secs / denoise_seconds * 100.0) if denoise_seconds > 0 else 0.0
+
+        width, height = task.buffer.image_size
+        rank = dist.get_rank() if (dist.is_available() and dist.is_initialized()) else 0
+        lines = [
+            "[Z-Image CP profile] rank=%d mode=%s cp_size=%d size=%dx%d steps=%d denoise=%.3fs"
+            % (rank, mode, cp, width, height, int(task.req.params.num_inference_steps), denoise_seconds),
+            "  compute total   : %.4fs (%.2f%%)  [qkv %.4fs + attn %.4fs]"
+            % (compute_s, _pct(compute_s), qkv_s, attn_s),
+            "  comm total      : %.4fs (%.2f%%)" % (comm_s, _pct(comm_s)),
+            "  QKV proj GEMM   : %.4fs over %d calls (%.2f%%)"
+            % (qkv_s, stats["qkv_calls"], _pct(qkv_s)),
+            "  attention compute: %.4fs over %d calls (%.2f%%)"
+            % (attn_s, stats["attn_calls"], _pct(attn_s)),
+        ]
+        if mode == "agkv" or kv_s > 0:
+            lines.append(
+                "  KV all-gather   : %.4fs over %d calls, %.2f GiB, %.1f GB/s (%.2f%%)"
+                % (kv_s, stats["kv_calls"], stats["kv_bytes"] / (1024 ** 3), _gbps(stats["kv_bytes"], kv_s), _pct(kv_s))
+            )
+        if mode == "ulysses" or a2a_s > 0:
+            lines.append(
+                "  Ulysses all2all : %.4fs over %d calls, %.2f GiB, %.1f GB/s (%.2f%%)"
+                % (a2a_s, stats["a2a_calls"], stats["a2a_bytes"] / (1024 ** 3), _gbps(stats["a2a_bytes"], a2a_s), _pct(a2a_s))
+            )
+        if mode == "ring" or ring_s > 0:
+            lines.append(
+                "  Ring P2P KV     : %.4fs over %d calls, %.2f GiB, %.1f GB/s (%.2f%%)"
+                % (ring_s, stats["ring_calls"], stats["ring_bytes"] / (1024 ** 3), _gbps(stats["ring_bytes"], ring_s), _pct(ring_s))
+            )
+        lines.append(
+            "  output gather   : %.4fs over %d calls, %.2f GiB, %.1f GB/s (%.2f%%)"
+            % (out_s, stats["out_calls"], stats["out_bytes"] / (1024 ** 3), _gbps(stats["out_bytes"], out_s), _pct(out_s))
+        )
+        logger.info("\n".join(lines))
+
+    def _report_stage_profile(self, task, denoise_seconds: float) -> None:
+        st = getattr(self, "_stage_times", None)
+        if not st:
+            return
+        group = get_cp_group()
+        cp = group.group_size if group is not None else 1
+        rank = dist.get_rank() if (dist.is_available() and dist.is_initialized()) else 0
+        nfwd = max(1, int(getattr(self, "_stage_nfwd", 1)))
+        total = sum(st.values())
+        # Replicated (not CP-sharded) vs sharded buckets.
+        replicated = ("embed", "context_refiner", "noise_refiner", "build_unified", "final")
+        sharded = ("main_layers", "out_gather")
+        rep_s = sum(st.get(k, 0.0) for k in replicated)
+        shd_s = sum(st.get(k, 0.0) for k in sharded)
+        order = ("embed", "noise_refiner", "context_refiner", "build_unified", "main_layers", "out_gather", "final")
+        lines = [
+            "[Z-Image STAGE profile] rank=%d cp_size=%d steps=%d fwd=%d denoise=%.3fs stage_total=%.3fs"
+            % (rank, cp, int(task.req.params.num_inference_steps), nfwd, denoise_seconds, total),
+        ]
+        for nm in order:
+            if nm in st:
+                s = st[nm]
+                tag = "SHARDED " if nm in sharded else "replicated"
+                lines.append(
+                    "  %-16s [%s]: %.4fs  (%.1f%%)  %.2f ms/fwd"
+                    % (nm, tag, s, (s / total * 100.0 if total else 0.0), s / nfwd * 1000.0)
+                )
+        lines.append(
+            "  --- replicated total: %.4fs (%.1f%%) | sharded total: %.4fs (%.1f%%)"
+            % (rep_s, (rep_s / total * 100.0 if total else 0.0), shd_s, (shd_s / total * 100.0 if total else 0.0))
+        )
+        logger.info("\n".join(lines))
+
     def denoise_step(self, task, generator, backend, run_dit_forward: Callable[..., torch.Tensor]) -> torch.Tensor:
         if not getattr(task.buffer, "_z_image_inside_denoise_loop", False):
             device = torch.device(torch.cuda.current_device())
             autocast_device = "cuda" if device.type == "cuda" else device.type
+            cp_profile = (
+                self._z_attn_processor is not None
+                and getattr(self._z_attn_processor, "_cp_profile", False)
+            )
+            stage_profile = os.environ.get("CHITU_Z_IMAGE_STAGE_PROFILE", "0") == "1"
+            if cp_profile or stage_profile:
+                if cp_profile:
+                    self._z_attn_processor.reset_cp_stats()
+                if stage_profile:
+                    self._stage_times = {}
+                    self._stage_nfwd = 0
+                    self._stage_open = None
+                torch.cuda.synchronize(device)
+                denoise_t0 = torch.cuda.Event(enable_timing=True)
+                denoise_t1 = torch.cuda.Event(enable_timing=True)
+                denoise_t0.record()
             with torch.amp.autocast(autocast_device, enabled=False):
                 task.buffer._z_image_inside_denoise_loop = True
                 final_latents = task.buffer.latents
@@ -579,7 +933,15 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
                         task.buffer.current_step += 1
                 finally:
                     task.buffer._z_image_inside_denoise_loop = False
-                return final_latents
+            if cp_profile or stage_profile:
+                denoise_t1.record()
+                denoise_t1.synchronize()
+                denoise_seconds = denoise_t0.elapsed_time(denoise_t1) / 1000.0
+                if cp_profile:
+                    self._report_cp_profile(task, denoise_seconds)
+                if stage_profile:
+                    self._report_stage_profile(task, denoise_seconds)
+            return final_latents
 
         device = torch.device(torch.cuda.current_device())
         self._move_task_tensors_to_device(task, device)
@@ -686,7 +1048,18 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         latents = (latents / pipe.vae.config.scaling_factor) + pipe.vae.config.shift_factor
 
         with device_scope(pipe.vae, backend):
-            decoded = pipe.vae.decode(latents, return_dict=False)[0]
+            def _decode(z: torch.Tensor) -> torch.Tensor:
+                return pipe.vae.decode(z, return_dict=False)[0]
+
+            # latents: [B, C, H_lat, W_lat] -> split on H_lat (dim 2);
+            # decoded pixels: [B, 3, H, W] -> H is dim 2; VAE upsamples by vae_scale_factor.
+            decoded = parallel_tiled_vae_decode(
+                latents,
+                _decode,
+                latent_split_dim=2,
+                pixel_split_dim=2,
+                scale=int(pipe.vae_scale_factor),
+            )
         self._debug_tensor("decoded_image_tensor", decoded)
         return decoded
 
