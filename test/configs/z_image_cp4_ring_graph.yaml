@@ -1,13 +1,13 @@
 launch:
-  tag: zimage-attn-flash
+  tag: zimage-cp4-wallclock
   backend: torchrun
   num_nodes: 1
-  gpus_per_node: 1
+  gpus_per_node: 4
   python_script: test/test_z_image.py
   srun:
     partition: debug
     cpus_per_gpu: 24
-    job_name: chitu-zimage-attn-flash
+    job_name: chitu-zimage-cp4-wallclock
 
 runtime:
   chitu_debug: true
@@ -30,11 +30,12 @@ eval:
   reference_path: null
 
 output:
-  root_dir: outputs/test-50step
+  root_dir: outputs/test-cp4-wallclock
   run_log: true
   memory: true
   timer: true
   log_ranks: [0]
 
 overrides:
-  - models.sampler.sample_steps=50
+  - models.sampler.sample_steps=10
+  - models.sampler.guidance_scale=[1.0]

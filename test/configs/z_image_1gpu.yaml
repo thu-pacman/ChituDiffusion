@@ -1,5 +1,5 @@
 launch:
-  tag: zimage-attn-flash
+  tag: zimage-1gpu
   backend: torchrun
   num_nodes: 1
   gpus_per_node: 1
@@ -7,7 +7,7 @@ launch:
   srun:
     partition: debug
     cpus_per_gpu: 24
-    job_name: chitu-zimage-attn-flash
+    job_name: chitu-zimage-1gpu
 
 runtime:
   chitu_debug: true
@@ -30,11 +30,12 @@ eval:
   reference_path: null
 
 output:
-  root_dir: outputs/test-50step
+  root_dir: outputs/test-1gpu
   run_log: true
   memory: true
   timer: true
   log_ranks: [0]
 
 overrides:
-  - models.sampler.sample_steps=50
+  - models.sampler.sample_steps=10
+  - models.sampler.guidance_scale=[1.0]
