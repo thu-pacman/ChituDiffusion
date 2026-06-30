@@ -1,3 +1,4 @@
+import gc
 import json
 import logging
 import os
@@ -39,7 +40,7 @@ def build_request(args: ServeConfig) -> DiffusionUserRequest:
     request_id = os.getenv("CHITU_RUN_TASK_ID") or f"{gen_req_id()}"
     width, height = [
         int(item.strip())
-        for item in os.getenv("CHITU_Z_IMAGE_SIZE", "512,512").lower().replace("x", ",").split(",", 1)
+        for item in os.getenv("CHITU_Z_IMAGE_SIZE", "1024,1024").lower().replace("x", ",").split(",", 1)
     ]
     steps = int(os.getenv("CHITU_Z_IMAGE_STEPS", str(args.models.sampler.sample_steps)))
     return DiffusionUserRequest(
@@ -53,7 +54,12 @@ def build_request(args: ServeConfig) -> DiffusionUserRequest:
             seed=int(os.getenv("CHITU_Z_IMAGE_SEED", "42")),
             frame_num=1,
             size=(width, height),
-            negative_prompt=os.getenv("CHITU_Z_IMAGE_NEGATIVE_PROMPT", ""),
+            negative_prompt=os.getenv(
+                "CHITU_Z_IMAGE_NEGATIVE_PROMPT",
+                "deformed, distorted, malformed, mutated, disfigured, "
+                "gibberish text, garbled text, blurry, low quality, "
+                "extra objects, duplicated objects, watermark, jpeg artifacts",
+            ),
             num_inference_steps=steps,
             sample_solver="flowmatch_euler",
             flexcache_params=_flexcache_params(),
@@ -106,12 +112,38 @@ def main(args: ServeConfig):
             for req in reqs:
                 DiffusionTaskPool.add(DiffusionTask(task_id=req.request_id, req=req))
 
+        # Optional torch.profiler GPU-timeline trace on rank 0. Unlike the CUDA-
+        # event CP profiler (which serializes every op), this captures the real
+        # overlapped timeline (flash-attn kernels vs ncclSendRecv / Memcpy), so
+        # the chrome trace shows the true compute/comm overlap. Enable with
+        # CHITU_TORCH_TRACE=/abs/path/trace.json (use eager ring, not ring_graph,
+        # and leave CHITU_Z_IMAGE_CP_PROFILE unset).
+        trace_path = os.environ.get("CHITU_TORCH_TRACE", "").strip()
+        torch_prof = None
+        if trace_path and rank == 0:
+            torch_prof = torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA,
+                ],
+                record_shapes=False,
+                with_stack=False,
+                profile_memory=False,
+            )
+            torch_prof.__enter__()
+
         start = time.time()
         with Timer.get_timer("overall"):
             while not chitu_is_terminated():
                 chitu_generate()
                 if rank == 0 and DiffusionTaskPool.all_finished():
                     break
+
+        if torch_prof is not None:
+            torch_prof.__exit__(None, None, None)
+            os.makedirs(os.path.dirname(os.path.abspath(trace_path)), exist_ok=True)
+            torch_prof.export_chrome_trace(trace_path)
+            logger.info("Saved torch profiler chrome trace to %s", trace_path)
 
         elapsed_s = time.time() - start
         if rank == 0:
@@ -127,6 +159,34 @@ def main(args: ServeConfig):
         if early_log_handler is not None:
             run_context.close_run_log_handler(early_log_handler)
         if torch.distributed.is_available() and torch.distributed.is_initialized():
+            # If the attention processor captured a CUDA Graph that contains NCCL
+            # P2P ops (ring_graph mode), the graph pins NCCL internal resources
+            # and destroy_process_group() will hang. Explicitly delete every graph
+            # object and its static buffers on ALL ranks, then synchronize so
+            # NCCL can tear down cleanly.
+            try:
+                from chitu_diffusion.runtime.main import DiffusionBackend
+
+                adapter = getattr(DiffusionBackend, "model_adapter", None)
+                proc = getattr(adapter, "_z_attn_processor", None)
+                # The ring CUDA-Graph cache now lives on the model-agnostic CP
+                # core (proc._cp), keyed entries hold the captured graph plus its
+                # static txt_*/img_* input/output buffers.
+                cp_core = getattr(proc, "_cp", None)
+                cache = getattr(cp_core, "_ring_graph_cache", None)
+                if cache:
+                    for entry in cache.values():
+                        for key in list(entry.keys()):
+                            del entry[key]
+                    cache.clear()
+            except Exception:
+                pass
+            # All ranks must reach this point so the graph deletion (which
+            # triggers cudaGraphDestroy) happens before process group teardown.
+            torch.distributed.barrier()
+            torch.cuda.synchronize()
+            gc.collect()
+            torch.cuda.empty_cache()
             torch.distributed.destroy_process_group()
 
 
