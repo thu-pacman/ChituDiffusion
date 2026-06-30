@@ -1,5 +1,6 @@
 launch:
   tag: wan-flexcache
+  backend: torchrun
   num_nodes: 1
   gpus_per_node: 4
   python_script: test/test_flexcache.py
@@ -23,7 +24,7 @@ parallel:
   cfp: 2
 
 infer:
-  attn_type: flash_attn
+  attn_type: torch_sdpa
   low_mem_level: 0
   enable_flexcache: true
   up_limit: 1

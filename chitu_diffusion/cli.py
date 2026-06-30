@@ -140,6 +140,7 @@ def run_command(args: argparse.Namespace) -> int:
 
     cfg = _read_yaml(config_path)
     run_tag = str(_get(cfg, "launch.tag", "") or "").strip()
+    launch_backend = str(_get(cfg, "launch.backend", "srun")).strip().lower()
     num_nodes = int(args.num_nodes if args.num_nodes is not None else _get(cfg, "launch.num_nodes", 1))
     gpus_per_node = int(
         args.gpus_per_node if args.gpus_per_node is not None else _get(cfg, "launch.gpus_per_node", 1)
@@ -242,8 +243,16 @@ def run_command(args: argparse.Namespace) -> int:
         f"output.timer={output_timer}",
         f"output.log_ranks={log_rank_override}",
     ]
+    if launch_backend in {"srun", "slurm"}:
+        launcher_script = PROJECT_ROOT / "script" / "srun_direct.sh"
+    elif launch_backend in {"torchrun", "local"}:
+        launcher_script = PROJECT_ROOT / "script" / "torchrun_direct.sh"
+    else:
+        print(f"Error: launch.backend must be one of srun/slurm/torchrun/local, got: {launch_backend}", file=sys.stderr)
+        return 1
+
     cmd = [
-        str(PROJECT_ROOT / "script" / "srun_direct.sh"),
+        str(launcher_script),
         str(num_nodes),
         str(gpus_per_node),
         python_script,
@@ -270,6 +279,7 @@ def run_command(args: argparse.Namespace) -> int:
             f"num_nodes: {num_nodes}",
             f"gpus_per_node: {gpus_per_node}",
             f"total_gpus: {total_gpus}",
+            f"launch_backend: {launch_backend}",
             f"cfp(cfg-parallel): {cfp}",
             f"cp(context-parallel): {cp_size}",
             f"model: {model_name}",
