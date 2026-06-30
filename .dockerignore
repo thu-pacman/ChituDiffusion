@@ -1,0 +1,59 @@
+.git
+.github
+.codex
+.venv
+__pycache__
+*.py[cod]
+*.so
+*.o
+
+# Python/build artifacts
+build
+dist
+*.egg-info
+.cache
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+
+# Runtime outputs and logs
+outputs
+output
+dumps
+log
+logs
+*.log
+*.csv
+*.mp4
+experiments
+vbench_out
+service_framework/runs
+
+# ChituBench generated artifacts
+ChituBench/results/**/chitubench-*
+ChituBench/results/**/visuals
+ChituBench/results/**/plots
+ChituBench/results/**/configs
+ChituBench/results/hpsv3_assets
+ChituBench/results/cudagraph_showcase
+
+# Local references, caches, and model/checkpoint payloads
+refs
+downloads
+wheels
+models
+checkpoints
+ckpts
+quant_cache
+key_exps
+third_party/Cubic
+third_party/sage_attn
+third_party/sparge_attn
+third_party/vbench
+
+# Editor/OS files
+.DS_Store
+.idea
+.vscode
+.*.swp
