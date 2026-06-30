@@ -311,9 +311,10 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 cap_pad_mask,
             ) = transformer.patchify_and_embed(x, cap_feats, patch_size, f_patch_size)
 
-            # Image embed (replicated; cheap). The image is sharded only across
-            # the main layers (see below); the noise_refiner and final_layer run
-            # replicated on the full image.
+            # Image embed (replicated; cheap). Image tokens are sharded right
+            # after at the noise_refiner and stay sharded all the way through the
+            # main layers and final_layer, so the image sequence is never
+            # re-gathered mid-forward (see the end-to-end sharding below).
             x_seqlens = [len(xi) for xi in x_tok]
             x_emb = transformer.all_x_embedder[f"{patch_size}-{f_patch_size}"](torch.cat(x_tok, dim=0))
             x_seq, x_freqs, x_mask, _, x_noise_tensor = transformer._prepare_sequence(
@@ -332,10 +333,13 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             for layer in transformer.context_refiner:
                 cap_seq = layer(cap_seq, cap_mask, cap_freqs)
 
-            # Main-layer sequence sharding: build the full unified [image, text],
-            # shard the image portion across ranks for the 30 main layers, then
-            # gather it back (at the full hidden dim) right after the main layers.
-            # Disable with CHITU_Z_IMAGE_CP_SHARDED=0.
+            # End-to-end sequence-sharded image path: split the image tokens once,
+            # keep them sharded through noise_refiner -> unified build -> main
+            # layers -> final_layer, and gather only ONCE after final_layer, where
+            # each token is just pF*pH*pW*out_channels wide (~60x smaller than the
+            # hidden dim) -> that gather is almost free. The 2 noise_refiner layers
+            # and the final_layer (previously replicated on the full sequence) now
+            # run on the local shard too. Disable with CHITU_Z_IMAGE_CP_SHARDED=0.
             img_len = int(x_seqlens[0])
             do_cp = (
                 cp > 1
@@ -358,11 +362,20 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 )
 
             _mark("noise_refiner")
+            if do_cp:
+                chunk = img_len // cp
+                r = group.rank_in_group
+                lo, hi = r * chunk, (r + 1) * chunk
+                x_seq = x_seq[:, lo:hi].contiguous()
+                x_freqs = x_freqs[:, lo:hi].contiguous()
+                x_seqlens = [chunk]
+                adapter._z_attn_processor.enable_cp(group, chunk)
             for layer in transformer.noise_refiner:
                 x_seq = layer(x_seq, x_mask, x_freqs, adaln_input, x_noise_tensor, None, None)
 
             _mark("build_unified")
-            # Full image + full text -> full [image, text] sequence.
+            # With a sharded image + full text, build_unified yields exactly
+            # [local_image_shard, text] -> the main layers consume it directly.
             unified, unified_freqs, unified_mask, unified_noise_tensor = transformer._build_unified_sequence(
                 x_seq,
                 x_freqs,
@@ -380,18 +393,6 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 device,
             )
 
-            # Shard the image portion of the full sequence; the main layers run on
-            # [local_image_shard, text].
-            if do_cp:
-                chunk = img_len // cp
-                r = group.rank_in_group
-                lo, hi = r * chunk, (r + 1) * chunk
-                unified = torch.cat([unified[:, lo:hi], unified[:, img_len:]], dim=1).contiguous()
-                unified_freqs = torch.cat(
-                    [unified_freqs[:, lo:hi], unified_freqs[:, img_len:]], dim=1
-                ).contiguous()
-                adapter._z_attn_processor.enable_cp(group, chunk)
-
             _mark("main_layers")
             try:
                 for layer in transformer.layers:
@@ -402,18 +403,18 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 if do_cp:
                     adapter._z_attn_processor.disable_cp()
 
+            _mark("final")
+            # final_layer is per-token, so it runs on the local shard. Project to
+            # the small patch-output dim first, then gather the (now tiny) image
+            # tokens once and unpatchify the full image.
+            unified = transformer.all_final_layer[f"{patch_size}-{f_patch_size}"](unified, c=adaln_input)
             _mark("out_gather")
-            # Gather the image back to full length at the full hidden dim, so the
-            # final_layer can run replicated on the full sequence.
             if do_cp:
                 chunk = img_len // cp
-                full_img_h = adapter._z_attn_processor._cp_all_gather_seq(
-                    unified[:, :chunk].contiguous(), group, kind="out"
-                )
-                unified = torch.cat([full_img_h, unified[:, chunk:]], dim=1)
-            _mark("final")
-            unified = transformer.all_final_layer[f"{patch_size}-{f_patch_size}"](unified, c=adaln_input)
-            full_img_out = unified[:, :img_len]
+                local_img_out = unified[:, :chunk].contiguous()
+                full_img_out = adapter._z_attn_processor._cp_all_gather_seq(local_img_out, group, kind="out")
+            else:
+                full_img_out = unified[:, :img_len]
             out = transformer.unpatchify(list(full_img_out.unbind(dim=0)), x_size, patch_size, f_patch_size, None)
             _mark(None)
 
@@ -879,8 +880,8 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         nfwd = max(1, int(getattr(self, "_stage_nfwd", 1)))
         total = sum(st.values())
         # Replicated (not CP-sharded) vs sharded buckets.
-        replicated = ("embed", "context_refiner", "noise_refiner", "build_unified", "final")
-        sharded = ("main_layers", "out_gather")
+        replicated = ("embed", "context_refiner")
+        sharded = ("noise_refiner", "build_unified", "main_layers", "final", "out_gather")
         rep_s = sum(st.get(k, 0.0) for k in replicated)
         shd_s = sum(st.get(k, 0.0) for k in sharded)
         order = ("embed", "noise_refiner", "context_refiner", "build_unified", "main_layers", "out_gather", "final")
