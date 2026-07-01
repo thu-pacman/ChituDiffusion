@@ -11,7 +11,7 @@ import torch
 import torch.distributed as dist
 
 from chitu_diffusion.core.logging_utils import log_result
-from chitu_diffusion.flexcache.step_level_core import is_step_level_cache_strategy
+from chitu_diffusion.flexcache.freecache_core import is_step_level_cache_strategy
 from chitu_diffusion.core.distributed.parallel_state import get_cp_group
 from chitu_diffusion.models.parallel import ModelParallelCapabilities
 from chitu_diffusion.parallel.vae import parallel_tiled_vae_decode
