@@ -127,6 +127,7 @@ class ImageContextParallelAttention:
 
         self._group = None
         self._enabled = False
+        self._comm_stream = None
 
         self._mode_warned = False
         self._ring_graph_cache: dict = {}
@@ -226,6 +227,34 @@ class ImageContextParallelAttention:
     @property
     def group(self):
         return self._group
+
+    def _get_comm_stream(self):
+        if self._comm_stream is None:
+            self._comm_stream = torch.cuda.Stream()
+        return self._comm_stream
+
+    @property
+    def supports_fused_overlap(self) -> bool:
+        """Whether the experimental async QKV/comm overlap path is allowed.
+
+        Profiling, fp8 communication and KV-cache intentionally stay on the
+        serial path: those modes either synchronize for measurement or change
+        the communication payload/schedule.
+        """
+        return (
+            self.enabled
+            and torch.cuda.is_available()
+            and not self.profile
+            and self.mode in ("agkv", "ulysses")
+            and not self._fp8_kv
+            and not self._kvcache_enabled
+        )
+
+    def _attention_from_packed(self, q, k, v, img_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.attention(
+            q[:, img_len:], k[:, img_len:], v[:, img_len:],
+            q[:, :img_len], k[:, :img_len], v[:, :img_len],
+        )
 
     # ------------------------------------------------------------------ #
     # Profiling
@@ -424,6 +453,7 @@ class ImageContextParallelAttention:
     # ------------------------------------------------------------------ #
     # Public attention entry point
     # ------------------------------------------------------------------ #
+    @torch.compiler.disable
     def attention(
         self,
         txt_q: torch.Tensor,
@@ -474,6 +504,133 @@ class ImageContextParallelAttention:
             return self._attn_ring(txt_q, txt_k, txt_v, img_q, img_k, img_v)
         return self._attn_agkv(txt_q, txt_k, txt_v, img_q, img_k, img_v)
 
+    @torch.compiler.disable
+    def attention_fused(
+        self,
+        *,
+        produce_img_q,
+        produce_img_k,
+        produce_img_v,
+        produce_txt_q,
+        produce_txt_k,
+        produce_txt_v,
+        num_heads: Optional[int] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Projection-aware CP attention fast path.
+
+        The model processor owns projection/norm/RoPE details and provides
+        producer callables returning ``[B, S, H, D]`` tensors. This core owns the
+        stream/event schedule that overlaps image communication with later
+        producers. Unsupported modes/features fall back to the exact serial
+        ``attention()`` path by materializing all producers first.
+        """
+
+        def serial():
+            img_q = produce_img_q()
+            img_k = produce_img_k()
+            img_v = produce_img_v()
+            txt_q = produce_txt_q()
+            txt_k = produce_txt_k()
+            txt_v = produce_txt_v()
+            return self.attention(txt_q, txt_k, txt_v, img_q, img_k, img_v)
+
+        if not self.supports_fused_overlap:
+            return serial()
+
+        if self.mode == "agkv":
+            return self._attn_agkv_fused(
+                produce_img_q=produce_img_q,
+                produce_img_k=produce_img_k,
+                produce_img_v=produce_img_v,
+                produce_txt_q=produce_txt_q,
+                produce_txt_k=produce_txt_k,
+                produce_txt_v=produce_txt_v,
+            )
+
+        if num_heads is not None and num_heads % self._group.group_size != 0:
+            if not self._mode_warned:
+                logger.warning(
+                    "Ulysses CP needs heads (%d) divisible by cp_size (%d); falling back to serial fused path.",
+                    num_heads,
+                    self._group.group_size,
+                )
+                self._mode_warned = True
+            return serial()
+
+        return self._attn_ulysses_fused(
+            produce_img_q=produce_img_q,
+            produce_img_k=produce_img_k,
+            produce_img_v=produce_img_v,
+            produce_txt_q=produce_txt_q,
+            produce_txt_k=produce_txt_k,
+            produce_txt_v=produce_txt_v,
+        )
+
+    @torch.compiler.disable
+    def cp_attn_with_full_txt_fused(
+        self,
+        *,
+        produce_txt_q,
+        produce_txt_k,
+        produce_txt_v,
+        produce_img_q,
+        produce_img_k,
+        produce_img_v,
+        num_heads: Optional[int] = None,
+        **_: object,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Alias matching ``DiffusionAttention_with_CP``'s full-text fused API."""
+        return self.attention_fused(
+            produce_img_q=produce_img_q,
+            produce_img_k=produce_img_k,
+            produce_img_v=produce_img_v,
+            produce_txt_q=produce_txt_q,
+            produce_txt_k=produce_txt_k,
+            produce_txt_v=produce_txt_v,
+            num_heads=num_heads,
+        )
+
+    @torch.compiler.disable
+    def attention_fused_packed(
+        self,
+        *,
+        img_len: int,
+        produce_q,
+        produce_k,
+        produce_v,
+        num_heads: Optional[int] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Projection-aware fast path for packed ``[image_shard, text]`` producers.
+
+        ``produce_q/k/v`` each run once and return packed ``[B, S_img+S_txt, H, D]``.
+        This is the right API for single-stream models such as Z-Image, where
+        projecting image/text separately would duplicate GEMM work.
+        """
+
+        if not self.supports_fused_overlap:
+            q = produce_q()
+            k = produce_k()
+            v = produce_v()
+            return self._attention_from_packed(q, k, v, img_len)
+
+        if self.mode == "agkv":
+            return self._attn_agkv_packed_fused(img_len, produce_q, produce_k, produce_v)
+
+        if num_heads is not None and num_heads % self._group.group_size != 0:
+            if not self._mode_warned:
+                logger.warning(
+                    "Ulysses CP needs heads (%d) divisible by cp_size (%d); falling back to serial fused path.",
+                    num_heads,
+                    self._group.group_size,
+                )
+                self._mode_warned = True
+            q = produce_q()
+            k = produce_k()
+            v = produce_v()
+            return self._attention_from_packed(q, k, v, img_len)
+
+        return self._attn_ulysses_packed_fused(img_len, produce_q, produce_k, produce_v)
+
     # ------------------------------------------------------------------ #
     # Strategies
     # ------------------------------------------------------------------ #
@@ -493,6 +650,91 @@ class ImageContextParallelAttention:
         k = torch.cat([full_img_key, txt_k], dim=1).contiguous()
         v = torch.cat([full_img_value, txt_v], dim=1).contiguous()
         out = self.time(lambda: self.attn_backend(q, k, v, causal=False)[0], "attn")
+        return out[:, local_img_len:], out[:, :local_img_len]
+
+    def _attn_agkv_fused(
+        self,
+        *,
+        produce_img_q,
+        produce_img_k,
+        produce_img_v,
+        produce_txt_q,
+        produce_txt_k,
+        produce_txt_v,
+    ):
+        grp = self._group
+        cur = torch.cuda.current_stream()
+        cs = self._get_comm_stream()
+
+        img_k = produce_img_k()
+        cs.wait_stream(cur)
+        img_k.record_stream(cs)
+        with torch.cuda.stream(cs):
+            full_img_key = self.all_gather_seq(img_k, grp, kind="kv")
+        ev_k = torch.cuda.Event()
+        ev_k.record(cs)
+
+        img_v = produce_img_v()
+        cs.wait_stream(cur)
+        img_v.record_stream(cs)
+        with torch.cuda.stream(cs):
+            full_img_value = self.all_gather_seq(img_v, grp, kind="kv")
+        ev_v = torch.cuda.Event()
+        ev_v.record(cs)
+
+        img_q = produce_img_q()
+        txt_q = produce_txt_q()
+        txt_k = produce_txt_k()
+        txt_v = produce_txt_v()
+        local_img_len = img_q.shape[1]
+
+        cur.wait_event(ev_k)
+        cur.wait_event(ev_v)
+        full_img_key.record_stream(cur)
+        full_img_value.record_stream(cur)
+
+        q = torch.cat([img_q, txt_q], dim=1).contiguous()
+        k = torch.cat([full_img_key, txt_k], dim=1).contiguous()
+        v = torch.cat([full_img_value, txt_v], dim=1).contiguous()
+        out = self.time(lambda: self.attn_backend(q, k, v, causal=False)[0], "attn")
+        return out[:, local_img_len:], out[:, :local_img_len]
+
+    def _attn_agkv_packed_fused(self, img_len, produce_q, produce_k, produce_v):
+        grp = self._group
+        cur = torch.cuda.current_stream()
+        cs = self._get_comm_stream()
+
+        k = produce_k()
+        img_k, txt_k = k[:, :img_len], k[:, img_len:]
+        cs.wait_stream(cur)
+        img_k.record_stream(cs)
+        with torch.cuda.stream(cs):
+            full_img_key = self.all_gather_seq(img_k, grp, kind="kv")
+        ev_k = torch.cuda.Event()
+        ev_k.record(cs)
+
+        v = produce_v()
+        img_v, txt_v = v[:, :img_len], v[:, img_len:]
+        cs.wait_stream(cur)
+        img_v.record_stream(cs)
+        with torch.cuda.stream(cs):
+            full_img_value = self.all_gather_seq(img_v, grp, kind="kv")
+        ev_v = torch.cuda.Event()
+        ev_v.record(cs)
+
+        q = produce_q()
+        img_q, txt_q = q[:, :img_len], q[:, img_len:]
+        local_img_len = img_q.shape[1]
+
+        cur.wait_event(ev_k)
+        cur.wait_event(ev_v)
+        full_img_key.record_stream(cur)
+        full_img_value.record_stream(cur)
+
+        qq = torch.cat([img_q, txt_q], dim=1).contiguous()
+        kk = torch.cat([full_img_key, txt_k], dim=1).contiguous()
+        vv = torch.cat([full_img_value, txt_v], dim=1).contiguous()
+        out = self.time(lambda: self.attn_backend(qq, kk, vv, causal=False)[0], "attn")
         return out[:, local_img_len:], out[:, :local_img_len]
 
     def _attn_ulysses(self, txt_q, txt_k, txt_v, img_q, img_k, img_v):
@@ -523,6 +765,118 @@ class ImageContextParallelAttention:
         # Image: [B, full_img, H/cp, D] -> [B, chunk, H, D] (own chunk, full heads).
         img_out = self._all_to_all(img_out, scatter_dim=1, gather_dim=2)
         # Text: gather head slices across the CP group to rebuild all heads.
+        txt_out = self._all_gather_heads(txt_out)
+        return txt_out.contiguous(), img_out.contiguous()
+
+    def _attn_ulysses_fused(
+        self,
+        *,
+        produce_img_q,
+        produce_img_k,
+        produce_img_v,
+        produce_txt_q,
+        produce_txt_k,
+        produce_txt_v,
+    ):
+        grp = self._group
+        cp = grp.group_size
+        r = grp.rank_in_group
+        cur = torch.cuda.current_stream()
+        cs = self._get_comm_stream()
+
+        def a2a_on_comm(t):
+            if t.shape[2] % cp != 0:
+                raise ValueError(f"Ulysses CP needs heads ({t.shape[2]}) divisible by cp_size ({cp})")
+            cs.wait_stream(cur)
+            t.record_stream(cs)
+            with torch.cuda.stream(cs):
+                out = grp.all_to_all(t, scatter_dim=2, gather_dim=1)
+            ev = torch.cuda.Event()
+            ev.record(cs)
+            return out, ev
+
+        img_k = produce_img_k()
+        a2a_k, ev_k = a2a_on_comm(img_k)
+
+        img_v = produce_img_v()
+        a2a_v, ev_v = a2a_on_comm(img_v)
+
+        img_q = produce_img_q()
+        a2a_q, ev_q = a2a_on_comm(img_q)
+
+        txt_q = produce_txt_q()
+        txt_k = produce_txt_k()
+        txt_v = produce_txt_v()
+
+        for ev in (ev_k, ev_v, ev_q):
+            cur.wait_event(ev)
+        for t in (a2a_k, a2a_v, a2a_q):
+            t.record_stream(cur)
+
+        txt_q = torch.tensor_split(txt_q, cp, dim=2)[r].contiguous()
+        txt_k = torch.tensor_split(txt_k, cp, dim=2)[r].contiguous()
+        txt_v = torch.tensor_split(txt_v, cp, dim=2)[r].contiguous()
+
+        full_img_len = a2a_q.shape[1]
+        q = torch.cat([a2a_q, txt_q], dim=1)
+        k = torch.cat([a2a_k, txt_k], dim=1)
+        v = torch.cat([a2a_v, txt_v], dim=1)
+        out = self.time(lambda: self.attn_backend(q, k, v, causal=False)[0], "attn")
+
+        img_out = out[:, :full_img_len]
+        txt_out = out[:, full_img_len:]
+        img_out = self._all_to_all(img_out, scatter_dim=1, gather_dim=2)
+        txt_out = self._all_gather_heads(txt_out)
+        return txt_out.contiguous(), img_out.contiguous()
+
+    def _attn_ulysses_packed_fused(self, img_len, produce_q, produce_k, produce_v):
+        grp = self._group
+        cp = grp.group_size
+        r = grp.rank_in_group
+        cur = torch.cuda.current_stream()
+        cs = self._get_comm_stream()
+
+        def a2a_on_comm(t):
+            if t.shape[2] % cp != 0:
+                raise ValueError(f"Ulysses CP needs heads ({t.shape[2]}) divisible by cp_size ({cp})")
+            cs.wait_stream(cur)
+            t.record_stream(cs)
+            with torch.cuda.stream(cs):
+                out = grp.all_to_all(t, scatter_dim=2, gather_dim=1)
+            ev = torch.cuda.Event()
+            ev.record(cs)
+            return out, ev
+
+        k = produce_k()
+        img_k, txt_k = k[:, :img_len], k[:, img_len:]
+        a2a_k, ev_k = a2a_on_comm(img_k)
+
+        v = produce_v()
+        img_v, txt_v = v[:, :img_len], v[:, img_len:]
+        a2a_v, ev_v = a2a_on_comm(img_v)
+
+        q = produce_q()
+        img_q, txt_q = q[:, :img_len], q[:, img_len:]
+        a2a_q, ev_q = a2a_on_comm(img_q)
+
+        for ev in (ev_k, ev_v, ev_q):
+            cur.wait_event(ev)
+        for t in (a2a_k, a2a_v, a2a_q):
+            t.record_stream(cur)
+
+        txt_q = torch.tensor_split(txt_q, cp, dim=2)[r].contiguous()
+        txt_k = torch.tensor_split(txt_k, cp, dim=2)[r].contiguous()
+        txt_v = torch.tensor_split(txt_v, cp, dim=2)[r].contiguous()
+
+        full_img_len = a2a_q.shape[1]
+        qq = torch.cat([a2a_q, txt_q], dim=1)
+        kk = torch.cat([a2a_k, txt_k], dim=1)
+        vv = torch.cat([a2a_v, txt_v], dim=1)
+        out = self.time(lambda: self.attn_backend(qq, kk, vv, causal=False)[0], "attn")
+
+        img_out = out[:, :full_img_len]
+        txt_out = out[:, full_img_len:]
+        img_out = self._all_to_all(img_out, scatter_dim=1, gather_dim=2)
         txt_out = self._all_gather_heads(txt_out)
         return txt_out.contiguous(), img_out.contiguous()
 

@@ -134,50 +134,93 @@ class ZImageChituAttnProcessor:
         attention_mask: Optional[torch.Tensor] = None,
         freqs_cis: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        def _qkv_proj():
-            return attn.to_q(hidden_states), attn.to_k(hidden_states), attn.to_v(hidden_states)
+        def _shape_q(x):
+            x = x.unflatten(-1, (attn.heads, -1))
+            if attn.norm_q is not None:
+                x = attn.norm_q(x)
+            if freqs_cis is not None:
+                x = self._apply_rotary_emb(x, freqs_cis)
+            return x
 
-        query, key, value = self._cp.time(_qkv_proj, "qkv")
+        def _shape_k(x):
+            x = x.unflatten(-1, (attn.heads, -1))
+            if attn.norm_k is not None:
+                x = attn.norm_k(x)
+            if freqs_cis is not None:
+                x = self._apply_rotary_emb(x, freqs_cis)
+            return x
 
-        query = query.unflatten(-1, (attn.heads, -1))
-        key = key.unflatten(-1, (attn.heads, -1))
-        value = value.unflatten(-1, (attn.heads, -1))
+        def _shape_v(x):
+            return x.unflatten(-1, (attn.heads, -1))
 
-        if attn.norm_q is not None:
-            query = attn.norm_q(query)
-        if attn.norm_k is not None:
-            key = attn.norm_k(key)
+        overlap_qkv = (
+            self._cp.supports_fused_overlap
+            and hidden_states.is_cuda
+            and self._mask_allows_fast_path(attention_mask)
+            and os.environ.get("CHITU_CP_OVERLAP_QKV", "0") == "1"
+        )
+        output_dtype = hidden_states.dtype
 
-        if freqs_cis is not None:
-            query = self._apply_rotary_emb(query, freqs_cis)
-            key = self._apply_rotary_emb(key, freqs_cis)
-
-        dtype = query.dtype
-        query = query.to(value.dtype).contiguous()
-        key = key.to(value.dtype).contiguous()
-        value = value.contiguous()
-
-        if self._cp.enabled and self._mask_allows_fast_path(attention_mask):
-            # Local Q/K/V are packed [image_chunk, replicated_text]; RoPE is
-            # already applied per local position. Split into the image shard and
-            # the replicated text, run the model-agnostic CP attention, then
-            # reassemble the [image_chunk, text] layout the wrapper expects.
+        if overlap_qkv:
             img_len = self._cp_image_len
-            txt_out, img_out = self._cp.attention(
-                query[:, img_len:], key[:, img_len:], value[:, img_len:],
-                query[:, :img_len], key[:, :img_len], value[:, :img_len],
+            target_dtype = hidden_states.dtype
+
+            def produce_q():
+                nonlocal output_dtype
+                q = _shape_q(attn.to_q(hidden_states))
+                output_dtype = q.dtype
+                return q.to(target_dtype).contiguous()
+
+            def produce_k():
+                return _shape_k(attn.to_k(hidden_states)).to(target_dtype).contiguous()
+
+            def produce_v():
+                return _shape_v(attn.to_v(hidden_states)).contiguous()
+
+            txt_out, img_out = self._cp.attention_fused_packed(
+                img_len=img_len,
+                produce_q=produce_q,
+                produce_k=produce_k,
+                produce_v=produce_v,
+                num_heads=attn.heads,
             )
             hidden_states = torch.cat([img_out, txt_out], dim=1).contiguous()
-        elif self._mask_allows_fast_path(attention_mask):
-            hidden_states = self._cp.time(
-                lambda: self.attn_backend(query, key, value, causal=False)[0], "attn"
-            )
         else:
-            hidden_states = self._cp.time(
-                lambda: self._sdpa_with_mask(query, key, value, attention_mask), "attn"
-            )
+            def _qkv_proj():
+                return attn.to_q(hidden_states), attn.to_k(hidden_states), attn.to_v(hidden_states)
 
-        hidden_states = hidden_states.flatten(2, 3).to(dtype)
+            query, key, value = self._cp.time(_qkv_proj, "qkv")
+
+            query = _shape_q(query)
+            key = _shape_k(key)
+            value = _shape_v(value)
+
+            output_dtype = query.dtype
+            query = query.to(value.dtype).contiguous()
+            key = key.to(value.dtype).contiguous()
+            value = value.contiguous()
+
+            if self._cp.enabled and self._mask_allows_fast_path(attention_mask):
+                # Local Q/K/V are packed [image_chunk, replicated_text]; RoPE is
+                # already applied per local position. Split into the image shard and
+                # the replicated text, run the model-agnostic CP attention, then
+                # reassemble the [image_chunk, text] layout the wrapper expects.
+                img_len = self._cp_image_len
+                txt_out, img_out = self._cp.attention(
+                    query[:, img_len:], key[:, img_len:], value[:, img_len:],
+                    query[:, :img_len], key[:, :img_len], value[:, :img_len],
+                )
+                hidden_states = torch.cat([img_out, txt_out], dim=1).contiguous()
+            elif self._mask_allows_fast_path(attention_mask):
+                hidden_states = self._cp.time(
+                    lambda: self.attn_backend(query, key, value, causal=False)[0], "attn"
+                )
+            else:
+                hidden_states = self._cp.time(
+                    lambda: self._sdpa_with_mask(query, key, value, attention_mask), "attn"
+                )
+
+        hidden_states = hidden_states.flatten(2, 3).to(output_dtype)
         output = attn.to_out[0](hidden_states)
         if len(attn.to_out) > 1:
             output = attn.to_out[1](output)

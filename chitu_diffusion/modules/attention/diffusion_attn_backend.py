@@ -479,6 +479,28 @@ class DiffusionAttention_with_CP:
     def uses_agcp(self) -> bool:
         return self.cp_backend == "agcp"
 
+    def supports_fused_overlap(
+        self,
+        *,
+        use_varlen: bool = False,
+        return_attn_probs: bool = False,
+        num_heads: Optional[int] = None,
+    ) -> bool:
+        """Whether the experimental async projection/collective overlap path can run."""
+        ulysses_size = self.cp_size if self.cp_size <= self.ulysses_limit else self.ulysses_limit
+        ring_steps = self.cp_size // ulysses_size
+        return (
+            self.cp_size > 1
+            and self.cp_size % ulysses_size == 0
+            and not self.uses_agcp()
+            and not use_varlen
+            and ring_steps == 1
+            and ulysses_size > 1
+            and not return_attn_probs
+            and torch.cuda.is_available()
+            and (num_heads is None or num_heads % ulysses_size == 0)
+        )
+
     
     def async_ring_p2p_commit(self, tensors: Tuple[torch.Tensor, ...], src_rank: int, dst_rank: int):
         """Set up ring communication for sending and receiving tensors asynchronously.
@@ -613,6 +635,107 @@ class DiffusionAttention_with_CP:
 
         return out, None, None
 
+    @torch.compiler.disable
+    def attention_fused(
+        self,
+        *,
+        produce_q,
+        produce_k,
+        produce_v,
+        cu_seqlens_q: Optional[torch.Tensor] = None,
+        cu_seqlens_k: Optional[torch.Tensor] = None,
+        max_seqlen_q: Optional[int] = None,
+        max_seqlen_k: Optional[int] = None,
+        dropout_p: float = 0,
+        softmax_scale: Optional[float] = None,
+        causal: bool = False,
+        window_size: Tuple[int, int] = (-1, -1),
+        deterministic: bool = False,
+        return_attn_probs: bool = False,
+        num_heads: Optional[int] = None,
+    ):
+        """Projection-aware CP attention for standard self-attention Q/K/V.
+
+        The fast path is intentionally narrow: non-varlen pure Ulysses. Other
+        modes materialize the producers and delegate to the regular CP path.
+        """
+
+        def serial():
+            q = produce_q()
+            k = produce_k()
+            v = produce_v()
+            return self(
+                q,
+                k,
+                v,
+                cu_seqlens_q=cu_seqlens_q,
+                cu_seqlens_k=cu_seqlens_k,
+                max_seqlen_q=max_seqlen_q,
+                max_seqlen_k=max_seqlen_k,
+                dropout_p=dropout_p,
+                softmax_scale=softmax_scale,
+                causal=causal,
+                window_size=window_size,
+                deterministic=deterministic,
+                return_attn_probs=return_attn_probs,
+            )
+
+        use_varlen = (
+            cu_seqlens_q is not None
+            or cu_seqlens_k is not None
+            or max_seqlen_q is not None
+            or max_seqlen_k is not None
+        )
+        if not self.supports_fused_overlap(
+            use_varlen=use_varlen,
+            return_attn_probs=return_attn_probs,
+            num_heads=num_heads,
+        ):
+            return serial()
+
+        ulysses_size = self.cp_size if self.cp_size <= self.ulysses_limit else self.ulysses_limit
+        ulysses_group = get_up_group(ulysses_size)
+        seq_dim, head_dim = 1, 2
+        cur = torch.cuda.current_stream()
+        cs = self._get_cp_comm_stream()
+
+        def a2a_on_comm(t):
+            cs.wait_stream(cur)
+            t.record_stream(cs)
+            with torch.cuda.stream(cs):
+                out = ulysses_group.all_to_all(t, head_dim, seq_dim)
+            ev = torch.cuda.Event()
+            ev.record(cs)
+            return out, ev
+
+        k = produce_k()
+        a2a_k, ev_k = a2a_on_comm(k)
+
+        v = produce_v()
+        a2a_v, ev_v = a2a_on_comm(v)
+
+        q = produce_q()
+        a2a_q, ev_q = a2a_on_comm(q)
+
+        for ev in (ev_k, ev_v, ev_q):
+            cur.wait_event(ev)
+        for t in (a2a_q, a2a_k, a2a_v):
+            t.record_stream(cur)
+
+        out = self.attn(
+            a2a_q,
+            a2a_k,
+            a2a_v,
+            dropout_p=dropout_p,
+            softmax_scale=softmax_scale,
+            causal=causal,
+            window_size=window_size,
+            deterministic=deterministic,
+            return_attn_probs=False,
+        )[0]
+        out = ulysses_group.all_to_all(out, seq_dim, head_dim)
+        return out, None, None
+
     def _all_gather_sequence(self, tensor: torch.Tensor, gather_dim: int) -> torch.Tensor:
         pieces = [torch.empty_like(tensor) for _ in range(self.cp_size)]
         torch.distributed.all_gather(pieces, tensor.contiguous(), group=self.group.gpu_group)
@@ -713,6 +836,7 @@ class DiffusionAttention_with_CP:
 
         return out
 
+    @torch.compiler.disable
     def cp_attn_with_full_txt(
         self,
         txt_q: torch.Tensor,
@@ -755,9 +879,30 @@ class DiffusionAttention_with_CP:
             )[0]
             return out[:, : txt_q.shape[1]], out[:, txt_q.shape[1] :]
 
+        if self.uses_agcp():
+            img_seq_len = int(image_seq_len if image_seq_len is not None else img_k.shape[1] * self.cp_size)
+            full_img_key = self._all_gather_sequence(img_k, gather_dim=1)[:, :img_seq_len]
+            full_img_value = self._all_gather_sequence(img_v, gather_dim=1)[:, :img_seq_len]
+            q = torch.cat([txt_q, img_q], dim=1)
+            k = torch.cat([txt_k, full_img_key], dim=1)
+            v = torch.cat([txt_v, full_img_value], dim=1)
+            out = self.attn(
+                q,
+                k,
+                v,
+                dropout_p=dropout_p,
+                softmax_scale=softmax_scale,
+                causal=False,
+                window_size=window_size,
+                deterministic=deterministic,
+                return_attn_probs=False,
+            )[0]
+            txt_len = txt_q.shape[1]
+            return out[:, :txt_len], out[:, txt_len:]
+
         ulysses_size = self.cp_size if self.cp_size <= self.ulysses_limit else self.ulysses_limit
         ring_steps = self.cp_size // ulysses_size
-        if self.attn.impl in {"sage", "sparge", "torch_sdpa_math"}:
+        if ring_steps > 1 and self.attn.impl in {"sage", "sparge", "torch_sdpa_math"}:
             raise NotImplementedError(
                 f"{self.attn.impl} cannot provide LSE for Qwen full-text ring attention."
             )
@@ -836,6 +981,174 @@ class DiffusionAttention_with_CP:
             gathered_txt = [torch.empty_like(txt_out) for _ in range(ulysses_size)]
             torch.distributed.all_gather(gathered_txt, txt_out.contiguous(), group=ulysses_group.gpu_group)
             txt_out = torch.cat(gathered_txt, dim=head_dim).contiguous()
+        return txt_out, img_out
+
+    @torch.compiler.disable
+    def cp_attn_with_full_txt_fused(
+        self,
+        *,
+        produce_txt_q,
+        produce_txt_k,
+        produce_txt_v,
+        produce_img_q,
+        produce_img_k,
+        produce_img_v,
+        image_seq_len: Optional[int] = None,
+        dropout_p: float = 0.0,
+        softmax_scale: Optional[float] = None,
+        causal: bool = False,
+        window_size: Tuple[int, int] = (-1, -1),
+        deterministic: bool = False,
+        num_heads: Optional[int] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Projection-aware full-text CP API surface.
+
+        Producers are owned by model processors (projection/norm/RoPE). This
+        method owns the CP schedule. First async implementation targets pure
+        Ulysses full-text attention, matching the harness-proven schedule; other
+        modes/features conservatively materialize and delegate.
+        """
+        if causal:
+            raise NotImplementedError("Qwen full-text CP attention only supports non-causal attention.")
+
+        def serial():
+            txt_q = produce_txt_q()
+            txt_k = produce_txt_k()
+            txt_v = produce_txt_v()
+            img_q = produce_img_q()
+            img_k = produce_img_k()
+            img_v = produce_img_v()
+            return self.cp_attn_with_full_txt(
+                txt_q,
+                txt_k,
+                txt_v,
+                img_q,
+                img_k,
+                img_v,
+                image_seq_len=image_seq_len,
+                dropout_p=dropout_p,
+                softmax_scale=softmax_scale,
+                causal=False,
+                window_size=window_size,
+                deterministic=deterministic,
+            )
+
+        if self.cp_size <= 1 or self.uses_agcp():
+            return serial()
+
+        ulysses_size = self.cp_size if self.cp_size <= self.ulysses_limit else self.ulysses_limit
+        if num_heads is not None and ulysses_size > 1 and num_heads % ulysses_size != 0:
+            return serial()
+        if self.supports_fused_overlap(num_heads=num_heads):
+            return self._cp_full_txt_ulysses_fused(
+                produce_txt_q=produce_txt_q,
+                produce_txt_k=produce_txt_k,
+                produce_txt_v=produce_txt_v,
+                produce_img_q=produce_img_q,
+                produce_img_k=produce_img_k,
+                produce_img_v=produce_img_v,
+                image_seq_len=image_seq_len,
+                dropout_p=dropout_p,
+                softmax_scale=softmax_scale,
+                window_size=window_size,
+                deterministic=deterministic,
+                ulysses_size=ulysses_size,
+            )
+
+        return serial()
+
+    def _get_cp_comm_stream(self):
+        stream = getattr(self, "_cp_comm_stream", None)
+        if stream is None:
+            stream = torch.cuda.Stream()
+            self._cp_comm_stream = stream
+        return stream
+
+    def _cp_full_txt_ulysses_fused(
+        self,
+        *,
+        produce_txt_q,
+        produce_txt_k,
+        produce_txt_v,
+        produce_img_q,
+        produce_img_k,
+        produce_img_v,
+        image_seq_len: Optional[int],
+        dropout_p: float,
+        softmax_scale: Optional[float],
+        window_size: Tuple[int, int],
+        deterministic: bool,
+        ulysses_size: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        ulysses_group = get_up_group(ulysses_size)
+        ulysses_rank = ulysses_group.rank_in_group
+        seq_dim, head_dim = 1, 2
+        cur = torch.cuda.current_stream()
+        cs = self._get_cp_comm_stream()
+
+        def a2a_on_comm(t):
+            if t.shape[2] % ulysses_size != 0:
+                raise ValueError(
+                    f"Ulysses CP needs heads ({t.shape[2]}) divisible by up size ({ulysses_size})"
+                )
+            cs.wait_stream(cur)
+            t.record_stream(cs)
+            with torch.cuda.stream(cs):
+                out = ulysses_group.all_to_all(t, head_dim, seq_dim)
+            ev = torch.cuda.Event()
+            ev.record(cs)
+            return out, ev
+
+        img_k = produce_img_k()
+        a2a_k, ev_k = a2a_on_comm(img_k)
+
+        img_v = produce_img_v()
+        a2a_v, ev_v = a2a_on_comm(img_v)
+
+        img_q = produce_img_q()
+        a2a_q, ev_q = a2a_on_comm(img_q)
+
+        txt_q = produce_txt_q()
+        txt_k = produce_txt_k()
+        txt_v = produce_txt_v()
+
+        for ev in (ev_k, ev_v, ev_q):
+            cur.wait_event(ev)
+        for t in (a2a_k, a2a_v, a2a_q):
+            t.record_stream(cur)
+
+        txt_q = torch.tensor_split(txt_q, ulysses_size, head_dim)[ulysses_rank].contiguous()
+        txt_k = torch.tensor_split(txt_k, ulysses_size, head_dim)[ulysses_rank].contiguous()
+        txt_v = torch.tensor_split(txt_v, ulysses_size, head_dim)[ulysses_rank].contiguous()
+
+        img_seq_len = int(image_seq_len if image_seq_len is not None else a2a_k.shape[1])
+        original_local_img_len = a2a_q.shape[1] // ulysses_size
+        full_img_len = a2a_q.shape[1]
+        valid_kv_len = max(0, min(a2a_k.shape[1], img_seq_len))
+        txt_len = txt_q.shape[1]
+        q = torch.cat([txt_q, a2a_q], dim=1)
+        k = torch.cat([txt_k, a2a_k[:, :valid_kv_len]], dim=1)
+        v = torch.cat([txt_v, a2a_v[:, :valid_kv_len]], dim=1)
+
+        out = self.attn(
+            q,
+            k,
+            v,
+            dropout_p=dropout_p,
+            softmax_scale=softmax_scale,
+            causal=False,
+            window_size=window_size,
+            deterministic=deterministic,
+            return_attn_probs=False,
+        )[0]
+
+        txt_out = out[:, :txt_len]
+        img_out = out[:, txt_len:txt_len + full_img_len]
+        img_out = ulysses_group.all_to_all(img_out, seq_dim, head_dim)
+        img_out = img_out[:, :original_local_img_len]
+        gathered_txt = [torch.empty_like(txt_out) for _ in range(ulysses_size)]
+        torch.distributed.all_gather(gathered_txt, txt_out.contiguous(), group=ulysses_group.gpu_group)
+        txt_out = torch.cat(gathered_txt, dim=head_dim).contiguous()
         return txt_out, img_out
 
     def _cp_forward_graphed(self, q, k, v, attn_kwargs: dict) -> torch.Tensor:

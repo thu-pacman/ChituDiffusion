@@ -1,5 +1,6 @@
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
 import math
+import os
 from logging import getLogger
 import torch
 import torch.amp as amp
@@ -154,17 +155,52 @@ class WanSelfAttention(nn.Module):
             v = self.v(x).view(b, s, n, d)
             return q, k, v
 
-        q, k, v = qkv_fn(x)
-        rope_q = self.rope_impl(q, grid_sizes, freqs)
-        rope_k = self.rope_impl(k, grid_sizes, freqs)
+        use_overlap_qkv = (
+            os.environ.get("CHITU_CP_OVERLAP_QKV", "0") == "1"
+            and x.is_cuda
+            and hasattr(self.attn_func, "attention_fused")
+            and (
+                not hasattr(self.attn_func, "supports_fused_overlap")
+                or self.attn_func.supports_fused_overlap(num_heads=self.num_heads)
+            )
+        )
+        attn_out_dtype = None
+        if use_overlap_qkv:
+            def produce_q():
+                nonlocal attn_out_dtype
+                q = self.norm_q(self.q(x)).view(b, s, n, d)
+                attn_out_dtype = q.dtype
+                return half(self.rope_impl(q, grid_sizes, freqs)).contiguous()
 
-        x = self.attn_func(
-            q = half(rope_q),
-            k = half(rope_k),
-            v = half(v),
-            window_size=self.window_size
-        )[0]
-        x = x.to(q.dtype)
+            def produce_k():
+                k = self.norm_k(self.k(x)).view(b, s, n, d)
+                return half(self.rope_impl(k, grid_sizes, freqs)).contiguous()
+
+            def produce_v():
+                return half(self.v(x).view(b, s, n, d)).contiguous()
+
+            x = self.attn_func.attention_fused(
+                produce_q=produce_q,
+                produce_k=produce_k,
+                produce_v=produce_v,
+                window_size=self.window_size,
+                num_heads=self.num_heads,
+            )[0]
+            if attn_out_dtype is None:
+                attn_out_dtype = x.dtype
+        else:
+            q, k, v = qkv_fn(x)
+            attn_out_dtype = q.dtype
+            rope_q = self.rope_impl(q, grid_sizes, freqs)
+            rope_k = self.rope_impl(k, grid_sizes, freqs)
+
+            x = self.attn_func(
+                q = half(rope_q),
+                k = half(rope_k),
+                v = half(v),
+                window_size=self.window_size
+            )[0]
+        x = x.to(attn_out_dtype)
 
         # output
         x = x.flatten(2)

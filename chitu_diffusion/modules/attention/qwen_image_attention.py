@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from logging import getLogger
 from typing import Optional
 
@@ -71,64 +72,128 @@ class QwenImageChituAttnProcessor:
         if attention_mask is not None:
             raise NotImplementedError("Qwen-Image Chitu attention backend does not support attention_mask yet.")
 
-        batch_size = hidden_states.shape[0]
         seq_txt = encoder_hidden_states.shape[1]
 
-        img_query = attn.to_q(hidden_states)
-        img_key = attn.to_k(hidden_states)
-        img_value = attn.to_v(hidden_states)
+        def _img_q():
+            x = attn.to_q(hidden_states).unflatten(-1, (attn.heads, -1))
+            if attn.norm_q is not None:
+                x = attn.norm_q(x)
+            x = self._ensure_sequence_major(x, hidden_states.shape[1], attn.heads, "img_query")
+            if image_rotary_emb is not None:
+                img_freqs, _ = image_rotary_emb
+                if qwen_cp_info is not None:
+                    img_offset = int(qwen_cp_info.get("image_offset", 0))
+                    img_freqs = self._slice_rotary_freqs(img_freqs, img_offset, x.shape[1])
+                x = apply_rotary_emb_qwen(x, img_freqs, use_real=False)
+                x = self._ensure_sequence_major(x, hidden_states.shape[1], attn.heads, "img_query_rope")
+            return x
 
-        txt_query = attn.add_q_proj(encoder_hidden_states)
-        txt_key = attn.add_k_proj(encoder_hidden_states)
-        txt_value = attn.add_v_proj(encoder_hidden_states)
+        def _img_k():
+            x = attn.to_k(hidden_states).unflatten(-1, (attn.heads, -1))
+            if attn.norm_k is not None:
+                x = attn.norm_k(x)
+            x = self._ensure_sequence_major(x, hidden_states.shape[1], attn.heads, "img_key")
+            if image_rotary_emb is not None:
+                img_freqs, _ = image_rotary_emb
+                if qwen_cp_info is not None:
+                    img_offset = int(qwen_cp_info.get("image_offset", 0))
+                    img_freqs = self._slice_rotary_freqs(img_freqs, img_offset, x.shape[1])
+                x = apply_rotary_emb_qwen(x, img_freqs, use_real=False)
+                x = self._ensure_sequence_major(x, hidden_states.shape[1], attn.heads, "img_key_rope")
+            return x
 
-        img_query = img_query.unflatten(-1, (attn.heads, -1))
-        img_key = img_key.unflatten(-1, (attn.heads, -1))
-        img_value = img_value.unflatten(-1, (attn.heads, -1))
+        def _img_v():
+            x = attn.to_v(hidden_states).unflatten(-1, (attn.heads, -1))
+            return self._ensure_sequence_major(x, hidden_states.shape[1], attn.heads, "img_value")
 
-        txt_query = txt_query.unflatten(-1, (attn.heads, -1))
-        txt_key = txt_key.unflatten(-1, (attn.heads, -1))
-        txt_value = txt_value.unflatten(-1, (attn.heads, -1))
+        def _txt_q():
+            x = attn.add_q_proj(encoder_hidden_states).unflatten(-1, (attn.heads, -1))
+            if attn.norm_added_q is not None:
+                x = attn.norm_added_q(x)
+            x = self._ensure_sequence_major(x, encoder_hidden_states.shape[1], attn.heads, "txt_query")
+            if image_rotary_emb is not None:
+                _, txt_freqs = image_rotary_emb
+                x = apply_rotary_emb_qwen(x, txt_freqs, use_real=False)
+                x = self._ensure_sequence_major(x, encoder_hidden_states.shape[1], attn.heads, "txt_query_rope")
+            return x
 
-        if attn.norm_q is not None:
-            img_query = attn.norm_q(img_query)
-        if attn.norm_k is not None:
-            img_key = attn.norm_k(img_key)
-        if attn.norm_added_q is not None:
-            txt_query = attn.norm_added_q(txt_query)
-        if attn.norm_added_k is not None:
-            txt_key = attn.norm_added_k(txt_key)
+        def _txt_k():
+            x = attn.add_k_proj(encoder_hidden_states).unflatten(-1, (attn.heads, -1))
+            if attn.norm_added_k is not None:
+                x = attn.norm_added_k(x)
+            x = self._ensure_sequence_major(x, encoder_hidden_states.shape[1], attn.heads, "txt_key")
+            if image_rotary_emb is not None:
+                _, txt_freqs = image_rotary_emb
+                x = apply_rotary_emb_qwen(x, txt_freqs, use_real=False)
+                x = self._ensure_sequence_major(x, encoder_hidden_states.shape[1], attn.heads, "txt_key_rope")
+            return x
 
-        img_query = self._ensure_sequence_major(img_query, hidden_states.shape[1], attn.heads, "img_query")
-        img_key = self._ensure_sequence_major(img_key, hidden_states.shape[1], attn.heads, "img_key")
-        img_value = self._ensure_sequence_major(img_value, hidden_states.shape[1], attn.heads, "img_value")
-        txt_query = self._ensure_sequence_major(txt_query, encoder_hidden_states.shape[1], attn.heads, "txt_query")
-        txt_key = self._ensure_sequence_major(txt_key, encoder_hidden_states.shape[1], attn.heads, "txt_key")
-        txt_value = self._ensure_sequence_major(txt_value, encoder_hidden_states.shape[1], attn.heads, "txt_value")
+        def _txt_v():
+            x = attn.add_v_proj(encoder_hidden_states).unflatten(-1, (attn.heads, -1))
+            return self._ensure_sequence_major(x, encoder_hidden_states.shape[1], attn.heads, "txt_value")
 
-        if image_rotary_emb is not None:
-            img_freqs, txt_freqs = image_rotary_emb
-            if qwen_cp_info is not None:
-                img_offset = int(qwen_cp_info.get("image_offset", 0))
-                img_freqs = self._slice_rotary_freqs(img_freqs, img_offset, img_query.shape[1])
-            img_query = apply_rotary_emb_qwen(img_query, img_freqs, use_real=False)
-            img_key = apply_rotary_emb_qwen(img_key, img_freqs, use_real=False)
-            txt_query = apply_rotary_emb_qwen(txt_query, txt_freqs, use_real=False)
-            txt_key = apply_rotary_emb_qwen(txt_key, txt_freqs, use_real=False)
-            img_query = self._ensure_sequence_major(img_query, hidden_states.shape[1], attn.heads, "img_query_rope")
-            img_key = self._ensure_sequence_major(img_key, hidden_states.shape[1], attn.heads, "img_key_rope")
-            txt_query = self._ensure_sequence_major(
-                txt_query, encoder_hidden_states.shape[1], attn.heads, "txt_query_rope"
+        use_overlap_qkv = (
+            qwen_cp_info is not None
+            and hidden_states.is_cuda
+            and hasattr(self.attn_backend, "cp_attn_with_full_txt_fused")
+            and os.environ.get("CHITU_CP_OVERLAP_QKV", "0") == "1"
+            and (
+                not hasattr(self.attn_backend, "supports_fused_overlap")
+                or self.attn_backend.supports_fused_overlap(num_heads=attn.heads)
             )
-            txt_key = self._ensure_sequence_major(txt_key, encoder_hidden_states.shape[1], attn.heads, "txt_key_rope")
+        )
+        if use_overlap_qkv:
+            image_seq_len = int(qwen_cp_info.get("image_seq_len", hidden_states.shape[1] * get_cp_group().group_size))
+            target_dtype = hidden_states.dtype
+
+            def produce_img_q():
+                return _img_q().to(target_dtype).contiguous()
+
+            def produce_img_k():
+                return _img_k().to(target_dtype).contiguous()
+
+            def produce_img_v():
+                return _img_v().contiguous()
+
+            def produce_txt_q():
+                return _txt_q().to(target_dtype).contiguous()
+
+            def produce_txt_k():
+                return _txt_k().to(target_dtype).contiguous()
+
+            def produce_txt_v():
+                return _txt_v().contiguous()
+
+            txt_attn_output, img_attn_output = self.attn_backend.cp_attn_with_full_txt_fused(
+                produce_txt_q=produce_txt_q,
+                produce_txt_k=produce_txt_k,
+                produce_txt_v=produce_txt_v,
+                produce_img_q=produce_img_q,
+                produce_img_k=produce_img_k,
+                produce_img_v=produce_img_v,
+                image_seq_len=image_seq_len,
+                causal=False,
+                num_heads=attn.heads,
+            )
+            img_attn_output = img_attn_output.flatten(2, 3).to(hidden_states.dtype)
+            txt_attn_output = txt_attn_output.flatten(2, 3).to(hidden_states.dtype)
+            img_attn_output = attn.to_out[0](img_attn_output.contiguous())
+            if len(attn.to_out) > 1:
+                img_attn_output = attn.to_out[1](img_attn_output)
+            txt_attn_output = attn.to_add_out(txt_attn_output.contiguous())
+            return img_attn_output, txt_attn_output
+
+        img_query = _img_q()
+        img_key = _img_k()
+        img_value = _img_v()
+
+        txt_query = _txt_q()
+        txt_key = _txt_k()
+        txt_value = _txt_v()
 
         if qwen_cp_info is not None:
             image_seq_len = int(qwen_cp_info.get("image_seq_len", img_key.shape[1] * get_cp_group().group_size))
-            use_agcp = (
-                hasattr(self.attn_backend, "uses_agcp")
-                and self.attn_backend.uses_agcp()
-            )
-            if hasattr(self.attn_backend, "cp_attn_with_full_txt") and not use_agcp:
+            if hasattr(self.attn_backend, "cp_attn_with_full_txt"):
                 target_dtype = img_value.dtype
                 txt_query = txt_query.to(target_dtype)
                 txt_key = txt_key.to(target_dtype)
