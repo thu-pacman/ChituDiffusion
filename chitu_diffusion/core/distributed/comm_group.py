@@ -330,10 +330,58 @@ class CommGroup:
         world_size = self.group_size
         if world_size == 1:
             return input_
+        if self._supports_all_to_all_single(input_, scatter_dim=scatter_dim, gather_dim=gather_dim):
+            return self._all_to_all_single(input_, scatter_dim=scatter_dim, gather_dim=gather_dim)
         input_list = [t.contiguous() for t in torch.tensor_split(input_, world_size, scatter_dim)]
         output_list = [torch.empty_like(input_list[0]) for _ in range(world_size)]
         torch.distributed.all_to_all(output_list, input_list, group=self.gpu_group)
         return torch.cat(output_list, dim=gather_dim).contiguous()
+
+    def _supports_all_to_all_single(self, input_: torch.Tensor, scatter_dim: int, gather_dim: int) -> bool:
+        if input_.ndim != 4:
+            return False
+        world_size = self.group_size
+        if scatter_dim == 2 and gather_dim == 1:
+            return input_.shape[2] % world_size == 0
+        if scatter_dim == 1 and gather_dim == 2:
+            return input_.shape[1] % world_size == 0
+        return False
+
+    def _all_to_all_single(self, input_: torch.Tensor, scatter_dim: int, gather_dim: int) -> torch.Tensor:
+        """Packed all-to-all for Ulysses head/sequence swaps.
+
+        ``torch.distributed.all_to_all_single`` splits along dim0, so pack the
+        requested scatter dimension into a leading rank dimension, communicate a
+        single contiguous buffer, then unpack into the requested gather layout.
+        This avoids Python lists of per-rank contiguous tensors for the common
+        CP layouts:
+
+        * scatter heads -> gather sequence: [B, S, H, D] -> [B, cp*S, H/cp, D]
+        * scatter sequence -> gather heads: [B, S, H, D] -> [B, S/cp, cp*H, D]
+        """
+        world_size = self.group_size
+        if scatter_dim == 2 and gather_dim == 1:
+            b, s, h, d = input_.shape
+            if h % world_size != 0:
+                raise ValueError(f"head dim {h} must be divisible by CP size {world_size}")
+            hc = h // world_size
+            send = input_.reshape(b, s, world_size, hc, d).permute(2, 0, 1, 3, 4).contiguous()
+            recv = torch.empty_like(send)
+            torch.distributed.all_to_all_single(recv, send, group=self.gpu_group)
+            return recv.permute(1, 0, 2, 3, 4).reshape(b, world_size * s, hc, d).contiguous()
+        if scatter_dim == 1 and gather_dim == 2:
+            b, s, h, d = input_.shape
+            if s % world_size != 0:
+                raise ValueError(f"sequence dim {s} must be divisible by CP size {world_size}")
+            sc = s // world_size
+            send = input_.reshape(b, world_size, sc, h, d).permute(1, 0, 2, 3, 4).contiguous()
+            recv = torch.empty_like(send)
+            torch.distributed.all_to_all_single(recv, send, group=self.gpu_group)
+            return recv.permute(1, 2, 0, 3, 4).reshape(b, sc, world_size * h, d).contiguous()
+        raise NotImplementedError(
+            "all_to_all_single fast path supports only Ulysses layouts "
+            f"(scatter_dim,gather_dim)=(2,1) or (1,2), got ({scatter_dim},{gather_dim})"
+        )
 
     def destroy(self):
         torch.distributed.destroy_process_group(self.gpu_group)
