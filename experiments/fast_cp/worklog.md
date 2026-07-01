@@ -9,6 +9,10 @@
 > 负载：Z-Image 文生图，DiT 主干迭代去噪，single-stream 打包序列 `[image, text]`，1024²。
 > 并行：序列并行（context parallel, CP），对标 qwen_image 的 split-Q / all-gather-KV，适配 Z-Image。
 
+> Fast CP / Hybrid Context Parallel 总纲见 [README.md](README.md)。
+> 2026-07-01 的 NVLink async overlap、Ulysses all-to-all、compile/graph、txt+img joint
+> 阶段结论见 [milestones/2026-07-01.md](milestones/2026-07-01.md)。
+
 ---
 
 ## 1. 方法论：先把"通信 vs 计算"拆开

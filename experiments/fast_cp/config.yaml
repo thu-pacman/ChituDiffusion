@@ -1,0 +1,188 @@
+# Hybrid Context Parallel / Fast CP control panel.
+#
+# This file is a reference template and switch index. The Chitu runtime does not
+# automatically load this file today:
+#   * copy the `infer.diffusion.*` values into a normal Chitu config or CLI overrides;
+#   * export the `env.*` values before launch.
+#
+# Labels:
+#   stable       - safe baseline / regular config surface;
+#   conditional  - useful in specific modes after validation;
+#   experimental - correctness/performance still under study, keep off by default;
+#   diagnostic   - measurement/debug only, not an optimization.
+
+feature:
+  name: hybrid_context_parallel
+  short_name: fast_cp
+  maturity: experimental
+  default_rule: "profile first, estimate the ceiling, then migrate to real models"
+
+runtime:
+  # Stable Chitu config fields.
+  infer:
+    diffusion:
+      # stable: context parallel degree. 1 disables CP.
+      cp_size: 1
+
+      # stable: Ulysses subgroup size.
+      #   up == cp_size -> pure Ulysses
+      #   up == 1       -> pure Ring
+      #   1 < up < cp   -> Ring + Ulysses / USP-style hybrid
+      up: 1
+
+      # stable: generic CP backend.
+      #   auto -> runtime policy
+      #   ucp  -> unified context parallel path: Ulysses / Ring / USP
+      #   agcp -> all-gather K,V path
+      cp_backend: auto
+
+      # conditional: ring CUDA Graph. Keep false unless testing Ring/RingGraph.
+      ring_cudagraph: false
+
+      # conditional: torch.compile mode for model/block compute.
+      # Recommended baseline for CP experiments is "off".
+      # Supported by Chitu config: off, default, reduce-overhead, max-autotune-no-cudagraphs.
+      compile_mode: off
+
+      # stable: compile granularity.
+      # "block" is the robust default; "model" is more aggressive.
+      compile_scope: block
+
+env:
+  # Stable-ish model-specific CP strategy knobs.
+  model_specific:
+    # conditional: Z-Image replicated-text + sharded-image CP mode.
+    # Values: agkv, ulysses, ring, ring_graph, unified.
+    CHITU_Z_IMAGE_CP_MODE: agkv
+
+    # conditional: Z-Image Ulysses subgroup size for `ulysses` / `unified`.
+    # Should match infer.diffusion.up when UP groups are needed.
+    CHITU_Z_IMAGE_CP_UP: 1
+
+    # conditional: Z-Image ring graph shortcut. Prefer infer.diffusion.ring_cudagraph
+    # for generic CP; this env only affects the Z-Image ImageContextParallelAttention core.
+    CHITU_Z_IMAGE_RING_CUDAGRAPH: "0"
+
+  experimental:
+    # experimental: async QKV projection / CP comm overlap.
+    # Current conclusion: correct, but NVLink real-model speedup is weak or negative.
+    CHITU_CP_OVERLAP_QKV: "0"
+
+    # experimental: communicate image K/V as fp8 e4m3 with per-head scaling.
+    # More promising on PCIe/no-P2P comm-bound systems. Requires quality checks.
+    CHITU_CP_FP8_KV: "0"
+
+    # experimental: cross-step remote K/V reuse for AGKV.
+    CHITU_CP_KV_CACHE: "0"
+    CHITU_CP_KV_CACHE_WARMUP: "8"
+    CHITU_CP_KV_CACHE_INTERVAL: "4"
+    CHITU_CP_KV_CACHE_TAIL: "3"
+
+  profiling:
+    # diagnostic: synchronized CP bucket timing. Breaks real overlap, use only for analysis.
+    CHITU_Z_IMAGE_CP_PROFILE: "0"
+
+    # diagnostic: torch.profiler chrome trace path. Prefer rank0 and short windows.
+    CHITU_TORCH_TRACE: ""
+
+    # diagnostic: disable Ring compute/comm overlap to measure overlap ceiling.
+    CHITU_CP_RING_NO_OVERLAP: "0"
+
+  graph:
+    # conditional: often needed when captured NCCL graphs coexist with uncaptured NCCL ops.
+    NCCL_GRAPH_MIXING_SUPPORT: "1"
+
+    # cluster-dependent; useful if NCCL monitoring interferes with short graph tests.
+    TORCH_NCCL_ENABLE_MONITORING: "0"
+
+  harness_only:
+    # stable for harness Ulysses baseline.
+    CHITU_HARNESS_A2A: single
+
+    # experimental: symmetric memory probes.
+    # Values: empty/default, single, symm_single, symm_pipe depending on harness.
+    CHITU_HARNESS_SYMM_BACKEND: ""
+
+    # experimental: text/image split schedule. Current naive split is slower.
+    # Values: none, txt_q, txt_out, txt_both.
+    CHITU_ULYSSES_SPLIT: none
+
+    # experimental: compile small harness tail ops.
+    CHITU_CP_COMPILE_TAIL: "0"
+    CHITU_CP_COMPILE_MODE: default
+
+presets:
+  nvlink_ulysses_baseline:
+    description: "Recommended first NVLink baseline. No async overlap, no graph."
+    runtime:
+      infer:
+        diffusion:
+          cp_backend: ucp
+          up: "${cp_size}"
+          ring_cudagraph: false
+          compile_mode: off
+          compile_scope: block
+    env:
+      CHITU_CP_OVERLAP_QKV: "0"
+
+  nvlink_ring_graph_experiment:
+    description: "Ring-only CUDA Graph experiment. Static shape required."
+    runtime:
+      infer:
+        diffusion:
+          cp_backend: ucp
+          up: 1
+          ring_cudagraph: true
+          compile_mode: off
+    env:
+      NCCL_GRAPH_MIXING_SUPPORT: "1"
+      CHITU_CP_OVERLAP_QKV: "0"
+
+  pcie_zimage_agkv_profile:
+    description: "PCIe/no-P2P first pass: measure communication vs compute."
+    runtime:
+      infer:
+        diffusion:
+          cp_backend: ucp
+          compile_mode: off
+    env:
+      CHITU_Z_IMAGE_CP_MODE: agkv
+      CHITU_Z_IMAGE_CP_PROFILE: "1"
+      CHITU_CP_OVERLAP_QKV: "0"
+      CHITU_CP_FP8_KV: "0"
+      CHITU_CP_KV_CACHE: "0"
+
+  pcie_zimage_unified_candidate:
+    description: "PCIe candidate after profiling. Compare with AGKV and Ring."
+    runtime:
+      infer:
+        diffusion:
+          cp_backend: ucp
+          up: 2
+          compile_mode: off
+    env:
+      CHITU_Z_IMAGE_CP_MODE: unified
+      CHITU_Z_IMAGE_CP_UP: "2"
+      CHITU_CP_OVERLAP_QKV: "0"
+
+  overlap_ab_test:
+    description: "A/B only after harness proves a positive ceiling."
+    runtime:
+      infer:
+        diffusion:
+          cp_backend: ucp
+          up: "${cp_size}"
+          ring_cudagraph: false
+          compile_mode: off
+    env:
+      CHITU_CP_OVERLAP_QKV: "1"
+      CHITU_CP_FP8_KV: "0"
+      CHITU_CP_KV_CACHE: "0"
+
+validation:
+  required_before_default_on:
+    - "harness correctness: serial vs candidate output matches"
+    - "rank0 trace: intended overlap/graph is visible"
+    - "component profile: estimated ceiling is worth the complexity"
+    - "real model short-step A/B: speedup exceeds run-to-run noise"
+    - "real model long-step sanity: quality and memory are acceptable"

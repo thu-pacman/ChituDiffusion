@@ -129,6 +129,7 @@ ChituBench/results/cudagraph_showcase/
 docs/zhihu_cudagraph_compile/*
 !docs/zhihu_cudagraph_compile/
 !docs/zhihu_cudagraph_compile/article.md
+experiments/fast_cp/harness/traces/
 
 # Local algorithm references
 third_party/Cubic/
