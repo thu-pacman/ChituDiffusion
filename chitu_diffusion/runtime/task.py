@@ -57,6 +57,9 @@ class DiffusionUserParams:
     prompt: str = None
     negative_prompt: Optional[str] = None
     seed: Optional[int] = None
+    # 一个请求生成的样本数（同 prompt/尺寸，seed 递增以获得多样性）。
+    # n_sample>1 依赖模型 adapter 的基础 batch 支持；尺寸被锁死为相同，避免 ragged 序列。
+    n_sample: int = 1
     # 调度器参数
     sample_solver: str = "ddpm"
     num_inference_steps: int = None
@@ -68,12 +71,30 @@ class DiffusionUserParams:
     flexcache_params: Optional[Union[FlexCacheParams, Dict[str, Any]]] = None
 
     def __post_init__(self):
+        if self.n_sample is None:
+            self.n_sample = 1
+        self.n_sample = int(self.n_sample)
+        if self.n_sample < 1:
+            raise ValueError(f"n_sample must be >= 1, got {self.n_sample}.")
         if isinstance(self.flexcache_params, dict):
             strategy = (self.flexcache_params.get("strategy") or "").strip().lower()
             cls = FLEXCACHE_PARAM_CLASSES.get(strategy)
             if cls is None:
                 raise ValueError(f"Unsupported acceleration strategy '{self.flexcache_params.get('strategy')}'.")
             self.flexcache_params = cls(**self.flexcache_params)
+
+    def base_seed(self, fallback: int = 0) -> int:
+        """请求的基准 seed；未指定时回退到全局 seed。"""
+        return int(self.seed if self.seed is not None else fallback)
+
+    def sample_seeds(self, fallback: int = 0) -> list[int]:
+        """为 n_sample 个样本生成递增 seed 列表 [s, s+1, ..., s+n-1]。
+
+        这样 n_sample=N、base_seed=S 的一个请求，其第 i 张图与 seed=S+i 的单样本
+        请求逐位一致，便于与 data parallel 副本（每副本跑一个 seed）对齐。
+        """
+        base = self.base_seed(fallback)
+        return [base + offset for offset in range(int(self.n_sample))]
 
     def resolve_flexcache_params(self) -> Optional[FlexCacheParams]:
         """

@@ -35,6 +35,7 @@ from chitu_diffusion.runtime.task import (
     DiffusionTaskPool,
     DiffusionTaskStatus,
 )
+from chitu_diffusion.runtime.data_parallel import dp_gather_sample_batch
 from chitu_diffusion.core.distributed.parallel_state import (
     get_cfg_group,
     get_cp_group,
@@ -59,6 +60,10 @@ logger = getLogger(__name__)
 class DiffusionTaskDispatcher():
     def __init__(self):
         super().__init__()
+        # Naive data parallel broadcasts the *same* request to every rank over the
+        # world group; each replica then shards the request's n_sample batch by its
+        # replica index (see the adapter's prepare_denoise). So dispatch stays
+        # world-wide from global rank 0.
         self.group = get_world_group()
         self.rank = self.group.global_rank
         self.local_rank = self.group.local_rank
@@ -69,7 +74,7 @@ class DiffusionTaskDispatcher():
 
 
     def dispatch_metadata(self, task: Optional[DiffusionTask] = None) -> tuple[DiffusionTaskType, DiffusionTask]:
-        if dist.is_initialized() and dist.get_world_size() == 1:
+        if self.group.group_size == 1:
             assert task is not None
             return task.task_type, task
 
@@ -85,10 +90,7 @@ class DiffusionTaskDispatcher():
             
             # 第一阶段：广播任务大小
             logger.debug(f"Rank {self.rank}: Broadcasting task size {task_size.item()}")
-            dist.broadcast(
-                tensor=task_size,
-                src=self.main_rank,
-            )
+            self.group.broadcast(task_size, src=self.main_rank)
             
         else:
             # 接收方：创建空的size tensor用于接收
@@ -96,10 +98,7 @@ class DiffusionTaskDispatcher():
                                 device="cpu" if DiffusionBackend.use_gloo else self.local_rank)
             
             # 第一阶段：接收任务大小
-            dist.broadcast(
-                tensor=task_size,
-                src=self.main_rank,
-            )
+            self.group.broadcast(task_size, src=self.main_rank)
             
             # 第二阶段：根据接收到的大小创建空buffer
             logger.debug(f"Rank {self.rank}: Received task size {task_size.item()}, creating buffer")
@@ -111,10 +110,7 @@ class DiffusionTaskDispatcher():
         logger.debug(f"Rank {self.rank} | {task_tensor.shape=} {task_size[0]=} {task_tensor.dtype=} {task_tensor.device=}, ready to broadcast.")
         
         # 第二阶段：广播实际的任务数据
-        dist.broadcast(
-            tensor=task_tensor,
-            src=self.main_rank,
-        )
+        self.group.broadcast(task_tensor, src=self.main_rank)
         
         if not self.is_main_rank:
             # 接收方：反序列化任务
@@ -496,7 +492,11 @@ class Generator:
     @Timer.get_timer("VaeDecode")
     def vae_decode_step(self, task: DiffusionTask):
         logger.debug(f"task_id={task.task_id} entering VAE decode at step={task.buffer.current_step}")
-        return DiffusionBackend.model_adapter.decode_latents(task, self, DiffusionBackend)
+        decoded = DiffusionBackend.model_adapter.decode_latents(task, self, DiffusionBackend)
+        # Data parallel is the outermost layer: each replica decoded only its
+        # seed slice, so reassemble the full n_sample batch across the DP group
+        # here (no-op when dp_size==1). Keeps adapters unaware of DP on output.
+        return dp_gather_sample_batch(decoded)
     
     def _post_vae_decode(self, task: DiffusionTask, video: Optional[torch.Tensor]):
         """Serving path: turn the decoded tensor into the output deliverable.
@@ -1025,6 +1025,13 @@ class Generator:
         Before denoising loop, prepare latents, timesteps and solver for one task.
         TODO: Control Devices
         """
+        n_sample = int(getattr(task.req.params, "n_sample", 1) or 1)
+        if n_sample > 1 and not DiffusionBackend.model_adapter.supports_n_sample():
+            raise NotImplementedError(
+                f"n_sample={n_sample} requested but model adapter "
+                f"{type(DiffusionBackend.model_adapter).__name__} does not support "
+                f"multi-sample batching yet (only n_sample=1)."
+            )
         DiffusionBackend.model_adapter.prepare_denoise(task, self, DiffusionBackend)
 
     def _update_task_stage_and_buffer(self, task: DiffusionTask, tokens: torch.Tensor):

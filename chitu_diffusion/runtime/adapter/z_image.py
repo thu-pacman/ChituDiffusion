@@ -13,6 +13,7 @@ import torch.distributed as dist
 from chitu_diffusion.core.logging_utils import log_result
 from chitu_diffusion.flexcache.freecache_core import is_step_level_cache_strategy
 from chitu_diffusion.core.distributed.parallel_state import get_cp_group
+from chitu_diffusion.runtime.data_parallel import dp_is_active, dp_shard_sample_seeds
 from chitu_diffusion.models.parallel import ModelParallelCapabilities
 from chitu_diffusion.parallel.vae import parallel_tiled_vae_decode
 from chitu_diffusion.runtime.output_layout import task_results_dir
@@ -41,6 +42,9 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
 
     def supports_cfg(self, args: Any) -> bool:
         return float(args.models.sampler.guidance_scale[0]) > 1.0
+
+    def supports_n_sample(self) -> bool:
+        return True
 
     def parallel_capabilities(self, args: Any) -> ModelParallelCapabilities:
         return ModelParallelCapabilities(
@@ -472,26 +476,40 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         if height % vae_scale != 0 or width % vae_scale != 0:
             raise ValueError(f"Z-Image height/width must be divisible by {vae_scale}, got {(width, height)}.")
 
-        seed = int(task.req.params.seed if task.req.params.seed is not None else backend.args.infer.seed)
-        seed_g = torch.Generator(device=device).manual_seed(seed)
         embeddings = task.buffer.text_embeddings
         if embeddings is None:
             embeddings = task.buffer.negative_embeddings
         if embeddings is None:
             raise RuntimeError("Z-Image denoise requires prompt embeddings.")
-        batch_size = embeddings.shape[0] if isinstance(embeddings, torch.Tensor) else len(embeddings)
         num_inference_steps = int(task.req.params.num_inference_steps)
 
-        latents = pipe.prepare_latents(
-            batch_size,
-            pipe.transformer.in_channels,
-            height,
-            width,
-            torch.float32,
-            device,
-            seed_g,
-            latents=None,
-        )
+        # n_sample: 一个请求生成 n 张图，尺寸锁死相同，seed 递增。逐行用独立 generator
+        # 建 latent，保证第 i 行与 seed=base+i 的单样本请求逐位一致。
+        #
+        # Naive data parallel is applied here via a model-agnostic helper: it hands
+        # back only the seed slice this replica owns, so the rest of prepare stays
+        # unaware of DP (dp_size==1 returns all seeds).
+        seeds = dp_shard_sample_seeds(task.req.params, fallback=int(backend.args.infer.seed))
+        n_sample = len(seeds)
+        latent_rows = []
+        for row_seed in seeds:
+            row_g = torch.Generator(device=device).manual_seed(int(row_seed))
+            latent_rows.append(
+                pipe.prepare_latents(
+                    1,
+                    pipe.transformer.in_channels,
+                    height,
+                    width,
+                    torch.float32,
+                    device,
+                    row_g,
+                    latents=None,
+                )
+            )
+        latents = torch.cat(latent_rows, dim=0) if n_sample > 1 else latent_rows[0]
+        # buffer.seed_g 仅作兼容保留，指向首个样本的 generator。
+        seed_g = torch.Generator(device=device).manual_seed(int(seeds[0]))
+        self._expand_embeddings_for_samples(task, n_sample)
         image_seq_len = (latents.shape[2] // 2) * (latents.shape[3] // 2)
         mu = calculate_shift(
             image_seq_len,
@@ -534,6 +552,29 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             pipe.guidance_scale,
             pipe._cfg_normalization,
         )
+
+    @staticmethod
+    def _expand_embeddings_for_samples(task, n_sample: int) -> None:
+        """把单条 prompt embedding 复制成 n_sample 行，与批量 latent 行数对齐。
+
+        同一请求的多个样本共享同一 prompt，只是 seed 不同，因此 embedding 直接沿
+        batch 维复制即可。对应的未 padding 长度列表也复制成 n_sample 份，供
+        ``_embedding_tensor_to_list`` 逐行切片。
+        """
+        if n_sample <= 1:
+            return
+        for emb_name, len_attr in (
+            ("text_embeddings", "_z_text_embedding_lengths"),
+            ("negative_embeddings", "_z_negative_embedding_lengths"),
+        ):
+            emb = getattr(task.buffer, emb_name, None)
+            if isinstance(emb, torch.Tensor) and emb.ndim == 3 and emb.shape[0] == 1:
+                setattr(task.buffer, emb_name, emb.repeat(n_sample, 1, 1))
+            elif isinstance(emb, list) and len(emb) == 1:
+                setattr(task.buffer, emb_name, emb * n_sample)
+            lengths = getattr(task.buffer, len_attr, None)
+            if isinstance(lengths, list) and len(lengths) == 1:
+                setattr(task.buffer, len_attr, list(lengths) * n_sample)
 
     @staticmethod
     def _move_tensor_or_list_to_device(value, device: torch.device):
@@ -1052,29 +1093,43 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             def _decode(z: torch.Tensor) -> torch.Tensor:
                 return pipe.vae.decode(z, return_dict=False)[0]
 
-            # latents: [B, C, H_lat, W_lat] -> split on H_lat (dim 2);
-            # decoded pixels: [B, 3, H, W] -> H is dim 2; VAE upsamples by vae_scale_factor.
-            decoded = parallel_tiled_vae_decode(
-                latents,
-                _decode,
-                latent_split_dim=2,
-                pixel_split_dim=2,
-                scale=int(pipe.vae_scale_factor),
-            )
+            if dp_is_active():
+                # Naive data parallel: this replica owns only its slice of the
+                # n_sample batch (latents are full within the replica). Decode it
+                # locally; the generator gathers the slices across the DP group.
+                decoded = _decode(latents)
+            else:
+                # latents: [B, C, H_lat, W_lat] -> split on H_lat (dim 2);
+                # decoded pixels: [B, 3, H, W] -> H is dim 2; VAE upsamples by vae_scale_factor.
+                decoded = parallel_tiled_vae_decode(
+                    latents,
+                    _decode,
+                    latent_split_dim=2,
+                    pixel_split_dim=2,
+                    scale=int(pipe.vae_scale_factor),
+                )
         self._debug_tensor("decoded_image_tensor", decoded)
         return decoded
 
     def save_output(self, task, output: Optional[torch.Tensor], generator, backend) -> None:
-        if torch.distributed.get_rank() == 0:
-            pipe = self._ensure_pipeline(backend.args, torch.device(torch.cuda.current_device()))
-            run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
-            if run_output_dir:
-                task.req.params.save_dir = task_results_dir(run_output_dir, task.task_id)
-            os.makedirs(task.req.params.save_dir, exist_ok=True)
+        if torch.distributed.get_rank() != 0:
+            return
+        pipe = self._ensure_pipeline(backend.args, torch.device(torch.cuda.current_device()))
+        run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if run_output_dir:
+            task.req.params.save_dir = task_results_dir(run_output_dir, task.task_id)
+        os.makedirs(task.req.params.save_dir, exist_ok=True)
 
-            save_name = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "") + f"_{task.task_id}.png"
+        images = pipe.image_processor.postprocess(output, output_type="pil")
+        seeds = task.req.params.sample_seeds(fallback=int(backend.args.infer.seed))
+        prompt_slug = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "")
+        model_name = getattr(getattr(getattr(backend, "args", None), "models", None), "name", None)
+        multi = len(images) > 1
+        for idx, image in enumerate(images):
+            row_seed = seeds[idx] if idx < len(seeds) else None
+            suffix = f"_s{idx}" if multi else ""
+            save_name = f"{prompt_slug}_{task.task_id}{suffix}.png"
             save_path = os.path.join(task.req.params.save_dir, save_name)
-            image = pipe.image_processor.postprocess(output, output_type="pil")[0]
             image.save(save_path, quality=95, subsampling=0)
 
             sidecar_path = os.path.splitext(save_path)[0] + ".json"
@@ -1082,10 +1137,12 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 "filename": os.path.basename(save_path),
                 "relative_path": os.path.join(os.path.basename(task.req.params.save_dir), os.path.basename(save_path)),
                 "prompt": task.req.get_prompt(),
-                "seed": getattr(task.req.params, "seed", None),
+                "seed": row_seed,
+                "sample_index": idx,
+                "n_sample": len(images),
                 "step": getattr(task.req.params, "num_inference_steps", None),
                 "task_id": task.task_id,
-                "model_name": getattr(getattr(getattr(backend, "args", None), "models", None), "name", None),
+                "model_name": model_name,
             }
             with open(sidecar_path, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, ensure_ascii=False, indent=2)

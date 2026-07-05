@@ -61,6 +61,7 @@ def build_request(args: ServeConfig) -> DiffusionUserRequest:
                 "extra objects, duplicated objects, watermark, jpeg artifacts",
             ),
             num_inference_steps=steps,
+            n_sample=int(os.getenv("CHITU_Z_IMAGE_N_SAMPLE", "1")),
             sample_solver="flowmatch_euler",
             flexcache_params=_flexcache_params(),
         ),
