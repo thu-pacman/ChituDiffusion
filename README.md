@@ -101,15 +101,15 @@
 
 Legend: ✅ 已支持，❌ 不支持或不适用，👷 计划中或验证中。
 
-| Model | Type | Runtime | Sage/Sparge | CFG Parallel | Hybrid CP | VAE Parallel | FlexCache | ChituBench |
-|:---|:---|:---|:---|:---|:---|:---|:---|:---|
-| `Flux1-dev` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| `FLUX.2-klein-4B` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | 👷 | ✅ |
-| `Qwen-Image` | T2I | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `Z-Image` | T2I | ✅ | 👷 | ✅ | ❌ | ✅ | ✅ | ✅ |
-| `Wan2.1-T2V-1.3B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| `Wan2.1-T2V-14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 |
-| `Wan2.2-T2V-A14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 |
+| Model | Type | Runtime | Sage/Sparge | CFG Parallel | Hybrid CP | VAE Parallel | FlexCache | n_sample / DP | ChituBench |
+|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|
+| `Flux1-dev` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | 👷 | ✅ |
+| `FLUX.2-klein-4B` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | 👷 | 👷 | ✅ |
+| `Qwen-Image` | T2I | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `Z-Image` | T2I | ✅ | 👷 | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| `Wan2.1-T2V-1.3B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 👷 | ✅ |
+| `Wan2.1-T2V-14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 | 👷 |
+| `Wan2.2-T2V-A14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 | 👷 |
 
 > 模型可用性取决于本地 checkpoint 路径及 `chitu_diffusion/core/config/models/` 下的对应配置。
 
@@ -448,15 +448,15 @@ A Feature-Cache-native evaluation suite that compares speed, quality, and memory
 
 Legend: ✅ supported, ❌ unsupported or not applicable, 👷 planned or still being validated.
 
-| Model | Type | Runtime | Sage/Sparge | CFG Parallel | Hybrid CP | VAE Parallel | FlexCache | ChituBench |
-|:---|:---|:---|:---|:---|:---|:---|:---|:---|
-| `Flux1-dev` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| `FLUX.2-klein-4B` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | 👷 | ✅ |
-| `Qwen-Image` | T2I | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `Z-Image` | T2I | ✅ | 👷 | ✅ | ❌ | ✅ | ✅ | ✅ |
-| `Wan2.1-T2V-1.3B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| `Wan2.1-T2V-14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 |
-| `Wan2.2-T2V-A14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 |
+| Model | Type | Runtime | Sage/Sparge | CFG Parallel | Hybrid CP | VAE Parallel | FlexCache | n_sample / DP | ChituBench |
+|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|
+| `Flux1-dev` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | 👷 | ✅ |
+| `FLUX.2-klein-4B` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | 👷 | 👷 | ✅ |
+| `Qwen-Image` | T2I | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `Z-Image` | T2I | ✅ | 👷 | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| `Wan2.1-T2V-1.3B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 👷 | ✅ |
+| `Wan2.1-T2V-14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 | 👷 |
+| `Wan2.2-T2V-A14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 | 👷 |
 
 > Availability depends on local checkpoint paths and the corresponding config under `chitu_diffusion/core/config/models/`.
 
