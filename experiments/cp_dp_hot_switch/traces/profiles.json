@@ -1,0 +1,32 @@
+{
+  "_comment": "Per-step DiT latency profiles for the CP/DP hotswitch simulator. All numbers are anchored to measured DiT-forward latencies in this repo, not fabricated. Sources: ChituBench/result_parallel_dit.md (flux1_dev_sequence_parallel, flux2_klein_sequence_parallel, qwen_image_parallel) and experiments/fast_cp/worklog.md. Per-step ms = measured DiT-forward mean (s) * 1000 / denoise steps. dp1 = single-GPU baseline; cp2 = 2-GPU context parallel (pure CP, not CFG parallel); cp4 = 4-GPU context parallel.",
+  "profiles": [
+    {
+      "name": "flux1_1024",
+      "resolution": "1024x1024",
+      "seq_len": 4096,
+      "_source": "ChituBench flux1_dev_sequence_parallel: baseline_1gpu 38.027s, ring_2gpu 20.860s, ulysses_4gpu 11.580s over 50 steps.",
+      "dp_1gpu_step_ms": [760.5],
+      "cp_2gpu_step_ms": [417.2],
+      "cp_4gpu_step_ms": [231.6]
+    },
+    {
+      "name": "flux2_klein_1024",
+      "resolution": "1024x1024",
+      "seq_len": 4096,
+      "_source": "ChituBench flux2_klein_sequence_parallel: baseline_1gpu 1.358s, ring_2gpu 0.732s, ulysses_4gpu 0.409s over 4 steps (distilled).",
+      "dp_1gpu_step_ms": [339.5],
+      "cp_2gpu_step_ms": [183.0],
+      "cp_4gpu_step_ms": [102.3]
+    },
+    {
+      "name": "qwen_1328",
+      "resolution": "1328x1328",
+      "seq_len": 6889,
+      "_source": "ChituBench qwen_image_parallel: baseline_1gpu 138.819s, pure CP2 cfp1up2_2gpu 80.935s over 50 steps. cp4 pure-CP point not measured in isolation (only CFG+CP), left null.",
+      "dp_1gpu_step_ms": [2776.4],
+      "cp_2gpu_step_ms": [1618.7],
+      "cp_4gpu_step_ms": null
+    }
+  ]
+}

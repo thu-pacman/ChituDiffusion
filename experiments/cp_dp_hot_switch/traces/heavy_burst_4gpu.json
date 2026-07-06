@@ -1,0 +1,28 @@
+{
+  "_comment": "Scenario D: heavy sustained burst on a 4-GPU node. This isolates the over-sharding / under-utilization effect from FastCP: the CP path is a single 2-GPU group, so static_cp leaves 2 of 4 GPUs idle and serializes the burst, while static_dp runs 4 independent 1-GPU replicas. Expectation: static_dp roughly doubles throughput vs static_cp and keeps all 4 GPUs busy. Anchored to flux1_1024 (50 step).",
+  "config": {
+    "total_gpus": 4,
+    "admission_wait_ms": 60.0,
+    "long_request_seq_len": 5000
+  },
+  "switch": {
+    "switch_cost_ms": 20.0,
+    "graph_recapture_cost_ms": 0.0,
+    "cache_migration_cost_ms": 0.0,
+    "communicator_cost_ms": 15.0,
+    "latent_migration_cost_ms": 10.0,
+    "switch_allowed_until_step": 15
+  },
+  "requests": [
+    {"request_id": "flux_h0", "arrival_ms": 0.0, "num_steps": 50, "profile": "flux1_1024"},
+    {"request_id": "flux_h1", "arrival_ms": 90.0, "num_steps": 50, "profile": "flux1_1024"},
+    {"request_id": "flux_h2", "arrival_ms": 200.0, "num_steps": 50, "profile": "flux1_1024"},
+    {"request_id": "flux_h3", "arrival_ms": 310.0, "num_steps": 50, "profile": "flux1_1024"},
+    {"request_id": "flux_h4", "arrival_ms": 430.0, "num_steps": 50, "profile": "flux1_1024"},
+    {"request_id": "flux_h5", "arrival_ms": 560.0, "num_steps": 50, "profile": "flux1_1024"},
+    {"request_id": "flux_h6", "arrival_ms": 700.0, "num_steps": 50, "profile": "flux1_1024"},
+    {"request_id": "flux_h7", "arrival_ms": 850.0, "num_steps": 50, "profile": "flux1_1024"},
+    {"request_id": "flux_h8", "arrival_ms": 1010.0, "num_steps": 50, "profile": "flux1_1024"},
+    {"request_id": "flux_h9", "arrival_ms": 1180.0, "num_steps": 50, "profile": "flux1_1024"}
+  ]
+}

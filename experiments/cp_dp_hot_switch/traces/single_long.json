@@ -1,0 +1,19 @@
+{
+  "_comment": "Scenario A: a single long/heavy request with no contention. Validates that CP/SP reduces single-request latency vs a 1-GPU DP replica, and that hotswitch should NOT fire (no queue). Profiles are provided by traces/profiles.json via run_experiment.py.",
+  "config": {
+    "total_gpus": 2,
+    "admission_wait_ms": 50.0,
+    "long_request_seq_len": 5000
+  },
+  "switch": {
+    "switch_cost_ms": 20.0,
+    "graph_recapture_cost_ms": 0.0,
+    "cache_migration_cost_ms": 0.0,
+    "communicator_cost_ms": 15.0,
+    "latent_migration_cost_ms": 10.0,
+    "switch_allowed_until_step": 15
+  },
+  "requests": [
+    {"request_id": "qwen_long_0", "arrival_ms": 0.0, "num_steps": 50, "profile": "qwen_1328"}
+  ]
+}
