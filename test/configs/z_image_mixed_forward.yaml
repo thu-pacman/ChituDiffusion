@@ -1,0 +1,50 @@
+launch:
+  tag: zimage-mixed-fwd
+  num_nodes: 1
+  gpus_per_node: 1
+  python_script: test/test_z_image_mixed_forward.py
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    job_name: chitu-zimage-mixed-fwd
+
+runtime:
+  chitu_debug: true
+  cuda_launch_blocking: false
+
+model:
+  name: Z-Image
+  ckpt_dir: /home/chenyy/WORK/models/Z-Image
+
+parallel:
+  cfp: 1
+  up: 1
+
+infer:
+  # Correctness gate: torch_sdpa is the deterministic reference backend. flash_attn
+  # introduces batch-order-dependent numerics (a batched forward is not
+  # bitwise-reproducible vs a solo forward even for n_sample), which masks the
+  # per-item math; torch_sdpa is row-reproducible so batched-vs-independent
+  # equivalence can be validated. flash_attn stays the default for throughput runs.
+  attn_type: torch_sdpa
+  low_mem_level: 0
+
+eval:
+  eval_type: []
+  reference_path: null
+
+output:
+  root_dir: outputs/test-mixed-fwd
+  run_log: true
+  memory: true
+  timer: false
+  log_ranks: [0]
+
+# M4 mixed-step correctness driver (single GPU, cfg=1 * cp=1 * dp=1). Runs A solo,
+# B solo, then a staggered mixed-step run where B is admitted after A has taken
+# CHITU_Z_IMAGE_STAGGER_STEPS steps, so A and B share forwards at DIFFERENT steps.
+# Root-cause harness for per-row timestep isolation in one batched forward.
+overrides:
+  - models.sampler.sample_steps=8
+  - infer.diffusion.continuous_batch=true
+  - infer.diffusion.max_batch_items=8

@@ -35,13 +35,20 @@ from chitu_diffusion.runtime.task import (
     DiffusionTaskPool,
     DiffusionTaskStatus,
 )
+from chitu_diffusion.runtime.data_parallel import dp_gather_sample_batch
 from chitu_diffusion.core.distributed.parallel_state import (
     get_cfg_group,
     get_cp_group,
-    get_world_group
+    get_world_group,
+    dynamic_sp_enabled,
+    dynamic_sp_degrees,
+    get_active_cp_degree,
+    set_active_cp_group,
+    get_dynamic_cp_group,
 )
 from chitu_diffusion.modules.utils.wan import cache_video
 from chitu_diffusion.runtime.parallel_utils import SequencePadder
+from chitu_diffusion.runtime.hotswitch import HotswitchDecision, HotswitchStateMigrator
 from chitu_diffusion.observability import Timer
 from chitu_diffusion.runtime.output_naming import build_video_name_from_task
 from chitu_diffusion.runtime.output_layout import (
@@ -59,6 +66,10 @@ logger = getLogger(__name__)
 class DiffusionTaskDispatcher():
     def __init__(self):
         super().__init__()
+        # Naive data parallel broadcasts the *same* request to every rank over the
+        # world group; each replica then shards the request's n_sample batch by its
+        # replica index (see the adapter's prepare_denoise). So dispatch stays
+        # world-wide from global rank 0.
         self.group = get_world_group()
         self.rank = self.group.global_rank
         self.local_rank = self.group.local_rank
@@ -69,7 +80,7 @@ class DiffusionTaskDispatcher():
 
 
     def dispatch_metadata(self, task: Optional[DiffusionTask] = None) -> tuple[DiffusionTaskType, DiffusionTask]:
-        if dist.is_initialized() and dist.get_world_size() == 1:
+        if self.group.group_size == 1:
             assert task is not None
             return task.task_type, task
 
@@ -85,10 +96,7 @@ class DiffusionTaskDispatcher():
             
             # 第一阶段：广播任务大小
             logger.debug(f"Rank {self.rank}: Broadcasting task size {task_size.item()}")
-            dist.broadcast(
-                tensor=task_size,
-                src=self.main_rank,
-            )
+            self.group.broadcast(task_size, src=self.main_rank)
             
         else:
             # 接收方：创建空的size tensor用于接收
@@ -96,10 +104,7 @@ class DiffusionTaskDispatcher():
                                 device="cpu" if DiffusionBackend.use_gloo else self.local_rank)
             
             # 第一阶段：接收任务大小
-            dist.broadcast(
-                tensor=task_size,
-                src=self.main_rank,
-            )
+            self.group.broadcast(task_size, src=self.main_rank)
             
             # 第二阶段：根据接收到的大小创建空buffer
             logger.debug(f"Rank {self.rank}: Received task size {task_size.item()}, creating buffer")
@@ -111,10 +116,7 @@ class DiffusionTaskDispatcher():
         logger.debug(f"Rank {self.rank} | {task_tensor.shape=} {task_size[0]=} {task_tensor.dtype=} {task_tensor.device=}, ready to broadcast.")
         
         # 第二阶段：广播实际的任务数据
-        dist.broadcast(
-            tensor=task_tensor,
-            src=self.main_rank,
-        )
+        self.group.broadcast(task_tensor, src=self.main_rank)
         
         if not self.is_main_rank:
             # 接收方：反序列化任务
@@ -307,15 +309,181 @@ class Generator:
 
         # Ensure FIFO
         self.current_task = None # 通过这个储存当前任务的中间状态
+        # M4 continuous batching: a persistent, mixed-step in-flight DENOISE group.
+        # Members may sit at DIFFERENT ``current_step`` values; each engine round
+        # admits newly-pending same-shape work (at step 0), advances every member
+        # by exactly ONE denoise step in one batched forward, then retires members
+        # that reached their final step (decode/save per item). Empty when off or
+        # when nothing is denoising. In-flight members intentionally keep status
+        # ``Pending`` so ``scheduler.can_schedule()`` keeps the driver alive while
+        # the pending queue is otherwise empty; ``cb_group`` identity dedups them
+        # from re-admission.
+        self.cb_group: List[DiffusionTask] = []
+        diffusion_args = args.infer.diffusion
+        self.continuous_batch = bool(getattr(diffusion_args, "continuous_batch", False)) or (
+            str(os.getenv("CHITU_CONTINUOUS_BATCH", "")).strip().lower() in {"1", "true", "yes", "on"}
+        )
+        self.max_batch_items = max(1, int(getattr(diffusion_args, "max_batch_items", 8) or 8))
+        scheduler_policy = str(getattr(diffusion_args, "scheduling_policy", "fifo") or "fifo")
+        self.enable_step_interleave = bool(
+            getattr(diffusion_args, "step_interleave", False)
+            or scheduler_policy in {"step_interleave", "admission_control", "shape_aware_ratio"}
+        )
         self._last_logged_stage = {}
         self.denoise_progress_interval = max(1, int(os.getenv("CHITU_PROGRESS_INTERVAL", "5")))
         self.enable_stage_perf = bool(getattr(args.output, "timer", False))
         self._stage_start_time = {}
         self._dit_forward_step_elapsed_ms = {}
+        self.hotswitch_migrator = HotswitchStateMigrator()
+
+        # M6 dynamic sequence-parallel (SP/CP) degree switching. Enabled only when
+        # the pre-warmed groups exist (dynamic_sp flag on at init). The switch
+        # schedule is env-driven for verification (the M7 scheduler will own it):
+        #   CHITU_SP_INITIAL     -> degree for step 0.. (default = launch cp_size / active)
+        #   CHITU_SP_SWITCH_STEP -> denoise step index at which to switch to target
+        #   CHITU_SP_TARGET      -> degree from CHITU_SP_SWITCH_STEP onward
+        self.dynamic_sp = bool(getattr(diffusion_args, "dynamic_sp", False)) and dynamic_sp_enabled()
+        self._sp_initial_degree = int(os.getenv("CHITU_SP_INITIAL", "0") or 0)
+        self._sp_switch_step = int(os.getenv("CHITU_SP_SWITCH_STEP", "-1") or -1)
+        self._sp_target_degree = int(os.getenv("CHITU_SP_TARGET", "0") or 0)
+        self._sp_migrate_bench = str(os.getenv("CHITU_SP_MIGRATE_BENCH", "")).strip().lower() in {"1", "true", "yes", "on"}
+        self._sp_switch_events: List[Dict[str, Any]] = []
+        # Launch-time (base) degree captured before any runtime switch.
+        self._sp_base_degree = get_active_cp_degree() if self.dynamic_sp else 1
+        if self.dynamic_sp and self.rank == 0:
+            logger.info(
+                "[M6 dynamic-SP] enabled: degrees=%s initial=%s switch_step=%s target=%s",
+                dynamic_sp_degrees(), self._sp_initial_degree or "active",
+                self._sp_switch_step, self._sp_target_degree or "-",
+            )
 
     def _release_current_task_if_stage_scheduled(self, task: DiffusionTask) -> None:
         if DiffusionBackend.model_adapter.schedule_each_stage():
             self.current_task = None
+            return
+        if (
+            self.enable_step_interleave
+            and task.task_type == DiffusionTaskType.Denoise
+            and task.status == DiffusionTaskStatus.Pending
+        ):
+            self.current_task = None
+
+    def prepare_hotswitch(self, task: DiffusionTask, action: str, reason: str = "") -> None:
+        if task.buffer is None:
+            return
+        if action == "cp_to_dp":
+            source_mode, target_mode = "cp", "dp"
+        elif action == "dp_to_cp":
+            source_mode, target_mode = "dp", "cp"
+        else:
+            raise ValueError(f"Unsupported hotswitch action: {action}")
+        self._clear_ditango_planner()
+        self._clear_flexcache_strategy()
+        self.hotswitch_migrator.prepare(
+            task,
+            HotswitchDecision(
+                action=action,
+                source_mode=source_mode,
+                target_mode=target_mode,
+                step_index=int(task.buffer.current_step),
+                reason=reason,
+            ),
+        )
+
+    def _sp_target_for_step(self, step_index: int) -> int:
+        """Deterministic per-step target SP degree (identical on every rank).
+
+        Env-driven schedule for M6 verification: run at ``initial`` until
+        ``switch_step``, then ``target``. The M7 scheduler will replace this with
+        a load-driven decision."""
+        initial = self._sp_initial_degree if self._sp_initial_degree > 0 else self._sp_base_degree
+        if (
+            self._sp_switch_step is not None
+            and self._sp_switch_step >= 0
+            and self._sp_target_degree > 0
+            and step_index >= self._sp_switch_step
+        ):
+            return self._sp_target_degree
+        return initial
+
+    def _maybe_switch_sp_degree(self, task: DiffusionTask) -> None:
+        """At a denoise step boundary, switch the work-item's active SP degree if
+        its schedule calls for it, migrating latents onto the new CP layout.
+
+        For Z-Image the task-level latent is kept full and replicated on every
+        rank (sharding lives inside ``cp_forward``), so migration moves no data --
+        the switch is a pre-warmed process-group pointer swap (zero NCCL group
+        creation). ``migrate_task_latents`` handles the general sharded-latent
+        case (gather+scatter) and is a no-op here. Overhead is timed and recorded.
+        """
+        if not self.dynamic_sp or task.buffer is None:
+            return
+        step_index = int(task.buffer.current_step)
+        target = self._sp_target_for_step(step_index)
+        active = get_active_cp_degree()
+        if target == active:
+            return
+        if target not in dynamic_sp_degrees():
+            if self.rank == 0:
+                logger.warning(
+                    "[M6 dynamic-SP] target degree %d not pre-warmed (available=%s); skipping switch.",
+                    target, dynamic_sp_degrees(),
+                )
+            return
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        t0 = time.perf_counter()
+        migrated_bytes = self._migrate_task_latents_for_switch(task, active, target)
+        # O(1) pointer swap over the already-created communicators -> no NCCL
+        # group creation happens on the hot path (verified by pre-warm at init).
+        set_active_cp_group(target)
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+        event = {
+            "task_id": task.task_id,
+            "step_index": step_index,
+            "from_degree": active,
+            "to_degree": target,
+            "elapsed_ms": elapsed_ms,
+            "migrated_bytes": migrated_bytes,
+            "rank": self.rank,
+        }
+        self._sp_switch_events.append(event)
+        Timer.record_event("sp_switch", event)
+        if self.rank == 0:
+            logger.info(
+                "[M6 dynamic-SP] switch SP %d->%d at step %d: %.3f ms (migrated_bytes=%d)",
+                active, target, step_index, elapsed_ms, migrated_bytes,
+            )
+
+    def _migrate_task_latents_for_switch(self, task: DiffusionTask, old_degree: int, new_degree: int) -> int:
+        """Re-shard a work-item's latent from ``old_degree`` -> ``new_degree``.
+
+        Returns the number of bytes moved. For a full/replicated latent (Z-Image)
+        this is 0: every rank already holds the complete sequence, so the new CP
+        layout can re-derive its shard locally inside the next forward. For a
+        genuinely sharded latent (general case) it performs the correctness-first
+        gather+scatter and returns the gathered byte count."""
+        buffer = task.buffer
+        cp_state = getattr(getattr(buffer, "parallel", None), "cp_latents", None)
+        latents = getattr(buffer, "latents", None)
+        # Full/replicated latent -> nothing to move (Z-Image path).
+        if cp_state is None or not getattr(cp_state, "is_local", False) or latents is None:
+            return 0
+        from chitu_diffusion.runtime.sp_migration import migrate_gather_scatter
+
+        old_group = get_dynamic_cp_group(old_degree)
+        new_group = get_dynamic_cp_group(new_degree)
+        new_rank = new_group.rank_in_group
+        moved = int(latents.numel() * latents.element_size())
+        buffer.latents = migrate_gather_scatter(
+            latents, old_group, new_degree, new_rank, seq_dim=1
+        )
+        cp_state.image_seq_len = int(buffer.latents.shape[1]) * new_degree
+        return moved
 
     def _run_dit_forward(self, task: DiffusionTask, branch: str, *args, **kwargs):
         step_index = int(task.buffer.current_step)
@@ -406,7 +574,196 @@ class Generator:
                 )
 
 
-    def step(self, task: Optional[DiffusionTask]) -> torch.Tensor:
+    # Round-header modes broadcast from rank 0 so every rank takes the same
+    # branch and issues identical collectives.
+    _CB_MODE_BATCH = 0   # admit + one denoise step + retire (mixed-step group)
+    _CB_MODE_SINGLE = 1  # fall back to the single-task path (control / non-groupable / pinned)
+
+    def step(self, task: Optional[DiffusionTask] = None, group_tasks: Optional[List[DiffusionTask]] = None) -> torch.Tensor:
+        """Unified per-round entry called on every rank.
+
+        When continuous batching is off this is byte-for-byte the original
+        single-task path. When on, this drives the M4 mixed-step continuous-batch
+        engine: one denoise step for the whole in-flight group per round, with
+        dynamic admission/retirement at the step boundary.
+        """
+        if not self.continuous_batch:
+            return self._step_single(task)
+        return self._cb_round()
+
+    def _cb_round(self) -> Optional[torch.Tensor]:
+        """One M4 continuous-batch engine round (called on every rank).
+
+        Rank 0 plans the round (which mode, what to admit) and broadcasts a small
+        header; every rank then executes the identical sequence: admit new
+        same-shape work-items (text-encode -> denoise-ready), advance every
+        in-flight member by ONE denoise step in a single batched forward, then
+        retire members that finished (decode/save). Non-groupable work, control
+        signals, and any pinned single task fall back to the untouched
+        ``_step_single`` path."""
+        is_main = self.rank == 0
+        device = "cpu" if DiffusionBackend.use_gloo else self.local_rank
+
+        if is_main:
+            mode, single_task, admit_tasks = self._cb_plan()
+        else:
+            mode, single_task, admit_tasks = self._CB_MODE_BATCH, None, []
+
+        mode_t = torch.tensor([mode], dtype=torch.int64, device=device)
+        dist.broadcast(mode_t, src=0)
+        mode = int(mode_t.item())
+
+        if mode == self._CB_MODE_SINGLE:
+            return self._step_single(single_task if is_main else None)
+
+        # Batch mode: broadcast the admission count, then each serialized task.
+        n_admit = len(admit_tasks) if is_main else 0
+        n_t = torch.tensor([n_admit], dtype=torch.int64, device=device)
+        dist.broadcast(n_t, src=0)
+        n_admit = int(n_t.item())
+
+        dispatcher = DiffusionTaskDispatcher()
+        for idx in range(n_admit):
+            if dispatcher.group.group_size == 1:
+                new_task = admit_tasks[idx]
+            else:
+                src = admit_tasks[idx] if (is_main and admit_tasks) else None
+                _, new_task = dispatcher.dispatch_metadata(src)
+            self._cb_admit_one(new_task)
+
+        if not self.cb_group:
+            return None
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        dist.barrier()
+        self._cb_denoise_one_step()
+        self._cb_retire_finished()
+        return None
+
+    def _cb_plan(self):
+        """Rank-0 planner. Returns ``(mode, single_task, admit_tasks)``.
+
+        Priority: continue a pinned single task; else (only when nothing is
+        in-flight) handle a control signal; else admit same-shape groupable work
+        into the in-flight denoise group; else, if nothing is in-flight and the
+        only pending work is non-groupable (flexcache), process it via the single
+        path so it does not starve."""
+        if self.current_task is not None:
+            return self._CB_MODE_SINGLE, None, []
+
+        scheduler = DiffusionBackend.scheduler
+        if not self.cb_group:
+            if DiffusionTaskPool.has_shutdown_request():
+                return self._CB_MODE_SINGLE, DiffusionTaskPool.get_shutdown_task(), []
+            if DiffusionTaskPool.has_cancel_request():
+                return self._CB_MODE_SINGLE, DiffusionTaskPool.get_cancel_task(), []
+
+        pending = [DiffusionTaskPool.pool[tid] for tid in DiffusionTaskPool.pending_task_ids()]
+        capacity = self.max_batch_items - len(self.cb_group)
+        admit = scheduler.select_cb_admissions(self.cb_group, pending, capacity)
+
+        if not self.cb_group and not admit:
+            inflight_ids = {t.task_id for t in self.cb_group}
+            non_groupable = [
+                t for t in pending
+                if t.task_id not in inflight_ids and not scheduler.cb_is_groupable(t)
+            ]
+            if non_groupable:
+                return self._CB_MODE_SINGLE, non_groupable[0], []
+
+        return self._CB_MODE_BATCH, None, admit
+
+    def _cb_admit_one(self, task: DiffusionTask) -> None:
+        """Drive a freshly-admitted task through text-encode (and VAE-encode for
+        image conditioning) until it is denoise-ready at step 0, then append it to
+        the in-flight group. Per-request text-encode reuses the single-task stage
+        machine; the task keeps status ``Pending`` (visible to ``can_schedule``)
+        while in flight."""
+        safety = 0
+        while task.task_type in (DiffusionTaskType.TextEncode, DiffusionTaskType.VAEEncode):
+            task.status = DiffusionTaskStatus.Running
+            self._emit_stage_start_if_needed(task)
+            if task.task_type == DiffusionTaskType.TextEncode:
+                out = self.text_encode_step(task)
+            else:
+                out = self.vae_encode_step(task)
+            self._update_task_stage_and_buffer(task, out)
+            safety += 1
+            if safety > 8:
+                raise RuntimeError(f"Task {task.task_id} stuck during continuous-batch admission.")
+
+        if task.task_type != DiffusionTaskType.Denoise:
+            raise RuntimeError(
+                f"Task {task.task_id} reached {task.task_type} during admission; expected Denoise."
+            )
+        task.status = DiffusionTaskStatus.Pending
+        task.sched_ts = time.perf_counter_ns()
+        task.last_scheduled_ts = task.sched_ts
+        self._emit_stage_start_if_needed(task)  # open the Denoise stage timer
+        self.cb_group.append(task)
+        if self.rank == 0:
+            logger.debug(
+                "[continuous-batch] admitted task=%s (in-flight=%d)",
+                task.task_id,
+                len(self.cb_group),
+            )
+
+    @Timer.get_timer("denoise")
+    @amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+    @torch.no_grad()
+    def _cb_denoise_one_step(self) -> None:
+        """Advance every in-flight member by exactly ONE denoise step (mixed-step
+        batched forward)."""
+        group = self.cb_group
+        for task in group:
+            assert task.buffer.latents is not None and task.buffer.timesteps is not None
+            setattr(task.buffer, "_dit_forward_call_index", 0)
+        DiffusionBackend.model_adapter.denoise_step_group_once(
+            group,
+            self,
+            DiffusionBackend,
+            self._run_dit_forward,
+        )
+        for task in group:
+            current_step = int(task.buffer.current_step)
+            total_steps = int(task.req.params.num_inference_steps)
+            timestep = (
+                task.buffer.timesteps[current_step - 1]
+                if task.buffer.timesteps is not None and current_step - 1 < len(task.buffer.timesteps)
+                else None
+            )
+            log_progress(
+                logger,
+                stage_name=DiffusionTaskType.Denoise.name,
+                task_id=task.task_id,
+                step=current_step,
+                total=total_steps,
+                interval=self.denoise_progress_interval,
+                timestep=timestep,
+            )
+
+    def _cb_retire_finished(self) -> None:
+        """Retire members that reached their final step: close the denoise stage
+        and hand each to VAE-decode + save (per item). Survivors stay in-flight."""
+        survivors: List[DiffusionTask] = []
+        for task in self.cb_group:
+            total_steps = int(task.req.params.num_inference_steps)
+            if int(task.buffer.current_step) >= total_steps:
+                self._cb_retire_one(task)
+            else:
+                survivors.append(task)
+        self.cb_group = survivors
+
+    def _cb_retire_one(self, task: DiffusionTask) -> None:
+        self._emit_stage_end(DiffusionTaskType.Denoise, task.task_id)
+        task.task_type = DiffusionTaskType.VAEDecode
+        task.status = DiffusionTaskStatus.Running
+        self._emit_stage_start_if_needed(task)
+        out = self.vae_decode_step(task)
+        self._update_task_stage_and_buffer(task, out)
+
+    def _step_single(self, task: Optional[DiffusionTask]) -> torch.Tensor:
         # 调度器会给generator task，翻译成kernel -> 运行 -> 正确放置输出 -> 回收对应内存
         # Prepare Payload
         control_override = torch.tensor(
@@ -482,6 +839,7 @@ class Generator:
     @torch.no_grad()
     def denoise_step(self, task: DiffusionTask):
         assert task.buffer.latents is not None and task.buffer.timesteps is not None
+        self._maybe_switch_sp_degree(task)
         setattr(task.buffer, "_dit_forward_call_index", 0)
         sampled_latents = DiffusionBackend.model_adapter.denoise_step(
             task,
@@ -496,7 +854,11 @@ class Generator:
     @Timer.get_timer("VaeDecode")
     def vae_decode_step(self, task: DiffusionTask):
         logger.debug(f"task_id={task.task_id} entering VAE decode at step={task.buffer.current_step}")
-        return DiffusionBackend.model_adapter.decode_latents(task, self, DiffusionBackend)
+        decoded = DiffusionBackend.model_adapter.decode_latents(task, self, DiffusionBackend)
+        # Data parallel is the outermost layer: each replica decoded only its
+        # seed slice, so reassemble the full n_sample batch across the DP group
+        # here (no-op when dp_size==1). Keeps adapters unaware of DP on output.
+        return dp_gather_sample_batch(decoded)
     
     def _post_vae_decode(self, task: DiffusionTask, video: Optional[torch.Tensor]):
         """Serving path: turn the decoded tensor into the output deliverable.
@@ -1025,6 +1387,13 @@ class Generator:
         Before denoising loop, prepare latents, timesteps and solver for one task.
         TODO: Control Devices
         """
+        n_sample = int(getattr(task.req.params, "n_sample", 1) or 1)
+        if n_sample > 1 and not DiffusionBackend.model_adapter.supports_n_sample():
+            raise NotImplementedError(
+                f"n_sample={n_sample} requested but model adapter "
+                f"{type(DiffusionBackend.model_adapter).__name__} does not support "
+                f"multi-sample batching yet (only n_sample=1)."
+            )
         DiffusionBackend.model_adapter.prepare_denoise(task, self, DiffusionBackend)
 
     def _update_task_stage_and_buffer(self, task: DiffusionTask, tokens: torch.Tensor):

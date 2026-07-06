@@ -486,7 +486,9 @@ class DiffusionBackend:
         assert expert_parallel_size == 1, "DiffusionBackend only supports expert_parallel_size=1"
 
         # Diffusion Parallelism
-        non_expert_data_parallel_size = 1 # TODO: support batch generation with data parallelism
+        # Data parallel replicas: each replica is a cfg_size*cp_size rank block
+        # that independently runs a full model on a different request/sample.
+        data_parallel_size = int(getattr(args.infer, "dp_size", 1) or 1)
 
         if DiffusionBackend.model_adapter is None:
             raise RuntimeError("Diffusion model runtime adapter is not initialized.")
@@ -498,13 +500,20 @@ class DiffusionBackend:
 
         assert (
             world_size
-            == non_expert_data_parallel_size * cfg_size * context_parallel_size
-        ), f"World size not match: {world_size} != {non_expert_data_parallel_size} * {cfg_size} * {context_parallel_size}"
+            == data_parallel_size * cfg_size * context_parallel_size
+        ), (
+            f"World size not match: {world_size} != dp_size({data_parallel_size}) * "
+            f"cfg_size({cfg_size}) * cp_size({context_parallel_size})"
+        )
+        DiffusionBackend.dp_size = data_parallel_size
 
+        dynamic_sp = bool(getattr(args.infer.diffusion, "dynamic_sp", False))
         initialize_diffusion_parallel_groups(
             cfg_size= cfg_size,
             up=up,
             cp_size=context_parallel_size,
+            dp_size=data_parallel_size,
+            dynamic_sp=dynamic_sp,
         )
 
     @staticmethod

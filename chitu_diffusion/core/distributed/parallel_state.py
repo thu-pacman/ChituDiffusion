@@ -313,6 +313,12 @@ def destroy_parallel_groups():
 _CP_GROUP: Optional[CommGroup] = None
 _CFG_GROUP: Optional[CommGroup] = None
 _UP_GROUP_DICT: Optional[Dict[int, CommGroup]] = None
+# Data parallel support for diffusion: each replica is a contiguous block of
+# ``cfg_size * cp_size`` ranks that runs a full model independently. The replica
+# group spans one such block (used for replica-local task broadcast/barrier); the
+# DiT DP group connects the same in-block offset across replicas.
+_DIT_REPLICA_GROUP: Optional[CommGroup] = None
+_DIT_DP_GROUP: Optional[CommGroup] = None
 
 def get_cp_group() -> CommGroup:
     return get_global_var("_CP_GROUP")
@@ -326,105 +332,298 @@ def get_up_group(size: int) -> CommGroup:
         raise ValueError(f"UP group of size {size} not initialized.")
     return _UP_GROUP_DICT[size]
 
-def initialize_cfg_group(cfg_size: int, rank: int, local_rank: int, world_size: int):
+def get_dit_replica_group() -> CommGroup:
+    """The rank block (size cfg_size*cp_size) that cooperatively runs one task.
+
+    When dp_size==1 this equals the world group, so single-replica behavior is
+    unchanged. Task metadata broadcast and the per-step barrier are scoped to
+    this group so different replicas can process different requests.
+    """
+    return get_global_var("_DIT_REPLICA_GROUP")
+
+def get_dit_dp_group() -> CommGroup:
+    """DP group connecting corresponding ranks across replicas."""
+    return get_global_var("_DIT_DP_GROUP")
+
+def get_dit_dp_size() -> int:
+    global _DIT_DP_GROUP
+    if _DIT_DP_GROUP is None:
+        return 1
+    return _DIT_DP_GROUP.group_size
+
+def get_dit_replica_index() -> int:
+    """0-based index of the replica this rank belongs to (0 when dp_size==1)."""
+    global _DIT_REPLICA_GROUP
+    if _DIT_REPLICA_GROUP is None:
+        return 0
+    replica_size = _DIT_REPLICA_GROUP.group_size
+    return _DIT_REPLICA_GROUP.global_rank // replica_size
+
+
+def _replica_blocks(replica_size: int, world_size: int) -> List[List[int]]:
+    assert world_size % replica_size == 0, (
+        f"world_size {world_size} must be divisible by replica_size {replica_size}"
+    )
+    return [
+        list(range(base, base + replica_size))
+        for base in range(0, world_size, replica_size)
+    ]
+
+def initialize_cfg_group(cfg_size: int, rank: int, local_rank: int, world_size: int, replica_size: int):
     global _CFG_GROUP
     assert _CFG_GROUP is None
-    
+
+    blocks = _replica_blocks(replica_size, world_size)
     if cfg_size == 1:
-        # No CFG parallelism
+        # No CFG parallelism: every rank is its own singleton group.
         _CFG_GROUP = CommGroup([[idx] for idx in range(world_size)], rank, local_rank)
     elif cfg_size == 2:
-        # CFG parallelism with pairs
-        assert world_size % 2 == 0, "World size must be even for CFG parallelism"
-        half_size = world_size // 2
+        # CFG parallelism with pairs, formed within each replica block. The two
+        # cp-halves of a block are paired offset-wise: (base+i, base+cp_size+i).
+        assert replica_size % 2 == 0, "replica_size must be even for CFG parallelism"
+        half_local = replica_size // 2
         rank_list = []
-        for i in range(half_size):
-            rank_list.append([i, i + half_size])
+        for block in blocks:
+            base = block[0]
+            for i in range(half_local):
+                rank_list.append([base + i, base + half_local + i])
         _CFG_GROUP = CommGroup(rank_list, rank, local_rank)
     else:
         raise ValueError("CFG size can only be 1 or 2")
 
-def initialize_cp_group(cp_size: int, cfg_size: int, rank: int, local_rank: int, world_size: int):
+def _cp_rank_lists(cfg_size: int, world_size: int, replica_size: int) -> List[List[int]]:
+    blocks = _replica_blocks(replica_size, world_size)
+    rank_list: List[List[int]] = []
+    if cfg_size == 2:
+        half_local = replica_size // 2
+        for block in blocks:
+            base = block[0]
+            rank_list.append(list(range(base, base + half_local)))
+            rank_list.append(list(range(base + half_local, base + replica_size)))
+    else:
+        for block in blocks:
+            base = block[0]
+            rank_list.append(list(range(base, base + replica_size)))
+    return rank_list
+
+def initialize_cp_group(cp_size: int, cfg_size: int, rank: int, local_rank: int, world_size: int, replica_size: int):
     global _CP_GROUP
     assert _CP_GROUP is None
-    
-    if cfg_size == 2:
-        # With CFG parallelism
-        half_size = world_size // 2
-        rank_list = [
-            list(range(0, half_size)),           # First half
-            list(range(half_size, world_size))   # Second half
-        ]
-    else:
-        # No CFG parallelism - all ranks in single group
-        rank_list = [list(range(world_size))]
-    
-    _CP_GROUP = CommGroup(rank_list, rank, local_rank)
+    _CP_GROUP = CommGroup(_cp_rank_lists(cfg_size, world_size, replica_size), rank, local_rank)
 
-def initialize_up_groups(up_sizes: List[int], up: int, cfg_size: int, rank: int, local_rank: int, world_size: int):
+def initialize_up_groups(up_sizes: List[int], up: int, cfg_size: int, rank: int, local_rank: int, world_size: int, replica_size: int):
     global _UP_GROUP_DICT
     assert _UP_GROUP_DICT is None
-    
+
     _UP_GROUP_DICT = {}
-    
-    # Get CP group size
+
     cp_group = get_cp_group()
     cp_group_size = cp_group.group_size
-    
-    # Get CP group ranks
-    if cfg_size == 2:
-        half_size = world_size // 2
-        cp_group_ranks = [
-            list(range(0, half_size)),
-            list(range(half_size, world_size))
-        ]
-    else:
-        cp_group_ranks = [list(range(world_size))]
-    
+
+    cp_group_ranks = _cp_rank_lists(cfg_size, world_size, replica_size)
+
     for up_size in up_sizes:
         if up_size == 0 or cp_group_size % up_size != 0:
             continue
-            
+
         if up_size > up:
             continue
-            
+
         rank_list = []
         for cp_ranks in cp_group_ranks:
             for i in range(0, len(cp_ranks), up_size):
                 group = cp_ranks[i:i+up_size]
                 if group:
                     rank_list.append(group)
-        
+
         if rank_list:
             _UP_GROUP_DICT[up_size] = CommGroup(rank_list, rank, local_rank)
+
+def initialize_dit_replica_group(rank: int, local_rank: int, world_size: int, replica_size: int):
+    global _DIT_REPLICA_GROUP
+    assert _DIT_REPLICA_GROUP is None
+    _DIT_REPLICA_GROUP = CommGroup(_replica_blocks(replica_size, world_size), rank, local_rank)
+
+def initialize_dit_dp_group(rank: int, local_rank: int, world_size: int, replica_size: int):
+    global _DIT_DP_GROUP
+    assert _DIT_DP_GROUP is None
+    dp_size = world_size // replica_size
+    if dp_size == 1:
+        # Single replica: every rank is its own singleton DP group.
+        rank_list = [[idx] for idx in range(world_size)]
+    else:
+        # Connect the same in-block offset across replicas.
+        rank_list = [
+            [offset + r * replica_size for r in range(dp_size)]
+            for offset in range(replica_size)
+        ]
+    _DIT_DP_GROUP = CommGroup(rank_list, rank, local_rank)
+
+# ---------------------------------------------------------------------------
+# M6 dynamic sequence-parallel (SP/CP) degree switching.
+#
+# ``_DYNAMIC_CP_GROUP_DICT`` maps an SP degree ``d`` -> a pre-warmed CommGroup
+# whose rank_lists partition each replica block into contiguous shards of size
+# ``d``. All groups are created ONCE at init so switching degree at runtime is a
+# pure pointer swap (``set_active_cp_group``) with zero NCCL group-creation cost.
+# ``_ACTIVE_CP_DEGREE`` tracks the degree the swappable ``_CP_GROUP`` currently
+# points at; ``_BASE_CP_GROUP`` remembers the launch-time group so the baseline
+# (dynamic_sp OFF) behaviour is untouched.
+# ---------------------------------------------------------------------------
+_DYNAMIC_CP_GROUP_DICT: Optional[Dict[int, CommGroup]] = None
+_ACTIVE_CP_DEGREE: Optional[int] = None
+_BASE_CP_GROUP: Optional[CommGroup] = None
+
+
+def dynamic_sp_enabled() -> bool:
+    return _DYNAMIC_CP_GROUP_DICT is not None
+
+
+def dynamic_sp_degrees() -> List[int]:
+    if _DYNAMIC_CP_GROUP_DICT is None:
+        return []
+    return sorted(_DYNAMIC_CP_GROUP_DICT.keys())
+
+
+def get_dynamic_cp_group(degree: int) -> CommGroup:
+    if _DYNAMIC_CP_GROUP_DICT is None or degree not in _DYNAMIC_CP_GROUP_DICT:
+        raise ValueError(
+            f"Dynamic CP group of degree {degree} not initialized "
+            f"(available: {dynamic_sp_degrees()})."
+        )
+    return _DYNAMIC_CP_GROUP_DICT[degree]
+
+
+def get_active_cp_degree() -> int:
+    """Degree the swappable CP group currently points at (1 when not init)."""
+    if _ACTIVE_CP_DEGREE is None:
+        return get_cp_size()
+    return _ACTIVE_CP_DEGREE
+
+
+def set_active_cp_group(degree: int) -> None:
+    """Point the global ``_CP_GROUP`` at the pre-warmed group for ``degree``.
+
+    O(1) pointer swap over already-created communicators -- no NCCL group
+    creation happens here (verified by the pre-warm at init). The Z-Image
+    ``cp_forward`` reads ``get_cp_group()`` fresh every call, so the next
+    transformer forward transparently shards at the new degree.
+    """
+    global _CP_GROUP, _ACTIVE_CP_DEGREE
+    _CP_GROUP = get_dynamic_cp_group(degree)
+    _ACTIVE_CP_DEGREE = degree
+
+
+def get_cp_size() -> int:
+    global _CP_GROUP
+    if _CP_GROUP is None:
+        return 1
+    return _CP_GROUP.group_size
+
+
+def initialize_dynamic_sp_groups(
+    cfg_size: int,
+    world_size: int,
+    replica_size: int,
+    rank: int,
+    local_rank: int,
+    degrees: Optional[List[int]] = None,
+) -> None:
+    """Pre-warm CP communicator groups for every feasible SP degree.
+
+    Given a replica block of ``replica_size`` ranks (``cfg_size * cp_size``), the
+    feasible SP degrees are the divisors of ``replica_size`` (e.g. replica_size=4
+    -> {1, 2, 4}). For each degree ``d`` we build a CommGroup whose rank_lists
+    split every replica block into contiguous shards of size ``d`` -- the DP /
+    replica arrangement is the complement (``replica_size / d`` shards per block).
+    The launch-time ``_CP_GROUP`` (degree == cp_size) is reused so nothing about
+    the baseline layout changes; only the *extra* degrees allocate new groups.
+    """
+    global _DYNAMIC_CP_GROUP_DICT, _ACTIVE_CP_DEGREE, _BASE_CP_GROUP
+    assert _CP_GROUP is not None, "CP group must be initialized before dynamic SP groups."
+
+    base_degree = _CP_GROUP.group_size
+    _BASE_CP_GROUP = _CP_GROUP
+
+    if degrees is None:
+        degrees = [d for d in range(1, replica_size + 1) if replica_size % d == 0]
+    degrees = sorted(set(int(d) for d in degrees if replica_size % int(d) == 0))
+
+    group_dict: Dict[int, CommGroup] = {}
+    for degree in degrees:
+        if degree == base_degree:
+            # Reuse the launch-time CP group verbatim (same rank_lists).
+            group_dict[degree] = _CP_GROUP
+            continue
+        # A CP layout at ``degree`` is exactly the standard CP rank-lists with
+        # replica_size == degree (contiguous blocks of size ``degree``). new_group
+        # deduping in comm_group means identical rank tuples are never rebuilt.
+        rank_lists = _cp_rank_lists(cfg_size=1, world_size=world_size, replica_size=degree)
+        group_dict[degree] = CommGroup(rank_lists, rank, local_rank)
+
+    _DYNAMIC_CP_GROUP_DICT = group_dict
+    _ACTIVE_CP_DEGREE = base_degree
+
+    if rank == 0:
+        logger.info(
+            "Pre-warmed dynamic SP groups: degrees=%s base=%d (replica_size=%d, world=%d)",
+            sorted(group_dict.keys()), base_degree, replica_size, world_size,
+        )
+        for degree, grp in sorted(group_dict.items()):
+            logger.info("  dynamic CP degree %d: rank_list=%s", degree, grp.rank_list)
+
 
 def initialize_diffusion_parallel_groups(
     cfg_size: int,
     cp_size: int,
     up: int = 8,
+    dp_size: int = 1,
+    dynamic_sp: bool = False,
 ):
     global _PARALLEL_GROUPS_INITIALIZED
     assert not _PARALLEL_GROUPS_INITIALIZED
-    
-    logger.info(
-        f"initialize_diffusion_parallel_groups: {cfg_size=}, {cp_size=}, {up=}"
-    )
-    
+
     rank = torch.distributed.get_rank()
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     world_size = torch.distributed.get_world_size()
-    
+
+    replica_size = cfg_size * cp_size
+    assert world_size == dp_size * replica_size, (
+        f"World size mismatch: {world_size} != dp_size({dp_size}) * "
+        f"cfg_size({cfg_size}) * cp_size({cp_size})"
+    )
+
+    logger.info(
+        f"initialize_diffusion_parallel_groups: {cfg_size=}, {cp_size=}, {up=}, "
+        f"{dp_size=}, {replica_size=}"
+    )
+
     # Initialize groups in order
     initialize_world_group(rank, local_rank, world_size)
-    initialize_cfg_group(cfg_size, rank, local_rank, world_size)
-    initialize_cp_group(cp_size, cfg_size, rank, local_rank, world_size)
+    initialize_dit_replica_group(rank, local_rank, world_size, replica_size)
+    initialize_dit_dp_group(rank, local_rank, world_size, replica_size)
+    initialize_cfg_group(cfg_size, rank, local_rank, world_size, replica_size)
+    initialize_cp_group(cp_size, cfg_size, rank, local_rank, world_size, replica_size)
 
     max_up_size = min(up, cp_size)
     up_sizes = [max_up_size, max_up_size // 2] # TODO: More up sizes to support DiTango Support
-    initialize_up_groups(up_sizes, up, cfg_size, rank, local_rank, world_size)
+    initialize_up_groups(up_sizes, up, cfg_size, rank, local_rank, world_size, replica_size)
+
+    # M6: pre-warm CP groups for every feasible SP degree so runtime switching
+    # pays no NCCL group-creation cost. Gated by dynamic_sp; baseline untouched.
+    if dynamic_sp:
+        initialize_dynamic_sp_groups(
+            cfg_size=cfg_size,
+            world_size=world_size,
+            replica_size=replica_size,
+            rank=rank,
+            local_rank=local_rank,
+        )
     
     # Debug logging
     if rank == 0:
+        logger.info(f"Replica groups initialized: {get_dit_replica_group().rank_list}")
+        logger.info(f"DiT DP groups initialized: {get_dit_dp_group().rank_list}")
         logger.info(f"CFG groups initialized: {get_cfg_group().rank_list}")
         logger.info(f"CP groups initialized: {get_cp_group().rank_list}")
         for size, up_group in _UP_GROUP_DICT.items():

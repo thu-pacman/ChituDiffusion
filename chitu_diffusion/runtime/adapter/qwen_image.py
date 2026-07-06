@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from logging import getLogger
 from math import prod
@@ -10,11 +11,15 @@ import torch
 import torch.distributed as dist
 
 from chitu_diffusion.core.distributed.parallel_state import get_cp_group
+from chitu_diffusion.core.logging_utils import log_result
 from chitu_diffusion.models.parallel import ModelParallelCapabilities
 from chitu_diffusion.flexcache.freecache_core import is_step_level_cache_strategy
 from chitu_diffusion.parallel.state import ContextParallelLatentState, ParallelTaskState
 from chitu_diffusion.parallel.vae import parallel_tiled_vae_decode
 from chitu_diffusion.runtime.adapter.base import DiffusionRuntimeAdapter, register_model_runtime, set_cfg_type
+from chitu_diffusion.runtime.data_parallel import dp_is_active, dp_shard_sample_seeds
+from chitu_diffusion.runtime.image_output import save_image_as_png
+from chitu_diffusion.runtime.output_layout import task_results_dir
 from chitu_diffusion.runtime.parallel_utils import SequencePadder
 
 logger = getLogger(__name__)
@@ -45,6 +50,9 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
 
     def supports_cfg(self, args: Any) -> bool:
         return float(args.models.sampler.guidance_scale[0]) > 1.0
+
+    def supports_n_sample(self) -> bool:
+        return True
 
     def _torch_dtype(self, args: Any) -> torch.dtype:
         variant = str(getattr(args, "float_16bit_variant", "bfloat16")).lower()
@@ -472,25 +480,38 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         device = torch.device(torch.cuda.current_device())
         pipe = self._ensure_pipeline(backend.args, device)
         width, height = task.req.params.size
-        seed = int(task.req.params.seed if task.req.params.seed is not None else backend.args.infer.seed)
-        seed_g = torch.Generator(device=device).manual_seed(seed)
         embeddings = task.buffer.text_embeddings if task.buffer.text_embeddings is not None else task.buffer.negative_embeddings
         if embeddings is None:
             raise RuntimeError("Qwen-Image denoise requires text or negative embeddings.")
-        batch_size = embeddings.shape[0]
         num_inference_steps = int(task.req.params.num_inference_steps)
         num_channels_latents = pipe.transformer.config.in_channels // 4
 
-        latents = pipe.prepare_latents(
-            batch_size,
-            num_channels_latents,
-            height,
-            width,
-            embeddings.dtype,
-            device,
-            seed_g,
-            latents=None,
-        )
+        # n_sample: one request generates n images (same prompt/size, seed +i for
+        # diversity). Build one latent row per seed so row i is bit-identical to a
+        # single-sample request with seed=base+i. Naive data parallel is applied
+        # via a model-agnostic helper that returns only this replica's seed slice
+        # (dp_size==1 -> all seeds), so the rest of prepare stays DP-unaware.
+        seeds = dp_shard_sample_seeds(task.req.params, fallback=int(backend.args.infer.seed))
+        n_sample = len(seeds)
+        latent_rows = []
+        for row_seed in seeds:
+            row_g = torch.Generator(device=device).manual_seed(int(row_seed))
+            latent_rows.append(
+                pipe.prepare_latents(
+                    1,
+                    num_channels_latents,
+                    height,
+                    width,
+                    embeddings.dtype,
+                    device,
+                    row_g,
+                    latents=None,
+                )
+            )
+        latents = torch.cat(latent_rows, dim=0) if n_sample > 1 else latent_rows[0]
+        # seed_g kept for compatibility; points at the first sample's generator.
+        seed_g = torch.Generator(device=device).manual_seed(int(seeds[0]))
+        self._expand_embeddings_for_samples(task, n_sample)
         sigmas = np.linspace(1.0, 1 / num_inference_steps, num_inference_steps)
         mu = calculate_shift(
             latents.shape[1],
@@ -564,6 +585,26 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             guidance_scale,
             cp_local,
         )
+
+    @staticmethod
+    def _expand_embeddings_for_samples(task, n_sample: int) -> None:
+        """Replicate the single-prompt embeddings (and masks) to n_sample rows so
+        they line up with the batched latent. Samples share one prompt and differ
+        only by seed, so a plain batch-dim repeat is exact. On a cfg_size==2 rank
+        only one branch is populated; repeating a missing branch is a no-op.
+        """
+        if n_sample <= 1:
+            return
+        for emb_name, mask_name in (
+            ("text_embeddings", "text_embeddings_mask"),
+            ("negative_embeddings", "negative_embeddings_mask"),
+        ):
+            emb = getattr(task.buffer, emb_name, None)
+            if isinstance(emb, torch.Tensor) and emb.shape[0] == 1:
+                setattr(task.buffer, emb_name, emb.repeat(n_sample, *([1] * (emb.ndim - 1))))
+            mask = getattr(task.buffer, mask_name, None)
+            if isinstance(mask, torch.Tensor) and mask.shape[0] == 1:
+                setattr(task.buffer, mask_name, mask.repeat(n_sample, *([1] * (mask.ndim - 1))))
 
     def _img_shapes(self, task, pipe) -> list[list[tuple[int, int, int]]]:
         width, height = task.buffer.image_size or task.req.params.size
@@ -1024,6 +1065,11 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         def _decode(z: torch.Tensor) -> torch.Tensor:
             return pipe.vae.decode(z, return_dict=False)[0][:, :, 0]
 
+        if dp_is_active():
+            # Naive data parallel: this replica owns only its slice of the
+            # n_sample batch (latents are full within the replica). Decode it
+            # locally; the generator gathers the slices across the DP group.
+            return _decode(latents)
         # latents: [B, C, 1, H_lat, W_lat] -> split on H_lat (dim 3);
         # decoded pixels: [B, 3, H, W] -> H is dim 2; VAE upsamples by vae_scale_factor.
         return parallel_tiled_vae_decode(
@@ -1035,5 +1081,38 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         )
 
     def save_output(self, task, output: Optional[torch.Tensor], generator, backend) -> None:
-        if torch.distributed.get_rank() == 0:
-            generator._save_image(task, output)
+        if torch.distributed.get_rank() != 0 or output is None:
+            return
+        run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
+        if run_output_dir:
+            task.req.params.save_dir = task_results_dir(run_output_dir, task.task_id)
+        os.makedirs(task.req.params.save_dir, exist_ok=True)
+
+        seeds = task.req.params.sample_seeds(fallback=int(backend.args.infer.seed))
+        prompt_slug = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "")
+        model_name = getattr(getattr(getattr(backend, "args", None), "models", None), "name", None)
+        n_images = output.shape[0]
+        multi = n_images > 1
+        for idx in range(n_images):
+            row_seed = seeds[idx] if idx < len(seeds) else None
+            suffix = f"_s{idx}" if multi else ""
+            save_name = f"{prompt_slug}_{task.task_id}{suffix}.png"
+            save_path = os.path.join(task.req.params.save_dir, save_name)
+            save_image_as_png(output[idx], save_path)
+
+            sidecar_path = os.path.splitext(save_path)[0] + ".json"
+            metadata = {
+                "filename": os.path.basename(save_path),
+                "relative_path": os.path.join(os.path.basename(task.req.params.save_dir), os.path.basename(save_path)),
+                "prompt": task.req.get_prompt(),
+                "seed": row_seed,
+                "sample_index": idx,
+                "n_sample": n_images,
+                "step": getattr(task.req.params, "num_inference_steps", None),
+                "task_id": task.task_id,
+                "model_name": model_name,
+            }
+            with open(sidecar_path, "w", encoding="utf-8") as f:
+                json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+            log_result(logger, task_id=task.task_id, message=f"image_saved={save_path}")

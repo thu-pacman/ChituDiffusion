@@ -128,6 +128,12 @@ class DiffusionRuntimeAdapter:
     def schedule_each_stage(self) -> bool:
         return False
 
+    def supports_n_sample(self) -> bool:
+        """Whether this adapter can generate multiple samples (n_sample>1) in a
+        single request via a batched latent. Adapters that still assume batch=1
+        return False so the runtime rejects n_sample>1 with a clear error."""
+        return False
+
     def configure_external_components(self, backend, attn_backend=None, rope_impl=None) -> None:
         return None
 

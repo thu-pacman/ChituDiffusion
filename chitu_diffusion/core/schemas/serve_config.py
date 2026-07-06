@@ -65,6 +65,21 @@ class InferConfig:
         cfg_size: int = MISSING
         cp_size: int = MISSING
         up: int = MISSING
+        # M3 continuous batching (SP=1, same shape/step): when True the scheduler
+        # may return a group of same-shape denoise-ready requests and the generator
+        # runs one batched transformer forward per step for the whole group. Default
+        # False keeps the byte-for-byte single-task path. `max_batch_items` caps the
+        # group size. Can also be toggled via env CHITU_CONTINUOUS_BATCH.
+        continuous_batch: bool = False
+        max_batch_items: int = 8
+        # M6 dynamic sequence-parallel (SP/CP) degree switching. When True, the
+        # runtime pre-warms CP communicator groups for every feasible degree given
+        # the world size (e.g. 4 GPUs -> {1,2,4}) at init, so a work-item can change
+        # its SP degree between denoise steps with zero NCCL group-creation cost.
+        # Baseline OFF keeps every M0-M4 path byte-identical. The switch schedule
+        # for verification is driven by env (CHITU_SP_SWITCH_STEP / CHITU_SP_INITIAL
+        # / CHITU_SP_TARGET); the M7 throughput scheduler will own it programmatically.
+        dynamic_sp: bool = False
         low_mem_level: int = MISSING # In low gpu memory mode, models will be offloaded to cpu and only loaded in needed stage. 
         # Controls per-stage model residency (device_scope) for VAE / text encoder:
         #   "auto"           -> keep already-resident models on GPU (skip empty_cache thrash);

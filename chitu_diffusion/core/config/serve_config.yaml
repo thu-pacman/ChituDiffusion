@@ -11,7 +11,7 @@ serve:
 infer:
   tp_size: 1
   pp_size: 1
-  dp_size: 1
+  dp_size: 1 # diffusion data-parallel replicas; world_size must == dp_size * cfg_size * cp_size (each replica is a cfg_size*cp_size block)
   ep_size: 1
   do_load: True # Legacy parameter. To be removed in the future.
   seed: 0
@@ -41,6 +41,14 @@ infer:
     cfg_size: 1
     cp_size: 1
     up: 8
+    scheduling_policy: fifo # fifo, step_interleave, admission_control, shape_aware_ratio, static_dp, request_parallel
+    step_interleave: false # release a denoise task after each step so the scheduler can pick another request
+    continuous_batch: false # M3: batch a group of same-shape same-step denoise-ready requests into one transformer forward (SP=1 only)
+    max_batch_items: 8 # cap on the number of work-items batched together when continuous_batch is on
+    dynamic_sp: false # M6: pre-warm CP groups for all feasible SP degrees and allow per-item SP-degree switching at denoise step boundaries
+    execution_profiles: [] # e.g. [{group_id: dp0, ranks: [0], cp_size: 1, dp_replicas: 1, mode: dp}]
+    hotswitch_enabled: false # experimental: prepare CP/DP layout migration at denoise step boundaries
+    switch_allowed_until_step: 0
     low_mem_level: 0
     offload_policy: auto # one of: auto, always_offload, never_offload
     compile_mode: "off" # one of: off, default, reduce-overhead, max-autotune-no-cudagraphs

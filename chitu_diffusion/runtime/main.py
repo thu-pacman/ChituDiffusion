@@ -260,22 +260,40 @@ def chitu_run_main_rank():
         This should only be called on rank 0. Other ranks should call
         chitu_generate() which delegates to the generator directly.
     """
-    task_ids = DiffusionBackend.scheduler.schedule()
-    # logger.info(f"[Scheduler] scheduled task_ids={task_ids}")
-    
-    # 再基于task_ids给出打包
-    if task_ids:
-        # compute
-        logger.debug(f"Processing {task_ids}")
-        task = DiffusionTaskPool.get_control_task(task_ids[0])
-        if task is None:
-            task = DiffusionTaskPool.pool[task_ids[0]]
-        out = DiffusionBackend.generator.step(task)
-        if out is not None:
-            logger.debug(f"[run] executor.step returned. {out.shape=}")
-        # postprocess        
-    else:
+    generator = DiffusionBackend.generator
+
+    # M4 mixed-step continuous batching: the engine owns admission/retirement at
+    # denoise step boundaries, so rank 0 just drives one engine round. Admissions
+    # are pulled from the pending pool inside the round (planned on rank 0 and
+    # broadcast to workers); control signals and non-groupable work fall back to
+    # the single-task path internally.
+    if getattr(generator, "continuous_batch", False):
+        generator.step()
+        return
+
+    decisions = DiffusionBackend.scheduler.schedule_decisions()
+    task_ids = [decision.task_id for decision in decisions]
+    # logger.info(f"[Scheduler] scheduled decisions={decisions}")
+
+    if not task_ids:
         logger.debug("No tasks scheduled in this round.")
+        return
+
+    # Single-task path (unchanged).
+    logger.debug(f"Processing {task_ids}")
+    decision = decisions[0]
+    task = DiffusionTaskPool.get_control_task(task_ids[0])
+    if task is None:
+        task = DiffusionTaskPool.pool[task_ids[0]]
+    if decision.hotswitch_action and not task.is_control_signal():
+        DiffusionBackend.generator.prepare_hotswitch(
+            task,
+            decision.hotswitch_action,
+            reason=decision.reason,
+        )
+    out = generator.step(task)
+    if out is not None:
+        logger.debug(f"[run] executor.step returned. {out.shape=}")
 
 @torch.inference_mode()
 def chitu_generate():
@@ -289,6 +307,9 @@ def chitu_generate():
     Note:
         Must be called on all ranks in a synchronized manner for distributed inference.
     """
+    # Naive data parallel: rank 0 broadcasts the SAME request to every rank and
+    # each replica shards the request's n_sample batch by its replica index. So
+    # the driver loop is identical to the single-replica case.
     rank = torch.distributed.get_rank()
     if rank != 0:
         DiffusionBackend.generator.step(None) 

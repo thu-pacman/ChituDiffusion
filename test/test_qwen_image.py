@@ -26,6 +26,7 @@ logger = getLogger(__name__)
 
 def build_request(args: ServeConfig) -> DiffusionUserRequest:
     request_id = os.getenv("CHITU_RUN_TASK_ID") or f"{gen_req_id()}"
+    steps = int(os.getenv("CHITU_QWEN_STEPS", str(args.models.sampler.sample_steps)))
     return DiffusionUserRequest(
         request_id=request_id,
         params=DiffusionUserParams(
@@ -34,11 +35,12 @@ def build_request(args: ServeConfig) -> DiffusionUserRequest:
                 'A coffee shop entrance features a chalkboard sign reading "Qwen Coffee $2 per cup", '
                 'with a neon light beside it displaying "ChituDiffusion". Ultra HD, 4K, cinematic composition.'
             ),
-            seed=42,
+            seed=int(os.getenv("CHITU_QWEN_SEED", "42")),
             frame_num=1,
             size=(1328, 1328),
             negative_prompt=" ",
-            num_inference_steps=args.models.sampler.sample_steps,
+            num_inference_steps=steps,
+            n_sample=int(os.getenv("CHITU_QWEN_N_SAMPLE", "1")),
             sample_solver="flowmatch_euler",
             flexcache_params=None,
         ),

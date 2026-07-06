@@ -36,8 +36,7 @@ def _flexcache_params():
     return payload
 
 
-def build_request(args: ServeConfig) -> DiffusionUserRequest:
-    request_id = os.getenv("CHITU_RUN_TASK_ID") or f"{gen_req_id()}"
+def _build_request(args: ServeConfig, request_id: str, seed: int) -> DiffusionUserRequest:
     width, height = [
         int(item.strip())
         for item in os.getenv("CHITU_Z_IMAGE_SIZE", "1024,1024").lower().replace("x", ",").split(",", 1)
@@ -51,7 +50,7 @@ def build_request(args: ServeConfig) -> DiffusionUserRequest:
                 'A compact workstation desk with a small sign reading "Z-Image x ChituDiffusion", '
                 "soft morning light, crisp product photography, detailed cables and notebooks."
             ),
-            seed=int(os.getenv("CHITU_Z_IMAGE_SEED", "42")),
+            seed=seed,
             frame_num=1,
             size=(width, height),
             negative_prompt=os.getenv(
@@ -61,10 +60,30 @@ def build_request(args: ServeConfig) -> DiffusionUserRequest:
                 "extra objects, duplicated objects, watermark, jpeg artifacts",
             ),
             num_inference_steps=steps,
+            n_sample=int(os.getenv("CHITU_Z_IMAGE_N_SAMPLE", "1")),
             sample_solver="flowmatch_euler",
             flexcache_params=_flexcache_params(),
         ),
     )
+
+
+def build_requests(args: ServeConfig) -> list[DiffusionUserRequest]:
+    """Build N requests (CHITU_Z_IMAGE_N_REQUESTS, default 1).
+
+    For the M3 continuous-batch correctness gate: with N>1 requests each using
+    n_sample=1 and seeds base, base+1, ..., base+N-1 (same prompt/size/steps),
+    the per-seed final latents must match a single n_sample=N request (seed base)
+    run through the legacy path -- this is the same-batch reference the plan asks
+    for (avoids single-sample batch nondeterminism)."""
+    n_requests = max(1, int(os.getenv("CHITU_Z_IMAGE_N_REQUESTS", "1")))
+    base_id = os.getenv("CHITU_RUN_TASK_ID") or f"{gen_req_id()}"
+    base_seed = int(os.getenv("CHITU_Z_IMAGE_SEED", "42"))
+    reqs = []
+    for i in range(n_requests):
+        request_id = base_id if n_requests == 1 else f"{base_id}_r{i}"
+        seed = base_seed if n_requests == 1 else base_seed + i
+        reqs.append(_build_request(args, request_id, seed))
+    return reqs
 
 
 def main(args: ServeConfig):
@@ -89,7 +108,7 @@ def main(args: ServeConfig):
         rank = torch.distributed.get_rank()
         run_output_dir = None
         if rank == 0:
-            reqs = [build_request(args)]
+            reqs = build_requests(args)
             run_output_dir = run_context.build_run_output_dir(reqs)
             run_context.activate_run(run_output_dir)
             run_context.apply_request_output_dirs(run_output_dir, reqs)

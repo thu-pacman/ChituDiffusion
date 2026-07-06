@@ -57,6 +57,9 @@ class DiffusionUserParams:
     prompt: str = None
     negative_prompt: Optional[str] = None
     seed: Optional[int] = None
+    # 一个请求生成的样本数（同 prompt/尺寸，seed 递增以获得多样性）。
+    # n_sample>1 依赖模型 adapter 的基础 batch 支持；尺寸被锁死为相同，避免 ragged 序列。
+    n_sample: int = 1
     # 调度器参数
     sample_solver: str = "ddpm"
     num_inference_steps: int = None
@@ -68,12 +71,30 @@ class DiffusionUserParams:
     flexcache_params: Optional[Union[FlexCacheParams, Dict[str, Any]]] = None
 
     def __post_init__(self):
+        if self.n_sample is None:
+            self.n_sample = 1
+        self.n_sample = int(self.n_sample)
+        if self.n_sample < 1:
+            raise ValueError(f"n_sample must be >= 1, got {self.n_sample}.")
         if isinstance(self.flexcache_params, dict):
             strategy = (self.flexcache_params.get("strategy") or "").strip().lower()
             cls = FLEXCACHE_PARAM_CLASSES.get(strategy)
             if cls is None:
                 raise ValueError(f"Unsupported acceleration strategy '{self.flexcache_params.get('strategy')}'.")
             self.flexcache_params = cls(**self.flexcache_params)
+
+    def base_seed(self, fallback: int = 0) -> int:
+        """请求的基准 seed；未指定时回退到全局 seed。"""
+        return int(self.seed if self.seed is not None else fallback)
+
+    def sample_seeds(self, fallback: int = 0) -> list[int]:
+        """为 n_sample 个样本生成递增 seed 列表 [s, s+1, ..., s+n-1]。
+
+        这样 n_sample=N、base_seed=S 的一个请求，其第 i 张图与 seed=S+i 的单样本
+        请求逐位一致，便于与 data parallel 副本（每副本跑一个 seed）对齐。
+        """
+        base = self.base_seed(fallback)
+        return [base + offset for offset in range(int(self.n_sample))]
 
     def resolve_flexcache_params(self) -> Optional[FlexCacheParams]:
         """
@@ -261,6 +282,56 @@ class DiffusionTaskBuffer:
     image_size: Optional[tuple[int, int]] = field(default=None)
     parallel: ParallelTaskState = field(default_factory=ParallelTaskState)
 
+@dataclass
+class WorkItem:
+    """一个 (request, sample) 粒度的去噪工作单元（M2 抽象）。
+
+    一个 ``n_sample=N`` 的请求在逻辑上展开成 N 个 work-item：它们**共享**父
+    task 的 text embedding / timesteps（文本只编码一次，按引用共享），各自对应
+    一行 latent（一个 seed）。work-item 是调度器分派与回收的最小单位。
+
+    注意：物理去噪 forward 仍把同 shape/同 step 的 work-item 批在一起执行
+    （见 generator），因此数值与批量 n_sample 路径逐位一致 —— M2 只改变
+    "调度/记账的粒度"，不改变"执行的批"。跨请求的成批由 M3 在 generator 侧完成，
+    届时会消费 ``DiffusionTask.work_items()``。
+    """
+
+    task: "DiffusionTask"
+    sample_index: int
+
+    @property
+    def task_id(self) -> str:
+        return self.task.task_id
+
+    @property
+    def request_id(self):
+        if self.task.req is not None:
+            return self.task.req.request_id
+        return self.task.task_id
+
+    @property
+    def n_sample(self) -> int:
+        return self.task.n_sample()
+
+    @property
+    def current_step(self) -> int:
+        return int(self.task.buffer.current_step)
+
+    def shape_key(self) -> tuple:
+        return self.task.shape_key()
+
+    @property
+    def batch_key(self) -> tuple:
+        """同一 batch_key 的 work-item 可进同一次 forward（M3/M4 用）。
+
+        M3 只允许同 shape 同 step；M4 放开 step 后 batch_key 去掉 step 分量。
+        """
+        return (self.shape_key(), self.current_step)
+
+    def __repr__(self) -> str:
+        return f"WorkItem(task={self.task_id}, sample={self.sample_index}/{self.n_sample})"
+
+
 class DiffusionTask:
     
     def __init__(
@@ -285,6 +356,13 @@ class DiffusionTask:
          # 系统信号数据
         self.signal_data = signal_data or {}
         
+        now = time.perf_counter_ns()
+        self.arrival_ts = now
+        self.admission_ts: Optional[int] = None
+        self.sched_ts: Optional[int] = None
+        self.last_scheduled_ts: Optional[int] = None
+        self.scheduler_metadata: Dict[str, Any] = {}
+
         # 错误信息
         self.error_message: Optional[str] = None
 
@@ -353,6 +431,39 @@ class DiffusionTask:
         if self.is_control_signal():
             return False
         return self.status == DiffusionTaskStatus.Running
+
+    def remaining_denoise_steps(self) -> Optional[int]:
+        if self.req is None or self.req.params is None:
+            return None
+        total_steps = self.req.params.num_inference_steps
+        if total_steps is None:
+            return None
+        return max(0, int(total_steps) - int(self.buffer.current_step))
+
+    def shape_key(self) -> tuple:
+        if self.req is None or self.req.params is None:
+            return ()
+        params = self.req.params
+        return (
+            tuple(params.size) if params.size is not None else None,
+            getattr(params, "frame_num", None),
+            self.buffer.seq_len,
+            self.buffer.image_size,
+            getattr(params, "sample_solver", None),
+            getattr(params, "num_inference_steps", None),
+        )
+
+    def n_sample(self) -> int:
+        """本 task 展开的 work-item 数（=请求的 n_sample，控制信号为 0）。"""
+        if self.is_control_signal():
+            return 0
+        if self.req is not None and self.req.params is not None:
+            return max(1, int(getattr(self.req.params, "n_sample", 1) or 1))
+        return 1
+
+    def work_items(self) -> list["WorkItem"]:
+        """把本 task 展开成 n_sample 个 work-item（共享 buffer/embedding 引用）。"""
+        return [WorkItem(self, idx) for idx in range(self.n_sample())]
 
     def __repr__(self):
         return (
@@ -497,7 +608,7 @@ class DiffusionTask:
 class DiffusionTaskPool:
     pool: dict[str, DiffusionTask] = {}
     id_list: list[str] = []
-    pending_queue: deque[DiffusionTask] = Deque()
+    pending_queue: deque[DiffusionTask] = deque()
     shutdown_task: DiffusionTask | None = None
     cancel_task: DiffusionTask | None = None
 
@@ -511,6 +622,7 @@ class DiffusionTaskPool:
     def reset(cls):
         cls.pool = {}
         cls.id_list = []
+        cls.pending_queue = deque()
         cls.shutdown_task = None
         cls.cancel_task = None
 
@@ -580,6 +692,7 @@ class DiffusionTaskPool:
     def add(cls, task: DiffusionTask):
         if task.task_id in cls.pool:
             return False  # Task already exists, failed to add
+        task.admission_ts = time.perf_counter_ns()
         cls.pool[task.task_id] = task
         cls.id_list.append(task.task_id)
         return True
@@ -592,6 +705,28 @@ class DiffusionTaskPool:
     def add_all_queued(cls):
         while cls.pending_queue:
             cls.add(cls.pending_queue.popleft())
+
+    @classmethod
+    def pending_task_ids(cls) -> list[str]:
+        return [
+            task_id for task_id in cls.id_list
+            if cls.pool[task_id].status == DiffusionTaskStatus.Pending
+        ]
+
+    @classmethod
+    def work_item_count(cls) -> int:
+        """池中所有非控制 task 展开的 work-item 总数（M7 调度/利用率用）。"""
+        return sum(task.n_sample() for task in cls.pool.values() if not task.is_control_signal())
+
+    @classmethod
+    def pending_work_items(cls) -> list["WorkItem"]:
+        """所有 Pending task 展开的 work-item，保持 id_list 的到达顺序。"""
+        items: list[WorkItem] = []
+        for task_id in cls.id_list:
+            task = cls.pool[task_id]
+            if task.status == DiffusionTaskStatus.Pending and not task.is_control_signal():
+                items.extend(task.work_items())
+        return items
 
     @classmethod
     def remove(cls, task_id: str):
