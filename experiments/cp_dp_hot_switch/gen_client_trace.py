@@ -84,6 +84,28 @@ def _parse_n_sample_dist(text: str) -> list[tuple[int, float]]:
     return [(n, p / total) for n, p in pairs]
 
 
+def _bursty_arrivals(
+    rng: random.Random, burst_sizes: list[int], intra_burst_ms: float, lull_ms: float
+) -> list[tuple[float, int]]:
+    """Arrival times for an alternating burst/lull pattern.
+
+    Each *phase* is a burst of ``k`` requests (exponential inter-arrivals with mean
+    ``intra_burst_ms``), followed by an idle ``lull_ms`` gap long enough for the pool to
+    drain -- so during a lull a lone request can upshift to a wide SP group, while during a
+    burst the pool saturates and the scheduler falls back to DP concurrency / fairness.
+    Returns ``(arrival_ms, phase_index)`` per request so callers can shape phases.
+    """
+    arrivals: list[tuple[float, int]] = []
+    t = 0.0
+    for phase, k in enumerate(burst_sizes):
+        for j in range(k):
+            if arrivals:  # first request of the whole trace starts at t=0
+                t += rng.expovariate(1.0 / intra_burst_ms) if j > 0 else 0.0
+            arrivals.append((round(t, 3), phase))
+        t += lull_ms
+    return arrivals
+
+
 def generate_trace(
     *,
     rate_req_per_s: float,
@@ -97,6 +119,9 @@ def generate_trace(
     prompts: list[str],
     negative_prompt: str,
     solver: str,
+    burst_sizes: list[int] | None = None,
+    intra_burst_ms: float = 70.0,
+    lull_ms: float = 9000.0,
 ) -> dict:
     rng = random.Random(rng_seed)
     if rate_req_per_s <= 0:
@@ -106,14 +131,28 @@ def generate_trace(
     n_values = [n for n, _ in n_sample_dist]
     n_probs = [p for _, p in n_sample_dist]
 
+    bursty = burst_sizes is not None
+    if bursty:
+        arrivals = _bursty_arrivals(rng, burst_sizes, intra_burst_ms, lull_ms)
+        num_requests = len(arrivals)
+
     requests = []
     arrival_ms = 0.0
     seed = base_seed
     for i in range(num_requests):
-        # Poisson process: exponential inter-arrival times. First request at t=0.
-        if i > 0:
-            arrival_ms += rng.expovariate(1.0 / mean_interarrival_ms)
-        width, height = rng.choices(sizes, weights=size_weights, k=1)[0]
+        if bursty:
+            arrival_ms, phase = arrivals[i]
+            # A solo phase (burst of 1) is meant to run alone: force it to the primary
+            # (largest / most SP-friendly) shape so the "SP when idle" behavior is visible.
+            if burst_sizes[phase] == 1:
+                width, height = sizes[0]
+            else:
+                width, height = rng.choices(sizes, weights=size_weights, k=1)[0]
+        else:
+            # Poisson process: exponential inter-arrival times. First request at t=0.
+            if i > 0:
+                arrival_ms += rng.expovariate(1.0 / mean_interarrival_ms)
+            width, height = rng.choices(sizes, weights=size_weights, k=1)[0]
         n_sample = rng.choices(n_values, weights=n_probs, k=1)[0]
         prompt = prompts[i % len(prompts)]
         requests.append(
@@ -133,22 +172,25 @@ def generate_trace(
         seed += n_sample  # keep per-image seeds globally distinct
 
     duration_ms = requests[-1]["arrival_ms"] if requests else 0.0
-    return {
-        "meta": {
-            "generated_by": "gen_client_trace.py",
-            "rate_req_per_s": rate_req_per_s,
-            "num_requests": num_requests,
-            "rng_seed": rng_seed,
-            "base_seed": base_seed,
-            "sizes": [f"{w}x{h}" for w, h in sizes],
-            "size_weights": size_weights,
-            "num_steps": num_steps,
-            "n_sample_dist": {str(n): p for n, p in n_sample_dist},
-            "duration_ms": round(duration_ms, 3),
-            "mean_interarrival_ms": round(mean_interarrival_ms, 3),
-        },
-        "requests": requests,
+    meta = {
+        "generated_by": "gen_client_trace.py",
+        "rate_req_per_s": rate_req_per_s,
+        "num_requests": num_requests,
+        "rng_seed": rng_seed,
+        "base_seed": base_seed,
+        "sizes": [f"{w}x{h}" for w, h in sizes],
+        "size_weights": size_weights,
+        "num_steps": num_steps,
+        "n_sample_dist": {str(n): p for n, p in n_sample_dist},
+        "duration_ms": round(duration_ms, 3),
+        "mean_interarrival_ms": round(mean_interarrival_ms, 3),
     }
+    if bursty:
+        meta["pattern"] = "bursty"
+        meta["burst_sizes"] = list(burst_sizes)
+        meta["intra_burst_ms"] = intra_burst_ms
+        meta["lull_ms"] = lull_ms
+    return {"meta": meta, "requests": requests}
 
 
 def load_client_trace(path: str | Path) -> list[dict]:
@@ -170,12 +212,23 @@ def main() -> None:
     ap.add_argument("--base-seed", type=int, default=42)
     ap.add_argument("--rng-seed", type=int, default=0, help="Seed for the arrival/shape/prompt RNG (reproducible).")
     ap.add_argument("--solver", type=str, default="flowmatch_euler")
+    ap.add_argument(
+        "--burst-sizes",
+        type=str,
+        default=None,
+        help="Enable the bursty pattern: comma list of per-phase request counts, e.g. "
+        "'1,8,1,6'. A phase of size 1 is forced to the primary shape (runs alone -> SP). "
+        "Phases are separated by an idle --lull-ms gap. Overrides --rate/--num-requests.",
+    )
+    ap.add_argument("--intra-burst-ms", type=float, default=70.0, help="Mean inter-arrival within a burst.")
+    ap.add_argument("--lull-ms", type=float, default=9000.0, help="Idle gap between bursts (let the pool drain).")
     ap.add_argument("--out", type=str, required=True, help="Output trace JSON path.")
     args = ap.parse_args()
 
     sizes = _parse_sizes(args.sizes)
     size_weights = _parse_weights(args.size_weights, len(sizes))
     n_sample_dist = _parse_n_sample_dist(args.n_sample_dist)
+    burst_sizes = [int(v) for v in args.burst_sizes.split(",")] if args.burst_sizes else None
 
     trace = generate_trace(
         rate_req_per_s=args.rate,
@@ -189,6 +242,9 @@ def main() -> None:
         prompts=DEFAULT_PROMPTS,
         negative_prompt=DEFAULT_NEGATIVE_PROMPT,
         solver=args.solver,
+        burst_sizes=burst_sizes,
+        intra_burst_ms=args.intra_burst_ms,
+        lull_ms=args.lull_ms,
     )
 
     out_path = Path(args.out)
