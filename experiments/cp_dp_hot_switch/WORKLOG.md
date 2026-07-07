@@ -243,3 +243,68 @@
   SP2 mean/p95=22.9/44.5s，60s SLO=100%，busy=0.829；SP4 mean/p95=52.5/111.8s，60s SLO=62%，busy=0.992。
   该样本保留了真实 prompt/shape mix，但到达过程不真实。后续策略验证应优先使用
   `realistic_sd3_mixed` 或进一步从真实服务日志拟合 non-homogeneous Poisson / burst process。
+
+## 2026-07-06/07 M7 N-GPU pool 引擎 + elastic_hot_switch（历史，报告已折叠）
+
+- 新增 `simulate.simulate_pool()`：真正的 N-GPU 事件模拟器。每个 in-flight 请求持有 width
+  `k∈{1,2,4}`（SP degree，映射 `dp1/cp2/cp4`），占用 k 个 GPU index，全程保持 `Σwidths ≤ N`；
+  只在 denoise step 边界 / arrival 决策，只在 switch window 内换 width 并付 `SwitchCostModel.total_ms`；
+  记录 GPU-index 级 `PoolSegment` trace 驱动 timeline。旧 2-GPU `simulate()` 保留作 regression。
+- `elastic_hot_switch` 策略：keep-by-default + shape-aware initial degree（4090 上 512²→k=1、1024²→k=4）
+  + 填充 idle GPU + 空闲 upshift + **pairwise 完成时间 benefit test 驱动的 burst downshift**。
+- 结论：CP/DP 热切换收益 **真实但 regime-specific 且中等**——mixed/bursty 上 **+9~23% p95**、
+  吞吐持平或更好；homogeneous / SP-negative 上正确 no-op。收益主要来自“不让大 SP 请求 head-of-line
+  阻塞小 DP-friendly 请求”。代表数据（4090）：`poisson_mixed_r030` elastic p95 9.5s vs best-static 11.8s、
+  吞吐 0.312；`realistic_sd3_mixed` elastic mean/p95 13.0/31.0s 优于所有 static extreme（仅 2 次 switch）。
+- **唯一 Pareto loss（M8 已修复）**：`poisson_1024_r3`（饱和同构 1024²）elastic=shape_aware=SP4，
+  但 best static 是 DP——4 路 DP 并发在吞吐（0.362 vs 0.286）和 p95（29.8 vs 36.5s）都更好，因为 SP4
+  加速比 sub-linear（3.1×<4×）、队列延迟主导。M7 的 shape-aware degree 是 load-oblivious 的。
+
+## 2026-07-07 M8 SLO-aware `slo_elastic` 调度器 + FlexCache（当前主线）
+
+- 依据 [`slo_elastic_scheduler_strategy.md`](slo_elastic_scheduler_strategy.md) 实现，与 M7 并存不替换。
+  在 `simulate_pool` 内新增 `slo_elastic` policy：**合法 GPU layout 枚举 → rolling-horizon 前向模拟打分
+  → 字典序 SLO-first 目标择优**，外加 **FlexCache 紧急闸门**（simulator-only，硬门控）。
+- 字典序目标（越前越优）：`slo_miss → max_tardiness → total_tardiness → max_slowdown → starvation →
+  flexcache_used → flexcache_steps → switch_count → switch_cost → total_flow → mean_slowdown`。
+  switch_count 之前的连续字段做量化（tardiness 500ms / max_slowdown 0.25），只有“有意义”的收益才值得 switch；
+  末位用 total_flow（≈mean latency）而非 GPU-busy（后者会病态偏好宽 SP packing）。前向 fallback 是 load-aware：
+  队列深就 DP 并发、空闲就 SP —— 这让目标函数“看见”饱和同构下 DP 更优。
+- 结果（4-GPU, slo_factor=4；vs M7 elastic）：
+  - **修复 M7 Pareto loss**：`poisson_1024_r3n12` p95 36.5→29.9s（4090）/ 39.6→33.1s（H20），吞吐 +25%/+23%，
+    max_slowdown 3.52→2.75；timeline 里明确从“串行 SP4”变成“4 路 DP 并发”。
+  - **公平性大幅改善**：`poisson_mixed` max_slowdown 10.74→6.00 且少 2 次 miss；`realistic_sd3` 2.50→1.89；
+    H20 `poisson_mixed_r018` 1.54→1.01。SP-negative / 简单同构（512、r008、staggered）为正确 no-op / 平手。
+  - **诚实代价**：`poisson_mixed_r030` p95 有小幅退让（9.5→12.5s），但 SLO 仍 0-miss、公平性持平——
+    符合策略 SLO≫p95 的优先级，不是 SLO 退化。
+- **FlexCache**（sensitivity study，非保质量生产策略）：硬门控，仅在正常 layout 仍存在极端 SLO 风险时开启，
+  取最小 step reduction。impossible-SLO 压测（slo_factor=1.5, r3n12, min_steps=12）：p95 36.5→18.3s、
+  max_tardiness 33→13s、miss 11→10；SLO 宽松时即便 enable 也 0 使用（有测试守护）。
+- **Burst/idle trace**：`gen_client_trace.py` 新增 `--burst-sizes`/`--lull-ms` 分相到达模式，
+  生成 `traces/serve/bursty_idle_mixed.json`（solo→burst→solo→burst）。它清晰展示“空闲→SP4、突发→DP 并发+公平、
+  突发尾部 upshift 回 SP”：max_slowdown 1.52 vs elastic 5.62 / SP4 9.00，p95/tardiness 均最优。
+- 测试：`test/test_slo_scheduler.py`（策略 §12 九个必测场景）+ `test/test_serve_sim.py`，全绿；
+  `test/test_cost_model.py`、`test/test_cp_dp_simulator.py` 无回归。
+
+## 2026-07-07 整理与清理（准备接入 runtime）
+
+- **确定当前主线（canonical）**：设计 = [`slo_elastic_scheduler_strategy.md`](slo_elastic_scheduler_strategy.md)，
+  结果 = [`m8_slo_elastic_report.md`](m8_slo_elastic_report.md)（图已迁到提交入库的 `figures/`，不再依赖 gitignore 的 `out/`）。
+  核心代码收敛为 `simulate.py`（引擎 + `slo_elastic`）、`run_serve_policies.py`（自包含 runner+可视化）、
+  `gen_client_trace.py`（trace 生成，含 bursty 模式）；成本模型 `cost_models/{rtx4090,h20}.json` + 传统默认 `cost_model.json`。
+  runtime 机制参考保留：`m1_cost_model_report.md`（成本模型）、`m6_dynamic_sp_report.md`（step 边界 SP 切换机制）、
+  `profile_worker.py` / `profile_stages.py`（真机标定）。
+- **删除的冗余文件**（结论已并入本 WORKLOG，故安全删除）：
+  - 文档：`results.md`（首轮抽象模拟结果，已被 M7/M8 取代）、`simulator_plan.md`（早期计划）、
+    `session_summary_2026-07-05.md`（handoff）、`m4_mixed_step_report.md`、`m7_elastic_hot_switch_report.md`、
+    `stage_profile_report.md`。
+  - 代码：`run_experiment.py`（旧抽象 sweep，被 `run_serve_policies` + `simulate_pool` 取代）、
+    `run_static_baselines.py`（静态 baseline 已由 pool 引擎的 `static_*` policy 覆盖；其 3 个可视化 helper
+    `_safe_name/_nice_tick_seconds/_shape_color` 已内联进 `run_serve_policies.py`）、
+    `gen_structured_trace.py`、`convert_sd3_trace.py`（一次性 trace 转换器）。
+  - 数据：`out/` 下体量大的 SVG dump（可由 runner 重新生成）；报告引用的 PNG 已固化到 `figures/`。
+- **下一步（runtime 接入）**：把 `slo_elastic` 的决策语义映射到 runtime 的统一 `SchedulingPlan`——
+  每次决策输出 `{work-item ids, 每请求 target sp_degree/width, GPU 分配, 可选 switch, 可选 FlexCache 动作,
+  predicted cost, deadline slack, deciding reason}`；generator 只执行 plan（收口 M4 admission 与 M6 env-driven SP 切换）；
+  补齐 request-level DP replica routing 与 world_size>1 的 idle-sync；先用 static baselines 校准 cost model，
+  再上线策略并回填 SLO/queue/p95/busy 指标。

@@ -1,93 +1,60 @@
 # CP/DP 热切换实验
 
-本目录用于探索 DiT 推理中的动态热切换：在单请求时使用上下文/序列并行降低延迟，在多请求到达时切换为数据并行式的多请求执行。
-
-## 问题
-
-当一个 DiT 请求已经用两卡序列/上下文并行执行时，如果第二个请求在推理中途到达，系统是否可以在 denoising step 边界切换为两个单卡数据并行副本，让每个请求各占一张卡，并提升服务效率？
-
-简化描述：
+在 DiT 推理中做**动态并行热切换**：单请求 / 空闲时用序列并行（SP，`cp2`/`cp4`）压低延迟，多请求 / 突发时切成数据并行（DP，`dp1`）多副本，在 denoise step 边界弹性调整每个请求的 SP degree。本目录是离线**调度器 + 成本模型**研究，用来量化收益、定策略，为真正接入 runtime 做准备。
 
 ```text
-早期阶段：    请求 A 使用 GPU0+GPU1 做 CP/SP，以降低单请求延迟
-新请求到达：  请求 B 在 A 还有剩余 denoising step 时到达
-切换：        GPU0 继续/完成 A，GPU1 启动 B，形成 DP 式副本
-目标：        降低排队延迟，提高吞吐，同时不明显伤害尾延迟
+空闲：       请求 A 用 GPU0-3 做 SP（cp4），降低单请求延迟
+突发到达：   请求 B/C/D 在 A 还有剩余 step 时到达
+弹性切换：   在 step 边界降 A 的 width，腾出 GPU 起 B/C/D 的 DP 副本
+目标：       SLO 达成优先，其次公平（max_slowdown）、尾延迟、吞吐
 ```
 
-## 工作假设
+## 当前主线（canonical）
 
-这个 feature 大概率只在受限策略下有价值：
+- **策略设计**：[`slo_elastic_scheduler_strategy.md`](slo_elastic_scheduler_strategy.md) —— SLO-aware `slo_elastic` 调度器的设计（合法 GPU layout 枚举 → rolling-horizon 前向模拟 → 字典序 SLO-first 目标 + FlexCache 紧急闸门）。
+- **最新结果**：[`m8_slo_elastic_report.md`](m8_slo_elastic_report.md) —— `slo_elastic` vs `elastic_hot_switch` / static 的头对头结果、GPU 使用时间线（图见 `figures/`）、FlexCache 敏感性、诚实的代价与局限。
+- **工作记录**：[`WORKLOG.md`](WORKLOG.md) —— 按日期的上下文同步、bug 修复、trace 调整、M1~M8 关键结论与本次清理口径（已折叠的旧文档结论都在这里）。
 
-- 只在 denoising step 边界切换；
-- 只在采样早期切换，确保剩余 step 足够多；
-- 只有当预期排队收益超过状态迁移、通信器、graph capture、cache layout 等成本时才切换；
-- 先从无 FlexCache 或 request-local cache state 的场景开始，再在基础成本模型明确后扩展到 FlexCache-aware 切换。
+### 代码
 
-另一个核心变量是请求异构性：不同请求可能分辨率不同，反映为 DiT token/patch 序列长不同。因此 hot switch 不应只被定义成固定的“两卡 CP -> 两路 DP”，而应把 CP 和 DP 的比例也纳入调度变量。长序列请求更可能需要更多 CP/SP 资源来降低 step latency 或避免显存压力，短序列请求则更适合作为 DP replica 填补空闲 GPU。
+| 文件 | 作用 |
+| --- | --- |
+| `simulate.py` | N-GPU 事件模拟器 `simulate_pool()` + 全部策略（`static_dp/sp2/sp4`、`shape_aware`、`elastic_hot_switch`、`slo_elastic`、`oracle`）+ 成本模型加载 |
+| `run_serve_policies.py` | 自包含 runner：cost model × serve trace × 策略跑一遍，输出对比表 + 每 (trace, policy) 的 GPU 使用时间线 SVG |
+| `gen_client_trace.py` | 合成 serve trace（Poisson，以及 `--burst-sizes`/`--lull-ms` 的 burst/idle 分相模式） |
+| `profile_worker.py` / `profile_stages.py` | 真机标定：DiT 逐 step（DP/SP）与非去噪阶段延迟，产出 `cost_models/*.json` |
 
-第一个实验应该是调度器/成本模型研究，而不是直接做 runtime 实现。
+### 数据
 
-## 初始产物
+- `cost_models/{rtx4090,h20}.json` + [`cost_models/report.md`](cost_models/report.md)：按硬件的逐 step 延迟标定（compute roofline + comm）。`cost_model.json` 是传统默认。
+- `traces/serve/*.json`：serving 评估 trace（`realistic_sd3_mixed` 默认；`poisson_*` 负载 sweep；`bursty_idle_mixed` 演示空闲 SP↔突发 DP 的切换；`staggered_mixed` 便于看 lane）。
+- `figures/`：m8 报告引用的时间线 PNG（已入库，不依赖 gitignore 的 `out/`）。
 
-- [literature_notes.md](literature_notes.md)：记录定义过类似动态并行问题的 LLM serving 论文。
-- [simulator_plan.md](simulator_plan.md)：离线模拟器的输入、策略、指标和下一步代码计划。
-- [results.md](results.md)：离线模拟、静态 DP/SP baseline、关键结论和局限。
-- [WORKLOG.md](WORKLOG.md)：按日期记录上下文同步、bug 修复、trace 调整和 cleanup 口径。
+### 测试
 
-## 当前可复现资产
+`test/test_slo_scheduler.py`（`slo_elastic` 策略 §12 九个必测场景）、`test/test_serve_sim.py`（pool 不变量 + elastic-beats-static）、`test/test_cp_dp_simulator.py`、`test/test_cost_model.py`。
 
-- `simulate.py` / `run_experiment.py`：抽象 CP/DP hot-switch 事件模拟器。
-- `run_static_baselines.py`：固定 DP/SP 部署 baseline，输出 throughput、latency、queue、busy 和固定 SLO attainment。
-- `cost_model.json` + `chitu_diffusion/runtime/cost_model.py`：Z-Image worker roofline + communication 成本模型。
-- `traces/*.json`：小型抽象场景，用于模拟器策略比较。
-- `traces/serve/realistic_sd3_mixed.json`：推荐的默认 serving 策略评估 trace，使用 SD3-like 尺寸组合和非均匀到达。
-- `traces/serve/staggered_mixed.json`：小型可视化 trace，方便检查 GPU lane 和 request timeline。
-- `traces/serve/poisson_*_r*.json`：低/中/近饱和 Poisson 负载 sweep。
-
-生成输出不提交：`experiments/cp_dp_hot_switch/out/`、raw stage profile JSON、raw SD3 trace 和均匀抽样 SD3 trace
-都由 `.gitignore` 覆盖。需要查看图表时重新运行：
+## 复现
 
 ```bash
-python3 experiments/cp_dp_hot_switch/run_static_baselines.py --output-dir experiments/cp_dp_hot_switch/out
+cd experiments/cp_dp_hot_switch
+# 全策略 × serve trace + 时间线 SVG（RTX 4090 无 NVLink / H20 有 NVLink）
+python3 run_serve_policies.py --cost-model rtx4090 --output-dir out/serve_policies_4090
+python3 run_serve_policies.py --cost-model h20     --output-dir out/serve_policies_h20
+# 测试
+python3 -m pytest ../../test/test_slo_scheduler.py ../../test/test_serve_sim.py ../../test/test_cp_dp_simulator.py -q
 ```
 
-需要重新跑抽象策略 sweep：
+`out/` 是生成物（gitignored），随时可重跑重建。
 
-```bash
-python3 experiments/cp_dp_hot_switch/run_experiment.py --output-dir experiments/cp_dp_hot_switch/out
-```
+## 下一步：接入 runtime
 
-## 候选实验计划
+离线已经证明 `slo_elastic` 在 mixed/bursty 上收益真实、公平性显著改善、并修掉了 M7 在饱和同构下的 Pareto loss。接入 runtime 的收敛路径：
 
-1. 基于 ChituBench timing 数据构建离线模拟器：
-   - 单卡 DP-style 执行的逐 step 延迟；
-   - 两卡 CP/SP 执行的逐 step 延迟；
-   - 合成或真实记录的请求到达 trace；
-   - 将切换成本作为参数。
-2. 评估调度策略：
-   - 静态单卡 DP 副本；
-   - 静态两卡 CP/SP，一次只服务一个请求；
-   - early-window CP/SP -> DP 热切换；
-   - 基于剩余 step 和队列长度的阈值策略；
-   - 基于请求序列长/分辨率的 CP/DP 比例选择策略。
-3. 衡量 serving 指标：
-   - 平均延迟；
-   - P95/P99 延迟；
-   - 排队延迟；
-   - GPU 利用率代理指标；
-   - 切换次数和浪费/迁移的工作量。
-4. 只有在模拟器证明存在有价值区域后，再做 runtime 原型：
-   - DiT step 边界作为安全切换点；
-   - latent/state 重新分布；
-   - distributed group 处理；
-   - cache-state 兼容性检查。
+1. **统一 action schema**：把 `slo_elastic` 的每次决策映射成 runtime 的 `SchedulingPlan`，显式表达 `{work-item ids, 每请求 target sp_degree/width, GPU 分配, 可选 switch, 可选 FlexCache 动作, predicted cost, deadline slack, 决策理由}`。
+2. **generator 只执行 plan**：收口 M4 的 continuous-batch admission 与 M6 的 env-driven SP 切换到 scheduler plan。
+3. **request-level DP replica routing**：现有 DP helper 是 `n_sample` seed-slice，需要补“多请求分配到多个 DP replica”的路由，以及 `world_size>1` 下到达间的 idle-sync / rank barrier。
+4. **先标定再上线**：用 static baselines（`run_serve_policies` 的 `static_*` policy）校准 cost model，再上线 `slo_elastic`，回填 SLO/queue/mean/p95/busy 指标做在线闭环。
+5. **FlexCache 谨慎**：目前是 simulator-only 的紧急闸门；只有在真机验证“作为调度动作 1+1>2”后才进 runtime，否则保持 always-cache 基线。
 
-## 开放设计点
-
-- 第一个目标模型应该是 Flux、Qwen-Image 还是 Wan？
-- 第一个切换目标是 CP/SP -> 独立单卡请求，还是降低 CP/SP degree 后让两个请求仍然部分并行？
-- 当请求分辨率不同、序列长不同的时候，如何为每个请求分配 CP/SP degree，并决定集群整体 DP replica 数？
-- 在 step 边界必须迁移的最小状态是什么？
-- 现有 attention/parallel backend 是否暴露了足够 hook，可以在不重启整个 engine 的情况下切换？
-- FlexCache state 会如何改变成本模型？
+runtime 机制层参考：[`m1_cost_model_report.md`](m1_cost_model_report.md)（成本模型）、[`m6_dynamic_sp_report.md`](m6_dynamic_sp_report.md)（step 边界 SP 切换机制）、[`literature_notes.md`](literature_notes.md)（Shift Parallelism / LoongServe / Gyges / Seesaw 等动态并行工作）。
