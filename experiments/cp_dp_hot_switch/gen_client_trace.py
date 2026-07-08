@@ -122,6 +122,7 @@ def generate_trace(
     burst_sizes: list[int] | None = None,
     intra_burst_ms: float = 70.0,
     lull_ms: float = 9000.0,
+    deadline_fn=None,
 ) -> dict:
     rng = random.Random(rng_seed)
     if rate_req_per_s <= 0:
@@ -155,20 +156,26 @@ def generate_trace(
             width, height = rng.choices(sizes, weights=size_weights, k=1)[0]
         n_sample = rng.choices(n_values, weights=n_probs, k=1)[0]
         prompt = prompts[i % len(prompts)]
-        requests.append(
-            {
-                "request_id": f"req{i:04d}",
-                "arrival_ms": round(arrival_ms, 3),
-                "prompt": prompt,
-                "negative_prompt": negative_prompt,
-                "width": int(width),
-                "height": int(height),
-                "num_steps": int(num_steps),
-                "n_sample": int(n_sample),
-                "seed": int(seed),
-                "sample_solver": solver,
-            }
-        )
+        record = {
+            "request_id": f"req{i:04d}",
+            "arrival_ms": round(arrival_ms, 3),
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "width": int(width),
+            "height": int(height),
+            "num_steps": int(num_steps),
+            "n_sample": int(n_sample),
+            "seed": int(seed),
+            "sample_solver": solver,
+        }
+        # ``deadline_ms`` is a per-request *relative* SLO budget (ms after arrival),
+        # mirroring the simulator's synthesized deadline so the runtime slo_elastic
+        # scheduler and the offline analysis see the same targets. None == no SLO.
+        if deadline_fn is not None:
+            dl = deadline_fn(int(width), int(height), int(num_steps))
+            if dl is not None:
+                record["deadline_ms"] = round(float(dl), 3)
+        requests.append(record)
         seed += n_sample  # keep per-image seeds globally distinct
 
     duration_ms = requests[-1]["arrival_ms"] if requests else 0.0
@@ -222,6 +229,11 @@ def main() -> None:
     )
     ap.add_argument("--intra-burst-ms", type=float, default=70.0, help="Mean inter-arrival within a burst.")
     ap.add_argument("--lull-ms", type=float, default=9000.0, help="Idle gap between bursts (let the pool drain).")
+    ap.add_argument("--slo-factor", type=float, default=0.0,
+                    help="Emit a per-request deadline_ms = slo_factor * steps * fastest solo step "
+                    "(via the cost model). <=0 (default) writes no deadlines.")
+    ap.add_argument("--cost-model", type=str, default="rtx4090",
+                    help="Cost model name/path used to size deadlines (only when --slo-factor > 0).")
     ap.add_argument("--out", type=str, required=True, help="Output trace JSON path.")
     args = ap.parse_args()
 
@@ -229,6 +241,24 @@ def main() -> None:
     size_weights = _parse_weights(args.size_weights, len(sizes))
     n_sample_dist = _parse_n_sample_dist(args.n_sample_dist)
     burst_sizes = [int(v) for v in args.burst_sizes.split(",")] if args.burst_sizes else None
+
+    deadline_fn = None
+    if args.slo_factor > 0:
+        # Build deadlines from the same cost model the scheduler uses so runtime SLOs
+        # match the offline analysis. Fastest solo step = min over SP degrees at step 0.
+        from simulate import load_cost_model
+        from chitu_diffusion.runtime.elastic_policy import profile_from_cost_model
+
+        model = load_cost_model(args.cost_model)
+        _cache: dict[tuple[int, int, int], float] = {}
+
+        def deadline_fn(width: int, height: int, steps: int) -> float:  # noqa: F811
+            key = (width, height, steps)
+            if key not in _cache:
+                prof = profile_from_cost_model(model, name=f"{width}x{height}", width=width, height=height, num_steps=steps)
+                fastest_step = min(prof.step_ms(m, 0) for m in ("dp1", "cp2", "cp4"))
+                _cache[key] = args.slo_factor * steps * fastest_step
+            return _cache[key]
 
     trace = generate_trace(
         rate_req_per_s=args.rate,
@@ -245,6 +275,7 @@ def main() -> None:
         burst_sizes=burst_sizes,
         intra_burst_ms=args.intra_burst_ms,
         lull_ms=args.lull_ms,
+        deadline_fn=deadline_fn,
     )
 
     out_path = Path(args.out)

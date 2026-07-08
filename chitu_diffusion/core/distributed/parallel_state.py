@@ -573,6 +573,86 @@ def initialize_dynamic_sp_groups(
             logger.info("  dynamic CP degree %d: rank_list=%s", degree, grp.rank_list)
 
 
+# ---------------------------------------------------------------------------
+# slo_elastic pool lanes (request-level DP + per-request SP width).
+#
+# The pool engine partitions the world into lanes of width {1,2,4} using
+# *canonical contiguous placement*: widths are placed left-to-right widest-first,
+# so a lane of width ``w`` always occupies the aligned block
+# ``[offset, offset+w)`` with ``offset % w == 0`` (partitions {4}, {2,2},
+# {2,1,1}, {1,1,1,1} for N=4). Under that placement every rank's lane is exactly
+# its aligned block of size ``w`` -- which is precisely one subgroup of the M6
+# ``dynamic_sp`` degree-``w`` group. So lane subgroups need no new communicators:
+# they are the pre-warmed dynamic CP groups, activated per lane per round.
+# ---------------------------------------------------------------------------
+def lane_offset_for_rank(rank: int, width: int) -> int:
+    """Aligned block offset of the width-``width`` lane containing ``rank``."""
+    return (int(rank) // int(width)) * int(width)
+
+
+def get_lane_cp_group(offset: int, width: int) -> CommGroup:
+    """The pre-warmed CP communicator for a canonical lane ``[offset, offset+width)``.
+
+    Returns the M6 dynamic-SP group of degree ``width``; for the calling rank that
+    group's active subgroup is exactly the rank's aligned block. Requires the pool
+    lane groups to have been pre-warmed (``dynamic_sp`` / :func:`initialize_lane_groups`)
+    and canonical placement (``offset % width == 0``).
+    """
+    width = int(width)
+    offset = int(offset)
+    if width <= 0 or offset % width != 0:
+        raise ValueError(f"non-canonical lane placement: offset={offset}, width={width}")
+    return get_dynamic_cp_group(width)
+
+
+def set_active_lane_group(offset: int, width: int) -> None:
+    """Point this rank's active CP group at its lane ``[offset, offset+width)``.
+
+    O(1) pointer swap over the pre-warmed dynamic groups (no NCCL creation). After
+    this call the next transformer forward on this rank shards over exactly the
+    ``width`` ranks of its lane; width 1 means a DP replica (no CP collectives).
+    """
+    width = int(width)
+    offset = int(offset)
+    if width <= 0 or offset % width != 0:
+        raise ValueError(f"non-canonical lane placement: offset={offset}, width={width}")
+    set_active_cp_group(width)
+
+
+def lane_widths_available() -> List[int]:
+    """SP widths the pool engine may use (== pre-warmed dynamic-SP degrees)."""
+    return dynamic_sp_degrees()
+
+
+def initialize_lane_groups(
+    world_size: Optional[int] = None,
+    widths: Optional[List[int]] = None,
+) -> None:
+    """Ensure the canonical pool-lane CP groups (widths {1,2,4,...}) are pre-warmed.
+
+    Thin wrapper over :func:`initialize_dynamic_sp_groups` for the slo_elastic pool
+    engine: pre-warms one CP group per feasible width so switching a lane's width at a
+    step boundary is a pure pointer swap. Idempotent -- a no-op if already pre-warmed.
+    Must be called after the diffusion groups (so ``_CP_GROUP`` exists) and collectively
+    on all ranks.
+    """
+    if dynamic_sp_enabled():
+        return
+    rank = torch.distributed.get_rank()
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    if world_size is None:
+        world_size = torch.distributed.get_world_size()
+    replica_size = world_size  # pool runs one replica spanning the whole world (cfg=1)
+    initialize_dynamic_sp_groups(
+        cfg_size=1,
+        world_size=world_size,
+        replica_size=replica_size,
+        rank=rank,
+        local_rank=local_rank,
+        degrees=widths,
+    )
+
+
 def initialize_diffusion_parallel_groups(
     cfg_size: int,
     cp_size: int,

@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import time
+import threading
 import torch
 import torch.distributed as dist
 import tqdm
@@ -18,16 +19,6 @@ from chitu_diffusion.runtime.backend import DiffusionBackend
 from chitu_diffusion.core.distributed.parallel_state import get_cfg_group
 from chitu_diffusion.flexcache.params import FLEXCACHE_PARAM_CLASSES, FlexCacheParams
 from chitu_diffusion.parallel.state import ParallelTaskState
-
-logger = getLogger(__name__)
-
-
-import time
-import torch
-from enum import Enum
-from logging import getLogger
-from typing import Optional, List
-from dataclasses import dataclass
 
 logger = getLogger(__name__)
 
@@ -63,6 +54,9 @@ class DiffusionUserParams:
     # 调度器参数
     sample_solver: str = "ddpm"
     num_inference_steps: int = None
+    # SLO 软截止时间（毫秒，相对该请求 arrival 时刻的预算）。None 表示无截止时间，
+    # slo_elastic 调度器据此计算 tardiness/slack；其它调度器忽略该字段。
+    deadline_ms: Optional[float] = None
     # 其他参数
     save_dir: Optional[str] = "./output"  # 输出保存路径
     # Acceleration compatibility field: only specify a strategy name.
@@ -440,6 +434,15 @@ class DiffusionTask:
             return None
         return max(0, int(total_steps) - int(self.buffer.current_step))
 
+    def deadline_ms(self) -> Optional[float]:
+        """请求的软截止时间（毫秒，相对 arrival）；无请求/无截止时间返回 None。
+
+        slo_elastic 调度器用它计算 tardiness；其它调度器忽略。
+        """
+        if self.req is None or self.req.params is None:
+            return None
+        return getattr(self.req.params, "deadline_ms", None)
+
     def shape_key(self) -> tuple:
         if self.req is None or self.req.params is None:
             return ()
@@ -611,6 +614,16 @@ class DiffusionTaskPool:
     pending_queue: deque[DiffusionTask] = deque()
     shutdown_task: DiffusionTask | None = None
     cancel_task: DiffusionTask | None = None
+    # Guards the mutable class-level containers (pool / id_list) so a rank-0 CPU
+    # background arrival-ingress thread can ``add()`` concurrently with the lockstep
+    # engine thread reading them (planning) / the harness harvesting completions,
+    # without "dict/list changed size during iteration" races. Re-entrant so nested
+    # calls (e.g. add_all_queued -> add) are safe. See pool_runtime_optimization stage 5.
+    _lock: "threading.RLock" = threading.RLock()
+
+    @classmethod
+    def lock(cls) -> "threading.RLock":
+        return cls._lock
 
     def __bool__(self):
         return len(self.pool) > 0
@@ -620,11 +633,12 @@ class DiffusionTaskPool:
 
     @classmethod
     def reset(cls):
-        cls.pool = {}
-        cls.id_list = []
-        cls.pending_queue = deque()
-        cls.shutdown_task = None
-        cls.cancel_task = None
+        with cls._lock:
+            cls.pool = {}
+            cls.id_list = []
+            cls.pending_queue = deque()
+            cls.shutdown_task = None
+            cls.cancel_task = None
 
     @classmethod
     def is_empty(cls):
@@ -634,9 +648,10 @@ class DiffusionTaskPool:
     def all_finished(cls) -> bool:
         if cls.shutdown_task is not None or cls.cancel_task is not None:
             return False
-        if len(cls.pool) == 0:
-            return True
-        return all(task.is_completed() for task in cls.pool.values())
+        with cls._lock:
+            if len(cls.pool) == 0:
+                return True
+            return all(task.is_completed() for task in cls.pool.values())
 
     @classmethod
     def request_shutdown(cls, reason: str = "Normal shutdown") -> DiffusionTask:
@@ -683,57 +698,73 @@ class DiffusionTaskPool:
 
     @classmethod
     def cancel_active_tasks(cls, reason: str = "Current generation cancelled"):
-        for task in cls.pool.values():
+        with cls._lock:
+            tasks = list(cls.pool.values())
+        for task in tasks:
             if not task.is_completed():
                 task.status = DiffusionTaskStatus.Failed
                 task.error_message = reason
 
     @classmethod
     def add(cls, task: DiffusionTask):
-        if task.task_id in cls.pool:
-            return False  # Task already exists, failed to add
-        task.admission_ts = time.perf_counter_ns()
-        cls.pool[task.task_id] = task
-        cls.id_list.append(task.task_id)
-        return True
+        with cls._lock:
+            if task.task_id in cls.pool:
+                return False  # Task already exists, failed to add
+            task.admission_ts = time.perf_counter_ns()
+            cls.pool[task.task_id] = task
+            cls.id_list.append(task.task_id)
+            return True
 
     @classmethod
     def enqueue(cls, task: DiffusionTask):
-        cls.pending_queue.append(task)
+        with cls._lock:
+            cls.pending_queue.append(task)
 
     @classmethod
     def add_all_queued(cls):
-        while cls.pending_queue:
-            cls.add(cls.pending_queue.popleft())
+        with cls._lock:
+            while cls.pending_queue:
+                cls.add(cls.pending_queue.popleft())
 
     @classmethod
     def pending_task_ids(cls) -> list[str]:
-        return [
-            task_id for task_id in cls.id_list
-            if cls.pool[task_id].status == DiffusionTaskStatus.Pending
-        ]
+        with cls._lock:
+            return [
+                task_id for task_id in cls.id_list
+                if cls.pool[task_id].status == DiffusionTaskStatus.Pending
+            ]
+
+    @classmethod
+    def items_snapshot(cls) -> list[tuple[str, "DiffusionTask"]]:
+        """A point-in-time (task_id, task) list, taken under the pool lock, so callers
+        can iterate safely while a background thread may be adding new tasks."""
+        with cls._lock:
+            return list(cls.pool.items())
 
     @classmethod
     def work_item_count(cls) -> int:
         """池中所有非控制 task 展开的 work-item 总数（M7 调度/利用率用）。"""
-        return sum(task.n_sample() for task in cls.pool.values() if not task.is_control_signal())
+        with cls._lock:
+            return sum(task.n_sample() for task in cls.pool.values() if not task.is_control_signal())
 
     @classmethod
     def pending_work_items(cls) -> list["WorkItem"]:
         """所有 Pending task 展开的 work-item，保持 id_list 的到达顺序。"""
         items: list[WorkItem] = []
-        for task_id in cls.id_list:
-            task = cls.pool[task_id]
+        with cls._lock:
+            ordered = [(tid, cls.pool[tid]) for tid in cls.id_list]
+        for task_id, task in ordered:
             if task.status == DiffusionTaskStatus.Pending and not task.is_control_signal():
                 items.extend(task.work_items())
         return items
 
     @classmethod
     def remove(cls, task_id: str):
-        assert task_id in cls.pool, "Task not found in pool"
-        task = cls.pool.pop(task_id)
-        if task is None:
-            raise ValueError(f"Task {task_id} not found in pool")
-        cls.id_list.remove(task_id)
+        with cls._lock:
+            assert task_id in cls.pool, "Task not found in pool"
+            task = cls.pool.pop(task_id)
+            if task is None:
+                raise ValueError(f"Task {task_id} not found in pool")
+            cls.id_list.remove(task_id)
         del task.buffer
         

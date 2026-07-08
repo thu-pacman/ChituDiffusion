@@ -80,6 +80,17 @@ class InferConfig:
         # for verification is driven by env (CHITU_SP_SWITCH_STEP / CHITU_SP_INITIAL
         # / CHITU_SP_TARGET); the M7 throughput scheduler will own it programmatically.
         dynamic_sp: bool = False
+        # slo_elastic pool scheduler (scheduling_policy: slo_elastic). SLO-aware elastic
+        # CP/DP pool that partitions the GPUs into lanes of width {1,2,4}, assigns a
+        # distinct request per lane (request-level DP), and switches layouts at denoise-
+        # step boundaries to minimize a lexicographic SLO-first objective. These knobs are
+        # ignored by every other policy.
+        cost_model: str = "rtx4090"  # cost-model name (cost_models/<name>.json) or path
+        horizon_events: int = 6  # rolling-horizon depth (step completions) for scoring layouts
+        starvation_ms: float = 30000.0  # queue wait (ms) beyond which a request counts as starved
+        fairness_beta: float = 3.0  # soft target max slowdown (objective/logging hint)
+        switch_total_ms: float = 0.0  # modeled cost of one CP<->DP layout switch (ms)
+        enable_flexcache: bool = False  # emergency step-reduction rescue (simulator parity; off in prod)
         low_mem_level: int = MISSING # In low gpu memory mode, models will be offloaded to cpu and only loaded in needed stage. 
         # Controls per-stage model residency (device_scope) for VAE / text encoder:
         #   "auto"           -> keep already-resident models on GPU (skip empty_cache thrash);

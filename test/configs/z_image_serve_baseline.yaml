@@ -1,0 +1,42 @@
+launch:
+  tag: zimage-serve-baseline
+  backend: local
+  num_nodes: 1
+  gpus_per_node: 1
+  python_script: test/test_z_image_serve.py
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    job_name: chitu-zimage-serve-baseline
+
+runtime:
+  chitu_debug: false
+  cuda_launch_blocking: false
+
+model:
+  name: Z-Image
+  ckpt_dir: /dockerdata/Z-Image
+
+parallel:
+  cfp: 1
+  up: 1
+
+infer:
+  attn_type: flash_attn
+  low_mem_level: 0
+
+eval:
+  eval_type: []
+  reference_path: null
+
+output:
+  root_dir: outputs/serve-baseline
+  run_log: true
+  memory: true
+  timer: true
+  log_ranks: [0]
+
+# Static single-GPU SP=1 baseline (cfg=1 * cp=1 * dp=1) with the default FIFO
+# scheduler, used to check the pool engine's SP=4 output is quality-equivalent.
+overrides:
+  - models.sampler.sample_steps=20

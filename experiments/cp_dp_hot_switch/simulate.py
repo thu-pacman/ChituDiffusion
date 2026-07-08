@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import heapq
 import json
 import math
 import os
@@ -28,6 +27,33 @@ from chitu_diffusion.runtime.cost_model import (  # noqa: E402
     CostModel,
     default_cost_model,
     image_token_count,
+)
+
+# The pool-scheduler core (dataclasses + the slo_elastic layout policy) lives in the
+# runtime package so the live engine and this simulator share a single implementation.
+from chitu_diffusion.runtime.elastic_policy import (  # noqa: E402,F401
+    SLO_OBJECTIVE_FIELDS,
+    LaneAssignment,
+    PoolLayoutPlan,
+    PoolRunning,
+    PoolSegment,
+    RequestSpec,
+    SimRequest,
+    SimulationConfig,
+    StepLatencyProfile,
+    SwitchCostModel,
+    _largest_valid_width,
+    _mode_for_width,
+    _pool_start_step,
+    _profile_for,
+    _refresh_run_leader,
+    _run_members,
+    _shape_aware_degree,
+    _slo_elastic_schedule,
+    _solo_service_ms,
+    _WIDTH_TO_MODE,
+    plan_pool_layout,
+    profile_from_cost_model,
 )
 
 # Profiled cost models produced by profile_worker.py; fall back to analytical.
@@ -69,75 +95,6 @@ PolicyName = Literal[
 ]
 
 
-@dataclass(frozen=True)
-class StepLatencyProfile:
-    """Per-step latency table for a request shape and execution mode."""
-
-    name: str
-    dp_1gpu_step_ms: list[float]
-    cp_2gpu_step_ms: list[float]
-    cp_4gpu_step_ms: list[float] | None = None
-    dp_batch_step_ms: dict[int, list[float]] = field(default_factory=dict)
-    seq_len: int = 0
-    resolution: str = "unknown"
-
-    def step_ms(self, mode: str, step_index: int, *, batch: int = 1) -> float:
-        if mode == "dp1":
-            values = self.dp_batch_step_ms.get(int(batch), self.dp_1gpu_step_ms) if batch > 1 else self.dp_1gpu_step_ms
-        elif mode == "cp2":
-            values = self.cp_2gpu_step_ms
-        elif mode == "cp4":
-            values = self.cp_4gpu_step_ms or self.cp_2gpu_step_ms
-        else:
-            raise ValueError(f"unknown execution mode {mode!r}")
-        if not values:
-            raise ValueError(f"profile {self.name!r} has no latency values for mode {mode}")
-        return float(values[min(step_index, len(values) - 1)])
-
-
-@dataclass(frozen=True)
-class RequestSpec:
-    request_id: str
-    arrival_ms: float
-    num_steps: int
-    profile: str
-    priority: int = 0
-    deadline_ms: float | None = None
-
-
-@dataclass
-class SimRequest:
-    spec: RequestSpec
-    current_step: int = 0
-    started_ms: float | None = None
-    completed_ms: float | None = None
-    current_mode: str | None = None
-    switched: bool = False
-    switch_count: int = 0
-    flexcache_reduced_steps: int = 0
-    continuous_batch_count: int = 0
-    # ``effective_steps`` is the (possibly FlexCache-reduced) step budget; it starts
-    # equal to the request's original ``num_steps`` and only ``slo_elastic`` shrinks it.
-    effective_steps: int | None = None
-    degree_timeline: list[tuple[int, int]] = field(default_factory=list)  # (step_index, width)
-
-    def __post_init__(self) -> None:
-        if self.effective_steps is None:
-            self.effective_steps = self.spec.num_steps
-
-    @property
-    def original_steps(self) -> int:
-        return self.spec.num_steps
-
-    @property
-    def remaining_steps(self) -> int:
-        return max(0, int(self.effective_steps) - self.current_step)
-
-    @property
-    def is_done(self) -> bool:
-        return self.current_step >= int(self.effective_steps)
-
-
 @dataclass
 class DpRunningStep:
     slot_index: int
@@ -146,46 +103,6 @@ class DpRunningStep:
     start_ms: float
     end_ms: float
     reason: str
-
-
-@dataclass(frozen=True)
-class SwitchCostModel:
-    switch_cost_ms: float = 0.0
-    graph_recapture_cost_ms: float = 0.0
-    cache_migration_cost_ms: float = 0.0
-    communicator_cost_ms: float = 0.0
-    latent_migration_cost_ms: float = 0.0
-    switch_allowed_until_step: int = 4
-
-    @property
-    def total_ms(self) -> float:
-        return (
-            self.switch_cost_ms
-            + self.graph_recapture_cost_ms
-            + self.cache_migration_cost_ms
-            + self.communicator_cost_ms
-            + self.latent_migration_cost_ms
-        )
-
-
-@dataclass(frozen=True)
-class SimulationConfig:
-    total_gpus: int = 2
-    admission_wait_ms: float = 50.0
-    long_request_seq_len: int = 4096
-    switch: SwitchCostModel = field(default_factory=SwitchCostModel)
-    # --- slo_elastic knobs (ignored by the other policies) ---
-    horizon_events: int = 6  # rolling-horizon depth (step completions) for layout scoring
-    starvation_wait_ms: float = 30000.0  # queue wait after which a request counts as starved
-    fairness_beta: float = 3.0  # target max slowdown (soft; used only for logging)
-    enable_flexcache: bool = False  # allow the simulator-only emergency step-reduction action
-    enable_continuous_batch: bool = False  # let pending same-shape DP requests join at step boundaries
-    max_batch_items: int = 8  # cap for one continuous-batch DP lane
-    flexcache_min_steps: int = 4  # never reduce a request below this many executed steps
-    flexcache_max_reduce_steps: int = 8  # max steps a single FlexCache action may drop
-    flexcache_emergency_tardiness_ms: float = 1.0  # predicted tardiness above which FlexCache unlocks
-    flexcache_emergency_slack_ms: float = 2000.0  # negative-slack magnitude that also unlocks FlexCache
-    decision_log: bool = False  # record a per-decision explanation trail
 
 
 @dataclass
@@ -251,13 +168,6 @@ def _first_pending(pending: list[SimRequest]) -> SimRequest | None:
         return None
     pending.sort(key=lambda req: (req.spec.priority, req.spec.arrival_ms, req.spec.request_id))
     return pending.pop(0)
-
-
-def _profile_for(req: SimRequest, profiles: dict[str, StepLatencyProfile]) -> StepLatencyProfile:
-    try:
-        return profiles[req.spec.profile]
-    except KeyError as exc:
-        raise ValueError(f"request {req.spec.request_id!r} references missing profile {req.spec.profile!r}") from exc
 
 
 def _remaining_work_ms(req: SimRequest, profile: StepLatencyProfile, mode: str) -> float:
@@ -631,34 +541,6 @@ POOL_POLICIES = (
     "slo_elastic",
 )
 
-_WIDTH_TO_MODE = {1: "dp1", 2: "cp2", 4: "cp4"}
-
-
-@dataclass
-class PoolSegment:
-    """One executed unit on a set of GPUs: a denoise step or a switch."""
-
-    request_id: str
-    start_ms: float
-    end_ms: float
-    step_index: int
-    width: int
-    gpus: list[int]
-    event: str = "step"  # "step" | "switch"
-    reason: str = ""
-    batch_size: int = 1
-    request_ids: list[str] = field(default_factory=list)
-
-
-@dataclass
-class PoolRunning:
-    req: SimRequest
-    width: int
-    gpus: list[int]
-    step_end_ms: float | None  # None == between steps (a boundary), needs (re)start
-    members: list[SimRequest] = field(default_factory=list)
-
-
 @dataclass
 class PoolResult:
     policy: str
@@ -679,57 +561,12 @@ class PoolResult:
         }
 
 
-def _mode_for_width(width: int) -> str:
-    return _WIDTH_TO_MODE.get(int(width), "dp1")
-
-
-def _run_members(run: PoolRunning) -> list[SimRequest]:
-    if not run.members:
-        run.members = [run.req]
-    return run.members
-
-
-def _refresh_run_leader(run: PoolRunning) -> None:
-    members = _run_members(run)
-    if members:
-        run.req = members[0]
-
-
-def _largest_valid_width(cap: int, max_width: int = 4) -> int:
-    """Largest width in {1,2,4} that is <= min(cap, max_width); 0 if cap < 1."""
-    best = 0
-    for w in (1, 2, 4):
-        if w <= cap and w <= max_width:
-            best = w
-    return best
-
-
 def _normalize_pool_policy(policy: str) -> str:
     alias = {"static_cp": "static_sp2", "static_sp": "static_sp2", "sp2": "static_sp2", "sp4": "static_sp4"}
     name = alias.get(policy, policy)
     if name not in POOL_POLICIES:
         raise ValueError(f"unknown pool policy {policy!r}; choose one of {list(POOL_POLICIES)}")
     return name
-
-
-def _shape_aware_degree(profile: StepLatencyProfile, *, max_k: int = 4, threshold: float = 0.15) -> int:
-    """Largest SP degree whose per-step latency beats the next-lower degree by > threshold.
-
-    Uses the profile's per-mode step latency (which itself comes from the cost
-    model), so the choice self-tunes per hardware: on a no-NVLink box the comm
-    term keeps short/low-res shapes at k=1 automatically.
-    """
-    k = 1
-    for nxt in (2, 4):
-        if nxt > max_k:
-            break
-        cur = profile.step_ms(_mode_for_width(k), 0)
-        upgraded = profile.step_ms(_mode_for_width(nxt), 0)
-        if upgraded < cur * (1.0 - threshold):
-            k = nxt
-        else:
-            break
-    return k
 
 
 def _pool_target_degree(req: SimRequest, profiles: dict[str, StepLatencyProfile], policy: str, max_k: int) -> int:
@@ -740,67 +577,6 @@ def _pool_target_degree(req: SimRequest, profiles: dict[str, StepLatencyProfile]
     if policy == "static_sp4":
         return min(4, max_k)
     return _shape_aware_degree(_profile_for(req, profiles), max_k=max_k)
-
-
-def _pool_start_step(
-    now_ms: float,
-    run: PoolRunning,
-    profiles: dict[str, StepLatencyProfile],
-    segments: list[PoolSegment],
-    reason: str,
-    *,
-    switched: bool,
-    switch_total_ms: float,
-) -> None:
-    """Start (or restart) a denoise step for ``run`` at its current width."""
-    req = run.req
-    profile = _profile_for(req, profiles)
-    members = _run_members(run)
-    batch_members = members if run.width == 1 else [req]
-    batch_size = len(batch_members)
-    request_ids = [member.spec.request_id for member in batch_members]
-    start_ms = now_ms
-    if switched:
-        req.switched = True
-        req.switch_count += 1
-        segments.append(
-            PoolSegment(
-                request_id=req.spec.request_id,
-                start_ms=now_ms,
-                end_ms=now_ms + switch_total_ms,
-                step_index=req.current_step,
-                width=run.width,
-                gpus=list(run.gpus),
-                event="switch",
-                reason=reason,
-                batch_size=1,
-                request_ids=[req.spec.request_id],
-            )
-        )
-        start_ms = now_ms + switch_total_ms
-    for member in batch_members:
-        if member.started_ms is None:
-            member.started_ms = now_ms
-        member.current_mode = _mode_for_width(run.width)
-        member.degree_timeline.append((member.current_step, run.width))
-    req.current_mode = _mode_for_width(run.width)
-    step_ms = profile.step_ms(req.current_mode, req.current_step, batch=batch_size)
-    end_ms = start_ms + step_ms
-    segments.append(
-        PoolSegment(
-            request_id=req.spec.request_id,
-            start_ms=start_ms,
-            end_ms=end_ms,
-            step_index=req.current_step,
-            width=run.width,
-            gpus=list(run.gpus),
-            event="batch_step" if batch_size > 1 else "step",
-            reason=reason,
-            batch_size=batch_size,
-            request_ids=request_ids,
-        )
-    )
-    run.step_end_ms = end_ms
 
 
 def _pool_schedule(
@@ -992,517 +768,6 @@ def _pool_schedule(
     for entry in to_start:
         switched = (not entry["new"]) and (entry["width"] != entry["prev"])
         _pool_start_step(now_ms, entry["run"], profiles, segments, policy, switched=switched, switch_total_ms=switch_total)
-
-
-# --------------------------------------------------------------------------- #
-# slo_elastic: SLO-aware, lexicographic, rolling-horizon scheduler + FlexCache
-# --------------------------------------------------------------------------- #
-# Lexicographic objective (compared field-by-field, earlier fields dominate). See
-# slo_elastic_scheduler_strategy.md section 5.
-SLO_OBJECTIVE_FIELDS = (
-    "slo_miss_count",
-    "max_tardiness_ms",
-    "total_tardiness_ms",
-    "max_slowdown",
-    "starvation_count",
-    "flexcache_used_count",
-    "flexcache_reduced_steps_total",
-    "switch_count",
-    "total_switch_cost_ms",
-    "total_flow_ms",  # sum of predicted (completion - arrival); minimizing this is latency/throughput-optimal
-    "mean_slowdown",
-)
-
-
-def _solo_service_ms(req: SimRequest, profiles: dict[str, StepLatencyProfile]) -> float:
-    """Single-GPU DP service time -- the fairness baseline for slowdown (strategy §3)."""
-    return req.original_steps * _profile_for(req, profiles).step_ms("dp1", 0)
-
-
-def _slo_shape_deg(req: SimRequest, profiles: dict[str, StepLatencyProfile], max_k: int) -> int:
-    return _shape_aware_degree(_profile_for(req, profiles), max_k=max_k)
-
-
-def _slo_step_ms(req: SimRequest, width: int, profiles: dict[str, StepLatencyProfile]) -> float:
-    return _profile_for(req, profiles).step_ms(_mode_for_width(width), req.current_step)
-
-
-def _rem_steps(req: SimRequest, override: dict[str, int] | None) -> int:
-    eff = override.get(req.spec.request_id, req.effective_steps) if override else req.effective_steps
-    return max(0, int(eff) - req.current_step)
-
-
-def _slo_urgency(req: SimRequest, now_ms: float, profiles: dict[str, StepLatencyProfile], max_k: int,
-                 override: dict[str, int] | None = None) -> tuple[int, float]:
-    """Ordering key: deadline-bearing requests by smallest slack first, then SRPT."""
-    prof = _profile_for(req, profiles)
-    best_step = min(prof.step_ms(_mode_for_width(k), 0) for k in (1, 2, 4) if k <= max_k)
-    rem_time = _rem_steps(req, override) * best_step
-    if req.spec.deadline_ms is None:
-        return (1, rem_time)
-    return (0, req.spec.deadline_ms - now_ms - rem_time)
-
-
-def _slo_key_pending(pending: list[SimRequest], now_ms: float, profiles: dict[str, StepLatencyProfile],
-                     max_k: int, limit: int = 5) -> list[SimRequest]:
-    ranked = sorted(pending, key=lambda r: _slo_urgency(r, now_ms, profiles, max_k))
-    return ranked[:limit]
-
-
-def _slo_admit_continuous_batches(now_ms: float, boundary: list[PoolRunning], pending: list[SimRequest],
-                                  profiles: dict[str, StepLatencyProfile], config: SimulationConfig) -> int:
-    """Greedily admit urgent same-shape pending requests into DP lanes at step boundaries.
-
-    This models continuous batching as a fine-grained admission action: a request no
-    longer has to wait for a whole in-flight request to finish, only for a compatible
-    DP lane's next denoise-step boundary. We keep it conservative: same profile,
-    width=1, and capped batch size.
-    """
-    if not config.enable_continuous_batch or config.max_batch_items <= 1:
-        return 0
-    total_admitted = 0
-    max_k = min(4, max(1, config.total_gpus))
-    for run in boundary:
-        if run.width != 1:
-            continue
-        members = _run_members(run)
-        if len(members) >= config.max_batch_items:
-            continue
-        profile = run.req.spec.profile
-        candidates = [
-            req for req in pending
-            if req.spec.profile == profile and req.current_step == 0
-        ]
-        candidates.sort(key=lambda r: _slo_urgency(r, now_ms, profiles, max_k))
-        while candidates and len(members) < config.max_batch_items:
-            req = candidates.pop(0)
-            if req not in pending:
-                continue
-            cur_batch = len(members)
-            new_batch = cur_batch + 1
-            prof = _profile_for(req, profiles)
-            cur_step = prof.step_ms("dp1", req.current_step, batch=cur_batch)
-            new_step = prof.step_ms("dp1", req.current_step, batch=new_batch)
-            solo_step = prof.step_ms("dp1", req.current_step, batch=1)
-            earliest_lane_free = min(member.remaining_steps for member in members) * cur_step
-            before: list[tuple[SimRequest, float]] = [
-                (member, now_ms + member.remaining_steps * cur_step)
-                for member in members
-            ]
-            before.append((req, now_ms + earliest_lane_free + req.remaining_steps * solo_step))
-            after = [
-                (member, now_ms + member.remaining_steps * new_step)
-                for member in (*members, req)
-            ]
-
-            def slo_score(items: list[tuple[SimRequest, float]]) -> tuple[int, float]:
-                miss = 0
-                tard = 0.0
-                for item_req, comp in items:
-                    dl = item_req.spec.deadline_ms
-                    if dl is None:
-                        continue
-                    item_tard = max(0.0, comp - dl)
-                    tard += item_tard
-                    if item_tard > 1e-9:
-                        miss += 1
-                return miss, tard
-
-            miss_before, tard_before = slo_score(before)
-            miss_after, tard_after = slo_score(after)
-            if miss_after > miss_before or tard_after >= tard_before - 1e-9:
-                continue
-            pending.remove(req)
-            req.continuous_batch_count += 1
-            members.append(req)
-            total_admitted += 1
-        run.members = members
-        _refresh_run_leader(run)
-    return total_admitted
-
-
-def _gpu_partitions(capacity: int, max_parts: int) -> list[tuple[int, ...]]:
-    """All non-increasing width multisets from {1,2,4} with sum <= ``capacity`` and at
-    most ``max_parts`` parts (>=1). Sums below capacity are kept so a lone SP-negative
-    request can run at width 1 and leave GPUs idle rather than being forced into SP;
-    the work-conserving filter in the layout builder discards under-packing when there
-    is still pending demand. Small for G<=8, so enumeration is cheap."""
-    results: set[tuple[int, ...]] = set()
-
-    def rec(remaining: int, max_w: int, parts: list[int]) -> None:
-        if parts:
-            results.add(tuple(parts))
-        if len(parts) >= max_parts:
-            return
-        for w in (4, 2, 1):
-            if w <= remaining and w <= max_w:
-                rec(remaining - w, w, parts + [w])
-
-    if capacity > 0 and max_parts > 0:
-        rec(capacity, 4, [])
-    return sorted(results, key=lambda t: (-len(t), t))
-
-
-def _slo_candidate_layouts(now_ms: float, firm: list[PoolRunning], boundary: list[PoolRunning],
-                           pending: list[SimRequest], profiles: dict[str, StepLatencyProfile],
-                           config: SimulationConfig) -> list[dict[str, Any]]:
-    total = max(1, config.total_gpus)
-    max_k = min(4, total)
-    window = float(config.switch.switch_allowed_until_step)
-    # Batched DP lanes stay at width=1 until their current members drain; reshaping a
-    # mixed-membership batch into SP would require ragged SP batching, which is out of scope.
-    beyond = [r for r in boundary if r.req.current_step > window or len(_run_members(r)) > 1]
-    flexb = [r for r in boundary if r not in beyond]  # width is a decision variable
-    fixed_used = sum(r.width for r in firm) + sum(r.width for r in beyond)
-    reassignable = total - fixed_used
-
-    must = [{"kind": "boundary", "run": r, "req": r.req, "prev": r.width} for r in flexb]
-    key_pending = _slo_key_pending(pending, now_ms, profiles, max_k, limit=5)
-    kcells = [{"kind": "pending", "run": None, "req": r, "prev": 0} for r in key_pending]
-    assignable = must + kcells
-    max_parts = max(1, len(assignable))
-
-    layouts: list[dict[str, Any]] = []
-    seen: set[tuple] = set()
-    for parts in _gpu_partitions(reassignable, max_parts):
-        num = len(parts)
-        if num < len(must):
-            continue  # cannot run every in-flight (boundary) request
-        # Work-conserving: only leave GPUs idle once every assignable request is placed
-        # (otherwise a request would wait while a GPU sits idle).
-        if sum(parts) < reassignable and num < len(assignable):
-            continue
-        chosen = must + kcells[: num - len(must)]
-        widths = sorted(parts, reverse=True)
-        # Give the widest SP groups to the most SP-friendly / heaviest requests; DP-friendly
-        # and short requests naturally fall to width 1.
-        order = sorted(
-            chosen,
-            key=lambda c: (-_slo_shape_deg(c["req"], profiles, max_k), -c["req"].remaining_steps, c["req"].spec.arrival_ms),
-        )
-        assign = [
-            {"kind": c["kind"], "run": c["run"], "req": c["req"], "prev": c["prev"], "width": w}
-            for c, w in zip(order, widths)
-        ]
-        switch_count = sum(1 for a in assign if a["kind"] == "boundary" and a["width"] != a["prev"])
-        key = tuple(sorted((a["req"].spec.request_id, a["width"]) for a in assign))
-        if key in seen:
-            continue
-        seen.add(key)
-        layouts.append({"assign": assign, "beyond": beyond, "switch_count": switch_count})
-
-    if not layouts:  # e.g. no reassignable capacity: keep flexb where they are
-        assign = [{"kind": "boundary", "run": r, "req": r.req, "prev": r.width, "width": r.width} for r in flexb]
-        layouts.append({"assign": assign, "beyond": beyond, "switch_count": 0})
-    return layouts
-
-
-def _slo_items_for_layout(now_ms: float, firm: list[PoolRunning], layout: dict[str, Any],
-                          pending: list[SimRequest], profiles: dict[str, StepLatencyProfile],
-                          config: SimulationConfig, override: dict[str, int] | None = None):
-    """Predicted (start, completion, width) for everything running under this layout."""
-    switch_total = config.switch.total_ms
-    active: list[dict[str, Any]] = []
-    chosen: set[str] = set()
-
-    def add_run_members(run: PoolRunning, start: float, first_step_end: float, width: int) -> None:
-        members = _run_members(run) if width == 1 else [run.req]
-        batch = len(members) if width == 1 else 1
-        lane = f"run:{id(run)}"
-        for member in members:
-            rem_after = max(0, _rem_steps(member, override) - 1)
-            step_ms = _profile_for(member, profiles).step_ms(_mode_for_width(width), member.current_step, batch=batch)
-            comp = first_step_end + rem_after * step_ms
-            active.append({
-                "id": member.spec.request_id,
-                "req": member,
-                "width": width,
-                "lane": lane,
-                "start": member.started_ms if member.started_ms is not None else start,
-                "comp": comp,
-            })
-            chosen.add(member.spec.request_id)
-
-    for run in firm:
-        add_run_members(run, now_ms, run.step_end_ms, run.width)
-    for run in layout["beyond"]:
-        batch = len(_run_members(run)) if run.width == 1 else 1
-        first_step_end = now_ms + _profile_for(run.req, profiles).step_ms(_mode_for_width(run.width), run.req.current_step, batch=batch)
-        add_run_members(run, now_ms, first_step_end, run.width)
-    for a in layout["assign"]:
-        req = a["req"]
-        switched = a["kind"] == "boundary" and a["width"] != a["prev"]
-        start = now_ms + (switch_total if switched else 0.0)
-        comp = start + _rem_steps(req, override) * _slo_step_ms(req, a["width"], profiles)
-        active.append({
-            "id": req.spec.request_id,
-            "req": req,
-            "width": a["width"],
-            "lane": f"req:{req.spec.request_id}",
-            "start": start,
-            "comp": comp,
-        })
-        chosen.add(req.spec.request_id)
-    waiting = [r for r in pending if r.spec.request_id not in chosen]
-    return active, waiting
-
-
-def _slo_forward(now_ms: float, active: list[dict[str, Any]], waiting: list[SimRequest], total: int,
-                 profiles: dict[str, StepLatencyProfile], config: SimulationConfig,
-                 override: dict[str, int] | None = None) -> dict[str, tuple[float, float, int]]:
-    """List-schedule the whole remaining queue to completion with a load-aware fallback.
-
-    Fallback: when GPUs free, place the most urgent waiting request; if the queue is at
-    least as deep as the free GPUs, place it as DP (width 1) to maximize concurrency
-    (this is what makes the objective prefer DP under saturation and SP when idle)."""
-    max_k = min(4, total)
-    completions: dict[str, tuple[float, float, int]] = {
-        it["id"]: (it["start"], it["comp"], it["width"]) for it in active
-    }
-    lanes: dict[str, tuple[float, int]] = {}
-    for it in active:
-        lane = str(it.get("lane", it["id"]))
-        comp, width = lanes.get(lane, (0.0, int(it["width"])))
-        lanes[lane] = (max(comp, float(it["comp"])), width)
-    free = total - sum(width for _comp, width in lanes.values())
-    heap = [(comp, width) for comp, width in lanes.values()]
-    heapq.heapify(heap)
-    queue = sorted(waiting, key=lambda r: _slo_urgency(r, now_ms, profiles, max_k, override))
-    t = now_ms
-    guard = 0
-    while queue:
-        guard += 1
-        if guard > 200000:
-            break
-        while queue and free > 0:
-            width = 1 if len(queue) >= free else _largest_valid_width(min(_slo_shape_deg(queue[0], profiles, max_k), free), max_width=max_k)
-            if width < 1:
-                break
-            req = queue.pop(0)
-            comp = t + _rem_steps(req, override) * _slo_step_ms(req, width, profiles)
-            completions[req.spec.request_id] = (t, comp, width)
-            heapq.heappush(heap, (comp, width))
-            free -= width
-        if not queue or not heap:
-            break
-        comp, width = heapq.heappop(heap)
-        t = max(t, comp)
-        free += width
-    return completions
-
-
-def _slo_objective(now_ms: float, completions: dict[str, tuple[float, float, int]],
-                   by_id: dict[str, SimRequest], config: SimulationConfig,
-                   profiles: dict[str, StepLatencyProfile], switch_count: int,
-                   flex_used: int, flex_steps: int) -> tuple[float, ...]:
-    slo_miss = 0
-    tardiness: list[float] = []
-    slowdowns: list[float] = []
-    starvation = 0
-    total_flow = 0.0
-    for rid, (start, comp, _width) in completions.items():
-        req = by_id[rid]
-        dl = req.spec.deadline_ms
-        tard = max(0.0, comp - dl) if dl is not None else 0.0
-        tardiness.append(tard)
-        if dl is not None and comp > dl + 1e-9:
-            slo_miss += 1
-        solo = _solo_service_ms(req, profiles)
-        slowdowns.append((comp - req.spec.arrival_ms) / solo if solo > 0 else 0.0)
-        if start - req.spec.arrival_ms > config.starvation_wait_ms:
-            starvation += 1
-        total_flow += comp - req.spec.arrival_ms
-    # Quantize the continuous SLO/fairness fields that rank *above* switch_count so that
-    # only a *meaningful* predicted improvement (not myopic prediction noise) is worth a
-    # switch. Big wins (e.g. saturated 1024: DP cuts tardiness by seconds) survive; sub-
-    # bucket differences collapse to a tie and the switch-count field then keeps things put.
-    def _q(value: float, bucket: float) -> float:
-        return round(value / bucket) * bucket
-
-    return (
-        float(slo_miss),
-        _q(max(tardiness, default=0.0), 500.0),
-        _q(sum(tardiness), 500.0),
-        _q(max(slowdowns, default=0.0), 0.25),
-        float(starvation),
-        float(flex_used),
-        float(flex_steps),
-        float(switch_count),
-        float(switch_count) * config.switch.total_ms,
-        total_flow,
-        mean(slowdowns) if slowdowns else 0.0,
-    )
-
-
-def _slo_extreme_risk(completions: dict[str, tuple[float, float, int]], by_id: dict[str, SimRequest],
-                      config: SimulationConfig) -> bool:
-    for rid, (start, comp, _w) in completions.items():
-        dl = by_id[rid].spec.deadline_ms
-        if dl is None:
-            continue
-        if comp - dl > config.flexcache_emergency_tardiness_ms:
-            return True
-        if (dl - comp) < -config.flexcache_emergency_slack_ms:
-            return True
-    return False
-
-
-def _slo_flexcache_augment(now_ms: float, firm: list[PoolRunning], layout: dict[str, Any],
-                           pending: list[SimRequest], profiles: dict[str, StepLatencyProfile],
-                           config: SimulationConfig, by_id: dict[str, SimRequest]):
-    """Emergency-only step reduction. Greedily shrink the worst-missing requests by the
-    smallest amount that helps, re-scoring each time. Returns (obj, layout, comps, actions)
-    or ``None`` if FlexCache cannot improve the objective."""
-    override: dict[str, int] = {}
-    actions: dict[str, int] = {}
-
-    def score(ovr: dict[str, int]):
-        active, waiting = _slo_items_for_layout(now_ms, firm, layout, pending, profiles, config, ovr)
-        comps = _slo_forward(now_ms, active, waiting, max(1, config.total_gpus), profiles, config, ovr)
-        flex_used = sum(1 for _ in actions)
-        flex_steps = sum(actions.values())
-        return _slo_objective(now_ms, comps, by_id, config, profiles, layout["switch_count"], flex_used, flex_steps), comps
-
-    best_obj, best_comps = score(override)
-    improved = True
-    while improved:
-        improved = False
-        # worst-missing request first
-        misses = sorted(
-            (
-                (rid, comp)
-                for rid, (_s, comp, _w) in best_comps.items()
-                if by_id[rid].spec.deadline_ms is not None and comp - by_id[rid].spec.deadline_ms > config.flexcache_emergency_tardiness_ms
-            ),
-            key=lambda x: x[1] - by_id[x[0]].spec.deadline_ms,
-            reverse=True,
-        )
-        for rid, _comp in misses:
-            req = by_id[rid]
-            floor = max(config.flexcache_min_steps, req.current_step)
-            current_eff = override.get(rid, req.effective_steps)
-            if current_eff <= floor:
-                continue
-            best_local = None
-            for reduce in range(1, config.flexcache_max_reduce_steps + 1):
-                new_eff = max(floor, current_eff - reduce)
-                if new_eff >= current_eff:
-                    break
-                trial = dict(override)
-                trial[rid] = new_eff
-                trial_actions = dict(actions)
-                trial_actions[rid] = trial_actions.get(rid, 0) + (current_eff - new_eff)
-                active, waiting = _slo_items_for_layout(now_ms, firm, layout, pending, profiles, config, trial)
-                comps = _slo_forward(now_ms, active, waiting, max(1, config.total_gpus), profiles, config, trial)
-                obj = _slo_objective(now_ms, comps, by_id, config, profiles, layout["switch_count"],
-                                     sum(1 for _ in trial_actions), sum(trial_actions.values()))
-                if obj < best_obj:
-                    best_local = (obj, comps, new_eff, current_eff - new_eff)
-                    break  # smallest reduction that helps this request
-            if best_local is not None:
-                obj, comps, new_eff, reduced = best_local
-                override[rid] = new_eff
-                actions[rid] = actions.get(rid, 0) + reduced
-                best_obj, best_comps = obj, comps
-                improved = True
-                break
-    if not actions:
-        return None
-    action_list = [{"req": by_id[rid], "new_effective": override[rid], "reduced": actions[rid]} for rid in actions]
-    return best_obj, layout, best_comps, action_list
-
-
-def _slo_apply_layout(now_ms: float, layout: dict[str, Any], profiles: dict[str, StepLatencyProfile],
-                      config: SimulationConfig, segments: list[PoolSegment],
-                      running: list[PoolRunning], pending: list[SimRequest]) -> None:
-    total = max(1, config.total_gpus)
-    switch_total = config.switch.total_ms
-    to_start: list[dict[str, Any]] = []
-    for run in layout["beyond"]:
-        to_start.append({"run": run, "width": run.width, "prev": run.width, "new": False})
-    for a in layout["assign"]:
-        if a["kind"] == "boundary":
-            to_start.append({"run": a["run"], "width": a["width"], "prev": a["prev"], "new": False})
-        else:
-            run = PoolRunning(req=a["req"], width=a["width"], gpus=[], step_end_ms=None)
-            running.append(run)
-            if a["req"] in pending:
-                pending.remove(a["req"])
-            to_start.append({"run": run, "width": a["width"], "prev": 0, "new": True})
-
-    reserved = {i for r in running if r.step_end_ms is not None for i in r.gpus}  # firm hold their GPUs
-    free_idx = [i for i in range(total) if i not in reserved]
-    for entry in to_start:
-        run = entry["run"]
-        width = entry["width"]
-        chosen: list[int] = []
-        if not entry["new"]:
-            for i in run.gpus:
-                if i in free_idx and len(chosen) < width:
-                    chosen.append(i)
-                    free_idx.remove(i)
-        while len(chosen) < width and free_idx:
-            chosen.append(free_idx.pop(0))
-        run.gpus = chosen
-        run.width = width
-    for entry in to_start:
-        switched = (not entry["new"]) and (entry["width"] != entry["prev"])
-        _pool_start_step(now_ms, entry["run"], profiles, segments, "slo_elastic",
-                         switched=switched, switch_total_ms=switch_total)
-
-
-def _slo_elastic_schedule(now_ms: float, running: list[PoolRunning], firm: list[PoolRunning],
-                          boundary: list[PoolRunning], pending: list[SimRequest],
-                          profiles: dict[str, StepLatencyProfile], config: SimulationConfig,
-                          segments: list[PoolSegment], decision_log: list[dict[str, Any]] | None) -> None:
-    total = max(1, config.total_gpus)
-    free_capacity = total - sum(r.width for r in firm) - sum(r.width for r in boundary)
-    cb_admitted = 0
-    if free_capacity <= 0:
-        cb_admitted = _slo_admit_continuous_batches(now_ms, boundary, pending, profiles, config)
-    layouts = _slo_candidate_layouts(now_ms, firm, boundary, pending, profiles, config)
-    by_id = {r.spec.request_id: r for r in (*(member for run in running for member in _run_members(run)), *pending)}
-
-    scored: list[tuple[tuple[float, ...], dict[str, Any], dict[str, tuple[float, float, int]]]] = []
-    for layout in layouts:
-        active, waiting = _slo_items_for_layout(now_ms, firm, layout, pending, profiles, config)
-        comps = _slo_forward(now_ms, active, waiting, total, profiles, config)
-        obj = _slo_objective(now_ms, comps, by_id, config, profiles, layout["switch_count"], 0, 0)
-        scored.append((obj, layout, comps))
-    scored.sort(key=lambda x: x[0])
-    best_obj, best_layout, best_comps = scored[0]
-    runner_up = scored[1][0] if len(scored) > 1 else None
-
-    flex_actions: list[dict[str, Any]] = []
-    if config.enable_flexcache and _slo_extreme_risk(best_comps, by_id, config):
-        aug = _slo_flexcache_augment(now_ms, firm, best_layout, pending, profiles, config, by_id)
-        if aug is not None and aug[0] < best_obj:
-            best_obj, best_layout, best_comps, flex_actions = aug
-
-    if decision_log is not None and config.decision_log:
-        deciding = None
-        if runner_up is not None:
-            for idx, (a, b) in enumerate(zip(best_obj, runner_up)):
-                if abs(a - b) > 1e-9:
-                    deciding = SLO_OBJECTIVE_FIELDS[idx]
-                    break
-        decision_log.append({
-            "now_ms": now_ms,
-            "chosen_layout": [(a["req"].spec.request_id, a["width"]) for a in best_layout["assign"]],
-            "chosen_objective": list(best_obj),
-            "runner_up_objective": list(runner_up) if runner_up is not None else None,
-            "deciding_field": deciding,
-            "switch_count": best_layout["switch_count"],
-            "continuous_batch_admitted": cb_admitted,
-            "flexcache_actions": [(a["req"].spec.request_id, a["reduced"]) for a in flex_actions],
-        })
-
-    for act in flex_actions:
-        req = act["req"]
-        req.effective_steps = int(act["new_effective"])
-        req.flexcache_reduced_steps += int(act["reduced"])
-
-    _slo_apply_layout(now_ms, best_layout, profiles, config, segments, running, pending)
 
 
 def _pool_metrics(completed: list[SimRequest], segments: list[PoolSegment], total: int,
@@ -1699,39 +964,6 @@ def load_cost_model(cost_model: str | Path | None = None) -> CostModel:
     if path.is_file():
         return CostModel.load(path)
     return default_cost_model()
-
-
-def profile_from_cost_model(
-    model: CostModel,
-    *,
-    name: str,
-    width: int,
-    height: int,
-    num_steps: int,
-) -> StepLatencyProfile:
-    """Build a step-latency profile for one shape by querying the cost model.
-
-    Each execution mode maps to a sequence-parallel degree: dp1 -> k=1 (a whole
-    request on one GPU), cp2 -> k=2, cp4 -> k=4. Steps are near-uniform for DiT so
-    the per-step value is repeated across ``num_steps``.
-    """
-    img_tokens = image_token_count(width, height)
-    dp1 = model.predict_step_ms(img_tokens=img_tokens, batch=1, sp_degree=1)
-    cp2 = model.predict_step_ms(img_tokens=img_tokens, batch=1, sp_degree=2)
-    cp4 = model.predict_step_ms(img_tokens=img_tokens, batch=1, sp_degree=4)
-    dp_batch = {
-        batch: [model.predict_step_ms(img_tokens=img_tokens, batch=batch, sp_degree=1)] * num_steps
-        for batch in range(2, 17)
-    }
-    return StepLatencyProfile(
-        name=name,
-        seq_len=img_tokens,
-        resolution=f"{width}x{height}",
-        dp_1gpu_step_ms=[dp1] * num_steps,
-        cp_2gpu_step_ms=[cp2] * num_steps,
-        cp_4gpu_step_ms=[cp4] * num_steps,
-        dp_batch_step_ms=dp_batch,
-    )
 
 
 def default_profiles(cost_model: str | Path | None = None) -> dict[str, StepLatencyProfile]:

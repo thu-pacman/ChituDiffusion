@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from logging import getLogger
 import os
 import time
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Sequence, Tuple
 
 from chitu_diffusion.runtime.task import (
     DiffusionTask,
@@ -14,8 +14,26 @@ from chitu_diffusion.runtime.task import (
     DiffusionTaskStatus,
     DiffusionTaskType,
 )
+from chitu_diffusion.runtime.elastic_policy import (
+    LaneAssignment,
+    PoolRunning,
+    RequestSpec,
+    SimRequest,
+    SimulationConfig,
+    StepLatencyProfile,
+    SwitchCostModel,
+    load_cost_model,
+    plan_pool_layout,
+    profile_from_cost_model,
+)
 
 logger = getLogger(__name__)
+
+
+# One in-flight lane as seen by the pool scheduler: a task, the SP width it is currently
+# running at, the GPU ranks it holds, and whether it is at a denoise-step boundary (and so
+# resizable this round) or mid-step (firm, holding its GPUs).
+RuntimeLane = Tuple[DiffusionTask, int, Sequence[int], bool]
 
 
 @dataclass(frozen=True)
@@ -53,6 +71,52 @@ class ScheduleDecision:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class SchedulingPlan:
+    """A full pool layout for one denoise-step boundary (the ``slo_elastic`` runtime
+    output).
+
+    ``plan_pool_round`` produces one of these on rank 0 from the shared policy core; it
+    is broadcast to the world and each rank finds its lane via :meth:`lane_for_rank`.
+    Each :class:`~chitu_diffusion.runtime.elastic_policy.LaneAssignment` places one
+    distinct request (``request_id``) on ``gpus`` at a given SP ``width`` (1 == a DP
+    replica), so the pool runs heterogeneous, simultaneous per-request widths.
+    """
+
+    lanes: List[LaneAssignment] = field(default_factory=list)
+    idle_gpus: List[int] = field(default_factory=list)
+    deciding_field: Optional[str] = None
+    objective: tuple = field(default_factory=tuple)
+    continuous_batch_admitted: int = 0
+    total_gpus: int = 0
+
+    def lane_for_rank(self, rank: int) -> Optional[LaneAssignment]:
+        """The lane whose GPU set contains ``rank`` (None == this rank is idle)."""
+        for lane in self.lanes:
+            if rank in lane.gpus:
+                return lane
+        return None
+
+    def lane_for_task(self, task_id: str) -> Optional[LaneAssignment]:
+        for lane in self.lanes:
+            if lane.request_id == task_id or task_id in lane.batch_request_ids:
+                return lane
+        return None
+
+    def assigned_task_ids(self) -> List[str]:
+        return [lane.request_id for lane in self.lanes]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "lanes": [asdict(lane) for lane in self.lanes],
+            "idle_gpus": list(self.idle_gpus),
+            "deciding_field": self.deciding_field,
+            "objective": list(self.objective),
+            "continuous_batch_admitted": self.continuous_batch_admitted,
+            "total_gpus": self.total_gpus,
+        }
+
+
 class DiffusionScheduler:
     '''
     Diffusion scheduler with a backwards-compatible FIFO default.
@@ -79,11 +143,51 @@ class DiffusionScheduler:
         )
         self.max_batch_items = max(1, int(getattr(args, "max_batch_items", 8) or 8))
         self.execution_groups = self._build_execution_groups(args)
+
+        # ---- slo_elastic pool-scheduler knobs (only used when scheduling_policy == slo_elastic) ----
+        self.horizon_events = int(getattr(args, "horizon_events", 6) or 6)
+        self.starvation_wait_ms = float(getattr(args, "starvation_ms", 30000.0) or 30000.0)
+        self.fairness_beta = float(getattr(args, "fairness_beta", 3.0) or 3.0)
+        self.enable_flexcache = bool(getattr(args, "enable_flexcache", False))
+        self.switch_total_ms = float(getattr(args, "switch_total_ms", 0.0) or 0.0)
+        # Stage-7 residual runtime tax fed into the planner's completion predictions. Default
+        # 0.0 => planner behaves exactly as before (and the offline simulator is unaffected);
+        # set from measured instrumentation via env to make the planner account for the
+        # unavoidable per-step lane sync + amortized phase-boundary tax (barrier/plan/retire).
+        self.per_step_lane_cost_ms = float(os.getenv("CHITU_POOL_PER_STEP_COST_MS", "0") or 0.0)
+        self.phase_boundary_cost_ms = float(os.getenv("CHITU_POOL_BOUNDARY_COST_MS", "0") or 0.0)
+        # Phase length K used to amortize the boundary tax; mirrors the engine's admission bound.
+        self.phase_boundary_steps = int(os.getenv("CHITU_POOL_ADMISSION_BOUND", "0") or 0)
+        self.cost_model_name = getattr(args, "cost_model", None) or "rtx4090"
+        # Cost model + per-shape step-latency profile cache; loaded lazily so non-pool
+        # policies (fifo/etc.) pay nothing. Keyed by (width, height, num_steps).
+        self._cost_model = None
+        self._profile_cache: dict[tuple[int, int, int], StepLatencyProfile] = {}
+
         logger.info(
             "Initialized DiffusionScheduler: type=%s execution_groups=%s",
             self.scheduler_type,
             [group.group_id for group in self.execution_groups],
         )
+
+    # Policies that drive the concurrent heterogeneous-lane pool engine. ``slo_elastic``
+    # is the SLO-aware planner; ``pure_dp`` / ``pure_sp`` are fixed-layout baselines that
+    # reuse the identical pool machinery (admission / per-lane denoise / world barrier /
+    # latent re-replication / retire) and differ ONLY in the layout decision, so the
+    # three-way comparison is apples-to-apples on one code path.
+    POOL_POLICIES = frozenset({"slo_elastic", "pure_dp", "pure_sp"})
+
+    @property
+    def is_pool_policy(self) -> bool:
+        """Whether this scheduler drives the concurrent heterogeneous-lane pool engine."""
+        return self.scheduler_type in self.POOL_POLICIES
+
+    @property
+    def cost_model(self):
+        if self._cost_model is None:
+            self._cost_model = load_cost_model(self.cost_model_name)
+            logger.info("DiffusionScheduler loaded cost model: %s", self.cost_model_name)
+        return self._cost_model
 
     def _build_execution_groups(self, args) -> list[ExecutionGroupProfile]:
         cp_size = max(1, int(getattr(args, "cp_size", 1) or 1))
@@ -277,6 +381,200 @@ class DiffusionScheduler:
                 ),
             )
         return pending_tasks[0]
+
+    # ------------------------------------------------------------------
+    # slo_elastic pool round planning (request-level DP + per-request SP width)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _task_shape(task: DiffusionTask) -> tuple[int, int, int]:
+        """(width, height, num_steps) for cost-model profiling. Falls back to 1024^2/20."""
+        params = getattr(getattr(task, "req", None), "params", None)
+        if params is None or params.size is None:
+            return (1024, 1024, 20)
+        w, h = int(params.size[0]), int(params.size[1])
+        steps = int(getattr(params, "num_inference_steps", None) or 20)
+        return (w, h, steps)
+
+    def _profile_for_shape(self, shape: tuple[int, int, int]) -> StepLatencyProfile:
+        prof = self._profile_cache.get(shape)
+        if prof is None:
+            w, h, steps = shape
+            prof = profile_from_cost_model(
+                self.cost_model, name=f"{w}x{h}x{steps}", width=w, height=h, num_steps=steps
+            )
+            self._profile_cache[shape] = prof
+        return prof
+
+    def _sim_request_for_task(
+        self,
+        task: DiffusionTask,
+        now_ms: float,
+        profiles: dict[str, StepLatencyProfile],
+    ) -> SimRequest:
+        """Build a policy-layer SimRequest mirroring one runtime task's live state."""
+        shape = self._task_shape(task)
+        prof = self._profile_for_shape(shape)
+        shape_key = prof.name
+        profiles.setdefault(shape_key, prof)
+        _w, _h, steps = shape
+        arrival_ms = float(task.arrival_ts) / 1e6
+        # deadline_ms on the task is a *relative* budget after arrival; the policy wants an
+        # absolute wall-clock deadline (compared against now_ms).
+        rel_deadline = task.deadline_ms()
+        abs_deadline = arrival_ms + float(rel_deadline) if rel_deadline is not None else None
+        spec = RequestSpec(
+            request_id=task.task_id,
+            arrival_ms=arrival_ms,
+            num_steps=steps,
+            profile=shape_key,
+            deadline_ms=abs_deadline,
+        )
+        current_step = int(task.buffer.current_step) if task.buffer is not None else 0
+        req = SimRequest(spec=spec, current_step=current_step)
+        return req
+
+    def _pool_config(self, total_gpus: int) -> SimulationConfig:
+        return SimulationConfig(
+            total_gpus=max(1, int(total_gpus)),
+            switch=SwitchCostModel(
+                switch_cost_ms=self.switch_total_ms,
+                switch_allowed_until_step=self.switch_allowed_until_step,
+            ),
+            horizon_events=self.horizon_events,
+            starvation_wait_ms=self.starvation_wait_ms,
+            fairness_beta=self.fairness_beta,
+            enable_flexcache=self.enable_flexcache,
+            enable_continuous_batch=self.continuous_batch,
+            max_batch_items=self.max_batch_items,
+            per_step_lane_cost_ms=self.per_step_lane_cost_ms,
+            phase_boundary_cost_ms=self.phase_boundary_cost_ms,
+            phase_steps=self.phase_boundary_steps,
+        )
+
+    def plan_pool_round(
+        self,
+        running: Sequence[RuntimeLane],
+        pending: Sequence[DiffusionTask],
+        total_gpus: int,
+        now_ms: Optional[float] = None,
+    ) -> "SchedulingPlan":
+        """Decide a full pool layout for the next denoise-step boundary.
+
+        ``running`` are the in-flight lanes ``(task, width, gpus, at_boundary)``; lanes not
+        at a boundary are treated as firm (they hold their GPUs this round). ``pending`` is
+        the queue of not-yet-running tasks. Returns a :class:`SchedulingPlan` mapping each
+        chosen task to GPU ranks + SP width (+ optional switch / FlexCache), broadcast to
+        the world by the engine so every rank finds its lane.
+        """
+        if now_ms is None:
+            now_ms = time.perf_counter_ns() / 1e6
+        total = max(1, int(total_gpus))
+
+        # Fixed-layout baselines share the whole pool engine but skip the SLO planner:
+        #   pure_sp -> one request at a time on ALL GPUs (Ulysses SP=N, sequential);
+        #   pure_dp -> up to N distinct requests, each on a single GPU (SP=1, concurrent).
+        if self.scheduler_type in {"pure_dp", "pure_sp"}:
+            return self._forced_pool_plan(running, pending, total)
+
+        profiles: dict[str, StepLatencyProfile] = {}
+
+        firm: list[PoolRunning] = []
+        boundary: list[PoolRunning] = []
+        for task, width, gpus, at_boundary in running:
+            req = self._sim_request_for_task(task, now_ms, profiles)
+            run = PoolRunning(
+                req=req,
+                width=int(width),
+                gpus=[int(g) for g in gpus],
+                step_end_ms=None if at_boundary else now_ms + self._solo_step_ms(req, int(width), profiles),
+            )
+            (boundary if at_boundary else firm).append(run)
+
+        pending_reqs: list[SimRequest] = [
+            self._sim_request_for_task(task, now_ms, profiles) for task in pending
+        ]
+
+        config = self._pool_config(total)
+        layout = plan_pool_layout(firm, boundary, pending_reqs, profiles, config, now_ms=now_ms)
+        return SchedulingPlan(
+            lanes=list(layout.assignments),
+            idle_gpus=list(layout.idle_gpus),
+            deciding_field=layout.deciding_field,
+            objective=tuple(layout.objective),
+            continuous_batch_admitted=layout.continuous_batch_admitted,
+            total_gpus=total,
+        )
+
+    def _forced_pool_plan(
+        self,
+        running: Sequence[RuntimeLane],
+        pending: Sequence[DiffusionTask],
+        total: int,
+    ) -> "SchedulingPlan":
+        """Fixed-layout baselines (no cost model, no SLO objective).
+
+        ``pure_sp``: a single lane spanning all ``total`` GPUs (Ulysses SP=N). The
+        in-flight request keeps the pool until it finishes, so requests are served
+        strictly one-at-a-time -- the classic "everything at max SP" baseline.
+
+        ``pure_dp``: every lane is width 1 (a DP replica); in-flight lanes always
+        continue, and free GPUs are filled with the oldest pending requests, up to
+        ``total`` concurrent single-GPU requests -- the classic request-level DP baseline.
+        """
+        inflight = [lane[0] for lane in running]
+        inflight_ids = {t.task_id for t in inflight}
+        pend = sorted(
+            (t for t in pending if t.task_id not in inflight_ids),
+            key=lambda t: (t.arrival_ts, t.task_id),
+        )
+        prev_width = {lane[0].task_id: int(lane[1]) for lane in running}
+
+        lanes: list[LaneAssignment] = []
+        if self.scheduler_type == "pure_sp":
+            width = total
+            chosen = inflight[0] if inflight else (pend[0] if pend else None)
+            if chosen is not None:
+                pw = prev_width.get(chosen.task_id, width)
+                lanes.append(
+                    LaneAssignment(
+                        request_id=chosen.task_id,
+                        width=width,
+                        gpus=list(range(total)),
+                        switched=pw != width,
+                        prev_width=pw,
+                        batch_request_ids=[chosen.task_id],
+                    )
+                )
+        else:  # pure_dp
+            ordered = inflight + pend
+            for task in ordered[:total]:
+                pw = prev_width.get(task.task_id, 1)
+                lanes.append(
+                    LaneAssignment(
+                        request_id=task.task_id,
+                        width=1,
+                        gpus=[],  # engine assigns the concrete GPU via canonical placement
+                        switched=pw != 1,
+                        prev_width=pw,
+                        batch_request_ids=[task.task_id],
+                    )
+                )
+
+        used = sum(ln.width for ln in lanes)
+        return SchedulingPlan(
+            lanes=lanes,
+            idle_gpus=list(range(used, total)),
+            deciding_field=self.scheduler_type,
+            objective=(),
+            continuous_batch_admitted=0,
+            total_gpus=total,
+        )
+
+    @staticmethod
+    def _solo_step_ms(req: SimRequest, width: int, profiles: dict[str, StepLatencyProfile]) -> float:
+        prof = profiles[req.spec.profile]
+        mode = {1: "dp1", 2: "cp2", 4: "cp4"}.get(int(width), "dp1")
+        return prof.step_ms(mode, req.current_step)
 
     def schedule_decisions(self) -> list[ScheduleDecision]:
         shutdown_task = DiffusionTaskPool.get_shutdown_task()

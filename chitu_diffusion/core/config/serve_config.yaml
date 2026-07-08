@@ -41,7 +41,7 @@ infer:
     cfg_size: 1
     cp_size: 1
     up: 8
-    scheduling_policy: fifo # fifo, step_interleave, admission_control, shape_aware_ratio, static_dp, request_parallel
+    scheduling_policy: fifo # fifo, step_interleave, admission_control, shape_aware_ratio, static_dp, request_parallel, slo_elastic
     step_interleave: false # release a denoise task after each step so the scheduler can pick another request
     continuous_batch: false # M3: batch a group of same-shape same-step denoise-ready requests into one transformer forward (SP=1 only)
     max_batch_items: 8 # cap on the number of work-items batched together when continuous_batch is on
@@ -49,6 +49,16 @@ infer:
     execution_profiles: [] # e.g. [{group_id: dp0, ranks: [0], cp_size: 1, dp_replicas: 1, mode: dp}]
     hotswitch_enabled: false # experimental: prepare CP/DP layout migration at denoise step boundaries
     switch_allowed_until_step: 0
+    # --- slo_elastic pool scheduler (scheduling_policy: slo_elastic) ---
+    # SLO-aware elastic CP/DP pool: at each denoise-step boundary it partitions the GPUs
+    # into lanes of width {1,2,4}, assigns a distinct request per lane (request-level DP),
+    # and switches layouts at boundaries to minimize a lexicographic SLO-first objective.
+    cost_model: rtx4090 # cost-model name (experiments/.../cost_models/<name>.json) or path; sizes step latencies
+    horizon_events: 6 # rolling-horizon depth (step completions) used to score candidate layouts
+    starvation_ms: 30000.0 # queue wait (ms) beyond which a request counts as starved
+    fairness_beta: 3.0 # soft target max slowdown (logging/objective hint)
+    switch_total_ms: 0.0 # modeled cost of one CP<->DP layout switch (ms); 0 == free at step boundary
+    enable_flexcache: false # allow the emergency step-reduction rescue action (simulator-parity; off in prod)
     low_mem_level: 0
     offload_policy: auto # one of: auto, always_offload, never_offload
     compile_mode: "off" # one of: off, default, reduce-overhead, max-autotune-no-cudagraphs

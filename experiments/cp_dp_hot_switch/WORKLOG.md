@@ -308,3 +308,23 @@
   predicted cost, deadline slack, deciding reason}`；generator 只执行 plan（收口 M4 admission 与 M6 env-driven SP 切换）；
   补齐 request-level DP replica routing 与 world_size>1 的 idle-sync；先用 static baselines 校准 cost model，
   再上线策略并回填 SLO/queue/p95/busy 指标。
+
+## 2026-07-08 `slo_elastic` runtime pool engine + 三臂 benchmark
+
+- **runtime 接入完成**：`slo_elastic` 不再只是 simulator policy。`DiffusionScheduler.plan_pool_round`
+  把 live `DiffusionTask` 映射成 policy 层请求状态，调用共享的 `plan_pool_layout`，输出 `SchedulingPlan`
+  / `LaneAssignment`；`Generator` 的 pool engine 在 rank 0 规划 lane layout 并广播，worker rank 在各自
+  lane subgroup 上执行 denoise phase。
+- **同 engine baseline**：新增 `pure_dp` / `pure_sp` 两个固定布局策略，复用完全相同的 pool engine
+  admission、per-lane denoise、barrier、latent migration 和 retire 逻辑；差异只剩 layout decision，
+  便于和 `slo_elastic` 做干净对比。
+- **runtime overhead 收敛**：在最初 7/7 三臂结果里，`slo_elastic` 因为 planner 只建模 compute+comm，
+  低估了同步 round 的固定开销，burst 阶段偏向 SP2，导致 aggregate 落后于 `pure_dp`。后续 runtime
+  增加 multi-step phase、placement affinity、targeted latent migration、precise migration、async output，
+  并给 planner 增加 residual overhead 入口（`CHITU_POOL_PER_STEP_COST_MS` /
+  `CHITU_POOL_BOUNDARY_COST_MS`）。
+- **当前读数口径**：`outputs/bench_3way_50step/comparison/report.md` 是 7/7 三臂同版本结果：
+  `pure_sp` makespan/p95 = 155.6/115.9s，`pure_dp` = 144.9/109.5s，`slo_elastic` = 178.0/141.7s；
+  该结果明确指出 per-round overhead 是主要 runtime gap。7/8 最新 `slo_elastic` 单臂结果
+  `slo_elastic-20260708_170254-ad2a7d03` 已改善到 makespan/p95 = 138.3/102.1s、throughput 0.065 req/s，
+  优于旧 pure baselines；但严格结论仍需用当前代码重跑 `pure_dp` / `pure_sp`，避免跨版本比较。

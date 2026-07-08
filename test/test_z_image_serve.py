@@ -30,6 +30,7 @@ import gc
 import json
 import logging
 import os
+import threading
 import time
 from logging import getLogger
 from pathlib import Path
@@ -69,6 +70,7 @@ def _load_trace(path: str) -> list[dict]:
 
 
 def _build_request(entry: dict, default_steps: int) -> DiffusionUserRequest:
+    deadline = entry.get("deadline_ms")
     return DiffusionUserRequest(
         request_id=str(entry["request_id"]),
         params=DiffusionUserParams(
@@ -81,6 +83,8 @@ def _build_request(entry: dict, default_steps: int) -> DiffusionUserRequest:
             num_inference_steps=int(entry.get("num_steps", default_steps)),
             n_sample=int(entry.get("n_sample", 1)),
             sample_solver=str(entry.get("sample_solver", "flowmatch_euler")),
+            # slo_elastic soft deadline (relative ms after arrival); ignored by other policies.
+            deadline_ms=float(deadline) if deadline is not None else None,
         ),
     )
 
@@ -146,11 +150,6 @@ def main(args: ServeConfig):
         raise ValueError(f"test/test_z_image_serve.py expects models=Z-Image, got {args.models.name}.")
 
     world_size = int(os.getenv("WORLD_SIZE", "1"))
-    if world_size != 1:
-        raise RuntimeError(
-            f"test_z_image_serve currently supports world_size==1 (SP=1 single GPU), got {world_size}. "
-            "Multi-rank idle synchronization between arrivals is a future engine feature."
-        )
 
     trace_path = os.getenv("CHITU_SERVE_TRACE", "").strip()
     if not trace_path:
@@ -196,6 +195,13 @@ def main(args: ServeConfig):
         start = time.time()
         injected = 0
         n_trace = len(trace)
+        # Stage 5: by default rank 0 injects arrivals from a CPU background thread so a
+        # request lands in the (thread-safe) pool at its wall-clock arrival instead of
+        # waiting for the current engine round to finish before the main loop calls
+        # _inject_due. Set CHITU_POOL_INGRESS_THREAD=off to fall back to inline injection.
+        ingress_thread_enabled = str(
+            os.getenv("CHITU_POOL_INGRESS_THREAD", "on")
+        ).strip().lower() in {"1", "true", "yes", "on"}
 
         def _now_ms() -> float:
             return (time.time() - start) * 1000.0
@@ -205,13 +211,15 @@ def main(args: ServeConfig):
             while injected < n_trace and float(trace[injected]["arrival_ms"]) <= now_ms:
                 entry = trace[injected]
                 req = req_by_id[str(entry["request_id"])]
+                # DiffusionTaskPool.add is lock-guarded, so this is safe to call from the
+                # background ingress thread concurrently with the engine/harvest reads.
                 DiffusionTaskPool.add(DiffusionTask(task_id=req.request_id, req=req))
                 records[req.request_id] = {"admit_ms": now_ms, "trace_arrival_ms": float(entry["arrival_ms"])}
                 logger.info("[serve] admit request=%s at %.1fms (%d/%d)", req.request_id, now_ms, injected + 1, n_trace)
                 injected += 1
 
         def _harvest_completions(now_ms: float) -> None:
-            for task_id, task in DiffusionTaskPool.pool.items():
+            for task_id, task in DiffusionTaskPool.items_snapshot():
                 rec = records.get(task_id)
                 if rec is None or "finish_ms" in rec:
                     continue
@@ -220,28 +228,76 @@ def main(args: ServeConfig):
                 if task.is_completed():
                     rec["finish_ms"] = now_ms
 
+        ingress_stop = threading.Event()
+
+        def _ingress_loop() -> None:
+            # Poll wall-clock and inject due arrivals until the whole trace is admitted.
+            while not ingress_stop.is_set() and injected < n_trace:
+                _inject_due(_now_ms())
+                if injected >= n_trace:
+                    break
+                ingress_stop.wait(0.0005)
+
+        ingress_worker = None
+        if rank == 0 and ingress_thread_enabled:
+            ingress_worker = threading.Thread(
+                target=_ingress_loop, name="pool-arrival-ingress", daemon=True
+            )
+            ingress_worker.start()
+
+        # Multi-rank lockstep driver: rank 0 owns the trace/scheduler and, each
+        # iteration, broadcasts an action so every rank calls the engine round the
+        # same number of times and stops together. This is the engine-level idle
+        # heartbeat that keeps SP>1 / pool ranks in lockstep while the pool is
+        # momentarily empty between arrivals (RUN = one engine round on all ranks,
+        # IDLE = rank 0 waits for a future arrival, STOP = drain complete).
         scheduler = DiffusionBackend.scheduler
+        heartbeat_device = torch.cuda.current_device()
+        ACTION_RUN, ACTION_IDLE, ACTION_STOP = 0, 1, 2
         with Timer.get_timer("overall"):
-            while not chitu_is_terminated():
-                now_ms = _now_ms()
-                _inject_due(now_ms)
-                # Mark first-scheduled the moment a pending task becomes schedulable.
-                if scheduler.can_schedule():
-                    for task_id in DiffusionTaskPool.pending_task_ids():
-                        rec = records.get(task_id)
-                        if rec is not None and rec.get("first_sched_ms") is None:
-                            rec["first_sched_ms"] = now_ms
-                    chitu_generate()
-                    _harvest_completions(_now_ms())
-                elif injected < n_trace:
-                    # Idle: no work now but future arrivals pending -> wait briefly.
-                    time.sleep(0.001)
-                    continue
+            while True:
+                if rank == 0:
+                    now_ms = _now_ms()
+                    if not ingress_thread_enabled:
+                        # Fallback: inline injection at the round boundary (background
+                        # thread disabled). When enabled, the ingress worker owns this.
+                        _inject_due(now_ms)
+                    if scheduler.can_schedule():
+                        # Mark first-scheduled the moment a pending task becomes schedulable.
+                        for task_id in DiffusionTaskPool.pending_task_ids():
+                            rec = records.get(task_id)
+                            if rec is not None and rec.get("first_sched_ms") is None:
+                                rec["first_sched_ms"] = now_ms
+                        action = ACTION_RUN
+                    elif injected < n_trace:
+                        action = ACTION_IDLE
+                    else:
+                        # All arrivals injected. Re-confirm nothing became schedulable in
+                        # the race window between the check above and now: once injected ==
+                        # n_trace the ingress thread has exited, so the pool is stable and
+                        # this second check is authoritative (avoids dropping a request the
+                        # background thread admitted moments ago).
+                        action = ACTION_RUN if scheduler.can_schedule() else ACTION_STOP
                 else:
+                    action = ACTION_RUN
+                action_t = torch.tensor([action if rank == 0 else 0], dtype=torch.int64, device=heartbeat_device)
+                torch.distributed.broadcast(action_t, src=0)
+                action = int(action_t.item())
+
+                if action == ACTION_STOP:
                     break
-                if injected >= n_trace and DiffusionTaskPool.all_finished():
+                if action == ACTION_IDLE:
+                    if rank == 0:
+                        time.sleep(0.001)
+                    continue
+
+                chitu_generate()
+                if rank == 0:
                     _harvest_completions(_now_ms())
-                    break
+
+        if ingress_worker is not None:
+            ingress_stop.set()
+            ingress_worker.join(timeout=5.0)
 
         elapsed_s = time.time() - start
         summary = _summarize(records, elapsed_s, num_images)

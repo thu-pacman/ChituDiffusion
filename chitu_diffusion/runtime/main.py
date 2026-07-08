@@ -262,6 +262,14 @@ def chitu_run_main_rank():
     """
     generator = DiffusionBackend.generator
 
+    # slo_elastic pool engine: rank 0 plans a full pool layout each round and
+    # broadcasts it; every rank runs one denoise step for its lane. Admission and
+    # retirement are owned by the engine round (like continuous batching), so rank 0
+    # just drives one round here.
+    if getattr(generator, "pool_engine", False):
+        generator.step()
+        return
+
     # M4 mixed-step continuous batching: the engine owns admission/retirement at
     # denoise step boundaries, so rank 0 just drives one engine round. Admissions
     # are pulled from the pending pool inside the round (planned on rank 0 and

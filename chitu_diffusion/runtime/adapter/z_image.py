@@ -399,22 +399,34 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
 
         prompt = negative_prompt if encode_negative else task.req.get_prompt()
         set_cfg_type(backend, "neg" if encode_negative else "pos")
-        embeds = pipe._encode_prompt(
-            prompt=[prompt],
-            device=device,
-            max_sequence_length=max_sequence_length,
-        )
-        lengths = [int(item.shape[0]) for item in embeds]
-        padded_embeds = torch.nn.utils.rnn.pad_sequence(embeds, batch_first=True, padding_value=0.0)
+        cache = getattr(self, "_text_embed_cache", None)
+        if cache is None:
+            cache = {}
+            self._text_embed_cache = cache
+        cache_key = (prompt, int(max_sequence_length))
+        cached = cache.get(cache_key)
+        if cached is not None:
+            padded_embeds = cached[0].to(device=device)
+            lengths = list(cached[1])
+        else:
+            embeds = pipe._encode_prompt(
+                prompt=[prompt],
+                device=device,
+                max_sequence_length=max_sequence_length,
+            )
+            lengths = [int(item.shape[0]) for item in embeds]
+            padded_embeds = torch.nn.utils.rnn.pad_sequence(embeds, batch_first=True, padding_value=0.0)
+            if len(cache) < 512:
+                cache[cache_key] = (padded_embeds.detach().to("cpu"), list(lengths))
+            logger.info(
+                "[text_encode_step] Z-Image branch=%s embeds=%s",
+                "neg" if encode_negative else "pos",
+                [tuple(item.shape) for item in embeds],
+            )
         if encode_negative:
             task.buffer._z_negative_embedding_lengths = lengths
         else:
             task.buffer._z_text_embedding_lengths = lengths
-        logger.info(
-            "[text_encode_step] Z-Image branch=%s embeds=%s",
-            "neg" if encode_negative else "pos",
-            [tuple(item.shape) for item in embeds],
-        )
         return padded_embeds
 
     def prepare_denoise(self, task, generator, backend) -> None:
@@ -1063,7 +1075,24 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         pipe = self._ensure_pipeline(backend.args, device)
         autocast_device = "cuda" if device.type == "cuda" else device.type
         with torch.amp.autocast(autocast_device, enabled=False):
-            noise_preds = self._z_guided_noise_pred_batch_mixed(tasks, generator, backend)
+            cp_group = get_cp_group()
+            cp = cp_group.group_size if cp_group is not None else 1
+            if cp > 1:
+                # Pool-engine per-lane path: a width>1 lane runs exactly ONE request
+                # sequence-sharded across its CP subgroup. The batched-mixed forward
+                # only shards a single sample, so route the lane's single task
+                # through the cp-capable single-task guided forward (identical math
+                # to the M6 dynamic-SP denoise path). Multi-request batching is
+                # width==1 (cp==1) only.
+                if len(tasks) != 1:
+                    raise NotImplementedError(
+                        f"Z-Image cp>1 group denoise supports a single task per lane, got {len(tasks)}."
+                    )
+                task = tasks[0]
+                guidance_scale = self._current_guidance_scale(task, pipe)
+                noise_preds = [self._z_guided_noise_pred(task, generator, backend, guidance_scale)]
+            else:
+                noise_preds = self._z_guided_noise_pred_batch_mixed(tasks, generator, backend)
             for task, noise_pred in zip(tasks, noise_preds):
                 step_index = int(task.buffer.current_step)
                 timestep = task.buffer.timesteps[step_index]

@@ -1,0 +1,109 @@
+{
+  "meta": {
+    "generated_by": "gen_client_trace.py",
+    "rate_req_per_s": 2.0,
+    "num_requests": 6,
+    "rng_seed": 5,
+    "base_seed": 42,
+    "sizes": [
+      "1024x1024"
+    ],
+    "size_weights": [
+      1.0
+    ],
+    "num_steps": 8,
+    "n_sample_dist": {
+      "1": 1.0
+    },
+    "duration_ms": 25565.964,
+    "mean_interarrival_ms": 500.0,
+    "pattern": "bursty",
+    "burst_sizes": [
+      1,
+      4,
+      1
+    ],
+    "intra_burst_ms": 400.0,
+    "lull_ms": 12000.0
+  },
+  "requests": [
+    {
+      "request_id": "req0000",
+      "arrival_ms": 0.0,
+      "prompt": "A compact workstation desk with a small sign reading \"Z-Image x ChituDiffusion\", soft morning light, crisp product photography.",
+      "negative_prompt": "deformed, distorted, malformed, mutated, disfigured, gibberish text, garbled text, blurry, low quality, extra objects, duplicated objects, watermark, jpeg artifacts",
+      "width": 1024,
+      "height": 1024,
+      "num_steps": 8,
+      "n_sample": 1,
+      "seed": 42,
+      "sample_solver": "flowmatch_euler",
+      "deadline_ms": 4189.802
+    },
+    {
+      "request_id": "req0001",
+      "arrival_ms": 12000.0,
+      "prompt": "A serene mountain lake at dawn, mirror-still water, pine forest, volumetric fog, ultra detailed landscape photography.",
+      "negative_prompt": "deformed, distorted, malformed, mutated, disfigured, gibberish text, garbled text, blurry, low quality, extra objects, duplicated objects, watermark, jpeg artifacts",
+      "width": 1024,
+      "height": 1024,
+      "num_steps": 8,
+      "n_sample": 1,
+      "seed": 43,
+      "sample_solver": "flowmatch_euler",
+      "deadline_ms": 4189.802
+    },
+    {
+      "request_id": "req0002",
+      "arrival_ms": 12390.1,
+      "prompt": "A cyberpunk street market at night, neon signs, rain-slick pavement, reflective puddles, cinematic lighting.",
+      "negative_prompt": "deformed, distorted, malformed, mutated, disfigured, gibberish text, garbled text, blurry, low quality, extra objects, duplicated objects, watermark, jpeg artifacts",
+      "width": 1024,
+      "height": 1024,
+      "num_steps": 8,
+      "n_sample": 1,
+      "seed": 44,
+      "sample_solver": "flowmatch_euler",
+      "deadline_ms": 4189.802
+    },
+    {
+      "request_id": "req0003",
+      "arrival_ms": 12931.688,
+      "prompt": "A cozy bookstore cafe interior, warm lamps, wooden shelves, steam rising from a coffee cup, shallow depth of field.",
+      "negative_prompt": "deformed, distorted, malformed, mutated, disfigured, gibberish text, garbled text, blurry, low quality, extra objects, duplicated objects, watermark, jpeg artifacts",
+      "width": 1024,
+      "height": 1024,
+      "num_steps": 8,
+      "n_sample": 1,
+      "seed": 45,
+      "sample_solver": "flowmatch_euler",
+      "deadline_ms": 4189.802
+    },
+    {
+      "request_id": "req0004",
+      "arrival_ms": 13565.964,
+      "prompt": "A macro shot of a dew-covered spider web at sunrise, backlit droplets, bokeh background.",
+      "negative_prompt": "deformed, distorted, malformed, mutated, disfigured, gibberish text, garbled text, blurry, low quality, extra objects, duplicated objects, watermark, jpeg artifacts",
+      "width": 1024,
+      "height": 1024,
+      "num_steps": 8,
+      "n_sample": 1,
+      "seed": 46,
+      "sample_solver": "flowmatch_euler",
+      "deadline_ms": 4189.802
+    },
+    {
+      "request_id": "req0005",
+      "arrival_ms": 25565.964,
+      "prompt": "An astronaut standing on a red desert planet, two moons in the sky, dramatic golden-hour light.",
+      "negative_prompt": "deformed, distorted, malformed, mutated, disfigured, gibberish text, garbled text, blurry, low quality, extra objects, duplicated objects, watermark, jpeg artifacts",
+      "width": 1024,
+      "height": 1024,
+      "num_steps": 8,
+      "n_sample": 1,
+      "seed": 47,
+      "sample_solver": "flowmatch_euler",
+      "deadline_ms": 4189.802
+    }
+  ]
+}
