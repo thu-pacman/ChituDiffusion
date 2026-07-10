@@ -51,20 +51,6 @@ def test_work_items_share_task_and_buffer_by_reference():
     assert all(it.current_step == 7 for it in items)
 
 
-def test_batch_key_groups_same_shape_same_step():
-    a = _make_task("a", n_sample=2, size=(1024, 1024))
-    b = _make_task("b", n_sample=1, size=(1024, 1024))
-    c = _make_task("c", n_sample=1, size=(512, 512))
-    a.buffer.current_step = b.buffer.current_step = c.buffer.current_step = 0
-    keys = {wi.request_id: wi.batch_key for t in (a, b, c) for wi in t.work_items()}
-    # same shape + step -> same batch_key; different shape -> different key
-    assert keys["a"] == keys["b"]
-    assert keys["a"] != keys["c"]
-    # advancing step changes the batch_key (M3 groups per step)
-    b.buffer.current_step = 1
-    assert b.work_items()[0].batch_key != a.work_items()[0].batch_key
-
-
 def test_seed_alignment_across_samples():
     task = _make_task("r3", n_sample=3, seed=50)
     seeds = task.req.params.sample_seeds(fallback=0)

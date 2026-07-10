@@ -46,5 +46,5 @@ overrides:
   - infer.diffusion.dynamic_sp=true
   - infer.diffusion.cost_model=rtx4090
   - infer.diffusion.horizon_events=6
-  - infer.diffusion.enable_flexcache=false
+  - infer.diffusion.epe.enable_flexcache=false
   - models.sampler.sample_steps=50

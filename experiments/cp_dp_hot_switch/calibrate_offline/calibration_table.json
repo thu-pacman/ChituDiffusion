@@ -1,0 +1,37 @@
+{
+  "global_derate_g": 1.1070412846656232,
+  "per_key": {
+    "sp8@512": {
+      "tokens": 1024,
+      "n_samples": 209,
+      "predicted_planner_ms": 185.34186481657648,
+      "predicted_2cond_ms": 370.68372963315295,
+      "measured_median_ms": 115.05489759147167,
+      "correction_factor": 0.620771231072568
+    },
+    "sp8@1024": {
+      "tokens": 4096,
+      "n_samples": 271,
+      "predicted_planner_ms": 186.67978958857157,
+      "predicted_2cond_ms": 373.35957917714313,
+      "measured_median_ms": 224.5710153132677,
+      "correction_factor": 1.202974439858785
+    },
+    "dp1@512": {
+      "tokens": 1024,
+      "n_samples": 18,
+      "predicted_planner_ms": 184.25588989257812,
+      "predicted_2cond_ms": 368.51177978515625,
+      "measured_median_ms": 247.1359245479107,
+      "correction_factor": 1.341264719906603
+    },
+    "dp1@1024": {
+      "tokens": 4096,
+      "n_samples": 81,
+      "predicted_planner_ms": 596.8625793457031,
+      "predicted_2cond_ms": 1193.7251586914062,
+      "measured_median_ms": 1052.141311764717,
+      "correction_factor": 1.7627865243589282
+    }
+  }
+}

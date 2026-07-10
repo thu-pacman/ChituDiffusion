@@ -966,12 +966,28 @@ def load_cost_model(cost_model: str | Path | None = None) -> CostModel:
     return default_cost_model()
 
 
-def default_profiles(cost_model: str | Path | None = None) -> dict[str, StepLatencyProfile]:
-    """Derive step latencies from the decoupled cost model (roofline + comm)."""
+def default_profiles(
+    cost_model: str | Path | None = None,
+    *,
+    guidance_scale: float = 1.0,
+    cfg_parallel_max: int = 1,
+) -> dict[str, StepLatencyProfile]:
+    """Derive step latencies from the decoupled cost model (roofline + comm).
+
+    ``guidance_scale > 1`` makes each step cost two forwards (cond + uncond); with
+    ``cfg_parallel_max >= 2`` the first factor-of-2 is spent on (near-perfect) CFG
+    parallelism before context parallelism -- see ``profile_from_cost_model``.
+    """
     model = load_cost_model(cost_model)
     return {
-        "short_1024": profile_from_cost_model(model, name="short_1024", width=512, height=512, num_steps=20),
-        "long_4096": profile_from_cost_model(model, name="long_4096", width=1024, height=1024, num_steps=30),
+        "short_1024": profile_from_cost_model(
+            model, name="short_1024", width=512, height=512, num_steps=20,
+            guidance_scale=guidance_scale, cfg_parallel_max=cfg_parallel_max,
+        ),
+        "long_4096": profile_from_cost_model(
+            model, name="long_4096", width=1024, height=1024, num_steps=30,
+            guidance_scale=guidance_scale, cfg_parallel_max=cfg_parallel_max,
+        ),
     }
 
 
@@ -1040,12 +1056,31 @@ def main() -> None:
     )
     parser.add_argument("--output", type=Path, help="Write JSON result to this path instead of stdout.")
     parser.add_argument("--indent", type=int, default=2)
+    parser.add_argument(
+        "--guidance-scale",
+        type=float,
+        default=1.0,
+        help="Model guidance scale. >1 means classifier-free guidance (2 forwards/step). "
+        "Fixed per model for a single-model serve; ignored when --input is given.",
+    )
+    parser.add_argument(
+        "--cfg-parallel-max",
+        type=int,
+        default=1,
+        help="Max CFG-parallel degree (1 or 2). With 2 and guidance>1, the first "
+        "factor-of-2 of a request's GPUs is spent on (near-perfect) CFG parallelism "
+        "before context parallelism. Ignored when --input is given.",
+    )
     args = parser.parse_args()
 
     if args.input:
         requests, profiles, config = load_input(args.input)
     else:
-        requests, profiles, config = default_requests(), default_profiles(args.cost_model), SimulationConfig(
+        requests, profiles, config = default_requests(), default_profiles(
+            args.cost_model,
+            guidance_scale=args.guidance_scale,
+            cfg_parallel_max=args.cfg_parallel_max,
+        ), SimulationConfig(
             switch=SwitchCostModel(
                 switch_cost_ms=30.0,
                 graph_recapture_cost_ms=20.0,

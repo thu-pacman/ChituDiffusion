@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "generated_by": "manual (cfp validation)",
+    "note": "Tiny trace to validate dynamic per-lane CFG (CFP) on 8 GPUs: a solo request widens to the full pool (cfp2 x cp4), then a burst of two overlapping requests share the pool (cfp2 x cp2 each). Small step counts for a fast smoke run.",
+    "num_requests": 4,
+    "num_steps": 8
+  },
+  "requests": [
+    {
+      "request_id": "solo0",
+      "arrival_ms": 0.0,
+      "prompt": "A serene mountain lake at sunrise, mirror-like reflection, crisp photography.",
+      "negative_prompt": "deformed, blurry, low quality, watermark, jpeg artifacts",
+      "width": 1024,
+      "height": 1024,
+      "num_steps": 8,
+      "n_sample": 1,
+      "seed": 42,
+      "sample_solver": "flowmatch_euler",
+      "deadline_ms": 120000.0
+    },
+    {
+      "request_id": "burstA",
+      "arrival_ms": 9000.0,
+      "prompt": "A cozy bookstore cafe interior, warm lighting, shelves of books.",
+      "negative_prompt": "deformed, blurry, low quality, watermark, jpeg artifacts",
+      "width": 512,
+      "height": 512,
+      "num_steps": 8,
+      "n_sample": 1,
+      "seed": 43,
+      "sample_solver": "flowmatch_euler",
+      "deadline_ms": 120000.0
+    },
+    {
+      "request_id": "burstB",
+      "arrival_ms": 9100.0,
+      "prompt": "A futuristic city skyline at dusk, neon lights, ultra detailed.",
+      "negative_prompt": "deformed, blurry, low quality, watermark, jpeg artifacts",
+      "width": 512,
+      "height": 512,
+      "num_steps": 8,
+      "n_sample": 1,
+      "seed": 44,
+      "sample_solver": "flowmatch_euler",
+      "deadline_ms": 120000.0
+    },
+    {
+      "request_id": "solo1",
+      "arrival_ms": 20000.0,
+      "prompt": "A single red maple leaf on wet stone, macro shot, shallow depth of field.",
+      "negative_prompt": "deformed, blurry, low quality, watermark, jpeg artifacts",
+      "width": 1024,
+      "height": 1024,
+      "num_steps": 8,
+      "n_sample": 1,
+      "seed": 45,
+      "sample_solver": "flowmatch_euler",
+      "deadline_ms": 120000.0
+    }
+  ]
+}

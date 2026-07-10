@@ -103,6 +103,19 @@ def test_affinity_no_prev_matches_default_packing():
     assert with_affinity == plain
 
 
+def test_affinity_keeps_tail_width1_lanes_regardless_of_lane_order():
+    # Regression for the GPU6/7 "swap-type rearrangement" bug: on an 8-GPU node the tail
+    # width-1 lanes must stay on their previous cards even when the planner reorders the
+    # lane list (there is no comm-locality, so a swap only wastes a group re-warm + latent
+    # migration). This is the property the rank-0 full-placement memo restores: as long as
+    # the *correct* prev block is supplied per request, order must not induce a swap.
+    widths = [2, 1, 1, 1, 1, 1, 1]  # req0003 + six width-1 (req0004,05,07,08, then 10,09)
+    prev = [[0, 1], [2], [3], [4], [5], [7], [6]]  # req0010 was on 7, req0009 on 6
+    blocks = Generator._canonical_placement(widths, 8, prev_blocks=prev)
+    assert blocks == prev  # every request pinned to its own previous block; no 6<->7 swap
+    _assert_canonical(blocks, widths, 8)
+
+
 # ---------------------------------------------------------------------------
 # Stage 7: residual runtime cost model. Defaults keep the planner (and the
 # offline simulator) byte-for-byte unchanged; configured values add exactly the
@@ -236,3 +249,56 @@ def test_pure_dp_all_width_one_inflight_first_capped_at_total():
     plan = s.plan_pool_round([], many, 4)
     assert len(plan.lanes) == 4
     assert sum(ln.width for ln in plan.lanes) <= 4
+
+
+# ---------------------------------------------------------------------------
+# Dynamic per-lane CFG (CFP) pair-groups. A CFP-2 lane of width w=2*stride runs its
+# cond half on the first ``stride`` ranks and uncond half on the next ``stride``,
+# reuniting cond-shard-i with uncond-shard-i. These pure-logic tests validate the
+# rank-list layout the runtime relies on (no GPUs / no torch.distributed collectives).
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("stride,world", [(1, 8), (2, 8), (4, 8), (1, 4), (2, 4), (1, 2)])
+def test_cfg_pair_rank_lists_partition_and_align(stride, world):
+    from chitu_diffusion.core.distributed.parallel_state import _cfg_pair_rank_lists
+
+    pairs = _cfg_pair_rank_lists(stride, world)
+    # Every pair is a cond|uncond couple exactly ``stride`` apart within its 2*stride block.
+    for pr in pairs:
+        assert len(pr) == 2
+        cond, uncond = pr
+        assert uncond - cond == stride, f"pair {pr} not stride={stride} apart"
+        base = (cond // (2 * stride)) * (2 * stride)
+        assert base <= cond < base + stride, f"cond {cond} not in cond-half of block {base}"
+        assert base + stride <= uncond < base + 2 * stride
+    # The pairs partition the whole world exactly once (required by CommGroup: every
+    # rank in exactly one subgroup).
+    flat = [r for pr in pairs for r in pr]
+    assert sorted(flat) == list(range(world))
+    assert len(flat) == len(set(flat))
+
+
+def test_cfg_pairs_stay_within_a_canonical_lane_block():
+    # A CFP-2 lane of width w=2*stride occupies an aligned block [off, off+w). Its
+    # stride-``stride`` pairs must fall entirely inside that lane (never crossing into a
+    # neighbouring lane), so the per-lane all-gather only involves the lane's own ranks.
+    from chitu_diffusion.core.distributed.parallel_state import _cfg_pair_rank_lists
+
+    world = 8
+    for stride in (1, 2, 4):
+        w = 2 * stride
+        pairs = _cfg_pair_rank_lists(stride, world)
+        for off in range(0, world, w):  # canonical aligned lane offsets
+            lane = set(range(off, off + w))
+            in_lane = [pr for pr in pairs if pr[0] in lane]
+            # exactly ``stride`` pairs live in this lane and both endpoints are inside it
+            assert len(in_lane) == stride
+            for cond, uncond in in_lane:
+                assert cond in lane and uncond in lane
+
+
+def test_cfg_strides_match_even_lane_widths():
+    # The strides we pre-warm are exactly ``w//2`` for each even lane width, so every
+    # even-width lane has a CFP realization and odd/width-1 lanes never do.
+    widths = [1, 2, 4, 8]
+    strides = sorted({w // 2 for w in widths if w >= 2 and w % 2 == 0})
+    assert strides == [1, 2, 4]

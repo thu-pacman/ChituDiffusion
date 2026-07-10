@@ -20,6 +20,7 @@ from chitu_diffusion.core.logging_utils import (
     should_log_on_rank,
 )
 from chitu_diffusion.runtime.backend import BackendState, DiffusionBackend
+from chitu_diffusion.runtime.elastic_policy import _mode_for_width
 from chitu_diffusion.flexcache.params import (
     CubicParams,
     DiTangoParams,
@@ -35,23 +36,20 @@ from chitu_diffusion.runtime.task import (
     DiffusionTaskPool,
     DiffusionTaskStatus,
 )
-from chitu_diffusion.runtime.data_parallel import dp_gather_sample_batch
 from chitu_diffusion.core.distributed.parallel_state import (
     get_cfg_group,
     get_cp_group,
     get_world_group,
-    dynamic_sp_enabled,
     dynamic_sp_degrees,
-    get_active_cp_degree,
-    set_active_cp_group,
-    get_dynamic_cp_group,
-    set_active_lane_group,
     lane_widths_available,
     initialize_lane_groups,
+    dynamic_cfg_strides,
+    activate_lane_topology,
+    reset_active_lane_topology,
 )
+from chitu_diffusion.core.distributed.lane_topology import LaneTopology
 from chitu_diffusion.modules.utils.wan import cache_video
 from chitu_diffusion.runtime.parallel_utils import SequencePadder
-from chitu_diffusion.runtime.hotswitch import HotswitchDecision, HotswitchStateMigrator
 from chitu_diffusion.observability import Timer
 from chitu_diffusion.runtime.output_naming import build_video_name_from_task
 from chitu_diffusion.runtime.output_layout import (
@@ -69,10 +67,8 @@ logger = getLogger(__name__)
 class DiffusionTaskDispatcher():
     def __init__(self):
         super().__init__()
-        # Naive data parallel broadcasts the *same* request to every rank over the
-        # world group; each replica then shards the request's n_sample batch by its
-        # replica index (see the adapter's prepare_denoise). So dispatch stays
-        # world-wide from global rank 0.
+        # Rank 0 owns scheduling decisions; metadata is broadcast so every rank
+        # participating in a selected lane starts from the same task state.
         self.group = get_world_group()
         self.rank = self.group.global_rank
         self.local_rank = self.group.local_rank
@@ -136,39 +132,21 @@ class DiffusionTaskDispatcher():
         return
     
 
-class CfgDispatcher():
+class LaneContextParallelExecutor:
     def __init__(self):
         super().__init__()
-        self.group = get_cfg_group()
-        self.rank = self.group.global_rank
-        self.local_rank = self.group.local_rank
 
-    def all_gather_cfg_noise_preds(self, local_noise_pred: torch.Tensor):
+    @property
+    def group(self):
+        return get_cp_group()
 
-        gathered_preds = [torch.empty_like(local_noise_pred) for _ in range(2)]
-        dist.all_gather(
-            tensor_list=gathered_preds,
-            tensor=local_noise_pred,
-            group=self.group.gpu_group,
-        )
-        return gathered_preds[0], gathered_preds[1]
+    @property
+    def cp_size(self):
+        return self.group.group_size
 
-class ContextParallelDispatcher():
-    def __init__(self):
-        super().__init__()
-        self.group = get_cp_group()
-        self.cp_size = self.group.group_size
-        self.rank = self.group.global_rank
-        self.local_rank = self.group.local_rank
-        self.rank_in_group = self.group.rank_in_group
-        # Parallel-sampler ("local latent") mode: when True the model_compute
-        # wrapper assumes the image tokens are *already* the rank-local shard, so
-        # it skips the per-call split of the latent and the final all-gather of the
-        # output. The latent is split once before denoise and gathered once before
-        # decode (see the adapter), keeping each rank's latent shard local across
-        # all scheduler steps. Text / id sequences are still split per call (cheap,
-        # comm-free, deterministic), so the math is identical to the replicated path.
-        self.local_latent_mode = False
+    @property
+    def rank_in_group(self):
+        return self.group.rank_in_group
 
     def dispatch(self, tokens: torch.Tensor, name: str = 'x'):
         return SequencePadder.split_sequence_padding(tokens, 
@@ -245,7 +223,7 @@ class ContextParallelDispatcher():
         def create_wrapped_forward(model_instance):
             original_forward = model_instance.model_compute
             def wrapped_compute(tokens, **kwargs):
-                local_mode = self.local_latent_mode
+                local_mode = False
                 original_image_seq_len = tokens.size(1)
                 # Replicated path splits the full latent here; local-latent path
                 # receives the rank-local shard directly and leaves it untouched.
@@ -298,35 +276,19 @@ class Generator:
         self.local_rank: int = self.rank % 8 
         self.task_dispatchers: List = []
         self.cp_size = args.infer.diffusion.cp_size
-        self.cfg_size = get_cfg_group().group_size
-        if self.cp_size > 1:
-            self.cp_dispatcher = ContextParallelDispatcher()
+        if max(dynamic_sp_degrees() or [get_cp_group().group_size]) > 1:
             if should_wrap_model_compute_for_context_parallel(
                 args,
                 DiffusionBackend.model_adapter,
                 DiffusionBackend.parallel_plan,
             ):
-                self.cp_dispatcher.wrap_model_compute_with_cp()
-        if self.cfg_size == 2:
-            self.cfg_dispatcher = CfgDispatcher()
+                # The wrapper resolves the CP group on every call. The generator
+                # does not own a launch-time dispatcher or cached communicator.
+                LaneContextParallelExecutor().wrap_model_compute_with_cp()
 
         # Ensure FIFO
         self.current_task = None # 通过这个储存当前任务的中间状态
-        # M4 continuous batching: a persistent, mixed-step in-flight DENOISE group.
-        # Members may sit at DIFFERENT ``current_step`` values; each engine round
-        # admits newly-pending same-shape work (at step 0), advances every member
-        # by exactly ONE denoise step in one batched forward, then retires members
-        # that reached their final step (decode/save per item). Empty when off or
-        # when nothing is denoising. In-flight members intentionally keep status
-        # ``Pending`` so ``scheduler.can_schedule()`` keeps the driver alive while
-        # the pending queue is otherwise empty; ``cb_group`` identity dedups them
-        # from re-admission.
-        self.cb_group: List[DiffusionTask] = []
         diffusion_args = args.infer.diffusion
-        self.continuous_batch = bool(getattr(diffusion_args, "continuous_batch", False)) or (
-            str(os.getenv("CHITU_CONTINUOUS_BATCH", "")).strip().lower() in {"1", "true", "yes", "on"}
-        )
-        self.max_batch_items = max(1, int(getattr(diffusion_args, "max_batch_items", 8) or 8))
         scheduler_policy = str(getattr(diffusion_args, "scheduling_policy", "fifo") or "fifo")
         # slo_elastic pool engine: request-level DP + per-request SP width across a shared
         # GPU pool. Each round rank 0 plans a full layout (which distinct request runs on
@@ -338,6 +300,13 @@ class Generator:
         # the same pool engine; only the layout decision in the scheduler differs.
         self.pool_engine = scheduler_policy in {"slo_elastic", "pure_dp", "pure_sp"}
         self.pool_group: List[DiffusionTask] = []
+        epe = getattr(diffusion_args, "epe", None)
+        # The planner and executor read the same serve-config value. ``pure_sp`` is
+        # always the true static CP baseline, independent of the EPE CFP setting.
+        configured_cfp = max(1, int(getattr(epe, "cfg_parallel_max", 2) or 2))
+        # ``pure_sp`` is the true static CP baseline; slo_elastic uses the optimal
+        # CFP-first decomposition by default.
+        self.pool_cfg_parallel_max = 1 if scheduler_policy == "pure_sp" else configured_cfp
         # slo_elastic pool-engine instrumentation (stage 0 baseline). Decomposes the
         # per-round tax into per-stage timers (pool_plan_ms / pool_broadcast_lanes_ms /
         # pool_admit_ms / pool_denoise_ms / pool_barrier_ms / pool_replicate_ms /
@@ -346,24 +315,31 @@ class Generator:
         # the timing summary.json via Timer.statistics_dict()/records_dict(). Toggle with
         # CHITU_POOL_INSTRUMENT (default on); disable for clean perf A/B runs.
         self._pool_instrument = str(os.getenv("CHITU_POOL_INSTRUMENT", "1")).strip().lower() in {"1", "true", "yes", "on"}
+        # Online cost-model calibration (mirrors DiffusionScheduler.online_calibrate).
+        # When on, each phase the engine feeds its measured clean per-step latency back to
+        # the planner's calibrator via one tiny all_gather. Requires instrumentation (the
+        # sample source). Enabled by default for accurate planner-owned balanced K.
+        self._pool_online_calibrate = (
+            self._pool_instrument
+            and bool(getattr(epe, "online_calibration", True))
+        )
         self._pool_round_index = 0
-        # Multi-step execution phase (stage 1). When on, one pool round advances every
-        # lane by K denoise steps under a fixed layout, and world barrier / latent
-        # replication / admit / retire happen only at the phase boundary -- amortizing the
-        # per-round tax over K steps. K is a safety upper bound (see _pool_phase_steps):
-        # min remaining over active lanes (no mid-phase retire), admission_bound (arrivals
-        # wait <= K steps), and the hot-switch window. CHITU_POOL_PHASE=off => K==1 (the
-        # original per-step behavior, for A/B).
-        self._pool_phase_enabled = str(os.getenv("CHITU_POOL_PHASE", "on")).strip().lower() in {"1", "true", "yes", "on"}
-        self._pool_admission_bound = max(1, int(os.getenv("CHITU_POOL_ADMISSION_BOUND", "5") or 5))
         # Placement preservation (stage 2). When on, canonical GPU-block assignment first
         # tries to keep each in-flight request on its previous (still width-aligned, free)
         # block instead of re-packing widest-first every phase, so a request that keeps its
         # width does not migrate. Sets up the targeted-replication savings in stage 6.
-        # CHITU_POOL_PLACEMENT=off => always re-pack (original behavior).
-        self._pool_placement_affinity = str(os.getenv("CHITU_POOL_PLACEMENT", "on")).strip().lower() in {"1", "true", "yes", "on"}
+        self._pool_placement_affinity = True
         self._pool_placement_reuse = 0
         self._pool_placement_change = 0
+        # Rank-0 memo of the *full* placement computed last round ({request_id: gpu block}).
+        # Per-task ``_pool_gpus`` is only refreshed for the lane the local rank participates
+        # in (rank 0 only runs the GPU0 lane), so reading it back on rank 0 gives stale/empty
+        # blocks for every other in-flight lane -- which silently defeated placement affinity
+        # for the tail width-1 lanes (needless GPU swaps within an 8-GPU node, where no
+        # comm-locality exists so a move only costs a process-group re-warm + latent migration).
+        # Since rank 0 already computes the concrete block for *every* lane each round, we just
+        # remember it and feed it back as the affinity hint next round.
+        self._pool_prev_placement: Dict[str, List[int]] = {}
         # Text-encode decoupling (stage 3). "rank0_gpu": only rank 0 runs the (GPU) text
         # encoder and broadcasts the embeddings to the world, removing the O(world_size)
         # duplicated encode compute on the synchronous admission path; "all_ranks" keeps the
@@ -375,8 +351,8 @@ class Generator:
         self._text_encode_cache_cap = max(0, int(os.getenv("CHITU_TEXT_ENCODE_CACHE", "256") or 256))
         self._text_encode_cache_hits = 0
         self._text_encode_cache_miss = 0
-        # Async output (stage 4). VAE decode stays a GPU collective, but the post-decode
-        # artifact write (PNG/sidecar via _post_vae_decode) is handed to a rank-0 CPU writer
+        # Async output (stage 4). VAE decode runs concurrently within each finishing lane;
+        # lane leaders return images to the rank-0 CPU writer
         # thread with a bounded queue (backpressure), so a phase boundary does not block on
         # disk I/O while other ranks wait. Per-task metrics stay on the main thread (cheap,
         # already excluded from serving latency, and avoids racing Timer's records dict).
@@ -387,27 +363,13 @@ class Generator:
         # Targeted latent replication (stage 6). Instead of re-broadcasting every stepped
         # task's latent to the whole world after each phase, track each task's owner ranks
         # (where its current latent lives) and only migrate when the planner moves it to a
-        # block whose ranks don't already hold it. Retire (world-collective VAE decode) still
-        # first replicates the finishing task to the world. CHITU_POOL_TARGETED_REPL=off falls
-        # back to the always-replicate-to-world behavior.
-        self._pool_targeted_repl = str(os.getenv("CHITU_POOL_TARGETED_REPL", "on")).strip().lower() in {"1", "true", "yes", "on"}
+        # block whose ranks don't already hold it. A finishing task decodes directly on its
+        # owner lane, so retirement does not require world replication.
+        self._pool_targeted_repl = True
         # Precise targeted migration (stage 6.5). When on, a pre-phase migration sends the
         # latent ONLY to the ranks that are missing it (needed - valid_ranks) via narrow
         # point-to-point (batched isend/irecv), instead of broadcasting from an owner leader
         # to the whole world. width 1->2 moves 1 rank, 2->4 moves 2 ranks, etc. Owner is
-        # treated as the set of ranks holding the current latent version. CHITU_POOL_PRECISE_MIGRATE=off
-        # falls back to the world-broadcast migration (still only when a lane is missing it).
-        self._pool_precise_migrate = str(os.getenv("CHITU_POOL_PRECISE_MIGRATE", "on")).strip().lower() in {"1", "true", "yes", "on"}
-        # Per-lane local runqueue (stage 8). Each lane advances its own request(s)
-        # independently within a phase and never over-steps its own remaining, so a lane
-        # that finishes early simply stops (its GPU idles until the boundary) instead of
-        # forcing the whole phase to end at the earliest lane's remaining. This decouples the
-        # phase window from the global MIN remaining (bounded instead by the credit window),
-        # cutting boundaries when lane remainings are skewed. Default off (the min-remaining
-        # boundary lets the planner reallocate the finished lane's GPU sooner, which is often
-        # preferable when plan/broadcast overhead is already tiny). The per-lane step cap
-        # itself is always applied -- it is a strict safety guard.
-        self._pool_local_queue = str(os.getenv("CHITU_POOL_LOCAL_QUEUE", "off")).strip().lower() in {"1", "true", "yes", "on"}
         self.enable_step_interleave = bool(
             getattr(diffusion_args, "step_interleave", False)
             or scheduler_policy in {"step_interleave", "admission_control", "shape_aware_ratio"}
@@ -417,36 +379,12 @@ class Generator:
         self.enable_stage_perf = bool(getattr(args.output, "timer", False))
         self._stage_start_time = {}
         self._dit_forward_step_elapsed_ms = {}
-        self.hotswitch_migrator = HotswitchStateMigrator()
-
-        # M6 dynamic sequence-parallel (SP/CP) degree switching. Enabled only when
-        # the pre-warmed groups exist (dynamic_sp flag on at init). The switch
-        # schedule is env-driven for verification (the M7 scheduler will own it):
-        #   CHITU_SP_INITIAL     -> degree for step 0.. (default = launch cp_size / active)
-        #   CHITU_SP_SWITCH_STEP -> denoise step index at which to switch to target
-        #   CHITU_SP_TARGET      -> degree from CHITU_SP_SWITCH_STEP onward
-        self.dynamic_sp = bool(getattr(diffusion_args, "dynamic_sp", False)) and dynamic_sp_enabled()
-        self._sp_initial_degree = int(os.getenv("CHITU_SP_INITIAL", "0") or 0)
-        self._sp_switch_step = int(os.getenv("CHITU_SP_SWITCH_STEP", "-1") or -1)
-        self._sp_target_degree = int(os.getenv("CHITU_SP_TARGET", "0") or 0)
-        self._sp_migrate_bench = str(os.getenv("CHITU_SP_MIGRATE_BENCH", "")).strip().lower() in {"1", "true", "yes", "on"}
-        self._sp_switch_events: List[Dict[str, Any]] = []
-        # Launch-time (base) degree captured before any runtime switch.
-        self._sp_base_degree = get_active_cp_degree() if self.dynamic_sp else 1
-        if self.dynamic_sp and self.rank == 0:
-            logger.info(
-                "[M6 dynamic-SP] enabled: degrees=%s initial=%s switch_step=%s target=%s",
-                dynamic_sp_degrees(), self._sp_initial_degree or "active",
-                self._sp_switch_step, self._sp_target_degree or "-",
-            )
-
         # slo_elastic pool engine: pre-warm the canonical contiguous lane CP groups
         # (widths {1,2,4,...} that divide the world) so switching a lane's width at a
         # step boundary is a pure process-group pointer swap. Collective on all ranks;
         # idempotent (no-op if dynamic-SP groups already exist).
         if self.pool_engine:
             initialize_lane_groups()
-            self.dynamic_sp = dynamic_sp_enabled()
             self._pool_widths = lane_widths_available()
             if self.rank == 0:
                 logger.info(
@@ -464,123 +402,6 @@ class Generator:
             and task.status == DiffusionTaskStatus.Pending
         ):
             self.current_task = None
-
-    def prepare_hotswitch(self, task: DiffusionTask, action: str, reason: str = "") -> None:
-        if task.buffer is None:
-            return
-        if action == "cp_to_dp":
-            source_mode, target_mode = "cp", "dp"
-        elif action == "dp_to_cp":
-            source_mode, target_mode = "dp", "cp"
-        else:
-            raise ValueError(f"Unsupported hotswitch action: {action}")
-        self._clear_ditango_planner()
-        self._clear_flexcache_strategy()
-        self.hotswitch_migrator.prepare(
-            task,
-            HotswitchDecision(
-                action=action,
-                source_mode=source_mode,
-                target_mode=target_mode,
-                step_index=int(task.buffer.current_step),
-                reason=reason,
-            ),
-        )
-
-    def _sp_target_for_step(self, step_index: int) -> int:
-        """Deterministic per-step target SP degree (identical on every rank).
-
-        Env-driven schedule for M6 verification: run at ``initial`` until
-        ``switch_step``, then ``target``. The M7 scheduler will replace this with
-        a load-driven decision."""
-        initial = self._sp_initial_degree if self._sp_initial_degree > 0 else self._sp_base_degree
-        if (
-            self._sp_switch_step is not None
-            and self._sp_switch_step >= 0
-            and self._sp_target_degree > 0
-            and step_index >= self._sp_switch_step
-        ):
-            return self._sp_target_degree
-        return initial
-
-    def _maybe_switch_sp_degree(self, task: DiffusionTask) -> None:
-        """At a denoise step boundary, switch the work-item's active SP degree if
-        its schedule calls for it, migrating latents onto the new CP layout.
-
-        For Z-Image the task-level latent is kept full and replicated on every
-        rank (sharding lives inside ``cp_forward``), so migration moves no data --
-        the switch is a pre-warmed process-group pointer swap (zero NCCL group
-        creation). ``migrate_task_latents`` handles the general sharded-latent
-        case (gather+scatter) and is a no-op here. Overhead is timed and recorded.
-        """
-        if not self.dynamic_sp or task.buffer is None:
-            return
-        step_index = int(task.buffer.current_step)
-        target = self._sp_target_for_step(step_index)
-        active = get_active_cp_degree()
-        if target == active:
-            return
-        if target not in dynamic_sp_degrees():
-            if self.rank == 0:
-                logger.warning(
-                    "[M6 dynamic-SP] target degree %d not pre-warmed (available=%s); skipping switch.",
-                    target, dynamic_sp_degrees(),
-                )
-            return
-
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        t0 = time.perf_counter()
-        migrated_bytes = self._migrate_task_latents_for_switch(task, active, target)
-        # O(1) pointer swap over the already-created communicators -> no NCCL
-        # group creation happens on the hot path (verified by pre-warm at init).
-        set_active_cp_group(target)
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
-
-        event = {
-            "task_id": task.task_id,
-            "step_index": step_index,
-            "from_degree": active,
-            "to_degree": target,
-            "elapsed_ms": elapsed_ms,
-            "migrated_bytes": migrated_bytes,
-            "rank": self.rank,
-        }
-        self._sp_switch_events.append(event)
-        Timer.record_event("sp_switch", event)
-        if self.rank == 0:
-            logger.info(
-                "[M6 dynamic-SP] switch SP %d->%d at step %d: %.3f ms (migrated_bytes=%d)",
-                active, target, step_index, elapsed_ms, migrated_bytes,
-            )
-
-    def _migrate_task_latents_for_switch(self, task: DiffusionTask, old_degree: int, new_degree: int) -> int:
-        """Re-shard a work-item's latent from ``old_degree`` -> ``new_degree``.
-
-        Returns the number of bytes moved. For a full/replicated latent (Z-Image)
-        this is 0: every rank already holds the complete sequence, so the new CP
-        layout can re-derive its shard locally inside the next forward. For a
-        genuinely sharded latent (general case) it performs the correctness-first
-        gather+scatter and returns the gathered byte count."""
-        buffer = task.buffer
-        cp_state = getattr(getattr(buffer, "parallel", None), "cp_latents", None)
-        latents = getattr(buffer, "latents", None)
-        # Full/replicated latent -> nothing to move (Z-Image path).
-        if cp_state is None or not getattr(cp_state, "is_local", False) or latents is None:
-            return 0
-        from chitu_diffusion.runtime.sp_migration import migrate_gather_scatter
-
-        old_group = get_dynamic_cp_group(old_degree)
-        new_group = get_dynamic_cp_group(new_degree)
-        new_rank = new_group.rank_in_group
-        moved = int(latents.numel() * latents.element_size())
-        buffer.latents = migrate_gather_scatter(
-            latents, old_group, new_degree, new_rank, seq_dim=1
-        )
-        cp_state.image_seq_len = int(buffer.latents.shape[1]) * new_degree
-        return moved
 
     def _run_dit_forward(self, task: DiffusionTask, branch: str, *args, **kwargs):
         step_index = int(task.buffer.current_step)
@@ -671,196 +492,11 @@ class Generator:
                 )
 
 
-    # Round-header modes broadcast from rank 0 so every rank takes the same
-    # branch and issues identical collectives.
-    _CB_MODE_BATCH = 0   # admit + one denoise step + retire (mixed-step group)
-    _CB_MODE_SINGLE = 1  # fall back to the single-task path (control / non-groupable / pinned)
-
-    def step(self, task: Optional[DiffusionTask] = None, group_tasks: Optional[List[DiffusionTask]] = None) -> torch.Tensor:
-        """Unified per-round entry called on every rank.
-
-        When continuous batching is off this is byte-for-byte the original
-        single-task path. When on, this drives the M4 mixed-step continuous-batch
-        engine: one denoise step for the whole in-flight group per round, with
-        dynamic admission/retirement at the step boundary.
-        """
+    def step(self, task: Optional[DiffusionTask] = None) -> torch.Tensor:
+        """Unified per-round entry called on every rank."""
         if self.pool_engine:
             return self._pool_round()
-        if not self.continuous_batch:
-            return self._step_single(task)
-        return self._cb_round()
-
-    def _cb_round(self) -> Optional[torch.Tensor]:
-        """One M4 continuous-batch engine round (called on every rank).
-
-        Rank 0 plans the round (which mode, what to admit) and broadcasts a small
-        header; every rank then executes the identical sequence: admit new
-        same-shape work-items (text-encode -> denoise-ready), advance every
-        in-flight member by ONE denoise step in a single batched forward, then
-        retire members that finished (decode/save). Non-groupable work, control
-        signals, and any pinned single task fall back to the untouched
-        ``_step_single`` path."""
-        is_main = self.rank == 0
-        device = "cpu" if DiffusionBackend.use_gloo else self.local_rank
-
-        if is_main:
-            mode, single_task, admit_tasks = self._cb_plan()
-        else:
-            mode, single_task, admit_tasks = self._CB_MODE_BATCH, None, []
-
-        mode_t = torch.tensor([mode], dtype=torch.int64, device=device)
-        dist.broadcast(mode_t, src=0)
-        mode = int(mode_t.item())
-
-        if mode == self._CB_MODE_SINGLE:
-            return self._step_single(single_task if is_main else None)
-
-        # Batch mode: broadcast the admission count, then each serialized task.
-        n_admit = len(admit_tasks) if is_main else 0
-        n_t = torch.tensor([n_admit], dtype=torch.int64, device=device)
-        dist.broadcast(n_t, src=0)
-        n_admit = int(n_t.item())
-
-        dispatcher = DiffusionTaskDispatcher()
-        for idx in range(n_admit):
-            if dispatcher.group.group_size == 1:
-                new_task = admit_tasks[idx]
-            else:
-                src = admit_tasks[idx] if (is_main and admit_tasks) else None
-                _, new_task = dispatcher.dispatch_metadata(src)
-            self._cb_admit_one(new_task)
-
-        if not self.cb_group:
-            return None
-
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        dist.barrier()
-        self._cb_denoise_one_step()
-        self._cb_retire_finished()
-        return None
-
-    def _cb_plan(self):
-        """Rank-0 planner. Returns ``(mode, single_task, admit_tasks)``.
-
-        Priority: continue a pinned single task; else (only when nothing is
-        in-flight) handle a control signal; else admit same-shape groupable work
-        into the in-flight denoise group; else, if nothing is in-flight and the
-        only pending work is non-groupable (flexcache), process it via the single
-        path so it does not starve."""
-        if self.current_task is not None:
-            return self._CB_MODE_SINGLE, None, []
-
-        scheduler = DiffusionBackend.scheduler
-        if not self.cb_group:
-            if DiffusionTaskPool.has_shutdown_request():
-                return self._CB_MODE_SINGLE, DiffusionTaskPool.get_shutdown_task(), []
-            if DiffusionTaskPool.has_cancel_request():
-                return self._CB_MODE_SINGLE, DiffusionTaskPool.get_cancel_task(), []
-
-        pending = [DiffusionTaskPool.pool[tid] for tid in DiffusionTaskPool.pending_task_ids()]
-        capacity = self.max_batch_items - len(self.cb_group)
-        admit = scheduler.select_cb_admissions(self.cb_group, pending, capacity)
-
-        if not self.cb_group and not admit:
-            inflight_ids = {t.task_id for t in self.cb_group}
-            non_groupable = [
-                t for t in pending
-                if t.task_id not in inflight_ids and not scheduler.cb_is_groupable(t)
-            ]
-            if non_groupable:
-                return self._CB_MODE_SINGLE, non_groupable[0], []
-
-        return self._CB_MODE_BATCH, None, admit
-
-    def _cb_admit_one(self, task: DiffusionTask) -> None:
-        """Drive a freshly-admitted task through text-encode (and VAE-encode for
-        image conditioning) until it is denoise-ready at step 0, then append it to
-        the in-flight group. Per-request text-encode reuses the single-task stage
-        machine; the task keeps status ``Pending`` (visible to ``can_schedule``)
-        while in flight."""
-        safety = 0
-        while task.task_type in (DiffusionTaskType.TextEncode, DiffusionTaskType.VAEEncode):
-            task.status = DiffusionTaskStatus.Running
-            self._emit_stage_start_if_needed(task)
-            if task.task_type == DiffusionTaskType.TextEncode:
-                out = self.text_encode_step(task)
-            else:
-                out = self.vae_encode_step(task)
-            self._update_task_stage_and_buffer(task, out)
-            safety += 1
-            if safety > 8:
-                raise RuntimeError(f"Task {task.task_id} stuck during continuous-batch admission.")
-
-        if task.task_type != DiffusionTaskType.Denoise:
-            raise RuntimeError(
-                f"Task {task.task_id} reached {task.task_type} during admission; expected Denoise."
-            )
-        task.status = DiffusionTaskStatus.Pending
-        task.sched_ts = time.perf_counter_ns()
-        task.last_scheduled_ts = task.sched_ts
-        self._emit_stage_start_if_needed(task)  # open the Denoise stage timer
-        self.cb_group.append(task)
-        if self.rank == 0:
-            logger.debug(
-                "[continuous-batch] admitted task=%s (in-flight=%d)",
-                task.task_id,
-                len(self.cb_group),
-            )
-
-    @Timer.get_timer("denoise")
-    @amp.autocast(device_type="cuda", dtype=torch.bfloat16)
-    @torch.no_grad()
-    def _cb_denoise_one_step(self) -> None:
-        """Advance every in-flight member by exactly ONE denoise step (mixed-step
-        batched forward)."""
-        group = self.cb_group
-        for task in group:
-            assert task.buffer.latents is not None and task.buffer.timesteps is not None
-            setattr(task.buffer, "_dit_forward_call_index", 0)
-        DiffusionBackend.model_adapter.denoise_step_group_once(
-            group,
-            self,
-            DiffusionBackend,
-            self._run_dit_forward,
-        )
-        for task in group:
-            current_step = int(task.buffer.current_step)
-            total_steps = int(task.req.params.num_inference_steps)
-            timestep = (
-                task.buffer.timesteps[current_step - 1]
-                if task.buffer.timesteps is not None and current_step - 1 < len(task.buffer.timesteps)
-                else None
-            )
-            log_progress(
-                logger,
-                stage_name=DiffusionTaskType.Denoise.name,
-                task_id=task.task_id,
-                step=current_step,
-                total=total_steps,
-                interval=self.denoise_progress_interval,
-                timestep=timestep,
-            )
-
-    def _cb_retire_finished(self) -> None:
-        """Retire members that reached their final step: close the denoise stage
-        and hand each to VAE-decode + save (per item). Survivors stay in-flight."""
-        survivors: List[DiffusionTask] = []
-        for task in self.cb_group:
-            total_steps = int(task.req.params.num_inference_steps)
-            if int(task.buffer.current_step) >= total_steps:
-                self._cb_retire_one(task)
-            else:
-                survivors.append(task)
-        self.cb_group = survivors
-
-    def _cb_retire_one(self, task: DiffusionTask) -> None:
-        self._emit_stage_end(DiffusionTaskType.Denoise, task.task_id)
-        task.task_type = DiffusionTaskType.VAEDecode
-        task.status = DiffusionTaskStatus.Running
-        self._emit_stage_start_if_needed(task)
-        out = self.vae_decode_step(task)
-        self._update_task_stage_and_buffer(task, out)
+        return self._step_single(task)
 
     # ------------------------------------------------------------------
     # slo_elastic pool engine (request-level DP + per-request SP width).
@@ -893,6 +529,34 @@ class Generator:
         now = time.perf_counter()
         Timer.record(name, (now - start) * 1000.0)
         return now
+
+    def _pool_cfg_parallel_active(self) -> bool:
+        """Whether this serve can run per-lane CFG parallelism (CFP): the run opted in
+        (``epe.cfg_parallel_max>=2``, shared with the planner), the model uses
+        classifier-free guidance (guidance_scale > 1), AND CFP pair-groups were
+        pre-warmed. Guidance is a model-level config here, so this is a fixed bool."""
+        if self.pool_cfg_parallel_max < 2:
+            return False  # not opted in; widened lanes stay pure context-parallel.
+        if not dynamic_cfg_strides():
+            return False
+        try:
+            return bool(DiffusionBackend.model_adapter.supports_cfg(self.args))
+        except Exception:
+            try:
+                return float(self.args.models.sampler.guidance_scale[0]) > 1.0
+            except Exception:
+                return False
+
+    def _pool_lane_cfp(self, width: int) -> int:
+        """CFP degree for a lane of ``width`` GPUs: 2 (cond|uncond split, CP stride
+        ``width//2``) when CFP is active and the split is pre-warmed, else 1. This is
+        the DP>CFP>CP realization -- a widened lane spends its first factor of two on
+        (near-perfect) CFG parallelism before context parallelism."""
+        width = int(width)
+        if width >= 2 and width % 2 == 0 and self._pool_cfg_parallel_active() \
+                and (width // 2) in dynamic_cfg_strides():
+            return 2
+        return 1
 
     def _pool_round(self) -> Optional[torch.Tensor]:
         """One slo_elastic pool-engine round (called on every rank)."""
@@ -939,13 +603,22 @@ class Generator:
         dist.broadcast(n_t, src=0)
         n_admit = int(n_t.item())
         dispatcher = DiffusionTaskDispatcher()
+        fanout_parent_ids: set[str] = set()
         for idx in range(n_admit):
             if dispatcher.group.group_size == 1:
                 new_task = admit_tasks[idx]
             else:
                 src = admit_tasks[idx] if (is_main and admit_tasks) else None
                 _, new_task = dispatcher.dispatch_metadata(src)
-            self._pool_admit_one(new_task)
+            if self._pool_admit_one(new_task):
+                fanout_parent_ids.add(new_task.task_id)
+        if fanout_parent_ids:
+            # The parent lane was only an admission slot. Its independently
+            # schedulable sample children enter the denoise planner next round.
+            lanes = [
+                lane for lane in lanes
+                if lane.get("request_id") not in fanout_parent_ids
+            ]
         if instrument:
             self._pool_sync()
             t = self._pool_rec("pool_admit_ms", t)
@@ -964,12 +637,20 @@ class Generator:
 
         pool_by_id = {t2.task_id: t2 for t2 in self.pool_group}
 
-        # Phase length K: rank 0 decides the safe upper bound and broadcasts it so every
-        # rank runs the same number of local denoise steps before the boundary barrier.
-        phase_k = self._pool_phase_steps(lanes, pool_by_id) if is_main else 0
-        k_t = torch.tensor([phase_k], dtype=torch.int64, device=device)
-        dist.broadcast(k_t, src=0)
-        phase_k = max(1, int(k_t.item()))
+        # Phase length K is part of the rank-0 planner output and already arrived in
+        # the lane-layout broadcast. Executors consume it verbatim; they never run a
+        # second cost-model decision that could diverge from the scored plan.
+        k_list = [max(1, int(lane.get("planned_k", 1))) for lane in lanes]
+        phase_k = max(k_list) if k_list else 1  # span of the phase (for records/instrumentation)
+        if is_main:
+            scheduler_for_record = DiffusionBackend.scheduler
+            lane_remaining_before = [int(self._pool_lane_remaining(ln, pool_by_id)) for ln in lanes]
+            lane_step_ms_before = [
+                float(self._pool_lane_step_ms(ln, pool_by_id, scheduler_for_record)) for ln in lanes
+            ]
+        else:
+            lane_remaining_before = []
+            lane_step_ms_before = []
 
         # 3b. Targeted pre-phase migration: move a task's latent to its new lane only if the
         #     lane's ranks don't already hold the current latent (placement preservation
@@ -984,11 +665,30 @@ class Generator:
         # 4. Each rank advances its lane by K denoise steps (no per-step world barrier or
         #    latent replication); idle ranks skip straight to the boundary barrier.
         t = time.perf_counter()
-        my_lane = next((ln for ln in lanes if self.rank in ln["gpus"]), None)
+        lane_steps_run = 0
+        reset_active_lane_topology()
+        my_lane_idx = next((i for i, ln in enumerate(lanes) if self.rank in ln["gpus"]), None)
+        my_lane = lanes[my_lane_idx] if my_lane_idx is not None else None
+        phase_k_local = k_list[my_lane_idx] if my_lane_idx is not None else phase_k
         if my_lane is not None:
-            set_active_lane_group(my_lane["gpus"][0], my_lane["width"])
+            # DP>CFP>CP realization. cfp==2 splits the lane into a cond half and an
+            # uncond half, each CP-sharded at ``width//cfp``; the CP group therefore
+            # activates at the *per-condition* degree and the CFG pair-group at stride
+            # ``width//cfp`` reunites cond/uncond each step. cfp==1 is the legacy path
+            # (CP over the whole lane, cond+uncond batched on each rank).
+            cfp = self._pool_lane_cfp(my_lane["width"])
+            cp_degree = my_lane["width"] // cfp
+            activate_lane_topology(
+                LaneTopology(
+                    offset=my_lane["gpus"][0],
+                    width=my_lane["width"],
+                    cfp_degree=cfp,
+                    cp_degree=cp_degree,
+                )
+            )
             if my_lane["width"] == 1:
-                tasks = [pool_by_id[r] for r in my_lane["batch_ids"] if r in pool_by_id]
+                rid = my_lane.get("request_id") or (my_lane.get("batch_ids") or [None])[0]
+                tasks = [pool_by_id[rid]] if rid and rid in pool_by_id else []
             else:
                 tasks = [pool_by_id[my_lane["request_id"]]] if my_lane["request_id"] in pool_by_id else []
             for t2 in tasks:
@@ -1001,7 +701,7 @@ class Generator:
                 # stops early and its rank(s) idle until the boundary. Width-1 denoise is
                 # rank-local and width>1 uses the lane's own CP subgroup, so lanes advancing a
                 # different number of steps never desync (they only re-meet at the barrier).
-                for _ in range(phase_k):
+                for _ in range(phase_k_local):
                     active = [
                         t2 for t2 in tasks
                         if int(t2.buffer.current_step) < int(t2.req.params.num_inference_steps)
@@ -1009,21 +709,46 @@ class Generator:
                     if not active:
                         break
                     self._pool_denoise_lane(active)
+                    lane_steps_run += 1
         denoise_ms = 0.0
+        local_compute_ms = 0.0
         if instrument:
             self._pool_sync()
             now = time.perf_counter()
-            denoise_ms = (now - t) * 1000.0
+            local_compute_ms = (now - t) * 1000.0
+            denoise_ms = local_compute_ms
             if my_lane is not None:  # only rounds where this rank actually stepped
                 Timer.record("pool_denoise_ms", denoise_ms)
+                Timer.record_event("pool_lane_local", {
+                    "round_index": int(self._pool_round_index),
+                    "rank": int(self.rank),
+                    "lane_index": int(my_lane_idx if my_lane_idx is not None else -1),
+                    "request_id": str(my_lane.get("request_id") or ""),
+                    "batch_ids": list(my_lane.get("batch_ids") or []),
+                    "width": int(my_lane["width"]),
+                    "gpus": [int(g) for g in my_lane["gpus"]],
+                    "planned_k": int(phase_k_local),
+                    "steps_run": int(lane_steps_run),
+                    "local_compute_ms": float(local_compute_ms),
+                })
             t = now
-
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         dist.barrier()
+        barrier_ms = 0.0
         if instrument:
-            t = self._pool_rec("pool_barrier_ms", t)
-
+            now = time.perf_counter()
+            barrier_ms = (now - t) * 1000.0
+            Timer.record("pool_barrier_ms", barrier_ms)
+            t = now
+        # Feed the clean per-lane compute sample to the online cost model only AFTER
+        # the mandatory world barrier. The tiny fixed-size all_gather is therefore not
+        # an extra synchronization point on the denoise critical path; it reuses the
+        # phase boundary all ranks have already reached.
+        if self._pool_online_calibrate:
+            self._pool_feed_calibrator(lanes, pool_by_id, denoise_ms, lane_steps_run, device)
+            if instrument:
+                t = self._pool_rec("pool_calibrate_ms", t)
         # 5. Latent bookkeeping after the phase.
         if self._pool_targeted_repl:
             # Targeted mode: the ranks that stepped each task now own its updated latent; no
@@ -1040,19 +765,46 @@ class Generator:
             self._pool_sync()
             t = self._pool_rec("pool_replicate_ms", t)
 
-        # 6. Retire finished tasks (world-synchronized VAE decode + save). In targeted mode
-        #    the finishing task's latent may live only on its lane ranks, so replicate it to
-        #    the world first (VAE decode is a world collective needing the full latent).
-        self._pool_retire_finished()
+        # 6. Retire finished tasks: each owner lane decodes locally and its leader
+        #    returns the image to rank 0 for asynchronous persistence.
+        self._pool_retire_finished(lanes)
         if instrument:
             self._pool_sync()
             self._pool_rec("pool_retire_ms", t)
-            Timer.record("pool_round_ms", (time.perf_counter() - round_t0) * 1000.0)
+            round_ms = (time.perf_counter() - round_t0) * 1000.0
+            Timer.record("pool_round_ms", round_ms)
             if is_main:
                 stepped = sum(len(ln["batch_ids"]) if ln["width"] == 1 else 1 for ln in lanes)
+                lane_records = []
+                for idx, ln in enumerate(lanes):
+                    cfp = self._pool_lane_cfp(int(ln["width"]))
+                    mode = f"sp{ln['width']}" if cfp == 1 else f"cfp{cfp}xcp{int(ln['width']) // cfp}"
+                    lane_k = int(k_list[idx]) if idx < len(k_list) else int(phase_k)
+                    lane_remaining = (
+                        int(lane_remaining_before[idx]) if idx < len(lane_remaining_before)
+                        else int(self._pool_lane_remaining(ln, pool_by_id))
+                    )
+                    lane_steps = int(min(max(0, lane_remaining), max(0, lane_k)))
+                    step_ms = (
+                        float(lane_step_ms_before[idx]) if idx < len(lane_step_ms_before)
+                        else float(self._pool_lane_step_ms(ln, pool_by_id, DiffusionBackend.scheduler))
+                    )
+                    lane_records.append({
+                        "lane_index": int(idx),
+                        "request_id": str(ln.get("request_id") or ""),
+                        "batch_ids": list(ln.get("batch_ids") or []),
+                        "mode": mode,
+                        "width": int(ln["width"]),
+                        "gpus": [int(g) for g in ln["gpus"]],
+                        "planned_k": lane_k,
+                        "steps_run": lane_steps,
+                        "pred_step_ms": step_ms,
+                        "pred_work_ms": float(step_ms * lane_steps),
+                    })
                 Timer.record_event("pool_round", {
                     "round_index": self._pool_round_index,
                     "phase_k": int(phase_k),
+                    "phase_k_by_lane": [int(x) for x in k_list],
                     "n_admit": n_admit,
                     "lane_count": len(lanes),
                     "layout_widths": [int(ln["width"]) for ln in lanes],
@@ -1062,61 +814,39 @@ class Generator:
                     "replicated_task_count": int(replicated_count),
                     "replicated_bytes": int(replicated_bytes),
                     "rank0_denoise_ms": denoise_ms,
+                    "pool_barrier_ms": float(barrier_ms),
+                    "pool_round_ms": float(round_ms),
+                    "lanes": lane_records,
                     "placement_reuse_total": int(self._pool_placement_reuse),
                     "placement_change_total": int(self._pool_placement_change),
                 })
             self._pool_round_index += 1
         return None
 
-    def _pool_phase_steps(self, lanes: List[Dict[str, Any]], pool_by_id: Dict[str, DiffusionTask]) -> int:
-        """Safe upper bound on the number of denoise steps a phase may run under the
-        (fixed) ``lanes`` layout without violating any boundary invariant:
+    def _pool_lane_tasks(self, lane: Dict[str, Any], pool_by_id: Dict[str, DiffusionTask]) -> List[DiffusionTask]:
+        rid = lane["request_id"]
+        task = pool_by_id.get(rid)
+        return [task] if task is not None and task.buffer is not None else []
 
-        - ``<= min remaining`` over every active task, so no task retires mid-phase
-          (retirement stays a boundary-only, world-synchronized operation);
-        - ``<= admission_bound``, so a request arriving during the phase waits at most
-          K steps before the next planning boundary;
-        - ``<= hot-switch window``, so if a lane may still legally change width the phase
-          ends at that boundary and the planner can still switch it.
+    def _pool_lane_remaining(self, lane: Dict[str, Any], pool_by_id: Dict[str, DiffusionTask]) -> int:
+        """Remaining denoise steps for the lane's request."""
+        rem = 0
+        for task in self._pool_lane_tasks(lane, pool_by_id):
+            rem = max(rem, int(task.req.params.num_inference_steps) - int(task.buffer.current_step))
+        return rem
 
-        Returns 1 when phase mode is off (original per-step behavior)."""
-        if not self._pool_phase_enabled:
-            return 1
-        min_remaining: Optional[int] = None
-        max_remaining = 0
-        for lane in lanes:
-            ids = lane["batch_ids"] if lane["width"] == 1 else [lane["request_id"]]
-            for rid in ids:
-                task = pool_by_id.get(rid)
-                if task is None or task.buffer is None:
-                    continue
-                rem = int(task.req.params.num_inference_steps) - int(task.buffer.current_step)
-                if rem <= 0:
-                    continue
-                min_remaining = rem if min_remaining is None else min(min_remaining, rem)
-                max_remaining = max(max_remaining, rem)
-        if not min_remaining or min_remaining <= 0:
-            return 1
-        # Local-queue mode bounds the phase by the LONGEST lane (short lanes stop early and
-        # idle), so the window is not clamped down to the earliest completion; default mode
-        # bounds by the earliest completion so the planner can reallocate that GPU at once.
-        remaining_cap = max_remaining if self._pool_local_queue else int(min_remaining)
-        k = min(remaining_cap, self._pool_admission_bound)
-
-        scheduler = DiffusionBackend.scheduler
-        if getattr(scheduler, "hotswitch_enabled", False):
-            switch_until = int(getattr(scheduler, "switch_allowed_until_step", 0) or 0)
-            if switch_until > 0:
-                for lane in lanes:
-                    ids = lane["batch_ids"] if lane["width"] == 1 else [lane["request_id"]]
-                    for rid in ids:
-                        task = pool_by_id.get(rid)
-                        if task is None or task.buffer is None:
-                            continue
-                        cur = int(task.buffer.current_step)
-                        if cur < switch_until:
-                            k = min(k, switch_until - cur)
-        return max(1, int(k))
+    def _pool_lane_step_ms(self, lane: Dict[str, Any], pool_by_id: Dict[str, DiffusionTask], scheduler) -> float:
+        """Predicted per-step latency recorded beside the planner-owned K."""
+        tasks = self._pool_lane_tasks(lane, pool_by_id)
+        if not tasks or scheduler is None or not hasattr(scheduler, "_profile_for_shape"):
+            return 0.0
+        task = tasks[0]
+        try:
+            prof = scheduler._profile_for_shape(scheduler._task_shape(task))
+            mode = _mode_for_width(int(lane["width"]))
+            return float(prof.step_ms(mode, int(task.buffer.current_step), batch=1))
+        except Exception:
+            return 0.0
 
     def _pool_plan_layout(self, world_size: int):
         """rank-0 planner: returns ``(lanes, admit_tasks)``.
@@ -1139,11 +869,23 @@ class Generator:
             if tid not in inflight_ids and not DiffusionTaskPool.pool[tid].is_control_signal()
         ]
         plan = scheduler.plan_pool_round(running, pending, world_size)
+        # Affinity hint: prefer rank 0's full memo of last round's blocks; fall back to the
+        # per-task ``_pool_gpus`` only for lanes rank 0 has never placed (memo cold-start).
         prev_gpus = {
-            t.task_id: list(getattr(t, "_pool_gpus", []) or [])
+            t.task_id: list(
+                self._pool_prev_placement.get(t.task_id)
+                or getattr(t, "_pool_gpus", [])
+                or []
+            )
             for t in self.pool_group
         }
         lanes = self._pool_canonical_lanes(plan, world_size, prev_gpus)
+        self._pool_last_predicted_spin_ms = float(getattr(plan, "predicted_spin_ms", 0.0) or 0.0)
+        # Remember the concrete block for every lane so next round's affinity is correct for
+        # ALL in-flight lanes (not just the one on GPU0). Drop retired requests.
+        self._pool_prev_placement = {
+            ln["request_id"]: list(ln["gpus"]) for ln in lanes
+        }
 
         assigned: set[str] = set()
         for ln in lanes:
@@ -1165,11 +907,97 @@ class Generator:
             return
         self._pool_last_layout_sig = sig
         used = sum(ln["width"] for ln in lanes)
-        desc = ", ".join(f"{ln['request_id']}:sp{ln['width']}@{ln['gpus']}" for ln in lanes) or "(empty)"
+
+        def _fmt(ln: Dict[str, Any]) -> str:
+            cfp = self._pool_lane_cfp(ln["width"])
+            # w=cfp*cp: show the realized (cfp,cp) decomposition for wide lanes.
+            tag = f"sp{ln['width']}" if cfp == 1 else f"cfp{cfp}xcp{ln['width'] // cfp}"
+            return f"{ln['request_id']}:{tag}@{ln['gpus']}"
+
+        desc = ", ".join(_fmt(ln) for ln in lanes) or "(empty)"
+        # Predicted barrier spin the planner foresees for this layout (0 unless barrier-aware
+        # scoring is on): fast lanes idling at the world barrier while a straggler drains.
+        spin_ms = float(getattr(self, "_pool_last_predicted_spin_ms", 0.0) or 0.0)
         logger.info(
-            "[slo_elastic pool] layout: %s | lanes=%d used=%d/%d idle=%d",
-            desc, len(lanes), used, world_size, world_size - used,
+            "[slo_elastic pool] layout: %s | lanes=%d used=%d/%d idle=%d pred_spin=%.0fms",
+            desc, len(lanes), used, world_size, world_size - used, spin_ms,
         )
+
+    def _pool_lane_shape_tokens(self, lane: Dict[str, Any], pool_by_id: Dict[str, Any]) -> int:
+        """Image-token count for a lane's request shape (0 if unknown)."""
+        task = pool_by_id.get(lane.get("request_id"))
+        params = getattr(getattr(task, "req", None), "params", None)
+        size = getattr(params, "size", None) if params is not None else None
+        if not size:
+            return 0
+        try:
+            adapter = DiffusionBackend.model_adapter
+            args = DiffusionBackend.args
+            if adapter is not None and args is not None:
+                return int(adapter.latent_token_count(int(size[0]), int(size[1]), args))
+            from chitu_diffusion.runtime.cost_model import latent_token_count
+
+            model_name = str(getattr(getattr(args, "models", None), "name", "") or "Z-Image")
+            return int(latent_token_count(int(size[0]), int(size[1]), model_name=model_name))
+        except Exception:
+            return 0
+
+    def _pool_feed_calibrator(
+        self,
+        lanes: List[Dict[str, Any]],
+        pool_by_id: Dict[str, Any],
+        denoise_ms: float,
+        steps_run: int,
+        device: Any,
+    ) -> None:
+        """Feed the planner's online calibrator with this phase's *clean* per-step
+        latency. Each rank reports ITS lane leader's ``(img_tokens, sp_degree,
+        cfg_parallel, ms/step)``; a single fixed-size all_gather then gives rank 0
+        every lane type (not just gpu-0's lane). The sample is the ``pool_denoise_ms``
+        already measured before the world barrier, so it reflects pure lane compute
+        (no barrier spin) and adds no cuda sync -- only ~32 bytes of collective."""
+        world = get_world_group()
+        world_size = world.group_size
+        my_lane = next((ln for ln in lanes if self.rank in ln["gpus"]), None)
+        tokens = sp_degree = cfg_parallel = 0
+        measured = 0.0
+        if (
+            my_lane is not None and steps_run > 0
+            and my_lane["gpus"] and self.rank == my_lane["gpus"][0]
+        ):
+            cfp = self._pool_lane_cfp(my_lane["width"])
+            cfg_parallel = int(cfp)
+            sp_degree = max(1, int(my_lane["width"]) // int(cfp))
+            tokens = self._pool_lane_shape_tokens(my_lane, pool_by_id)
+            if tokens > 0:
+                measured = float(denoise_ms) / float(steps_run)
+        local = torch.tensor(
+            [float(tokens), float(sp_degree), float(cfg_parallel), float(measured)],
+            dtype=torch.float64, device=device,
+        )
+        gathered = [torch.zeros_like(local) for _ in range(world_size)]
+        dist.all_gather(gathered, local)
+        if self.rank != 0:
+            return
+        scheduler = DiffusionBackend.scheduler
+        if scheduler is None or not hasattr(scheduler, "observe_step_latency"):
+            return
+        for g in gathered:
+            tok, sp, cfp, ms = int(g[0].item()), int(g[1].item()), int(g[2].item()), float(g[3].item())
+            if tok > 0 and ms > 0.0:
+                scheduler.observe_step_latency(tok, sp, cfp, ms)
+        # Periodic visibility: log the live calibration table so convergence (and the
+        # roofline error it is correcting) is auditable from the run log.
+        cal = getattr(scheduler, "calibrator", None)
+        if cal is not None and self._pool_round_index % 8 == 0:
+            snap = cal.snapshot()
+            keys = ", ".join(
+                f"{k}->{v['factor']:.2f}(n{v['n']})" for k, v in sorted(snap["per_key"].items())
+            )
+            logger.info(
+                "[calibrate] round=%d global_g=%.3f | %s",
+                self._pool_round_index, snap["global_g"], keys or "(warming up)",
+            )
 
     def _pool_canonical_lanes(
         self, plan, world_size: int, prev_gpus: Optional[Dict[str, List[int]]] = None
@@ -1183,14 +1011,13 @@ class Generator:
         its previous block when that block is still aligned and free, so it does not
         migrate; only genuinely new/resized/displaced lanes are packed widest-first."""
         widths_avail = sorted(lane_widths_available()) or [1]
-        specs: List[Tuple[str, int, List[str]]] = []
+        specs: List[Tuple[str, int, int]] = []
         for lane in plan.lanes:
             w = int(lane.width)
             if w not in widths_avail:
                 le = [x for x in widths_avail if x <= w]
                 w = max(le) if le else 1
-            batch_ids = list(lane.batch_request_ids) if lane.width == 1 else [lane.request_id]
-            specs.append((lane.request_id, w, batch_ids or [lane.request_id]))
+            specs.append((lane.request_id, w, max(1, int(lane.planned_steps))))
         blocks = self._canonical_placement(
             [w for _, w, _ in specs],
             world_size,
@@ -1199,8 +1026,14 @@ class Generator:
             else None,
         )
         lanes: List[Dict[str, Any]] = []
-        for (rid, w, batch_ids), gpus in zip(specs, blocks):
-            lanes.append({"request_id": rid, "width": w, "gpus": gpus, "batch_ids": batch_ids})
+        for (rid, w, planned_k), gpus in zip(specs, blocks):
+            lanes.append({
+                "request_id": rid,
+                "width": w,
+                "gpus": gpus,
+                "batch_ids": [rid],
+                "planned_k": planned_k,
+            })
             if self._pool_placement_affinity:
                 prev = (prev_gpus or {}).get(rid, [])
                 if prev and list(prev) == list(gpus):
@@ -1334,16 +1167,16 @@ class Generator:
     def _pool_text_encode(self, task: DiffusionTask) -> torch.Tensor:
         """Text-encode a freshly-admitted task at admission.
 
-        Default (``CHITU_TEXT_ENCODE=rank0_gpu``, cfg_size==1, world>1): only rank 0 runs
+        Default (``CHITU_TEXT_ENCODE=rank0_gpu``, CFP-1, world>1): only rank 0 runs
         the GPU text encoder; the padded embeddings + length metadata are broadcast to the
         world so every rank ends up with the identical replicated buffer (keeping the task
         reassignable) WITHOUT the O(world_size) duplicated encode compute. ``all_ranks`` (or
-        cfg_size==2 / single-rank) falls back to every rank encoding identically."""
+        single-rank) falls back to every rank encoding identically."""
         world = get_world_group()
         if (
             self._text_encode_mode != "rank0_gpu"
-            or self.cfg_size != 1
             or world.group_size == 1
+            or not DiffusionBackend.model_adapter.supports_rank0_text_encode()
         ):
             return self.text_encode_step(task)
 
@@ -1375,7 +1208,7 @@ class Generator:
                 task.buffer._z_text_embedding_lengths = lengths
         return tokens
 
-    def _pool_admit_one(self, task: DiffusionTask) -> None:
+    def _pool_admit_one(self, task: DiffusionTask) -> bool:
         """Drive a freshly-admitted task through text-encode -> denoise-ready at step
         0 (identical, deterministic work on every rank so its buffer is replicated),
         then append it to the in-flight pool group."""
@@ -1395,18 +1228,28 @@ class Generator:
             raise RuntimeError(
                 f"Task {task.task_id} reached {task.task_type} during admission; expected Denoise."
             )
-        task.status = DiffusionTaskStatus.Pending
-        task.sched_ts = time.perf_counter_ns()
-        task.last_scheduled_ts = task.sched_ts
-        task._pool_width = 1
-        task._pool_gpus = []
-        # Freshly admitted: prepare_denoise ran identically on every rank, so the step-0
-        # latent is replicated world-wide (owner = all ranks).
-        task._pool_owner = set(range(get_world_group().group_size))
-        self._emit_stage_start_if_needed(task)  # open the Denoise stage timer
-        self.pool_group.append(task)
+        ready_tasks = self._fanout_denoise_ready(task)
+        fanout = len(ready_tasks) > 1
+        now = time.perf_counter_ns()
+        for ready in ready_tasks:
+            ready.status = DiffusionTaskStatus.Pending
+            ready.sched_ts = now
+            ready.last_scheduled_ts = now
+            ready._pool_width = 1
+            ready._pool_gpus = []
+            # Freshly admitted: prepare_denoise ran identically on every rank, so
+            # the step-0 latent is replicated world-wide (owner = all ranks).
+            ready._pool_owner = set(range(get_world_group().group_size))
+            self._emit_stage_start_if_needed(ready)
+            self.pool_group.append(ready)
         if self.rank == 0:
-            logger.debug("[slo_elastic pool] admitted task=%s (in-flight=%d)", task.task_id, len(self.pool_group))
+            logger.debug(
+                "[slo_elastic pool] admitted request=%s samples=%d (in-flight=%d)",
+                task.task_id,
+                len(ready_tasks),
+                len(self.pool_group),
+            )
+        return fanout
 
     @Timer.get_timer("denoise")
     @amp.autocast(device_type="cuda", dtype=torch.bfloat16)
@@ -1414,7 +1257,7 @@ class Generator:
     def _pool_denoise_lane(self, tasks: List[DiffusionTask]) -> None:
         """Advance a single lane's task(s) by EXACTLY ONE denoise step on the lane's
         active CP subgroup (width>1 => one request sequence-sharded across the lane;
-        width==1 => a DP replica, optionally continuous-batching several requests)."""
+        width==1 => one request-level DP replica)."""
         for task in tasks:
             assert task.buffer.latents is not None and task.buffer.timesteps is not None
             setattr(task.buffer, "_dit_forward_call_index", 0)
@@ -1493,38 +1336,14 @@ class Generator:
         all hold the request's current latent version (``owner``/valid ranks), move it in.
         Requests that keep their block (placement preservation) are skipped -- no data moves.
 
-        Precise mode (``CHITU_POOL_PRECISE_MIGRATE=on``, default): send the latent ONLY to the
-        missing ranks (``needed - valid``) via batched point-to-point; ``owner`` grows to
-        ``valid | missing``. width 1->2 moves 1 rank, 2->4 moves 2, 2->1 moves nothing.
-        Fallback mode: broadcast from an owner leader to the whole world and mark it world-
-        replicated (coarser, but a single well-tested collective).
+        Send the latent ONLY to missing ranks (``needed - valid``) via batched
+        point-to-point; ``owner`` grows to ``valid | missing``. width 1->2 moves
+        1 rank, 2->4 moves 2, and 2->1 moves nothing.
 
         Deterministic across ranks: every rank has the same ``lanes`` and the same owner
         metadata, so all ranks compute the identical (leader, missing) pairing and issue a
         matching send/recv sequence (no deadlock)."""
-        if self._pool_precise_migrate:
-            return self._pool_migrate_latents_precise(lanes, pool_by_id)
-        world = get_world_group()
-        world_size = world.group_size
-        dev = self.local_rank
-        all_ranks = set(range(world_size))
-        migrated_count = 0
-        migrated_bytes = 0
-        for lane in lanes:
-            needed = {int(g) for g in lane["gpus"]}
-            ids = lane["batch_ids"] if lane["width"] == 1 else [lane["request_id"]]
-            for rid in ids:
-                task = pool_by_id.get(rid)
-                if task is None or task.buffer is None or task.buffer.latents is None:
-                    continue
-                owner = getattr(task, "_pool_owner", None) or all_ranks
-                if needed <= owner:
-                    continue  # lane already has the current latent -> no migration
-                leader = min(owner) if owner else min(needed)
-                migrated_bytes += self._pool_broadcast_task_latent(task, leader, dev, world)
-                task._pool_owner = set(all_ranks)  # world broadcast -> everyone has it now
-                migrated_count += 1
-        return migrated_count, migrated_bytes
+        return self._pool_migrate_latents_precise(lanes, pool_by_id)
 
     def _pool_migrate_latents_precise(
         self, lanes: List[Dict[str, Any]], pool_by_id: Dict[str, DiffusionTask]
@@ -1593,9 +1412,9 @@ class Generator:
         Rationale: in targeted mode the heavy latent stays only on the lane ranks, but
         ``current_step`` is advanced ONLY on those ranks by ``_pool_denoise_lane``. Every
         rank must still agree on progress, because rank 0's next-round planning (remaining
-        steps) and the world-collective ``finished`` detection in ``_pool_retire_finished``
-        depend on it -- a divergent view makes ranks issue a different number of collective
-        broadcasts and deadlock. This int-only sync is negligible cost. Lane order is the
+        steps) and deterministic finished-task detection in ``_pool_retire_finished``
+        depend on it -- a divergent view makes ranks issue a different communication
+        sequence and deadlock. This int-only sync is negligible cost. Lane order is the
         (identically broadcast) plan, so every rank issues the same broadcast sequence."""
         world = get_world_group()
         dev = self.local_rank
@@ -1622,10 +1441,60 @@ class Generator:
                 if task is not None:
                     task._pool_owner = set(ranks)
 
-    def _pool_retire_finished(self) -> None:
-        """Retire in-flight tasks that reached their final denoise step. VAE decode is a
-        world collective (see ``parallel_tiled_vae_decode``), so all ranks decode the
-        same task together, in the same (pool-group) order; rank 0 saves the image."""
+    @staticmethod
+    def _pool_lane_task_ids(lane: Dict[str, Any]) -> List[str]:
+        if int(lane["width"]) == 1:
+            return list(lane.get("batch_ids") or [lane["request_id"]])
+        return [lane["request_id"]]
+
+    def _pool_send_decoded_to_rank0(
+        self,
+        output: Optional[torch.Tensor],
+        leader: int,
+    ) -> Optional[torch.Tensor]:
+        """Move one lane leader's decoded tensor to rank 0 without a world gather."""
+        if leader == 0:
+            return output if self.rank == 0 else None
+
+        use_cpu = bool(DiffusionBackend.use_gloo)
+        device = torch.device("cpu") if use_cpu else torch.device("cuda", self.local_rank)
+        header_len = 8
+        if self.rank == leader:
+            if output is None:
+                header = torch.full((header_len,), -1, dtype=torch.int64, device=device)
+                dist.send(header, dst=0)
+                return None
+            payload = output.detach().to(device).contiguous()
+            dtype_code = self._DTYPE_CODES.get(payload.dtype)
+            if dtype_code is None or payload.ndim > header_len - 2:
+                raise ValueError(
+                    f"Unsupported decoded tensor dtype/shape: {payload.dtype} {tuple(payload.shape)}"
+                )
+            header = torch.full((header_len,), -1, dtype=torch.int64, device=device)
+            header[0] = payload.ndim
+            header[1] = dtype_code
+            header[2 : 2 + payload.ndim] = torch.tensor(
+                payload.shape, dtype=torch.int64, device=device
+            )
+            dist.send(header, dst=0)
+            dist.send(payload, dst=0)
+            return None
+        if self.rank != 0:
+            return None
+
+        header = torch.empty(header_len, dtype=torch.int64, device=device)
+        dist.recv(header, src=leader)
+        ndim = int(header[0].item())
+        if ndim < 0:
+            return None
+        dtype = self._CODE_DTYPES[int(header[1].item())]
+        shape = tuple(int(x) for x in header[2 : 2 + ndim].tolist())
+        payload = torch.empty(shape, dtype=dtype, device=device)
+        dist.recv(payload, src=leader)
+        return payload
+
+    def _pool_retire_finished(self, lanes: List[Dict[str, Any]]) -> None:
+        """Decode each finished task on its final denoise lane, then retire it."""
         finished = [
             t for t in self.pool_group
             if int(t.buffer.current_step) >= int(t.req.params.num_inference_steps)
@@ -1633,22 +1502,64 @@ class Generator:
         if not finished:
             return
         survivors = [t for t in self.pool_group if t not in finished]
-        # Targeted replication may leave a finishing task's latent only on its lane ranks.
-        # VAE decode is a world collective needing the full latent on every rank, so replicate
-        # each finishing task to the world first (deterministic order across ranks).
-        if self._pool_targeted_repl:
-            world = get_world_group()
-            world_size = world.group_size
-            dev = self.local_rank
-            all_ranks = set(range(world_size))
-            for task in finished:
-                owner = getattr(task, "_pool_owner", None) or all_ranks
-                if owner >= all_ranks or task.buffer is None or task.buffer.latents is None:
-                    continue
-                self._pool_broadcast_task_latent(task, min(owner), dev, world)
-                task._pool_owner = set(all_ranks)
+        finished_by_id = {task.task_id: task for task in finished}
+        lane_by_task = {
+            task_id: lane
+            for lane in lanes
+            for task_id in self._pool_lane_task_ids(lane)
+            if task_id in finished_by_id
+        }
+        missing = sorted(set(finished_by_id) - set(lane_by_task))
+        if missing:
+            raise RuntimeError(f"Finished tasks are missing their final lane: {missing}")
+
+        local_outputs: Dict[str, Optional[torch.Tensor]] = {}
         for task in finished:
-            self._cb_retire_one(task)
+            task.task_type = DiffusionTaskType.VAEDecode
+            task.status = DiffusionTaskStatus.Running
+            self._emit_stage_start_if_needed(task)
+
+        # Disjoint lanes execute VAE concurrently. Decode uses cfp=1 so the whole
+        # lane forms one CP group even when denoise used cfp=2.
+        for task_id, lane in lane_by_task.items():
+            gpus = [int(rank) for rank in lane["gpus"]]
+            if self.rank not in gpus:
+                continue
+            width = int(lane["width"])
+            activate_lane_topology(
+                LaneTopology(
+                    offset=gpus[0],
+                    width=width,
+                    cfp_degree=1,
+                    cp_degree=width,
+                )
+            )
+            output = self.vae_decode_step(finished_by_id[task_id])
+            if self.rank == min(gpus):
+                local_outputs[task_id] = output
+
+        reset_active_lane_topology()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        dist.barrier()
+
+        rank0_outputs: Dict[str, Optional[torch.Tensor]] = {}
+        for task in finished:
+            lane = lane_by_task[task.task_id]
+            leader = min(int(rank) for rank in lane["gpus"])
+            received = self._pool_send_decoded_to_rank0(
+                local_outputs.get(task.task_id),
+                leader,
+            )
+            if self.rank == 0:
+                rank0_outputs[task.task_id] = received
+        dist.barrier()
+
+        for task in finished:
+            self._update_task_stage_and_buffer(
+                task,
+                rank0_outputs.get(task.task_id) if self.rank == 0 else None,
+            )
         self.pool_group = survivors
 
     def _step_single(self, task: Optional[DiffusionTask]) -> torch.Tensor:
@@ -1711,6 +1622,14 @@ class Generator:
             raise NotImplementedError  
         
         self._update_task_stage_and_buffer(task, out)
+        if (
+            task.task_type == DiffusionTaskType.Denoise
+            and int(getattr(task.req.params, "n_sample", 1) or 1) > 1
+            and not bool(getattr(task, "_sample_fanout_done", False))
+        ):
+            ready_tasks = self._fanout_denoise_ready(task)
+            self.current_task = ready_tasks[0]
+            task = ready_tasks[0]
         self._release_current_task_if_stage_scheduled(task)
 
         return out
@@ -1727,7 +1646,6 @@ class Generator:
     @torch.no_grad()
     def denoise_step(self, task: DiffusionTask):
         assert task.buffer.latents is not None and task.buffer.timesteps is not None
-        self._maybe_switch_sp_degree(task)
         setattr(task.buffer, "_dit_forward_call_index", 0)
         sampled_latents = DiffusionBackend.model_adapter.denoise_step(
             task,
@@ -1742,11 +1660,7 @@ class Generator:
     @Timer.get_timer("VaeDecode")
     def vae_decode_step(self, task: DiffusionTask):
         logger.debug(f"task_id={task.task_id} entering VAE decode at step={task.buffer.current_step}")
-        decoded = DiffusionBackend.model_adapter.decode_latents(task, self, DiffusionBackend)
-        # Data parallel is the outermost layer: each replica decoded only its
-        # seed slice, so reassemble the full n_sample batch across the DP group
-        # here (no-op when dp_size==1). Keeps adapters unaware of DP on output.
-        return dp_gather_sample_batch(decoded)
+        return DiffusionBackend.model_adapter.decode_latents(task, self, DiffusionBackend)
     
     def _ensure_async_output_worker(self) -> None:
         """Lazily start the rank-0 background output writer (bounded queue + daemon
@@ -1803,6 +1717,10 @@ class Generator:
             return
         if video is None:
             logger.warning(f"task_id={task.task_id} VAE decode returned None; skip saving video")
+            return
+        # Startup warmup requests run the full compute path (to warm VAE + save kernels)
+        # but their artifacts are throwaway -- don't litter the results dir with them.
+        if str(task.task_id).startswith("__warmup__"):
             return
         DiffusionBackend.model_adapter.save_output(task, video, self, DiffusionBackend)
 
@@ -1969,8 +1887,6 @@ class Generator:
                 "FlexCache step-level cache currently requires cp_size = 1 outside "
                 "Qwen-Image / Z-Image / Flux1-dev / Wan."
             )
-        if spec.strategy in {"meancache", "freecache", "steptrace", "traceplanner"} and self.cfg_size not in {1, 2}:
-            raise ValueError("FlexCache step-level cache currently supports cfg_size = 1 or 2.")
         return spec
 
     def _build_flexcache_strategy(self, task: DiffusionTask, spec: FlexCacheParams):
@@ -2317,14 +2233,29 @@ class Generator:
         Before denoising loop, prepare latents, timesteps and solver for one task.
         TODO: Control Devices
         """
-        n_sample = int(getattr(task.req.params, "n_sample", 1) or 1)
-        if n_sample > 1 and not DiffusionBackend.model_adapter.supports_n_sample():
-            raise NotImplementedError(
-                f"n_sample={n_sample} requested but model adapter "
-                f"{type(DiffusionBackend.model_adapter).__name__} does not support "
-                f"multi-sample batching yet (only n_sample=1)."
-            )
         DiffusionBackend.model_adapter.prepare_denoise(task, self, DiffusionBackend)
+        task._sample_denoise_ready = True
+
+    def _fanout_denoise_ready(self, parent: DiffusionTask) -> List[DiffusionTask]:
+        """Turn one encoded request into independently schedulable ``b=1`` tasks."""
+        sample_count = max(1, int(getattr(parent.req.params, "n_sample", 1) or 1))
+        if sample_count == 1:
+            if not bool(getattr(parent, "_sample_denoise_ready", False)):
+                self._pre_denoising(parent)
+            return [parent]
+
+        seed_fallback = int(DiffusionBackend.args.infer.seed)
+        children = [
+            DiffusionTask.make_sample_child(parent, sample_index, seed_fallback)
+            for sample_index in range(sample_count)
+        ]
+        for child in children:
+            self._pre_denoising(child)
+            child.buffer.current_step = 0
+        if self.rank == 0:
+            DiffusionTaskPool.replace_with_children(parent.task_id, children)
+        parent._sample_fanout_done = True
+        return children
 
     def _update_task_stage_and_buffer(self, task: DiffusionTask, tokens: torch.Tensor):
 
@@ -2337,8 +2268,25 @@ class Generator:
             logger.warning(f"Task {task.task_id} - Status: {task.status}")
         
         # 处理Text Encode阶段
-        if task.task_type == DiffusionTaskType.TextEncode:                
-            if self.cfg_size == 1:
+        if task.task_type == DiffusionTaskType.TextEncode:
+            prepares_full_cfg = bool(
+                getattr(
+                    DiffusionBackend.model_adapter,
+                    "text_encode_prepares_cfg_state",
+                    lambda: False,
+                )()
+            )
+            # Prepare the FULL cond+neg CFG state, replicated identically on every
+            # rank, independent of the live lane's CFP degree. Adapters that pack
+            # both branches in one encode (``text_encode_prepares_cfg_state``) set
+            # the buffers directly; the generic two-pass path encodes the positive
+            # prompt first and the negative second. The cfp1/cfp2 split is a
+            # denoise-time decision in the CFG executor, so a task stays reassignable
+            # to any topology and no rank is ever missing a branch.
+            if prepares_full_cfg:
+                if task.buffer.text_embeddings is None:
+                    task.buffer.text_embeddings = tokens
+            else:
                 if task.buffer.text_embeddings is None:
                     # 首次text encode (正向prompt)
                     task.buffer.text_embeddings = tokens
@@ -2349,12 +2297,6 @@ class Generator:
                     # 第二次text encode（仅CFG模式）
                     if DiffusionBackend.do_cfg:
                         task.buffer.negative_embeddings = tokens
-
-            elif self.cfg_size == 2:
-                if get_cfg_group().rank_in_group == 0:
-                    task.buffer.text_embeddings = tokens
-                else:
-                    task.buffer.negative_embeddings = tokens
                 
             # Text Encode完成，转换到下一阶段
             self._emit_stage_end(DiffusionTaskType.TextEncode, task.task_id)
@@ -2362,7 +2304,8 @@ class Generator:
                 task.task_type = DiffusionTaskType.VAEEncode 
             else:
                 task.task_type = DiffusionTaskType.Denoise
-                self._pre_denoising(task)
+                if int(getattr(task.req.params, "n_sample", 1) or 1) == 1:
+                    self._pre_denoising(task)
             
             # 如果转换到Denoise阶段，初始化denoise相关参数
             if task.task_type == DiffusionTaskType.Denoise:

@@ -2,13 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import copy
 import time
 import threading
 import torch
 import torch.distributed as dist
 import tqdm
 import pickle
-from dataclasses import dataclass, field, asdict, fields
+from dataclasses import dataclass, field, asdict, replace
 from enum import Enum
 from logging import getLogger
 from typing import Any, Optional, Union, Dict, List, Deque
@@ -48,8 +49,7 @@ class DiffusionUserParams:
     prompt: str = None
     negative_prompt: Optional[str] = None
     seed: Optional[int] = None
-    # 一个请求生成的样本数（同 prompt/尺寸，seed 递增以获得多样性）。
-    # n_sample>1 依赖模型 adapter 的基础 batch 支持；尺寸被锁死为相同，避免 ragged 序列。
+    # 一个请求生成的样本数；TextEncode 后展开成独立 b=1 task，seed 依次递增。
     n_sample: int = 1
     # 调度器参数
     sample_solver: str = "ddpm"
@@ -314,14 +314,6 @@ class WorkItem:
     def shape_key(self) -> tuple:
         return self.task.shape_key()
 
-    @property
-    def batch_key(self) -> tuple:
-        """同一 batch_key 的 work-item 可进同一次 forward（M3/M4 用）。
-
-        M3 只允许同 shape 同 step；M4 放开 step 后 batch_key 去掉 step 分量。
-        """
-        return (self.shape_key(), self.current_step)
-
     def __repr__(self) -> str:
         return f"WorkItem(task={self.task_id}, sample={self.sample_index}/{self.n_sample})"
 
@@ -335,6 +327,8 @@ class DiffusionTask:
         req: Optional[DiffusionUserRequest] = None,
         buffer: Optional[DiffusionTaskBuffer] = None,
         signal_data: Optional[Dict] = None, # 系统信号携带的数据
+        sample_index: int = 0,
+        sample_count: int = 1,
 
     ):
         logger.debug(f"Create DiffusionTask {task_id}")
@@ -347,6 +341,8 @@ class DiffusionTask:
 
         self.req = req
         self.buffer = DiffusionTaskBuffer() if buffer is None else buffer
+        self.sample_index = int(sample_index)
+        self.sample_count = max(1, int(sample_count))
          # 系统信号数据
         self.signal_data = signal_data or {}
         
@@ -359,6 +355,61 @@ class DiffusionTask:
 
         # 错误信息
         self.error_message: Optional[str] = None
+
+    @classmethod
+    def make_sample_child(
+        cls,
+        parent: "DiffusionTask",
+        sample_index: int,
+        seed_fallback: int = 0,
+    ) -> "DiffusionTask":
+        """Create one independently schedulable ``b=1`` child after text encode."""
+        if parent.req is None or parent.req.params is None:
+            raise ValueError("Sample fan-out requires a user request.")
+
+        sample_count = max(1, int(parent.req.params.n_sample))
+        sample_index = int(sample_index)
+        if sample_index < 0 or sample_index >= sample_count:
+            raise IndexError(
+                f"sample_index={sample_index} outside n_sample={sample_count}."
+            )
+
+        params = replace(
+            parent.req.params,
+            n_sample=1,
+            seed=parent.req.params.base_seed(seed_fallback) + sample_index,
+        )
+        req = DiffusionUserRequest(
+            request_id=parent.req.request_id,
+            params=params,
+            init_image=parent.req.init_image,
+        )
+
+        # Shallow-copying the buffer gives each child independent mutable denoise
+        # state while retaining references to the read-only encode tensors and any
+        # adapter-specific encode metadata attached dynamically to the buffer.
+        buffer = copy.copy(parent.buffer)
+        buffer.seed_g = None
+        buffer.sampler = None
+        buffer.latents = None
+        buffer.timesteps = None
+        buffer.current_step = 0
+        buffer.denoised_latents = None
+        buffer.generated_image = None
+        buffer.parallel = ParallelTaskState()
+
+        child = cls(
+            task_id=f"{parent.req.request_id}#{sample_index}",
+            task_type=DiffusionTaskType.Denoise,
+            req=req,
+            buffer=buffer,
+            sample_index=sample_index,
+            sample_count=sample_count,
+        )
+        child.arrival_ts = parent.arrival_ts
+        child.admission_ts = parent.admission_ts
+        child.scheduler_metadata = dict(parent.scheduler_metadata)
+        return child
 
     @classmethod
     def create_terminate_signal(
@@ -457,12 +508,10 @@ class DiffusionTask:
         )
 
     def n_sample(self) -> int:
-        """本 task 展开的 work-item 数（=请求的 n_sample，控制信号为 0）。"""
+        """Number of physical work items represented by this task."""
         if self.is_control_signal():
             return 0
-        if self.req is not None and self.req.params is not None:
-            return max(1, int(getattr(self.req.params, "n_sample", 1) or 1))
-        return 1
+        return max(1, int(getattr(self.req.params, "n_sample", 1) or 1))
 
     def work_items(self) -> list["WorkItem"]:
         """把本 task 展开成 n_sample 个 work-item（共享 buffer/embedding 引用）。"""
@@ -486,6 +535,8 @@ class DiffusionTask:
                 'error_message': self.error_message,
                 'is_terminate_signal': self.is_terminate_signal(),
                 'signal_data': self.signal_data,
+                'sample_index': self.sample_index,
+                'sample_count': self.sample_count,
             }
             
             # 2. 自动序列化用户请求数据
@@ -503,10 +554,9 @@ class DiffusionTask:
                 buffer_dict = {}
                 tensor_fields = []
                 
-                # 遍历buffer的所有字段
-                for field_info in fields(self.buffer):
-                    field_name = field_info.name
-                    field_value = getattr(self.buffer, field_name)
+                # Include adapter-specific metadata attached dynamically after
+                # text encode, not only the declared dataclass fields.
+                for field_name, field_value in vars(self.buffer).items():
                     
                     # 区分tensor和非tensor字段
                     if isinstance(field_value, torch.Tensor):
@@ -526,7 +576,7 @@ class DiffusionTask:
                 for field_name in serializable_data['tensor_field_names']:
                     tensor_value = getattr(self.buffer, field_name)
                     if tensor_value is not None:
-                        tensor_data[field_name] = tensor_value.detach().clone()
+                        tensor_data[field_name] = tensor_value.detach().to("cpu").clone()
             
             # 5. 打包所有数据
             full_data = {
@@ -587,7 +637,9 @@ class DiffusionTask:
                 task_type=metadata['task_type'],
                 req=user_request,
                 buffer=buffer,
-                signal_data=metadata.get('signal_data', {})
+                signal_data=metadata.get('signal_data', {}),
+                sample_index=metadata.get('sample_index', 0),
+                sample_count=metadata.get('sample_count', 1),
             )
             
             task.status = metadata['status']
@@ -714,6 +766,26 @@ class DiffusionTaskPool:
             cls.pool[task.task_id] = task
             cls.id_list.append(task.task_id)
             return True
+
+    @classmethod
+    def replace_with_children(
+        cls,
+        parent_id: str,
+        children: list[DiffusionTask],
+    ) -> None:
+        """Atomically replace an encoded parent request with its sample tasks."""
+        with cls._lock:
+            if parent_id not in cls.pool:
+                return
+            index = cls.id_list.index(parent_id)
+            parent = cls.pool.pop(parent_id)
+            cls.id_list.pop(index)
+            for offset, child in enumerate(children):
+                if child.task_id in cls.pool:
+                    raise ValueError(f"Duplicate sample task {child.task_id}.")
+                child.admission_ts = parent.admission_ts
+                cls.pool[child.task_id] = child
+                cls.id_list.insert(index + offset, child.task_id)
 
     @classmethod
     def enqueue(cls, task: DiffusionTask):

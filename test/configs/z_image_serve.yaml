@@ -36,9 +36,6 @@ output:
   log_ranks: [0]
 
 # Single-GPU serving replayer (cfg=1 * cp=1 * dp=1). Drives an arrival-timed
-# Poisson client trace given by CHITU_SERVE_TRACE. To A/B the M3 continuous
-# batching engine, add `-` overrides at launch, e.g.:
-#   infer.diffusion.continuous_batch=true
-# (baseline runs with the flag absent/false).
+# Poisson client trace given by CHITU_SERVE_TRACE.
 overrides:
   - models.sampler.sample_steps=20

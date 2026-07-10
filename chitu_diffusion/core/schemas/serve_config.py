@@ -62,16 +62,25 @@ class InferConfig:
 
     @dataclass
     class DiffusionConfig:
+        @dataclass
+        class EPEConfig:
+            """Public Elastic Parallel Engine controls.
+
+            Correctness mechanisms such as barrier-aware costing, placement
+            stability, targeted migration, and straggler widening are always on
+            and intentionally are not configurable.
+            """
+
+            cfg_parallel_max: int = 2
+            online_calibration: bool = True
+            balanced_k: bool = True
+            phase_max_steps: int = 5
+            enable_flexcache: bool = False
+
         cfg_size: int = MISSING
         cp_size: int = MISSING
         up: int = MISSING
-        # M3 continuous batching (SP=1, same shape/step): when True the scheduler
-        # may return a group of same-shape denoise-ready requests and the generator
-        # runs one batched transformer forward per step for the whole group. Default
-        # False keeps the byte-for-byte single-task path. `max_batch_items` caps the
-        # group size. Can also be toggled via env CHITU_CONTINUOUS_BATCH.
-        continuous_batch: bool = False
-        max_batch_items: int = 8
+        epe: EPEConfig = field(default_factory=EPEConfig)
         # M6 dynamic sequence-parallel (SP/CP) degree switching. When True, the
         # runtime pre-warms CP communicator groups for every feasible degree given
         # the world size (e.g. 4 GPUs -> {1,2,4}) at init, so a work-item can change
@@ -90,7 +99,6 @@ class InferConfig:
         starvation_ms: float = 30000.0  # queue wait (ms) beyond which a request counts as starved
         fairness_beta: float = 3.0  # soft target max slowdown (objective/logging hint)
         switch_total_ms: float = 0.0  # modeled cost of one CP<->DP layout switch (ms)
-        enable_flexcache: bool = False  # emergency step-reduction rescue (simulator parity; off in prod)
         low_mem_level: int = MISSING # In low gpu memory mode, models will be offloaded to cpu and only loaded in needed stage. 
         # Controls per-stage model residency (device_scope) for VAE / text encoder:
         #   "auto"           -> keep already-resident models on GPU (skip empty_cache thrash);

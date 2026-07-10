@@ -18,7 +18,6 @@ from chitu_diffusion.runtime.main import (
     chitu_run_eval,
     chitu_start,
     chitu_terminate,
-    warmup_diffusion_engine,
 )
 from chitu_diffusion.runtime.task import DiffusionTask, DiffusionTaskPool, DiffusionUserParams, DiffusionUserRequest
 from run_context import DiffusionTestRunContext, should_record_metrics_on_rank
@@ -124,7 +123,6 @@ def main(args: ServeConfig):
             run_context.activate_run(run_output_dir)
 
         run_context.dump_memory_snapshot(run_output_dir, "model_loaded")
-        warmup_diffusion_engine(args)
         chitu_start()
 
         if rank == 0:

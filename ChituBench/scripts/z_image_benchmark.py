@@ -18,7 +18,6 @@ from chitu_diffusion.runtime.main import (
     chitu_is_terminated,
     chitu_start,
     chitu_terminate,
-    warmup_diffusion_engine,
 )
 from chitu_diffusion.runtime.task import DiffusionTask, DiffusionTaskPool, DiffusionUserParams, DiffusionUserRequest
 from test.run_context import DiffusionTestRunContext, should_record_metrics_on_rank
@@ -193,7 +192,6 @@ def run_benchmark(args: ServeConfig, run_context: DiffusionTestRunContext):
             logger.info("ChituBench Z-Image requests: %s", reqs)
 
         run_context.dump_memory_snapshot(run_output_dir, "model_loaded")
-        warmup_diffusion_engine(args)
         chitu_start()
 
         if rank == 0:

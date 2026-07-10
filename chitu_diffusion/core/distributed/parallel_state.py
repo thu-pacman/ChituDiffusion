@@ -10,6 +10,11 @@ from logging import getLogger
 
 
 from chitu_diffusion.core.distributed.comm_group import CommGroup
+from chitu_diffusion.core.distributed.lane_topology import (
+    LaneTopology,
+    LaneTopologyConfig,
+    up_rank_lists,
+)
 # from chitu.device_type import is_ascend
 from chitu_diffusion.core.global_vars import get_global_args
 
@@ -312,7 +317,7 @@ def destroy_parallel_groups():
 # CFG and Context Parallelism support for diffusion models
 _CP_GROUP: Optional[CommGroup] = None
 _CFG_GROUP: Optional[CommGroup] = None
-_UP_GROUP_DICT: Optional[Dict[int, CommGroup]] = None
+_UP_GROUP_DICT: Optional[Dict[int, Dict[int, CommGroup]]] = None
 # Data parallel support for diffusion: each replica is a contiguous block of
 # ``cfg_size * cp_size`` ranks that runs a full model independently. The replica
 # group spans one such block (used for replica-local task broadcast/barrier); the
@@ -328,9 +333,17 @@ def get_cfg_group() -> CommGroup:
 
 def get_up_group(size: int) -> CommGroup:
     global _UP_GROUP_DICT
-    if _UP_GROUP_DICT is None or size not in _UP_GROUP_DICT:
-        raise ValueError(f"UP group of size {size} not initialized.")
-    return _UP_GROUP_DICT[size]
+    cp_degree = get_active_cp_degree()
+    groups = None if _UP_GROUP_DICT is None else _UP_GROUP_DICT.get(cp_degree)
+    if groups is None or size not in groups:
+        available = {} if _UP_GROUP_DICT is None else {
+            degree: sorted(per_cp) for degree, per_cp in _UP_GROUP_DICT.items()
+        }
+        raise ValueError(
+            f"UP group of size {size} not initialized for live CP degree "
+            f"{cp_degree} (available: {available})."
+        )
+    return groups[size]
 
 def get_dit_replica_group() -> CommGroup:
     """The rank block (size cfg_size*cp_size) that cooperatively runs one task.
@@ -415,29 +428,61 @@ def initialize_up_groups(up_sizes: List[int], up: int, cfg_size: int, rank: int,
     global _UP_GROUP_DICT
     assert _UP_GROUP_DICT is None
 
-    _UP_GROUP_DICT = {}
-
     cp_group = get_cp_group()
     cp_group_size = cp_group.group_size
+    initialize_up_groups_for_cp_degrees(
+        cp_degrees=[cp_group_size],
+        up=up,
+        rank=rank,
+        local_rank=local_rank,
+        world_size=world_size,
+        requested_sizes={cp_group_size: up_sizes},
+    )
 
-    cp_group_ranks = _cp_rank_lists(cfg_size, world_size, replica_size)
 
-    for up_size in up_sizes:
-        if up_size == 0 or cp_group_size % up_size != 0:
-            continue
+def initialize_up_groups_for_cp_degrees(
+    *,
+    cp_degrees: List[int],
+    up: int,
+    rank: int,
+    local_rank: int,
+    world_size: int,
+    requested_sizes: Optional[Dict[int, List[int]]] = None,
+) -> None:
+    """Pre-warm UP groups for every CP degree that may become live."""
 
-        if up_size > up:
-            continue
-
-        rank_list = []
-        for cp_ranks in cp_group_ranks:
-            for i in range(0, len(cp_ranks), up_size):
-                group = cp_ranks[i:i+up_size]
-                if group:
-                    rank_list.append(group)
-
-        if rank_list:
-            _UP_GROUP_DICT[up_size] = CommGroup(rank_list, rank, local_rank)
+    global _UP_GROUP_DICT
+    if _UP_GROUP_DICT is None:
+        _UP_GROUP_DICT = {}
+    up = max(1, int(up))
+    for cp_degree in sorted({int(d) for d in cp_degrees}):
+        if cp_degree <= 0 or world_size % cp_degree != 0:
+            raise ValueError(
+                f"live CP degree {cp_degree} must divide world_size {world_size}"
+            )
+        per_cp = _UP_GROUP_DICT.setdefault(cp_degree, {})
+        candidates = (
+            requested_sizes.get(cp_degree, [])
+            if requested_sizes is not None
+            else [d for d in range(1, min(up, cp_degree) + 1) if cp_degree % d == 0]
+        )
+        for up_size in sorted({int(s) for s in candidates}):
+            if (
+                up_size <= 0
+                or up_size > up
+                or cp_degree % up_size != 0
+                or up_size in per_cp
+            ):
+                continue
+            per_cp[up_size] = CommGroup(
+                up_rank_lists(
+                    cp_degree=cp_degree,
+                    up_degree=up_size,
+                    world_size=world_size,
+                ),
+                rank,
+                local_rank,
+            )
 
 def initialize_dit_replica_group(rank: int, local_rank: int, world_size: int, replica_size: int):
     global _DIT_REPLICA_GROUP
@@ -473,6 +518,20 @@ def initialize_dit_dp_group(rank: int, local_rank: int, world_size: int, replica
 _DYNAMIC_CP_GROUP_DICT: Optional[Dict[int, CommGroup]] = None
 _ACTIVE_CP_DEGREE: Optional[int] = None
 _BASE_CP_GROUP: Optional[CommGroup] = None
+
+# Per-lane classifier-free-guidance (CFG) parallelism ("CFP"). The pool engine
+# launches with cfg_size==1 (so request-level DP can use every GPU); CFP is applied
+# *dynamically per lane* as the scaling tier between DP and CP: a width-``w`` (>=2)
+# lane whose model uses guidance runs its cond half on ``[off, off+w/2)`` and its
+# uncond half on ``[off+w/2, off+w)``, each half CP-sharded at degree ``w/2``, then
+# reunites the two noise predictions with a single all-gather per step. The pair
+# communicators (cond-shard-i <-> uncond-shard-i) are pre-warmed once, keyed by the
+# per-condition CP stride ``s == w/2``; activating CFP for a lane is a pointer swap.
+_DYNAMIC_CFG_GROUP_DICT: Optional[Dict[int, CommGroup]] = None
+_ACTIVE_CFG_GROUP: Optional[CommGroup] = None
+_LANE_TOPOLOGY_CONFIG: Optional[LaneTopologyConfig] = None
+_LIVE_LANE_TOPOLOGY: Optional[LaneTopology] = None
+_NOOP_LANE_GROUP: Optional[CommGroup] = None
 
 
 def dynamic_sp_enabled() -> bool:
@@ -574,6 +633,214 @@ def initialize_dynamic_sp_groups(
 
 
 # ---------------------------------------------------------------------------
+# Dynamic per-lane CFG (CFP) pair-groups.
+# ---------------------------------------------------------------------------
+def _cfg_pair_rank_lists(stride: int, world_size: int) -> List[List[int]]:
+    """cond|uncond pair rank-lists for a CFP-2 lane whose per-condition CP degree is
+    ``stride``. Such a lane occupies an aligned block ``[base, base+2*stride)``; its
+    cond half is ``[base, base+stride)`` and uncond half ``[base+stride, base+2*stride)``.
+    Cond shard ``i`` pairs with uncond shard ``i`` -> ``(base+i, base+stride+i)``. This
+    mirrors :func:`initialize_cfg_group` (cfg_size==2) with replica_size == 2*stride, so
+    the shard-aligned combine is correct in both gathered and local-latent modes.
+    """
+    block = 2 * int(stride)
+    rank_list: List[List[int]] = []
+    for base in range(0, world_size, block):
+        for i in range(int(stride)):
+            rank_list.append([base + i, base + int(stride) + i])
+    return rank_list
+
+
+def dynamic_cfg_enabled() -> bool:
+    return _DYNAMIC_CFG_GROUP_DICT is not None
+
+
+def dynamic_cfg_strides() -> List[int]:
+    if _DYNAMIC_CFG_GROUP_DICT is None:
+        return []
+    return sorted(_DYNAMIC_CFG_GROUP_DICT.keys())
+
+
+def get_active_cfg_group() -> CommGroup:
+    """The CFG (cond|uncond) all-gather group active for this rank's current lane.
+
+    Falls back to the launch-time ``_CFG_GROUP`` when no per-lane CFP group is active
+    (static cfg runs, or CFP-1 lanes), so non-pool paths are unchanged.
+    """
+    if _ACTIVE_CFG_GROUP is not None:
+        return _ACTIVE_CFG_GROUP
+    return get_cfg_group()
+
+
+def set_active_cfg_group(stride: Optional[int]) -> None:
+    """Point this rank's active CFG group at the pre-warmed pair-group for ``stride``.
+
+    ``stride`` is the per-condition CP degree of a CFP-2 lane (== lane width // 2);
+    ``None`` (CFP-1 lanes / idle) clears the override so :func:`get_active_cfg_group`
+    falls back to the launch-time group. O(1) pointer swap -- no NCCL creation.
+    """
+    global _ACTIVE_CFG_GROUP
+    if stride is None:
+        # Once the lane registry exists, CFP=1 and idle are explicit singleton
+        # contexts. Before registry initialization preserve legacy static CFG.
+        _ACTIVE_CFG_GROUP = _NOOP_LANE_GROUP
+        return
+    stride = int(stride)
+    if _DYNAMIC_CFG_GROUP_DICT is None or stride not in _DYNAMIC_CFG_GROUP_DICT:
+        raise ValueError(
+            f"Dynamic CFG group of stride {stride} not initialized "
+            f"(available: {dynamic_cfg_strides()})."
+        )
+    _ACTIVE_CFG_GROUP = _DYNAMIC_CFG_GROUP_DICT[stride]
+
+
+def get_live_lane_topology() -> Optional[LaneTopology]:
+    return _LIVE_LANE_TOPOLOGY
+
+
+def activate_lane_topology(topology: LaneTopology) -> None:
+    """Atomically activate the CP/CFP groups for this rank's live lane."""
+
+    global _LIVE_LANE_TOPOLOGY
+    if _LANE_TOPOLOGY_CONFIG is None:
+        raise RuntimeError("Lane topology group registry has not been initialized.")
+    rank = get_cp_group().global_rank
+    world_size = get_world_group().group_size
+    topology.validate(world_size=world_size, rank=rank)
+    if topology.cp_degree not in _LANE_TOPOLOGY_CONFIG.allowed_live_cp_degrees():
+        raise ValueError(
+            f"CP degree {topology.cp_degree} is not allowed by topology config "
+            f"{_LANE_TOPOLOGY_CONFIG.allowed_live_cp_degrees()}"
+        )
+    if (
+        topology.cfp_degree == 2
+        and topology.cp_degree
+        not in _LANE_TOPOLOGY_CONFIG.allowed_live_cfg_strides()
+    ):
+        raise ValueError(
+            f"CFP stride {topology.cp_degree} is not allowed by topology config "
+            f"{_LANE_TOPOLOGY_CONFIG.allowed_live_cfg_strides()}"
+        )
+    set_active_cp_group(topology.cp_degree)
+    set_active_cfg_group(
+        topology.cp_degree if topology.cfp_degree == 2 else None
+    )
+    _LIVE_LANE_TOPOLOGY = topology
+
+
+def reset_active_lane_topology() -> None:
+    """Put this rank in an explicit singleton no-op topology."""
+
+    global _LIVE_LANE_TOPOLOGY
+    if _LANE_TOPOLOGY_CONFIG is None:
+        return
+    rank = get_cp_group().global_rank
+    set_active_cp_group(1)
+    set_active_cfg_group(None)
+    _LIVE_LANE_TOPOLOGY = LaneTopology.idle(rank)
+
+
+def initialize_dynamic_cfg_groups(
+    world_size: int,
+    rank: int,
+    local_rank: int,
+    strides: List[int],
+) -> None:
+    """Pre-warm CFG cond|uncond pair communicators for every feasible CFP-2 lane.
+
+    For each ``stride`` (a CFP-2 lane's per-condition CP degree) build the pair
+    rank-lists over the whole world (blocks of ``2*stride``). Created ONCE at init so
+    activating CFP for a lane at runtime is a pure pointer swap. Idempotent.
+    """
+    global _DYNAMIC_CFG_GROUP_DICT
+    if _DYNAMIC_CFG_GROUP_DICT is not None:
+        return
+    strides = sorted({int(s) for s in strides if int(s) >= 1 and world_size % (2 * int(s)) == 0})
+    group_dict: Dict[int, CommGroup] = {}
+    for stride in strides:
+        group_dict[stride] = CommGroup(_cfg_pair_rank_lists(stride, world_size), rank, local_rank)
+    _DYNAMIC_CFG_GROUP_DICT = group_dict
+    if rank == 0:
+        logger.info("Pre-warmed dynamic CFG pair-groups: strides=%s (world=%d)", strides, world_size)
+        for stride, grp in sorted(group_dict.items()):
+            logger.info("  dynamic CFG stride %d: rank_list=%s", stride, grp.rank_list)
+
+
+def initialize_lane_topology_groups(
+    topology_config: LaneTopologyConfig,
+    *,
+    up: int,
+    world_size: Optional[int] = None,
+) -> None:
+    """Build the complete group registry for every allowed live topology."""
+
+    global _LANE_TOPOLOGY_CONFIG, _NOOP_LANE_GROUP
+    rank = torch.distributed.get_rank()
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    if world_size is None:
+        world_size = torch.distributed.get_world_size()
+    topology_config.validate(world_size)
+    if _LANE_TOPOLOGY_CONFIG is not None and _LANE_TOPOLOGY_CONFIG != topology_config:
+        raise RuntimeError(
+            "Lane topology registry is already initialized with a different config."
+        )
+
+    cp_degrees = sorted({1, *topology_config.allowed_live_cp_degrees()})
+    if not dynamic_sp_enabled():
+        initialize_dynamic_sp_groups(
+            cfg_size=1,
+            world_size=world_size,
+            replica_size=world_size,
+            rank=rank,
+            local_rank=local_rank,
+            degrees=cp_degrees,
+        )
+    else:
+        missing = sorted(set(cp_degrees) - set(dynamic_sp_degrees()))
+        if missing:
+            raise RuntimeError(
+                f"Dynamic CP registry is missing required degrees {missing}; "
+                f"already initialized degrees are {dynamic_sp_degrees()}."
+            )
+
+    strides = list(topology_config.allowed_live_cfg_strides())
+    if not dynamic_cfg_enabled():
+        initialize_dynamic_cfg_groups(world_size, rank, local_rank, strides)
+    else:
+        missing = sorted(set(strides) - set(dynamic_cfg_strides()))
+        if missing:
+            raise RuntimeError(
+                f"Dynamic CFG registry is missing required strides {missing}; "
+                f"already initialized strides are {dynamic_cfg_strides()}."
+            )
+
+    initialize_up_groups_for_cp_degrees(
+        cp_degrees=cp_degrees,
+        up=up,
+        rank=rank,
+        local_rank=local_rank,
+        world_size=world_size,
+    )
+    _LANE_TOPOLOGY_CONFIG = topology_config
+    _NOOP_LANE_GROUP = get_dynamic_cp_group(1)
+
+    if topology_config.mode == "fixed":
+        assert topology_config.fixed is not None
+        fixed = topology_config.fixed
+        width = fixed.lane_width
+        activate_lane_topology(
+            LaneTopology(
+                offset=(rank // width) * width,
+                width=width,
+                cfp_degree=fixed.cfp,
+                cp_degree=fixed.cp,
+            )
+        )
+    else:
+        reset_active_lane_topology()
+
+
+# ---------------------------------------------------------------------------
 # slo_elastic pool lanes (request-level DP + per-request SP width).
 #
 # The pool engine partitions the world into lanes of width {1,2,4} using
@@ -636,21 +903,28 @@ def initialize_lane_groups(
     Must be called after the diffusion groups (so ``_CP_GROUP`` exists) and collectively
     on all ranks.
     """
-    if dynamic_sp_enabled():
-        return
     rank = torch.distributed.get_rank()
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     if world_size is None:
         world_size = torch.distributed.get_world_size()
-    replica_size = world_size  # pool runs one replica spanning the whole world (cfg=1)
-    initialize_dynamic_sp_groups(
-        cfg_size=1,
-        world_size=world_size,
-        replica_size=replica_size,
-        rank=rank,
-        local_rank=local_rank,
-        degrees=widths,
-    )
+    if not dynamic_sp_enabled():
+        replica_size = world_size  # pool runs one replica spanning the whole world (cfg=1)
+        initialize_dynamic_sp_groups(
+            cfg_size=1,
+            world_size=world_size,
+            replica_size=replica_size,
+            rank=rank,
+            local_rank=local_rank,
+            degrees=widths,
+        )
+    # Pre-warm per-lane CFP-2 cond|uncond pair-groups. A lane of even width ``w>=2``
+    # can run CFG-parallel at per-condition CP stride ``w//2``. cfg_size stays 1 at
+    # launch (DP uses all GPUs); CFP is a pointer swap per lane at runtime. Independent
+    # idempotency so this still runs when dynamic-SP groups already existed.
+    if not dynamic_cfg_enabled():
+        widths_avail = dynamic_sp_degrees()
+        strides = sorted({w // 2 for w in widths_avail if w >= 2 and w % 2 == 0})
+        initialize_dynamic_cfg_groups(world_size, rank, local_rank, strides)
 
 
 def initialize_diffusion_parallel_groups(
@@ -659,6 +933,7 @@ def initialize_diffusion_parallel_groups(
     up: int = 8,
     dp_size: int = 1,
     dynamic_sp: bool = False,
+    topology_config: Optional[LaneTopologyConfig] = None,
 ):
     global _PARALLEL_GROUPS_INITIALIZED
     assert not _PARALLEL_GROUPS_INITIALIZED
@@ -691,7 +966,13 @@ def initialize_diffusion_parallel_groups(
 
     # M6: pre-warm CP groups for every feasible SP degree so runtime switching
     # pays no NCCL group-creation cost. Gated by dynamic_sp; baseline untouched.
-    if dynamic_sp:
+    if topology_config is not None:
+        initialize_lane_topology_groups(
+            topology_config,
+            up=up,
+            world_size=world_size,
+        )
+    elif dynamic_sp:
         initialize_dynamic_sp_groups(
             cfg_size=cfg_size,
             world_size=world_size,
@@ -706,5 +987,11 @@ def initialize_diffusion_parallel_groups(
         logger.info(f"DiT DP groups initialized: {get_dit_dp_group().rank_list}")
         logger.info(f"CFG groups initialized: {get_cfg_group().rank_list}")
         logger.info(f"CP groups initialized: {get_cp_group().rank_list}")
-        for size, up_group in _UP_GROUP_DICT.items():
-            logger.info(f"UP group size {size}: {up_group.rank_list}")
+        for cp_degree, up_groups in _UP_GROUP_DICT.items():
+            for size, up_group in up_groups.items():
+                logger.info(
+                    "UP group CP degree %d, size %d: %s",
+                    cp_degree,
+                    size,
+                    up_group.rank_list,
+                )

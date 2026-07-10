@@ -1,0 +1,24 @@
+{
+  "sweep": [
+    {
+      "rate": 0.1,
+      "trace": "/home/chenyy/WORK/cyy/ChituDiffusion-hotswitch/experiments/cp_dp_hot_switch/traces/serve/sweep_tight/poisson_r0p1.json",
+      "span_s": 108.40135099999999
+    },
+    {
+      "rate": 0.16,
+      "trace": "/home/chenyy/WORK/cyy/ChituDiffusion-hotswitch/experiments/cp_dp_hot_switch/traces/serve/sweep_tight/poisson_r0p16.json",
+      "span_s": 67.750844
+    },
+    {
+      "rate": 0.24,
+      "trace": "/home/chenyy/WORK/cyy/ChituDiffusion-hotswitch/experiments/cp_dp_hot_switch/traces/serve/sweep_tight/poisson_r0p24.json",
+      "span_s": 45.16723
+    },
+    {
+      "rate": 0.36,
+      "trace": "/home/chenyy/WORK/cyy/ChituDiffusion-hotswitch/experiments/cp_dp_hot_switch/traces/serve/sweep_tight/poisson_r0p36.json",
+      "span_s": 30.111486
+    }
+  ]
+}

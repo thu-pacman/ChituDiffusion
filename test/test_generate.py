@@ -8,7 +8,6 @@ from logging import getLogger
 from chitu_diffusion.runtime.main import (
     chitu_init,
     chitu_generate,
-    warmup_diffusion_engine,
     chitu_start,
     chitu_terminate,
     chitu_run_eval,
@@ -98,7 +97,6 @@ def run_normal(args, run_context: DiffusionTestRunContext):
             logger.info(f'{reqs=}')
 
         run_context.dump_memory_snapshot(run_output_dir, "model_loaded")
-        warmup_diffusion_engine(args)
         chitu_start()
 
         if rank == 0:

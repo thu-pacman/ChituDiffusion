@@ -22,11 +22,19 @@ import numpy as np
 
 POLICY_ORDER = ["pure_sp", "pure_dp", "slo_elastic"]
 POLICY_COLOR = {"pure_sp": "#d62728", "pure_dp": "#1f77b4", "slo_elastic": "#2ca02c"}
+# Labels default to the 8x H20 3-arm setup (cp8 / dp8 / cfp+elastic); override via
+# --gpus / --device / --hw for other configurations.
 POLICY_LABEL = {
-    "pure_sp": "pure_sp (Ulysses SP=4, serial)",
-    "pure_dp": "pure_dp (4x DP, SP=1)",
-    "slo_elastic": "slo_elastic (adaptive)",
+    "pure_sp": "cp8 (Ulysses SP=8, serial)",
+    "pure_dp": "dp8 (8x DP, SP=1)",
+    "slo_elastic": "cfp+elastic (DP>CFP>CP, adaptive)",
 }
+
+
+# Hardware / GPU-count wording, overridable via CLI (--hw / --gpus). Defaults to the
+# 8x H20 CFP run this script is primarily used for.
+HW_LABEL = "8x H20 (NVLink)"
+GPU_COUNT = 8
 
 
 def _pctl(xs, q):
@@ -107,7 +115,7 @@ def plot_latency_summary(arms: dict, out: Path):
     ax.set_xticks(x)
     ax.set_xticklabels([lbl for _, lbl in metrics])
     ax.set_ylabel("seconds")
-    ax.set_title("Latency & makespan by serving strategy (mixed idle+burst trace, 50 steps, 4x RTX 4090)")
+    ax.set_title(f"Latency & makespan by serving strategy (mixed idle+burst trace, 50 steps, {HW_LABEL})")
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
     fig.tight_layout()
@@ -195,7 +203,13 @@ def main():
     ap.add_argument("--trace", required=True)
     ap.add_argument("--logs", default="/tmp", help="dir with arm_{slo,dp,sp}.log")
     ap.add_argument("--out", default=None, help="output dir (default <root>/comparison)")
+    ap.add_argument("--hw", default="8x H20 (NVLink)", help="hardware label used in titles/report")
+    ap.add_argument("--gpus", type=int, default=8, help="GPU count used in report wording")
     args = ap.parse_args()
+
+    global HW_LABEL, GPU_COUNT
+    HW_LABEL = args.hw
+    GPU_COUNT = int(args.gpus)
 
     root = Path(args.root)
     out = Path(args.out) if args.out else root / "comparison"
@@ -209,11 +223,14 @@ def main():
     arms = {}
     run_dirs = sorted(p.name for p in root.iterdir() if p.is_dir())
     for pol in POLICY_ORDER:
+        dir_policy = pol.replace("_", "-")
         # Multiple runs per policy may coexist under the same root; use the latest
         # timestamped run so regenerated reports reflect the newest benchmark.
         mpath = next((root / d / "metrics" / "serve_metrics.json"
                       for d in reversed(run_dirs)
-                      if d.startswith(pol + "-")), None)
+                      if d.startswith(pol + "-")
+                      or d.startswith(dir_policy + "-")
+                      or f"-{dir_policy}-" in d), None)
         if mpath is None or not mpath.exists():
             raise SystemExit(f"missing serve_metrics.json for {pol} under {root}")
         arms[pol] = load_arm(mpath, deadlines, Path(args.logs) / log_for[pol])
@@ -246,9 +263,13 @@ def main():
             return f"{v*100:.0f}%"
         return f"{v:.1f}{unit}"
 
+    n_req = len(trace["requests"])
     md = []
-    md.append("# 3-way serving strategy comparison (Z-Image, 4x RTX 4090)\n")
-    md.append(f"Trace: `{Path(args.trace).name}` — mixed idle+burst, 9 requests, 50 denoise steps each.\n")
+    md.append(f"# 3-way serving strategy comparison (Z-Image, {HW_LABEL})\n")
+    md.append(f"Trace: `{Path(args.trace).name}` — mixed idle+burst, {n_req} requests, 50 denoise steps each.\n")
+    md.append("Arms: **dp8** (pure_dp, width-1 lanes), **cp8** (pure_sp, Ulysses SP=8, serial), and "
+              "**cfp+elastic** (slo_elastic with the DP>CFP>CP scaling tier: a widened lane spends its "
+              "first factor of two on near-perfect CFG parallelism before context parallelism).\n")
     md.append("All three strategies run through the **same** pool engine (identical admission / "
               "per-lane denoise / world-barrier / latent re-replication / retire); only the "
               "per-round **layout decision** differs.\n")
@@ -285,9 +306,9 @@ def main():
     md.append("\n## Key findings\n")
     if sp0 and dp0 and el0:
         md.append(
-            f"- **SP-when-idle works.** On the solo/idle request `{solo}` (1024^2, arrives to an empty "
-            f"pool), `slo_elastic` runs it at SP=4 and finishes in **{el0:.0f}s** — matching `pure_sp` "
-            f"({sp0:.0f}s) and **{dp0/el0:.1f}x faster than `pure_dp`** ({dp0:.0f}s), which is stuck at "
+            f"- **Scale-when-idle works.** On the solo/idle request `{solo}` (1024^2, arrives to an empty "
+            f"pool), `cfp+elastic` widens it (CFP first, then CP) and finishes in **{el0:.0f}s** — vs "
+            f"`cp8` ({sp0:.0f}s) and **{dp0/el0:.1f}x faster than `dp8`** ({dp0:.0f}s), which is stuck at "
             f"SP=1 on a single GPU. This is exactly the elastic behaviour the policy is designed for.\n")
     def best_policy(key, *, higher=False):
         return min(POLICY_ORDER, key=lambda p: arms[p]["derived"][key] * (-1 if higher else 1))

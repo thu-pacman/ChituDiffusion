@@ -12,8 +12,7 @@ validated against.
 
 It records per-request wall-clock timestamps (arrival / first-scheduled /
 finish) and emits an end-to-end serving metrics JSON (throughput, latency
-percentiles, queue delay, GPU busy ratio proxy) so runs with the engine's
-``continuous_batch`` flag on vs off can be compared apples-to-apples.
+percentiles, queue delay, and a GPU busy-ratio proxy).
 
 Single-node, single-rank (SP=1 / world_size==1) for now: multi-rank idle
 synchronization (ranks staying in lockstep while the pool is momentarily empty
@@ -46,10 +45,9 @@ from chitu_diffusion.runtime.main import (
     chitu_is_terminated,
     chitu_start,
     chitu_terminate,
-    warmup_diffusion_engine,
 )
 from chitu_diffusion.runtime.backend import DiffusionBackend
-from chitu_diffusion.runtime.output_layout import metrics_dir, write_json
+from chitu_diffusion.runtime.output_layout import metrics_dir, timing_metrics_dir, write_json
 from chitu_diffusion.runtime.task import (
     DiffusionTask,
     DiffusionTaskPool,
@@ -146,8 +144,10 @@ def _summarize(records: dict[str, dict], wall_elapsed_s: float, num_images: int)
 
 
 def main(args: ServeConfig):
-    if args.models.name != "Z-Image":
-        raise ValueError(f"test/test_z_image_serve.py expects models=Z-Image, got {args.models.name}.")
+    # Model-agnostic serve replayer: any registered DiT adapter (Z-Image, Qwen-Image,
+    # Flux, ...) is driven through the same pool/continuous-batch engine. The model is
+    # selected purely by config (`models.name`); no per-model branching lives here.
+    logger.info("[serve] model=%s", args.models.name)
 
     world_size = int(os.getenv("WORLD_SIZE", "1"))
 
@@ -188,7 +188,7 @@ def main(args: ServeConfig):
         )
 
         run_context.dump_memory_snapshot(run_output_dir, "model_loaded")
-        warmup_diffusion_engine(args)
+        # Engine-side warmup: runs one throwaway request per shape through the real pool
         chitu_start()
 
         records: dict[str, dict] = {}
@@ -214,18 +214,27 @@ def main(args: ServeConfig):
                 # DiffusionTaskPool.add is lock-guarded, so this is safe to call from the
                 # background ingress thread concurrently with the engine/harvest reads.
                 DiffusionTaskPool.add(DiffusionTask(task_id=req.request_id, req=req))
-                records[req.request_id] = {"admit_ms": now_ms, "trace_arrival_ms": float(entry["arrival_ms"])}
+                records[req.request_id] = {
+                    "admit_ms": now_ms,
+                    "trace_arrival_ms": float(entry["arrival_ms"]),
+                    "expected_samples": int(req.params.n_sample),
+                    "completed_task_ids": [],
+                }
                 logger.info("[serve] admit request=%s at %.1fms (%d/%d)", req.request_id, now_ms, injected + 1, n_trace)
                 injected += 1
 
         def _harvest_completions(now_ms: float) -> None:
             for task_id, task in DiffusionTaskPool.items_snapshot():
-                rec = records.get(task_id)
+                request_id = task.req.request_id if task.req is not None else task_id
+                rec = records.get(request_id)
                 if rec is None or "finish_ms" in rec:
                     continue
                 if rec.get("first_sched_ms") is None and task.sched_ts is not None:
                     rec["first_sched_ms"] = now_ms  # first time we observe it scheduled
-                if task.is_completed():
+                completed_ids = rec["completed_task_ids"]
+                if task.is_completed() and task_id not in completed_ids:
+                    completed_ids.append(task_id)
+                if len(completed_ids) >= int(rec["expected_samples"]):
                     rec["finish_ms"] = now_ms
 
         ingress_stop = threading.Event()
@@ -265,7 +274,9 @@ def main(args: ServeConfig):
                     if scheduler.can_schedule():
                         # Mark first-scheduled the moment a pending task becomes schedulable.
                         for task_id in DiffusionTaskPool.pending_task_ids():
-                            rec = records.get(task_id)
+                            task = DiffusionTaskPool.pool[task_id]
+                            request_id = task.req.request_id if task.req is not None else task_id
+                            rec = records.get(request_id)
                             if rec is not None and rec.get("first_sched_ms") is None:
                                 rec["first_sched_ms"] = now_ms
                         action = ACTION_RUN
@@ -306,7 +317,6 @@ def main(args: ServeConfig):
         if rank == 0:
             out = {
                 "trace": os.path.abspath(trace_path),
-                "continuous_batch": bool(getattr(args.infer.diffusion, "continuous_batch", False)),
                 "scheduling_policy": str(getattr(args.infer.diffusion, "scheduling_policy", "fifo")),
                 "summary": summary,
                 "per_request": records,
@@ -316,6 +326,10 @@ def main(args: ServeConfig):
             if getattr(args.output, "timer", False):
                 Timer.print_statistics()
                 run_context.dump_timing_summary(run_output_dir, elapsed_s=elapsed_s)
+        if getattr(args.output, "timer", False) and str(os.getenv("CHITU_POOL_LOCAL_TIMING_DUMP", "0")).lower() in {"1", "true", "yes", "on"}:
+            Timer.save_statistics_json(
+                os.path.join(timing_metrics_dir(run_output_dir), f"summary_rank{rank}.json")
+            )
 
         run_context.dump_memory_snapshot(run_output_dir, "final")
         chitu_terminate()

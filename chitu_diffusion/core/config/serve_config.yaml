@@ -41,10 +41,13 @@ infer:
     cfg_size: 1
     cp_size: 1
     up: 8
+    # Unified lane topology. null maps legacy dp/cfg/cp fields (or dynamic_sp)
+    # through the compatibility resolver; new configs should choose fixed/elastic.
+    topology_mode: null # null, fixed, elastic
+    fixed_topology: null # e.g. {dp: 1, cfp: 2, cp: 4}
+    elastic_allowed_widths: [] # empty means every divisor of world_size
     scheduling_policy: fifo # fifo, step_interleave, admission_control, shape_aware_ratio, static_dp, request_parallel, slo_elastic
     step_interleave: false # release a denoise task after each step so the scheduler can pick another request
-    continuous_batch: false # M3: batch a group of same-shape same-step denoise-ready requests into one transformer forward (SP=1 only)
-    max_batch_items: 8 # cap on the number of work-items batched together when continuous_batch is on
     dynamic_sp: false # M6: pre-warm CP groups for all feasible SP degrees and allow per-item SP-degree switching at denoise step boundaries
     execution_profiles: [] # e.g. [{group_id: dp0, ranks: [0], cp_size: 1, dp_replicas: 1, mode: dp}]
     hotswitch_enabled: false # experimental: prepare CP/DP layout migration at denoise step boundaries
@@ -58,7 +61,12 @@ infer:
     starvation_ms: 30000.0 # queue wait (ms) beyond which a request counts as starved
     fairness_beta: 3.0 # soft target max slowdown (logging/objective hint)
     switch_total_ms: 0.0 # modeled cost of one CP<->DP layout switch (ms); 0 == free at step boundary
-    enable_flexcache: false # allow the emergency step-reduction rescue action (simulator-parity; off in prod)
+    epe:
+      cfg_parallel_max: 2 # 1 disables CFP for ablation; unsupported models automatically fall back to 1
+      online_calibration: true # EWMA-correct the offline cost model from post-barrier lane samples
+      balanced_k: true # planner assigns per-lane steps to equalize predicted phase wall time
+      phase_max_steps: 5 # maximum heartbeat interval in denoise steps
+      enable_flexcache: false # reserved emergency quality/latency action for future optimization
     low_mem_level: 0
     offload_policy: auto # one of: auto, always_offload, never_offload
     compile_mode: "off" # one of: off, default, reduce-overhead, max-autotune-no-cudagraphs

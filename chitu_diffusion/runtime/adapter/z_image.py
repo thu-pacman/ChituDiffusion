@@ -11,11 +11,18 @@ import torch.distributed as dist
 
 from chitu_diffusion.core.logging_utils import log_result
 from chitu_diffusion.flexcache.freecache_core import is_step_level_cache_strategy
-from chitu_diffusion.core.distributed.parallel_state import get_cp_group
-from chitu_diffusion.runtime.data_parallel import dp_is_active, dp_shard_sample_seeds
+from chitu_diffusion.core.distributed.parallel_state import (
+    dynamic_sp_degrees,
+    get_cp_group,
+)
 from chitu_diffusion.models.parallel import ModelParallelCapabilities
 from chitu_diffusion.parallel.vae import parallel_tiled_vae_decode
 from chitu_diffusion.runtime.output_layout import task_results_dir
+from chitu_diffusion.runtime.cfg_execution import (
+    CfgBranchBatch,
+    CfgBranchPredictions,
+    CfgExecutionSpec,
+)
 from chitu_diffusion.runtime.adapter.base import (
     DiffusionRuntimeAdapter,
     device_scope,
@@ -42,7 +49,17 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
     def supports_cfg(self, args: Any) -> bool:
         return float(args.models.sampler.guidance_scale[0]) > 1.0
 
-    def supports_n_sample(self) -> bool:
+    def supports_physical_cfg_batch(
+        self, task, generator, backend, spec: CfgExecutionSpec
+    ) -> bool:
+        # The Z transformer accepts cond+uncond as one local list batch. Its CP
+        # wrapper intentionally handles one sample branch at a time.
+        return spec.cfp_degree == 1 and spec.cp_degree == 1
+
+    def supports_rank0_text_encode(self) -> bool:
+        # Z-Image's encoded prompt state is the single padded token tensor plus the
+        # ``_z_*_embedding_lengths`` metadata the generator broadcasts, so the
+        # rank0_gpu encode-once-and-broadcast fast path reproduces it exactly.
         return True
 
     def parallel_capabilities(self, args: Any) -> ModelParallelCapabilities:
@@ -55,10 +72,12 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         )
 
     def handles_context_parallel(self, args: Any) -> bool:
-        return int(getattr(args.infer.diffusion, "cp_size", 1)) > 1
-
-    def denoise_completes_in_single_call(self) -> bool:
-        return True
+        diffusion = args.infer.diffusion
+        return (
+            int(getattr(diffusion, "cp_size", 1)) > 1
+            or str(getattr(diffusion, "topology_mode", "") or "") == "elastic"
+            or bool(getattr(diffusion, "dynamic_sp", False))
+        )
 
     def _torch_dtype(self, args: Any) -> torch.dtype:
         variant = str(getattr(args, "float_16bit_variant", "bfloat16")).lower()
@@ -181,15 +200,12 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         logger.info("Installed Z-Image Chitu attention processor: %s", self._configured_attn_backend)
 
     def configure_after_backend_build(self, backend) -> None:
-        cp_size = int(getattr(backend.args.infer.diffusion, "cp_size", 1))
-        dynamic_sp = bool(getattr(backend.args.infer.diffusion, "dynamic_sp", False))
+        cp_size = max(dynamic_sp_degrees() or [get_cp_group().group_size])
         torch.set_default_dtype(torch.float32)
         logger.info("Z-Image runtime keeps torch default dtype at float32 for scheduler/sequence numerics.")
-        # M6: with dynamic SP the active CP degree can rise above the launch-time
-        # cp_size at runtime, so install the CP forward wrapper regardless. The
-        # wrapper reads get_cp_group() live and falls back to the plain forward
-        # whenever the active degree is 1, so this stays a no-op for SP=1 steps.
-        if cp_size > 1 or dynamic_sp:
+        # Install once when any registered lane can use CP. The wrapper reads the
+        # live lane group and is a no-op for CP-1.
+        if cp_size > 1:
             self._wrap_transformer_forward_with_cp(max(cp_size, 1))
 
     def _wrap_transformer_forward_with_cp(self, cp_size: int) -> None:
@@ -294,6 +310,18 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             for layer in transformer.context_refiner:
                 cap_seq = layer(cap_seq, cap_mask, cap_freqs)
 
+            # Z-Image's _prepare_sequence / _build_unified_sequence unconditionally
+            # return an attention-mask tensor (all-ones for a single unpadded
+            # sequence), never None. An all-valid mask is semantically equivalent to
+            # "no mask" (cf. _mask_allows_fast_path), so normalize it to None here.
+            # Without this, the CP sharding gate below -- which requires x_mask/cap_mask
+            # to be None -- can NEVER fire, and cp>1 silently degrades to full-sequence
+            # compute replicated on every rank (i.e. zero speedup from CP).
+            if x_mask is not None and bool(x_mask.all()):
+                x_mask = None
+            if cap_mask is not None and bool(cap_mask.all()):
+                cap_mask = None
+
             # End-to-end sequence-sharded image path: split the image tokens once,
             # keep them sharded through noise_refiner -> unified build -> main
             # layers -> final_layer, and gather only ONCE after final_layer, where
@@ -390,12 +418,12 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         max_sequence_length = int(getattr(backend.args.models.encoder, "max_sequence_length", 512))
         negative_prompt = task.req.get_n_prompt() or ""
 
-        if generator.cfg_size == 1:
-            encode_negative = task.buffer.text_embeddings is not None and guidance_scale > 1.0
-        elif generator.cfg_size == 2:
-            encode_negative = generator.cfg_dispatcher.group.rank_in_group == 1
-        else:
-            raise ValueError(f"Unsupported cfg_size={generator.cfg_size}.")
+        # CFG branch state is prepared FULLY and identically on every rank at
+        # admission: a first pass encodes the positive prompt, a second the
+        # negative. The lane's cfp1/cfp2 split happens later at denoise time in the
+        # CFG executor (which forwards only the local branch on a cfp2 lane), so the
+        # replicated cond+neg buffers keep a task reassignable to any live topology.
+        encode_negative = task.buffer.text_embeddings is not None and guidance_scale > 1.0
 
         prompt = negative_prompt if encode_negative else task.req.get_prompt()
         set_cfg_type(backend, "neg" if encode_negative else "pos")
@@ -446,33 +474,18 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             raise RuntimeError("Z-Image denoise requires prompt embeddings.")
         num_inference_steps = int(task.req.params.num_inference_steps)
 
-        # n_sample: 一个请求生成 n 张图，尺寸锁死相同，seed 递增。逐行用独立 generator
-        # 建 latent，保证第 i 行与 seed=base+i 的单样本请求逐位一致。
-        #
-        # Naive data parallel is applied here via a model-agnostic helper: it hands
-        # back only the seed slice this replica owns, so the rest of prepare stays
-        # unaware of DP (dp_size==1 returns all seeds).
-        seeds = dp_shard_sample_seeds(task.req.params, fallback=int(backend.args.infer.seed))
-        n_sample = len(seeds)
-        latent_rows = []
-        for row_seed in seeds:
-            row_g = torch.Generator(device=device).manual_seed(int(row_seed))
-            latent_rows.append(
-                pipe.prepare_latents(
-                    1,
-                    pipe.transformer.in_channels,
-                    height,
-                    width,
-                    torch.float32,
-                    device,
-                    row_g,
-                    latents=None,
-                )
-            )
-        latents = torch.cat(latent_rows, dim=0) if n_sample > 1 else latent_rows[0]
-        # buffer.seed_g 仅作兼容保留，指向首个样本的 generator。
-        seed_g = torch.Generator(device=device).manual_seed(int(seeds[0]))
-        self._expand_embeddings_for_samples(task, n_sample)
+        seed = task.req.params.base_seed(fallback=int(backend.args.infer.seed))
+        seed_g = torch.Generator(device=device).manual_seed(seed)
+        latents = pipe.prepare_latents(
+            1,
+            pipe.transformer.in_channels,
+            height,
+            width,
+            torch.float32,
+            device,
+            seed_g,
+            latents=None,
+        )
         image_seq_len = (latents.shape[2] // 2) * (latents.shape[3] // 2)
         mu = calculate_shift(
             image_seq_len,
@@ -513,29 +526,6 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             pipe.guidance_scale,
             pipe._cfg_normalization,
         )
-
-    @staticmethod
-    def _expand_embeddings_for_samples(task, n_sample: int) -> None:
-        """把单条 prompt embedding 复制成 n_sample 行，与批量 latent 行数对齐。
-
-        同一请求的多个样本共享同一 prompt，只是 seed 不同，因此 embedding 直接沿
-        batch 维复制即可。对应的未 padding 长度列表也复制成 n_sample 份，供
-        ``_embedding_tensor_to_list`` 逐行切片。
-        """
-        if n_sample <= 1:
-            return
-        for emb_name, len_attr in (
-            ("text_embeddings", "_z_text_embedding_lengths"),
-            ("negative_embeddings", "_z_negative_embedding_lengths"),
-        ):
-            emb = getattr(task.buffer, emb_name, None)
-            if isinstance(emb, torch.Tensor) and emb.ndim == 3 and emb.shape[0] == 1:
-                setattr(task.buffer, emb_name, emb.repeat(n_sample, 1, 1))
-            elif isinstance(emb, list) and len(emb) == 1:
-                setattr(task.buffer, emb_name, emb * n_sample)
-            lengths = getattr(task.buffer, len_attr, None)
-            if isinstance(lengths, list) and len(lengths) == 1:
-                setattr(task.buffer, len_attr, list(lengths) * n_sample)
 
     @staticmethod
     def _move_tensor_or_list_to_device(value, device: torch.device):
@@ -622,7 +612,9 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         noise_pred = torch.stack([item.float() for item in output_list], dim=0).squeeze(2)
         return -noise_pred
 
-    def _transformer_forward_cfg_batch(self, task, generator, backend, guidance_scale: float, pipe) -> torch.Tensor:
+    def _transformer_forward_cfg_batch(
+        self, task, generator, backend, branches: CfgBranchBatch
+    ) -> CfgBranchPredictions[torch.Tensor]:
         device = torch.device(torch.cuda.current_device())
         self._move_task_tensors_to_device(task, device)
         latents = self._normalize_latents(task.buffer.latents, "input")
@@ -654,9 +646,10 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         )[0]
         raw_noise_pred = torch.stack([item.float() for item in output_list], dim=0).squeeze(2)
         batch_size = latents.shape[0]
-        pos_noise_pred = -raw_noise_pred[:batch_size]
-        neg_noise_pred = -raw_noise_pred[batch_size:]
-        return self._apply_cfg(pos_noise_pred, neg_noise_pred, guidance_scale, pipe._cfg_normalization)
+        return CfgBranchPredictions(
+            cond=-raw_noise_pred[:batch_size],
+            uncond=-raw_noise_pred[batch_size:],
+        )
 
     @staticmethod
     def _apply_cfg(
@@ -689,422 +682,35 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
     def _z_guided_noise_pred(self, task, generator, backend, guidance_scale: float) -> torch.Tensor:
         pipe = self._ensure_pipeline(backend.args, torch.device(torch.cuda.current_device()))
         apply_cfg = self.supports_cfg(backend.args) and guidance_scale > 0.0
-        if apply_cfg:
-            if generator.cfg_size == 2:
-                if generator.cfg_dispatcher.group.rank_in_group == 0:
-                    set_cfg_type(backend, "pos")
-                    local_noise_pred = self._transformer_forward(task, generator, backend, "cond", task.buffer.text_embeddings)
-                else:
-                    set_cfg_type(backend, "neg")
-                    local_noise_pred = self._transformer_forward(task, generator, backend, "uncond", task.buffer.negative_embeddings)
-                pos_noise_pred, neg_noise_pred = generator.cfg_dispatcher.all_gather_cfg_noise_preds(local_noise_pred)
-            else:
-                # cfg_size==1: cond+uncond share the same ranks. The batched
-                # forward packs them as a length-2 input list, which the CP
-                # transformer wrapper cannot shard (it only shards a single
-                # sample), so under context parallelism it silently falls back
-                # to full replicated compute -> no CP speedup. When CP is active
-                # run the two CFG conditions as two separate (length-1) forwards
-                # so each is sequence-sharded across the CP group; this is the
-                # same path cfg_size==2 already uses. CFG and CP are orthogonal,
-                # so the result is numerically equivalent to the batched path.
-                cp_group = get_cp_group()
-                cp = cp_group.group_size if cp_group is not None else 1
-                if cp <= 1:
-                    return self._transformer_forward_cfg_batch(task, generator, backend, guidance_scale, pipe)
-                set_cfg_type(backend, "pos")
-                pos_noise_pred = self._transformer_forward(
-                    task, generator, backend, "cond", task.buffer.text_embeddings
-                )
-                set_cfg_type(backend, "neg")
-                neg_noise_pred = self._transformer_forward(
-                    task, generator, backend, "uncond", task.buffer.negative_embeddings
-                )
-            return self._apply_cfg(pos_noise_pred, neg_noise_pred, guidance_scale, pipe._cfg_normalization)
+        spec = self.cfg_execution_spec(
+            task, generator, backend, guidance_enabled=apply_cfg
+        )
+        branches = self.cfg_branch_batch(task)
 
-        set_cfg_type(backend, "pos")
-        return self._transformer_forward(task, generator, backend, "cond", task.buffer.text_embeddings)
-
-    # ------------------------------------------------------------------
-    # M3 continuous batching: group denoise (SP=1, same shape, same step).
-    #
-    # A group of same-shape denoise-ready tasks is batched into ONE transformer
-    # forward per step by concatenating each task's latent rows + prompt-embedding
-    # rows along the batch dim (the list interface is naturally ragged), then the
-    # stacked noise prediction is split back per task and each task runs its OWN
-    # scheduler.step on its latent slice. The row layout is chosen to be identical
-    # to the existing n_sample batching path, so K single-sample requests (seeds
-    # S..S+K-1) are bitwise-identical to one n_sample=K request (seed S).
-    # ------------------------------------------------------------------
-
-    def _transformer_forward_cfg_batch_group(
-        self, tasks: list, generator, backend, guidance_scale: float, pipe
-    ) -> list[torch.Tensor]:
-        """cfg_size==1, cp==1 batched CFG forward across a group.
-
-        Layout matches ``_transformer_forward_cfg_batch`` generalized to a group:
-        input rows = [all-tasks cond rows] + [all-tasks uncond rows]; embeds =
-        [all-tasks pos] + [all-tasks neg]. Returns the per-task CFG-combined
-        noise prediction (row slices)."""
-        device = torch.device(torch.cuda.current_device())
-        cond_rows: list[torch.Tensor] = []
-        pos_embeds: list[torch.Tensor] = []
-        neg_embeds: list[torch.Tensor] = []
-        row_counts: list[int] = []
-        for task in tasks:
-            self._move_task_tensors_to_device(task, device)
-            latents = self._normalize_latents(task.buffer.latents, "input")
-            task.buffer.latents = latents
-            row_counts.append(int(latents.shape[0]))
-            cond_rows.append(latents.to(self.transformer.dtype))
-            pos_embeds += self._embedding_tensor_to_list(
-                task.buffer.text_embeddings,
-                getattr(task.buffer, "_z_text_embedding_lengths", None),
+        def forward_branch(name: str, state) -> torch.Tensor:
+            set_cfg_type(backend, "pos" if name == "cond" else "neg")
+            return self._transformer_forward(
+                task,
+                generator,
+                backend,
+                name,
+                state,
             )
-            neg_embeds += self._embedding_tensor_to_list(
-                task.buffer.negative_embeddings,
-                getattr(task.buffer, "_z_negative_embedding_lengths", None),
-            )
-        cond_latents = torch.cat(cond_rows, dim=0)
-        total_rows = int(cond_latents.shape[0])
-        step_index = int(tasks[0].buffer.current_step)
-        timestep = tasks[0].buffer.timesteps[step_index]
-        timestep_vec = (1000 - timestep.expand(total_rows)) / 1000
-        timestep_vec = timestep_vec.repeat(2)
-        latent_model_input = torch.cat([cond_latents, cond_latents], dim=0).unsqueeze(2)
-        latent_model_input_list = list(latent_model_input.unbind(dim=0))
-        prompt_embeds = pos_embeds + neg_embeds
 
-        autocast_device = "cuda" if device.type == "cuda" else device.type
-        set_cfg_type(backend, "cfg")
-        with torch.amp.autocast(autocast_device, enabled=False), self._transformer_cache_context("cfg"):
-            output_list = self.transformer(
-                latent_model_input_list,
-                timestep_vec,
-                prompt_embeds,
-                return_dict=False,
-            )[0]
-        raw_noise_pred = torch.stack([item.float() for item in output_list], dim=0).squeeze(2)
-        pos_noise_pred = -raw_noise_pred[:total_rows]
-        neg_noise_pred = -raw_noise_pred[total_rows:]
-        combined = self._apply_cfg(pos_noise_pred, neg_noise_pred, guidance_scale, pipe._cfg_normalization)
-        return self._split_rows(combined, row_counts)
-
-    def _transformer_forward_group(
-        self, tasks: list, generator, backend, cache_tag: str, use_negative: bool
-    ) -> tuple[torch.Tensor, list[int]]:
-        """One replicated (non-CFG-batched) forward across a group. Returns the
-        stacked ``-noise_pred`` [R,C,H,W] and per-task row counts."""
-        device = torch.device(torch.cuda.current_device())
-        rows: list[torch.Tensor] = []
-        embeds: list[torch.Tensor] = []
-        row_counts: list[int] = []
-        len_attr = "_z_negative_embedding_lengths" if use_negative else "_z_text_embedding_lengths"
-        for task in tasks:
-            self._move_task_tensors_to_device(task, device)
-            latents = self._normalize_latents(task.buffer.latents, "input")
-            task.buffer.latents = latents
-            row_counts.append(int(latents.shape[0]))
-            rows.append(latents.to(self.transformer.dtype))
-            emb = task.buffer.negative_embeddings if use_negative else task.buffer.text_embeddings
-            embeds += self._embedding_tensor_to_list(emb, getattr(task.buffer, len_attr, None))
-        latents_cat = torch.cat(rows, dim=0)
-        total_rows = int(latents_cat.shape[0])
-        step_index = int(tasks[0].buffer.current_step)
-        timestep = tasks[0].buffer.timesteps[step_index]
-        timestep_vec = (1000 - timestep.expand(total_rows)) / 1000
-        latent_model_input = latents_cat.unsqueeze(2)
-        latent_model_input_list = list(latent_model_input.unbind(dim=0))
-
-        autocast_device = "cuda" if device.type == "cuda" else device.type
-        with torch.amp.autocast(autocast_device, enabled=False), self._transformer_cache_context(cache_tag):
-            output_list = self.transformer(
-                latent_model_input_list,
-                timestep_vec,
-                embeds,
-                return_dict=False,
-            )[0]
-        raw_noise_pred = torch.stack([item.float() for item in output_list], dim=0).squeeze(2)
-        return -raw_noise_pred, row_counts
-
-    @staticmethod
-    def _split_rows(tensor: torch.Tensor, row_counts: list[int]) -> list[torch.Tensor]:
-        out: list[torch.Tensor] = []
-        offset = 0
-        for count in row_counts:
-            out.append(tensor[offset:offset + count])
-            offset += count
-        return out
-
-    def _z_guided_noise_pred_batch(
-        self, tasks: list, generator, backend, guidance_scale: float
-    ) -> list[torch.Tensor]:
-        """Group variant of ``_z_guided_noise_pred``. Returns the per-task guided
-        noise prediction. SP=1 only (cp_size>1 is out of M3 scope)."""
-        pipe = self._ensure_pipeline(backend.args, torch.device(torch.cuda.current_device()))
-        cp_group = get_cp_group()
-        cp = cp_group.group_size if cp_group is not None else 1
-        if cp > 1:
-            raise NotImplementedError("Z-Image continuous-batch group denoise supports cp_size=1 only (M3).")
-
-        apply_cfg = self.supports_cfg(backend.args) and guidance_scale > 0.0
-        if not apply_cfg:
-            set_cfg_type(backend, "pos")
-            stacked, row_counts = self._transformer_forward_group(
-                tasks, generator, backend, "cond", use_negative=False
-            )
-            return self._split_rows(stacked, row_counts)
-
-        if generator.cfg_size == 2:
-            use_negative = generator.cfg_dispatcher.group.rank_in_group == 1
-            set_cfg_type(backend, "neg" if use_negative else "pos")
-            local, row_counts = self._transformer_forward_group(
-                tasks, generator, backend, "uncond" if use_negative else "cond", use_negative
-            )
-            pos_noise_pred, neg_noise_pred = generator.cfg_dispatcher.all_gather_cfg_noise_preds(local)
-            combined = self._apply_cfg(pos_noise_pred, neg_noise_pred, guidance_scale, pipe._cfg_normalization)
-            return self._split_rows(combined, row_counts)
-
-        # cfg_size==1, cp==1: cond+uncond packed into one forward.
-        return self._transformer_forward_cfg_batch_group(tasks, generator, backend, guidance_scale, pipe)
-
-    def denoise_step_batch(self, tasks: list, generator, backend, run_dit_forward: Callable[..., torch.Tensor]) -> list[torch.Tensor]:
-        """Batched denoise for a group of same-shape, same-step tasks (M3).
-
-        Runs the whole ``while current_step < total_steps`` loop once for the whole
-        group: per step it builds one batched transformer forward across all tasks,
-        splits the noise prediction back per task, and each task runs its OWN
-        scheduler.step on its latent slice (using an explicit per-call step index so
-        the shared FlowMatch scheduler stays stateless across the group). Returns
-        the per-task final latents. flexcache/cp>1 are excluded upstream."""
-        device = torch.device(torch.cuda.current_device())
-        pipe = self._ensure_pipeline(backend.args, device)
-        for task in tasks:
-            self._move_task_tensors_to_device(task, device)
-            task.buffer.latents = self._normalize_latents(task.buffer.latents, "input")
-
-        total_steps = int(tasks[0].req.params.num_inference_steps)
-        autocast_device = "cuda" if device.type == "cuda" else device.type
-        with torch.amp.autocast(autocast_device, enabled=False):
-            for step_index in range(total_steps):
-                for task in tasks:
-                    task.buffer.current_step = step_index
-                guidance_scale = self._current_guidance_scale(tasks[0], pipe)
-                noise_preds = self._z_guided_noise_pred_batch(tasks, generator, backend, guidance_scale)
-                for task, noise_pred in zip(tasks, noise_preds):
-                    timestep = task.buffer.timesteps[step_index]
-                    latents = task.buffer.latents
-                    # Per-task scheduler.step: reset the shared scheduler's step
-                    # index so each call is stateless and uses sigmas[step_index].
-                    pipe.scheduler._step_index = step_index
-                    with self._float32_default_dtype():
-                        latents = pipe.scheduler.step(
-                            noise_pred.to(torch.float32), timestep, latents, return_dict=False
-                        )[0]
-                    latents = self._normalize_latents(latents, "scheduler output").to(torch.float32)
-                    task.buffer.latents = latents
-        return [task.buffer.latents for task in tasks]
-
-    # ------------------------------------------------------------------
-    # M4 mixed-step continuous batching: ONE denoise step for a group whose
-    # members may be at DIFFERENT steps.
-    #
-    # The only change vs the M3 same-step group forward is that the per-row
-    # timestep vector is built from EACH task's own ``current_step`` (the
-    # transformer's t-embedder / AdaLN modulation is per-row and attention is
-    # within-row, so a row's output depends only on its own latent + timestep +
-    # conditioning, never on which rows share the forward). Guidance scale is
-    # likewise resolved per task. When every member happens to be at the same
-    # step this reduces exactly to the M3 forward (bitwise), so the M3 same-step
-    # correctness is preserved.
-    # ------------------------------------------------------------------
-
-    def _transformer_forward_cfg_batch_group_mixed(
-        self, tasks: list, generator, backend, pipe
-    ) -> list[torch.Tensor]:
-        """cfg_size==1, cp==1 batched CFG forward across a mixed-step group.
-
-        Row layout matches ``_transformer_forward_cfg_batch_group`` (cond rows of
-        all tasks, then uncond rows of all tasks); only the timestep vector is
-        per-row (each task contributes its own step's normalized timestep) and
-        the CFG combine uses each task's own guidance scale."""
-        device = torch.device(torch.cuda.current_device())
-        cond_rows: list[torch.Tensor] = []
-        pos_embeds: list[torch.Tensor] = []
-        neg_embeds: list[torch.Tensor] = []
-        row_counts: list[int] = []
-        timestep_parts: list[torch.Tensor] = []
-        for task in tasks:
-            self._move_task_tensors_to_device(task, device)
-            latents = self._normalize_latents(task.buffer.latents, "input")
-            task.buffer.latents = latents
-            n_rows = int(latents.shape[0])
-            row_counts.append(n_rows)
-            cond_rows.append(latents.to(self.transformer.dtype))
-            step_index = int(task.buffer.current_step)
-            timestep = task.buffer.timesteps[step_index]
-            t_norm = (1000 - timestep) / 1000
-            timestep_parts.append(t_norm.reshape(1).expand(n_rows))
-            pos_embeds += self._embedding_tensor_to_list(
-                task.buffer.text_embeddings,
-                getattr(task.buffer, "_z_text_embedding_lengths", None),
-            )
-            neg_embeds += self._embedding_tensor_to_list(
-                task.buffer.negative_embeddings,
-                getattr(task.buffer, "_z_negative_embedding_lengths", None),
-            )
-        cond_latents = torch.cat(cond_rows, dim=0)
-        total_rows = int(cond_latents.shape[0])
-        timestep_vec = torch.cat(timestep_parts, dim=0)  # [R], per-row own step
-        timestep_vec = timestep_vec.repeat(2)  # cond + uncond -> [2R]
-        latent_model_input = torch.cat([cond_latents, cond_latents], dim=0).unsqueeze(2)
-        latent_model_input_list = list(latent_model_input.unbind(dim=0))
-        prompt_embeds = pos_embeds + neg_embeds
-
-        autocast_device = "cuda" if device.type == "cuda" else device.type
-        set_cfg_type(backend, "cfg")
-        with torch.amp.autocast(autocast_device, enabled=False), self._transformer_cache_context("cfg"):
-            output_list = self.transformer(
-                latent_model_input_list,
-                timestep_vec,
-                prompt_embeds,
-                return_dict=False,
-            )[0]
-        raw_noise_pred = torch.stack([item.float() for item in output_list], dim=0).squeeze(2)
-        pos_noise_pred = -raw_noise_pred[:total_rows]
-        neg_noise_pred = -raw_noise_pred[total_rows:]
-        results: list[torch.Tensor] = []
-        offset = 0
-        for task, count in zip(tasks, row_counts):
-            guidance_scale = self._current_guidance_scale(task, pipe)
-            pos_slice = pos_noise_pred[offset:offset + count]
-            neg_slice = neg_noise_pred[offset:offset + count]
-            results.append(self._apply_cfg(pos_slice, neg_slice, guidance_scale, pipe._cfg_normalization))
-            offset += count
-        return results
-
-    def _transformer_forward_group_mixed(
-        self, tasks: list, cache_tag: str, use_negative: bool
-    ) -> tuple[torch.Tensor, list[int]]:
-        """One replicated (non-CFG-batched) forward across a mixed-step group with
-        per-row timesteps. Returns the stacked ``-noise_pred`` [R,C,H,W] and
-        per-task row counts (used by the cfg_size==2 all-gather path)."""
-        device = torch.device(torch.cuda.current_device())
-        rows: list[torch.Tensor] = []
-        embeds: list[torch.Tensor] = []
-        row_counts: list[int] = []
-        timestep_parts: list[torch.Tensor] = []
-        len_attr = "_z_negative_embedding_lengths" if use_negative else "_z_text_embedding_lengths"
-        for task in tasks:
-            self._move_task_tensors_to_device(task, device)
-            latents = self._normalize_latents(task.buffer.latents, "input")
-            task.buffer.latents = latents
-            n_rows = int(latents.shape[0])
-            row_counts.append(n_rows)
-            rows.append(latents.to(self.transformer.dtype))
-            step_index = int(task.buffer.current_step)
-            timestep = task.buffer.timesteps[step_index]
-            t_norm = (1000 - timestep) / 1000
-            timestep_parts.append(t_norm.reshape(1).expand(n_rows))
-            emb = task.buffer.negative_embeddings if use_negative else task.buffer.text_embeddings
-            embeds += self._embedding_tensor_to_list(emb, getattr(task.buffer, len_attr, None))
-        latents_cat = torch.cat(rows, dim=0)
-        timestep_vec = torch.cat(timestep_parts, dim=0)
-        latent_model_input = latents_cat.unsqueeze(2)
-        latent_model_input_list = list(latent_model_input.unbind(dim=0))
-
-        autocast_device = "cuda" if device.type == "cuda" else device.type
-        with torch.amp.autocast(autocast_device, enabled=False), self._transformer_cache_context(cache_tag):
-            output_list = self.transformer(
-                latent_model_input_list,
-                timestep_vec,
-                embeds,
-                return_dict=False,
-            )[0]
-        raw_noise_pred = torch.stack([item.float() for item in output_list], dim=0).squeeze(2)
-        return -raw_noise_pred, row_counts
-
-    def _z_guided_noise_pred_batch_mixed(
-        self, tasks: list, generator, backend
-    ) -> list[torch.Tensor]:
-        """Mixed-step group variant of ``_z_guided_noise_pred``. Each task uses its
-        own current_step (timestep) and its own guidance scale. SP=1 only."""
-        pipe = self._ensure_pipeline(backend.args, torch.device(torch.cuda.current_device()))
-        cp_group = get_cp_group()
-        cp = cp_group.group_size if cp_group is not None else 1
-        if cp > 1:
-            raise NotImplementedError("Z-Image continuous-batch group denoise supports cp_size=1 only.")
-
-        if not self.supports_cfg(backend.args):
-            set_cfg_type(backend, "pos")
-            stacked, row_counts = self._transformer_forward_group_mixed(tasks, "cond", use_negative=False)
-            return self._split_rows(stacked, row_counts)
-
-        if generator.cfg_size == 2:
-            use_negative = generator.cfg_dispatcher.group.rank_in_group == 1
-            set_cfg_type(backend, "neg" if use_negative else "pos")
-            local, row_counts = self._transformer_forward_group_mixed(
-                tasks, "uncond" if use_negative else "cond", use_negative
-            )
-            pos_noise_pred, neg_noise_pred = generator.cfg_dispatcher.all_gather_cfg_noise_preds(local)
-            results: list[torch.Tensor] = []
-            offset = 0
-            for task, count in zip(tasks, row_counts):
-                guidance_scale = self._current_guidance_scale(task, pipe)
-                pos_slice = pos_noise_pred[offset:offset + count]
-                neg_slice = neg_noise_pred[offset:offset + count]
-                results.append(self._apply_cfg(pos_slice, neg_slice, guidance_scale, pipe._cfg_normalization))
-                offset += count
-            return results
-
-        # cfg_size==1, cp==1: cond+uncond packed into one forward.
-        return self._transformer_forward_cfg_batch_group_mixed(tasks, generator, backend, pipe)
-
-    def denoise_step_group_once(self, tasks: list, generator, backend, run_dit_forward: Callable[..., torch.Tensor]) -> None:
-        """Advance every task in the group by EXACTLY ONE denoise step (M4).
-
-        Members may be at different ``current_step`` values -- one batched
-        transformer forward is issued using each row's own timestep, the noise
-        prediction is split back per task, and each task runs its OWN
-        scheduler.step on its latent slice (with an explicit per-call step index
-        so the shared FlowMatch scheduler stays stateless w.r.t. group
-        membership). Each task's ``current_step`` is incremented by one. Control
-        returns to the driver afterwards so items can be admitted/retired at the
-        step boundary. flexcache/cp>1 are excluded upstream."""
-        device = torch.device(torch.cuda.current_device())
-        pipe = self._ensure_pipeline(backend.args, device)
-        autocast_device = "cuda" if device.type == "cuda" else device.type
-        with torch.amp.autocast(autocast_device, enabled=False):
-            cp_group = get_cp_group()
-            cp = cp_group.group_size if cp_group is not None else 1
-            if cp > 1:
-                # Pool-engine per-lane path: a width>1 lane runs exactly ONE request
-                # sequence-sharded across its CP subgroup. The batched-mixed forward
-                # only shards a single sample, so route the lane's single task
-                # through the cp-capable single-task guided forward (identical math
-                # to the M6 dynamic-SP denoise path). Multi-request batching is
-                # width==1 (cp==1) only.
-                if len(tasks) != 1:
-                    raise NotImplementedError(
-                        f"Z-Image cp>1 group denoise supports a single task per lane, got {len(tasks)}."
-                    )
-                task = tasks[0]
-                guidance_scale = self._current_guidance_scale(task, pipe)
-                noise_preds = [self._z_guided_noise_pred(task, generator, backend, guidance_scale)]
-            else:
-                noise_preds = self._z_guided_noise_pred_batch_mixed(tasks, generator, backend)
-            for task, noise_pred in zip(tasks, noise_preds):
-                step_index = int(task.buffer.current_step)
-                timestep = task.buffer.timesteps[step_index]
-                # Per-task scheduler.step: reset the shared scheduler's step index
-                # so each call is stateless and uses sigmas[step_index].
-                pipe.scheduler._step_index = step_index
-                with self._float32_default_dtype():
-                    latents = pipe.scheduler.step(
-                        noise_pred.to(torch.float32), timestep, task.buffer.latents, return_dict=False
-                    )[0]
-                task.buffer.latents = self._normalize_latents(latents, "scheduler output").to(torch.float32)
-                task.buffer.current_step = step_index + 1
+        return self.cfg_executor.execute(
+            spec=spec,
+            branches=branches,
+            forward_branch=forward_branch,
+            forward_physical_batch=lambda batch: self._transformer_forward_cfg_batch(
+                task, generator, backend, batch
+            ),
+            combine=lambda cond, uncond: self._apply_cfg(
+                cond,
+                uncond,
+                guidance_scale,
+                pipe._cfg_normalization,
+            ),
+        )
 
     def _broadcast_checkpoint_latents(self, requests: list[torch.Tensor], device: torch.device) -> list[torch.Tensor]:
         if not (dist.is_available() and dist.is_initialized()):
@@ -1186,100 +792,11 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             task.buffer.latents = original_latents
         return predictions, len(checkpoint_latents)
 
-    def _report_cp_profile(self, task, denoise_seconds: float) -> None:
-        proc = self._z_attn_processor
-        stats = proc.cp_stats()
-        group = get_cp_group()
-        cp = group.group_size if group is not None else 1
-        mode = stats.get("mode", "agkv")
-        qkv_s = stats["qkv_seconds"]
-        attn_s = stats["attn_seconds"]
-        kv_s = stats["kv_seconds"]
-        out_s = stats["out_seconds"]
-        a2a_s = stats["a2a_seconds"]
-        ring_s = stats["ring_seconds"]
-        compute_s = qkv_s + attn_s
-        comm_s = kv_s + out_s + a2a_s + ring_s
-
-        def _gbps(bytes_, secs):
-            return (bytes_ / secs / 1e9) if secs > 0 else 0.0
-
-        def _pct(secs):
-            return (secs / denoise_seconds * 100.0) if denoise_seconds > 0 else 0.0
-
-        width, height = task.buffer.image_size
-        rank = dist.get_rank() if (dist.is_available() and dist.is_initialized()) else 0
-        lines = [
-            "[Z-Image CP profile] rank=%d mode=%s cp_size=%d size=%dx%d steps=%d denoise=%.3fs"
-            % (rank, mode, cp, width, height, int(task.req.params.num_inference_steps), denoise_seconds),
-            "  compute total   : %.4fs (%.2f%%)  [qkv %.4fs + attn %.4fs]"
-            % (compute_s, _pct(compute_s), qkv_s, attn_s),
-            "  comm total      : %.4fs (%.2f%%)" % (comm_s, _pct(comm_s)),
-            "  QKV proj GEMM   : %.4fs over %d calls (%.2f%%)"
-            % (qkv_s, stats["qkv_calls"], _pct(qkv_s)),
-            "  attention compute: %.4fs over %d calls (%.2f%%)"
-            % (attn_s, stats["attn_calls"], _pct(attn_s)),
-        ]
-        if mode == "agkv" or kv_s > 0:
-            lines.append(
-                "  KV all-gather   : %.4fs over %d calls, %.2f GiB, %.1f GB/s (%.2f%%)"
-                % (kv_s, stats["kv_calls"], stats["kv_bytes"] / (1024 ** 3), _gbps(stats["kv_bytes"], kv_s), _pct(kv_s))
-            )
-        if mode == "ulysses" or a2a_s > 0:
-            lines.append(
-                "  Ulysses all2all : %.4fs over %d calls, %.2f GiB, %.1f GB/s (%.2f%%)"
-                % (a2a_s, stats["a2a_calls"], stats["a2a_bytes"] / (1024 ** 3), _gbps(stats["a2a_bytes"], a2a_s), _pct(a2a_s))
-            )
-        if mode == "ring" or ring_s > 0:
-            lines.append(
-                "  Ring P2P KV     : %.4fs over %d calls, %.2f GiB, %.1f GB/s (%.2f%%)"
-                % (ring_s, stats["ring_calls"], stats["ring_bytes"] / (1024 ** 3), _gbps(stats["ring_bytes"], ring_s), _pct(ring_s))
-            )
-        lines.append(
-            "  output gather   : %.4fs over %d calls, %.2f GiB, %.1f GB/s (%.2f%%)"
-            % (out_s, stats["out_calls"], stats["out_bytes"] / (1024 ** 3), _gbps(stats["out_bytes"], out_s), _pct(out_s))
-        )
-        logger.info("\n".join(lines))
-
     def denoise_step(self, task, generator, backend, run_dit_forward: Callable[..., torch.Tensor]) -> torch.Tensor:
-        if not getattr(task.buffer, "_z_image_inside_denoise_loop", False):
-            device = torch.device(torch.cuda.current_device())
-            autocast_device = "cuda" if device.type == "cuda" else device.type
-            cp_profile = (
-                self._z_attn_processor is not None
-                and getattr(self._z_attn_processor, "_cp_profile", False)
-            )
-            if cp_profile:
-                self._z_attn_processor.reset_cp_stats()
-                torch.cuda.synchronize(device)
-                denoise_t0 = torch.cuda.Event(enable_timing=True)
-                denoise_t1 = torch.cuda.Event(enable_timing=True)
-                denoise_t0.record()
-            with torch.amp.autocast(autocast_device, enabled=False):
-                task.buffer._z_image_inside_denoise_loop = True
-                final_latents = task.buffer.latents
-                try:
-                    total_steps = int(task.req.params.num_inference_steps)
-                    while int(task.buffer.current_step) < total_steps:
-                        # M6: allow a per-item SP/CP degree switch at this step
-                        # boundary (no-op unless dynamic_sp is on and the item's
-                        # schedule calls for it). This is the step-granular hook
-                        # for dynamic sequence parallelism.
-                        maybe_switch = getattr(generator, "_maybe_switch_sp_degree", None)
-                        if maybe_switch is not None:
-                            maybe_switch(task)
-                        final_latents = self.denoise_step(task, generator, backend, run_dit_forward)
-                        task.buffer.latents = final_latents
-                        task.buffer.current_step += 1
-                finally:
-                    task.buffer._z_image_inside_denoise_loop = False
-            if cp_profile:
-                denoise_t1.record()
-                denoise_t1.synchronize()
-                denoise_seconds = denoise_t0.elapsed_time(denoise_t1) / 1000.0
-                self._report_cp_profile(task, denoise_seconds)
-            return final_latents
-
+        # One denoise step. The engine (single-request driver or the pool-engine
+        # group contract) owns the ``while current_step < total_steps`` loop and
+        # increments ``current_step`` after this returns, exactly like the other
+        # DiT adapters -- Z-Image no longer self-loops here.
         device = torch.device(torch.cuda.current_device())
         self._move_task_tensors_to_device(task, device)
         pipe = self._ensure_pipeline(backend.args, device)
@@ -1312,7 +829,9 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 )
                 with torch.amp.autocast(autocast_device, enabled=False):
                     with self._float32_default_dtype():
-                        latents = pipe.scheduler.step(noise_pred.to(torch.float32), timestep, latents, return_dict=False)[0]
+                        latents = self.scheduler_step(
+                            pipe.scheduler, noise_pred.to(torch.float32), timestep, latents, step_index=step_index
+                        )
                 latents = self._normalize_latents(latents, "scheduler output")
                 if hasattr(step_cache_strategy, "record_reuse_step"):
                     if sigma_pre is None or sigma_next is None:
@@ -1331,7 +850,9 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         with torch.amp.autocast(autocast_device, enabled=False):
             noise_pred = self._z_guided_noise_pred(task, generator, backend, guidance_scale)
             with self._float32_default_dtype():
-                latents = pipe.scheduler.step(noise_pred.to(torch.float32), timestep, latents, return_dict=False)[0]
+                latents = self.scheduler_step(
+                    pipe.scheduler, noise_pred.to(torch.float32), timestep, latents, step_index=step_index
+                )
         latents = self._normalize_latents(latents, "scheduler output").to(torch.float32)
 
         if step_cache_strategy is not None:
@@ -1383,57 +904,48 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             def _decode(z: torch.Tensor) -> torch.Tensor:
                 return pipe.vae.decode(z, return_dict=False)[0]
 
-            if dp_is_active():
-                # Naive data parallel: this replica owns only its slice of the
-                # n_sample batch (latents are full within the replica). Decode it
-                # locally; the generator gathers the slices across the DP group.
-                decoded = _decode(latents)
-            else:
-                # latents: [B, C, H_lat, W_lat] -> split on H_lat (dim 2);
-                # decoded pixels: [B, 3, H, W] -> H is dim 2; VAE upsamples by vae_scale_factor.
-                decoded = parallel_tiled_vae_decode(
-                    latents,
-                    _decode,
-                    latent_split_dim=2,
-                    pixel_split_dim=2,
-                    scale=int(pipe.vae_scale_factor),
-                )
+            # The active CP group is the task's current lane, not the world.
+            decoded = parallel_tiled_vae_decode(
+                latents,
+                _decode,
+                latent_split_dim=2,
+                pixel_split_dim=2,
+                scale=int(pipe.vae_scale_factor),
+                group=get_cp_group(),
+            )
         return decoded
 
     def save_output(self, task, output: Optional[torch.Tensor], generator, backend) -> None:
-        if torch.distributed.get_rank() != 0:
+        if torch.distributed.get_rank() != 0 or output is None:
             return
         pipe = self._ensure_pipeline(backend.args, torch.device(torch.cuda.current_device()))
         run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
         if run_output_dir:
-            task.req.params.save_dir = task_results_dir(run_output_dir, task.task_id)
+            task.req.params.save_dir = task_results_dir(run_output_dir, task.req.request_id)
         os.makedirs(task.req.params.save_dir, exist_ok=True)
 
-        images = pipe.image_processor.postprocess(output, output_type="pil")
-        seeds = task.req.params.sample_seeds(fallback=int(backend.args.infer.seed))
+        images = pipe.image_processor.postprocess(output[:1], output_type="pil")
         prompt_slug = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "")
         model_name = getattr(getattr(getattr(backend, "args", None), "models", None), "name", None)
-        multi = len(images) > 1
-        for idx, image in enumerate(images):
-            row_seed = seeds[idx] if idx < len(seeds) else None
-            suffix = f"_s{idx}" if multi else ""
-            save_name = f"{prompt_slug}_{task.task_id}{suffix}.png"
-            save_path = os.path.join(task.req.params.save_dir, save_name)
-            image.save(save_path, quality=95, subsampling=0)
+        image = images[0]
+        save_name = f"{prompt_slug}_{task.task_id}.png"
+        save_path = os.path.join(task.req.params.save_dir, save_name)
+        image.save(save_path, quality=95, subsampling=0)
 
-            sidecar_path = os.path.splitext(save_path)[0] + ".json"
-            metadata = {
-                "filename": os.path.basename(save_path),
-                "relative_path": os.path.join(os.path.basename(task.req.params.save_dir), os.path.basename(save_path)),
-                "prompt": task.req.get_prompt(),
-                "seed": row_seed,
-                "sample_index": idx,
-                "n_sample": len(images),
-                "step": getattr(task.req.params, "num_inference_steps", None),
-                "task_id": task.task_id,
-                "model_name": model_name,
-            }
-            with open(sidecar_path, "w", encoding="utf-8") as f:
-                json.dump(metadata, f, ensure_ascii=False, indent=2)
+        sidecar_path = os.path.splitext(save_path)[0] + ".json"
+        metadata = {
+            "filename": os.path.basename(save_path),
+            "relative_path": os.path.join(os.path.basename(task.req.params.save_dir), os.path.basename(save_path)),
+            "prompt": task.req.get_prompt(),
+            "seed": task.req.params.base_seed(fallback=int(backend.args.infer.seed)),
+            "sample_index": task.sample_index,
+            "n_sample": task.sample_count,
+            "step": getattr(task.req.params, "num_inference_steps", None),
+            "task_id": task.task_id,
+            "request_id": task.req.request_id,
+            "model_name": model_name,
+        }
+        with open(sidecar_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
 
-            log_result(logger, task_id=task.task_id, message=f"image_saved={save_path}")
+        log_result(logger, task_id=task.task_id, message=f"image_saved={save_path}")

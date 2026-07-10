@@ -2,12 +2,17 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from logging import getLogger
 import os
 import time
 from typing import Any, List, Optional, Sequence, Tuple
 
+from chitu_diffusion.runtime.cost_model import (
+    CalibratedCostModel,
+    RuntimeCalibrator,
+    image_token_count,
+)
 from chitu_diffusion.runtime.task import (
     DiffusionTask,
     DiffusionTaskPool,
@@ -23,6 +28,7 @@ from chitu_diffusion.runtime.elastic_policy import (
     StepLatencyProfile,
     SwitchCostModel,
     load_cost_model,
+    plan_balanced_lane_steps,
     plan_pool_layout,
     profile_from_cost_model,
 )
@@ -87,8 +93,8 @@ class SchedulingPlan:
     idle_gpus: List[int] = field(default_factory=list)
     deciding_field: Optional[str] = None
     objective: tuple = field(default_factory=tuple)
-    continuous_batch_admitted: int = 0
     total_gpus: int = 0
+    predicted_spin_ms: float = 0.0
 
     def lane_for_rank(self, rank: int) -> Optional[LaneAssignment]:
         """The lane whose GPU set contains ``rank`` (None == this rank is idle)."""
@@ -99,7 +105,7 @@ class SchedulingPlan:
 
     def lane_for_task(self, task_id: str) -> Optional[LaneAssignment]:
         for lane in self.lanes:
-            if lane.request_id == task_id or task_id in lane.batch_request_ids:
+            if lane.request_id == task_id:
                 return lane
         return None
 
@@ -112,8 +118,8 @@ class SchedulingPlan:
             "idle_gpus": list(self.idle_gpus),
             "deciding_field": self.deciding_field,
             "objective": list(self.objective),
-            "continuous_batch_admitted": self.continuous_batch_admitted,
             "total_gpus": self.total_gpus,
+            "predicted_spin_ms": self.predicted_spin_ms,
         }
 
 
@@ -137,18 +143,19 @@ class DiffusionScheduler:
         self.scheduler_type = str(getattr(args, "scheduling_policy", "fifo") or "fifo")
         self.hotswitch_enabled = bool(getattr(args, "hotswitch_enabled", False))
         self.switch_allowed_until_step = int(getattr(args, "switch_allowed_until_step", 0) or 0)
-        # M3 continuous batching: group same-shape, same-step, same-stage requests.
-        self.continuous_batch = bool(getattr(args, "continuous_batch", False)) or (
-            str(os.getenv("CHITU_CONTINUOUS_BATCH", "")).strip().lower() in {"1", "true", "yes", "on"}
-        )
-        self.max_batch_items = max(1, int(getattr(args, "max_batch_items", 8) or 8))
+        epe = getattr(args, "epe", None)
+        # These are correctness properties of the synchronous EPE model, not optional
+        # optimizations: the planner must see barriers and must use otherwise-idle GPUs
+        # to widen an eligible tail straggler.
+        self.straggler_widen = True
+        self.barrier_aware = True
         self.execution_groups = self._build_execution_groups(args)
 
         # ---- slo_elastic pool-scheduler knobs (only used when scheduling_policy == slo_elastic) ----
         self.horizon_events = int(getattr(args, "horizon_events", 6) or 6)
         self.starvation_wait_ms = float(getattr(args, "starvation_ms", 30000.0) or 30000.0)
         self.fairness_beta = float(getattr(args, "fairness_beta", 3.0) or 3.0)
-        self.enable_flexcache = bool(getattr(args, "enable_flexcache", False))
+        self.enable_flexcache = bool(getattr(epe, "enable_flexcache", False))
         self.switch_total_ms = float(getattr(args, "switch_total_ms", 0.0) or 0.0)
         # Stage-7 residual runtime tax fed into the planner's completion predictions. Default
         # 0.0 => planner behaves exactly as before (and the offline simulator is unaffected);
@@ -157,12 +164,29 @@ class DiffusionScheduler:
         self.per_step_lane_cost_ms = float(os.getenv("CHITU_POOL_PER_STEP_COST_MS", "0") or 0.0)
         self.phase_boundary_cost_ms = float(os.getenv("CHITU_POOL_BOUNDARY_COST_MS", "0") or 0.0)
         # Phase length K used to amortize the boundary tax; mirrors the engine's admission bound.
-        self.phase_boundary_steps = int(os.getenv("CHITU_POOL_ADMISSION_BOUND", "0") or 0)
+        self.phase_boundary_steps = max(1, int(getattr(epe, "phase_max_steps", 5) or 5))
+        self.balanced_k = bool(getattr(epe, "balanced_k", True))
         self.cost_model_name = getattr(args, "cost_model", None) or "rtx4090"
+        # Per-lane CFG parallelism (CFP) pricing for the planner. When >=2 the served
+        # model runs classifier-free guidance and the planner prices a widened lane's
+        # first factor of two as (near-perfect) CFG parallelism before context
+        # parallelism -- realizing the DP>CFP>CP scaling priority in its width choices.
+        # Off (1) keeps legacy single-forward CP pricing. Fixed per model, so it is a
+        # per-run env knob (guidance is a model-level config, not visible to the
+        # EPE config. Only affects slo_elastic width
+        # decisions; pure_dp/pure_sp are fixed-layout so their behaviour is unchanged.
+        self.cfg_parallel_max = max(1, int(getattr(epe, "cfg_parallel_max", 2) or 2))
+        self.planner_guidance_scale = 2.0 if self.cfg_parallel_max >= 2 else 1.0
+        # Online cost-model calibration (opt-in). When on, the planner prices layouts
+        # through a live EWMA correction fed by the engine's measured per-lane step
+        # latencies -- avoiding roofline error (esp. small shapes) and hardware drift.
+        self.online_calibrate = bool(getattr(epe, "online_calibration", True))
         # Cost model + per-shape step-latency profile cache; loaded lazily so non-pool
         # policies (fifo/etc.) pay nothing. Keyed by (width, height, num_steps).
         self._cost_model = None
+        self._calibrator: Optional[RuntimeCalibrator] = None
         self._profile_cache: dict[tuple[int, int, int], StepLatencyProfile] = {}
+        self._profile_cache_version = -1
 
         logger.info(
             "Initialized DiffusionScheduler: type=%s execution_groups=%s",
@@ -185,9 +209,33 @@ class DiffusionScheduler:
     @property
     def cost_model(self):
         if self._cost_model is None:
-            self._cost_model = load_cost_model(self.cost_model_name)
+            base = load_cost_model(self.cost_model_name)
             logger.info("DiffusionScheduler loaded cost model: %s", self.cost_model_name)
+            if self.online_calibrate:
+                self._calibrator = RuntimeCalibrator(
+                    base, guidance_scale=self.planner_guidance_scale, enabled=True,
+                )
+                self._cost_model = CalibratedCostModel(base, self._calibrator)
+                logger.info("DiffusionScheduler online cost-model calibration ENABLED")
+            else:
+                self._cost_model = base
         return self._cost_model
+
+    @property
+    def calibrator(self) -> Optional[RuntimeCalibrator]:
+        """Live online calibrator (or ``None`` when calibration is disabled)."""
+        if self._cost_model is None:
+            _ = self.cost_model  # trigger lazy init
+        return self._calibrator
+
+    def observe_step_latency(
+        self, img_tokens: int, sp_degree: int, cfg_parallel: int, measured_step_ms: float
+    ) -> None:
+        """Feed one measured clean per-step latency to the online calibrator (no-op
+        when calibration is disabled). Called by the engine on the planning rank."""
+        cal = self.calibrator
+        if cal is not None:
+            cal.observe(img_tokens, sp_degree, cfg_parallel, measured_step_ms)
 
     def _build_execution_groups(self, args) -> list[ExecutionGroupProfile]:
         cp_size = max(1, int(getattr(args, "cp_size", 1) or 1))
@@ -270,104 +318,6 @@ class DiffusionScheduler:
     def _pending_tasks(self) -> list[DiffusionTask]:
         return [DiffusionTaskPool.pool[task_id] for task_id in DiffusionTaskPool.pending_task_ids()]
 
-    def _is_groupable(self, task: DiffusionTask) -> bool:
-        """Whether a task may join a continuous-batch group (M3 scope: SP=1, same
-        shape/step, no acceleration). Flexcache/DiTango and cp_size>1 fall back to
-        the single-task path."""
-        if task.is_control_signal():
-            return False
-        if int(getattr(self.args, "cp_size", 1) or 1) != 1:
-            return False
-        params = getattr(getattr(task, "req", None), "params", None)
-        if params is None:
-            return False
-        if getattr(params, "flexcache", None) or getattr(params, "flexcache_params", None):
-            return False
-        return True
-
-    @staticmethod
-    def _group_key(task: DiffusionTask) -> tuple:
-        """Batch key at task granularity: same shape + same denoise step + same
-        stage may share one batched forward (mirrors WorkItem.batch_key + stage)."""
-        return (
-            task.shape_key(),
-            int(task.buffer.current_step) if task.buffer is not None else 0,
-            task.task_type,
-        )
-
-    def _form_group(self, primary: DiffusionTask, pending_tasks: list[DiffusionTask]) -> list[DiffusionTask]:
-        key = self._group_key(primary)
-        group: list[DiffusionTask] = []
-        for task in pending_tasks:
-            if len(group) >= self.max_batch_items:
-                break
-            if self._is_groupable(task) and self._group_key(task) == key:
-                group.append(task)
-        return group
-
-    # ------------------------------------------------------------------
-    # M4 mixed-step continuous batching: dynamic membership.
-    #
-    # Unlike M3 (which grouped only same-shape/same-*step* tasks that all start
-    # together), M4 keeps a persistent in-flight denoise group and admits new
-    # same-shape requests at step boundaries -- they join at step 0 while the
-    # incumbents may be at any step. Membership is therefore decided by the
-    # engine each round via ``select_cb_admissions``; the batch key is the
-    # stage-INDEPENDENT request shape (``cb_shape_key``), because a fresh task
-    # (TextEncode, no seq_len/image_size yet) must be comparable to an in-flight
-    # task (Denoise, image_size populated). Steps are intentionally NOT part of
-    # the key -- coexisting different steps in one forward is the point of M4.
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def cb_shape_key(task: DiffusionTask) -> tuple:
-        """Stage-independent request shape used to decide continuous-batch
-        membership. Same size + frame_num + solver + num_inference_steps implies
-        identical latent shape and timestep schedule after ``prepare_denoise``,
-        so such tasks may share one batched forward regardless of their current
-        stage or step."""
-        if task.req is None or task.req.params is None:
-            return ()
-        params = task.req.params
-        return (
-            tuple(params.size) if params.size is not None else None,
-            getattr(params, "frame_num", None),
-            getattr(params, "sample_solver", None),
-            getattr(params, "num_inference_steps", None),
-        )
-
-    def cb_is_groupable(self, task: DiffusionTask) -> bool:
-        """Public alias of the M3 groupability gate (SP=1, no flexcache, not a
-        control signal). Reused by the M4 engine's admission planner."""
-        return self._is_groupable(task)
-
-    def select_cb_admissions(
-        self,
-        cb_group: list[DiffusionTask],
-        pending_tasks: list[DiffusionTask],
-        capacity: int,
-    ) -> list[DiffusionTask]:
-        """Pick the next same-shape work to admit into the in-flight denoise
-        group. If the group is non-empty its shape is the target; otherwise the
-        FIFO-first groupable pending task sets the target shape. Already in-flight
-        tasks (still ``Pending`` so ``can_schedule`` keeps the engine alive) are
-        skipped via ``cb_group`` identity. Returns at most ``capacity`` tasks."""
-        if capacity <= 0:
-            return []
-        inflight_ids = {task.task_id for task in cb_group}
-        candidates = [
-            task
-            for task in pending_tasks
-            if task.task_id not in inflight_ids and self.cb_is_groupable(task)
-        ]
-        if not candidates:
-            return []
-        if cb_group:
-            target = self.cb_shape_key(cb_group[0])
-        else:
-            target = self.cb_shape_key(candidates[0])
-        return [task for task in candidates if self.cb_shape_key(task) == target][:capacity]
-
     def _select_pending_task(self, pending_tasks: list[DiffusionTask]) -> Optional[DiffusionTask]:
         if not pending_tasks:
             return None
@@ -396,11 +346,21 @@ class DiffusionScheduler:
         return (w, h, steps)
 
     def _profile_for_shape(self, shape: tuple[int, int, int]) -> StepLatencyProfile:
+        # When online calibration bumps its version (a correction factor materially
+        # changed), drop the cached profiles so the next plan re-prices with the new
+        # factors. Cheap: profiles are rebuilt from the cost model on demand.
+        cal = self._calibrator
+        ver = cal.version if cal is not None else 0
+        if ver != self._profile_cache_version:
+            self._profile_cache.clear()
+            self._profile_cache_version = ver
         prof = self._profile_cache.get(shape)
         if prof is None:
             w, h, steps = shape
             prof = profile_from_cost_model(
-                self.cost_model, name=f"{w}x{h}x{steps}", width=w, height=h, num_steps=steps
+                self.cost_model, name=f"{w}x{h}x{steps}", width=w, height=h, num_steps=steps,
+                guidance_scale=self.planner_guidance_scale, cfg_parallel_max=self.cfg_parallel_max,
+                model_name=str(getattr(getattr(self.args, "models", None), "name", "") or "Z-Image"),
             )
             self._profile_cache[shape] = prof
         return prof
@@ -444,11 +404,12 @@ class DiffusionScheduler:
             starvation_wait_ms=self.starvation_wait_ms,
             fairness_beta=self.fairness_beta,
             enable_flexcache=self.enable_flexcache,
-            enable_continuous_batch=self.continuous_batch,
-            max_batch_items=self.max_batch_items,
             per_step_lane_cost_ms=self.per_step_lane_cost_ms,
             phase_boundary_cost_ms=self.phase_boundary_cost_ms,
             phase_steps=self.phase_boundary_steps,
+            balanced_k=self.balanced_k,
+            straggler_widen=self.straggler_widen,
+            barrier_aware=self.barrier_aware,
         )
 
     def plan_pool_round(
@@ -501,8 +462,8 @@ class DiffusionScheduler:
             idle_gpus=list(layout.idle_gpus),
             deciding_field=layout.deciding_field,
             objective=tuple(layout.objective),
-            continuous_batch_admitted=layout.continuous_batch_admitted,
             total_gpus=total,
+            predicted_spin_ms=float(layout.predicted_spin_ms),
         )
 
     def _forced_pool_plan(
@@ -542,7 +503,6 @@ class DiffusionScheduler:
                         gpus=list(range(total)),
                         switched=pw != width,
                         prev_width=pw,
-                        batch_request_ids=[chosen.task_id],
                     )
                 )
         else:  # pure_dp
@@ -556,9 +516,41 @@ class DiffusionScheduler:
                         gpus=[],  # engine assigns the concrete GPU via canonical placement
                         switched=pw != 1,
                         prev_width=pw,
-                        batch_request_ids=[task.task_id],
                     )
                 )
+
+        # Fixed-layout baselines still use the planner-owned phase cadence so their
+        # engine overhead is comparable to slo_elastic. Width selection remains fixed;
+        # only the number of useful steps before the next heartbeat is planned here.
+        task_by_id = {task.task_id: task for task in (*inflight, *pend)}
+        profiles: dict[str, StepLatencyProfile] = {}
+        sim_lanes: list[tuple[SimRequest, int]] = []
+        now_ms = time.perf_counter_ns() / 1e6
+        for lane in lanes:
+            task = task_by_id.get(lane.request_id)
+            if task is not None:
+                try:
+                    sim_lanes.append((self._sim_request_for_task(task, now_ms, profiles), int(lane.width)))
+                except (AttributeError, TypeError, ValueError):
+                    # Pure-logic callers may provide minimal task stubs; keep the
+                    # conservative one-step default when phase inputs are unavailable.
+                    sim_lanes = []
+                    break
+        if len(sim_lanes) == len(lanes) and lanes:
+            remaining = [max(1, req.remaining_steps) for req, _width in sim_lanes]
+            base_steps = min(self.phase_boundary_steps, min(remaining))
+            if self.switch_allowed_until_step > 0:
+                for req, _width in sim_lanes:
+                    if req.current_step < self.switch_allowed_until_step:
+                        base_steps = min(base_steps, self.switch_allowed_until_step - req.current_step)
+            step_ms = [self._solo_step_ms(req, width, profiles) for req, width in sim_lanes]
+            lane_steps = plan_balanced_lane_steps(
+                step_ms,
+                remaining,
+                base_steps=base_steps,
+                enabled=self.balanced_k,
+            )
+            lanes = [replace(lane, planned_steps=int(k)) for lane, k in zip(lanes, lane_steps)]
 
         used = sum(ln.width for ln in lanes)
         return SchedulingPlan(
@@ -566,14 +558,13 @@ class DiffusionScheduler:
             idle_gpus=list(range(used, total)),
             deciding_field=self.scheduler_type,
             objective=(),
-            continuous_batch_admitted=0,
             total_gpus=total,
         )
 
     @staticmethod
     def _solo_step_ms(req: SimRequest, width: int, profiles: dict[str, StepLatencyProfile]) -> float:
         prof = profiles[req.spec.profile]
-        mode = {1: "dp1", 2: "cp2", 4: "cp4"}.get(int(width), "dp1")
+        mode = {1: "dp1", 2: "cp2", 4: "cp4", 8: "cp8"}.get(int(width), "dp1")
         return prof.step_ms(mode, req.current_step)
 
     def schedule_decisions(self) -> list[ScheduleDecision]:
@@ -603,28 +594,6 @@ class DiffusionScheduler:
         selected_task = self._select_pending_task(pending_tasks)
         if selected_task is None:
             return []
-
-        # M3: when continuous batching is on, try to form a same-shape/same-step
-        # group headed by the FIFO-selected task and return one decision per group
-        # member. The generator batches them into one transformer forward per step.
-        if self.continuous_batch and self._is_groupable(selected_task):
-            group = self._form_group(selected_task, pending_tasks)
-            if len(group) >= 2:
-                decisions = []
-                for task in group:
-                    decision = self._make_decision(
-                        task,
-                        policy=self.scheduler_type,
-                        reason="continuous_batch_group",
-                    )
-                    task.scheduler_metadata["last_decision"] = decision.to_dict()
-                    decisions.append(decision)
-                logger.debug(
-                    "Scheduled continuous-batch group of %d tasks: %s",
-                    len(decisions),
-                    [d.task_id for d in decisions],
-                )
-                return decisions
 
         decision = self._make_decision(
             selected_task,

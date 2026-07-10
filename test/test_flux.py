@@ -17,7 +17,6 @@ from chitu_diffusion.runtime.main import (
     chitu_run_eval,
     chitu_start,
     chitu_terminate,
-    warmup_diffusion_engine,
 )
 from chitu_diffusion.runtime.task import (
     DiffusionTask,
@@ -131,7 +130,6 @@ def run_flux_debug(args: ServeConfig, run_context: DiffusionTestRunContext):
             logger.info("Flux debug requests: %s", reqs)
 
         run_context.dump_memory_snapshot(run_output_dir, "model_loaded")
-        warmup_diffusion_engine(args)
         chitu_start()
 
         if rank == 0:
