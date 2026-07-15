@@ -132,11 +132,11 @@ python3 run_serve_policies.py \
 - `serve_policies.json`：机器可读结果和 decision log。
 - `serve_policy_timelines.md` / `serve_policy_timelines/*.svg`：GPU x 时间的执行图。
 
-`out/` 是生成物，已被 git ignore。
+`out/`、`traces/`、`figures/`、`cost_model.json`、`cost_models/*.json` 都按本地实验数据处理，已被 git ignore。
 
 ## 如何生成 trace
 
-推荐先用合成 trace 做明确控制：低负载、突发、混合 shape、饱和队列分别跑一遍。
+推荐先用合成 trace 做明确控制：低负载、突发、混合 shape、饱和队列分别跑一遍。trace JSON 默认留在本地，不提交。
 
 ```bash
 cd experiments/cp_dp_hot_switch
@@ -245,7 +245,7 @@ Qwen-Image 目前不要直接按“已完整验证”理解。建议步骤是：
 
 1. 先跑现有 smoke / DP 配置，确认模型、checkpoint、attention backend 正常。
 2. 基于 `test/configs/z_image_serve_pool.yaml` 新建一个 `qwen_image_serve_pool.yaml`，把 `model.name`、`ckpt_dir`、输出目录和模型采样参数改成 Qwen-Image。
-3. 补一个 Qwen-Image 对应的 cost model，或者先用显式 JSON 路径做临时实验。
+3. 补一个本地 Qwen-Image 对应的 cost model，或者先用显式 JSON 路径做临时实验。
 4. 用小 trace 和少步数跑 `pure_dp` / `pure_sp` / `slo_elastic` 三臂，先看 correctness 和完成率，再看性能。
 5. 只有当三臂都能稳定完成、输出质量合理、timer 没有明显额外同步后，再扩大 trace 和 step 数。
 

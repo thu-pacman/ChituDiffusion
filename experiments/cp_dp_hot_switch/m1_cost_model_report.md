@@ -5,7 +5,7 @@
 **Artifacts (do not modify):**
 - Cost model: [`chitu_diffusion/runtime/cost_model.py`](../../chitu_diffusion/runtime/cost_model.py) — `RooflineComputeModel`, `CommModel`, `CostModel`, `predict_step_ms`, `batch_saturation`.
 - Profiler: [`profile_worker.py`](profile_worker.py) (`--mode compute` / `--mode comm`).
-- Calibrated data: [`cost_model.json`](cost_model.json) (15-point compute grid + comm).
+- Calibrated data: local gitignored `cost_model.json` (15-point compute grid + comm).
 - Unit tests: [`test/test_cost_model.py`](../../test/test_cost_model.py) — all pass.
 - Simulator now consumes the model: [`simulate.py`](simulate.py) `default_profiles()` → cost model.
 

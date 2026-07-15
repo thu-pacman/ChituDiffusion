@@ -149,28 +149,23 @@ regression.
 
 ## 3. GPU-usage timelines (4090)
 
+Figures are local regenerated artifacts and are intentionally not committed. Recreate
+them with `run_serve_policies.py` / `plot_*`; the paths below are the expected local
+outputs under `figures/`.
+
 **Saturated homogeneous `poisson_1024_r3n12` — the Pareto fix.** M7 keeps every request on
 SP4 and serves them near-sequentially; `slo_elastic` packs the pool as 4 independent DP
 streams, so four requests make progress at once and the queue drains.
 
-M7 `elastic_hot_switch` (sequential SP4):
-
-![r3n12 elastic](figures/r3n12__elastic_hot_switch.png)
-
-`slo_elastic` (4-wide DP concurrency):
-
-![r3n12 slo_elastic](figures/r3n12__slo_elastic.png)
-
-For reference, the two static extremes:
-
-![r3n12 static_sp4](figures/r3n12__static_sp4.png)
-![r3n12 static_dp](figures/r3n12__static_dp.png)
+- `figures/r3n12__elastic_hot_switch.png` — M7 `elastic_hot_switch`, sequential SP4.
+- `figures/r3n12__slo_elastic.png` — `slo_elastic`, 4-wide DP concurrency.
+- `figures/r3n12__static_sp4.png` and `figures/r3n12__static_dp.png` — static extremes.
 
 **Heavy mixed `poisson_mixed` — fairness.** `slo_elastic` interleaves DP-width short
 requests through the pool instead of letting a big SP request monopolize it.
 
-![mixed elastic](figures/poisson_mixed__elastic_hot_switch.png)
-![mixed slo_elastic](figures/poisson_mixed__slo_elastic.png)
+- `figures/poisson_mixed__elastic_hot_switch.png`
+- `figures/poisson_mixed__slo_elastic.png`
 
 **Burst/idle alternation `bursty_idle_mixed` — SP when idle, DP under burst.** A trace with
 two isolated 1024² requests (t=0, t=44 s) separated by mixed bursts of 8 and 6 (generated
@@ -180,7 +175,7 @@ short requests are not blocked, and **upshifts a tail request back to SP** as th
 drains. Result: max_slowdown **1.52 vs 5.62** (M7 elastic) / **9.00** (static SP4), best
 p95 (14.7 s) and best max-tardiness (2.6 s).
 
-![bursty slo_elastic](figures/bursty_idle_mixed__slo_elastic.png)
+- `figures/bursty_idle_mixed__slo_elastic.png`
 
 ---
 
@@ -201,10 +196,10 @@ Impossible-SLO stress test (`--slo-factor 1.5`, saturated `poisson_1024_r3n12`,
 
 FlexCache fires only under this extreme pressure and drives max tardiness **33.0→13.1 s**
 and p95 **36.5→18.3 s**. With comfortable SLO it stays **completely idle even when enabled**
-(guarded by a test). Timelines:
+(guarded by a test). Local timeline outputs:
 
-![fc elastic](figures/flexcache__r3n12__elastic_hot_switch.png)
-![fc slo_elastic](figures/flexcache__r3n12__slo_elastic.png)
+- `figures/flexcache__r3n12__elastic_hot_switch.png`
+- `figures/flexcache__r3n12__slo_elastic.png`
 
 ---
 
@@ -235,7 +230,8 @@ SLO and stays idle when not needed; switches only inside the window; and the
 ## 7. Scope & limitations
 
 - **Simulator-only.** No runtime/torch changes; latencies are denoise compute + comm from
-  `cost_models/{rtx4090,h20}.json`. VAE / text-encoder / scheduler overhead excluded.
+  local, gitignored `cost_models/{rtx4090,h20}.json` when present. VAE /
+  text-encoder / scheduler overhead excluded.
 - **Synthetic deadlines.** Traces carry no SLO, so deadlines are synthesized as
   `slo_factor ×` fastest solo service time. Absolute SLO attainment numbers move with
   `--slo-factor`; the **relative** policy comparison is what matters.

@@ -36,11 +36,12 @@ def test_qwen_latent_token_count():
     assert latent_token_count(512, 512, "Qwen-Image") == 256
 
 
-def test_qwen_cost_model_loads():
-    path = os.path.join(
-        os.path.dirname(__file__), os.pardir,
-        "experiments/cp_dp_hot_switch/cost_models/qwen_image_h20.json",
-    )
+def test_qwen_cost_model_loads(tmp_path):
+    path = tmp_path / "qwen_image_h20.json"
+    CostModel(
+        compute=RooflineComputeModel(spec=QWEN_IMAGE_SPEC, grid={}),
+        comm=CommModel(spec=QWEN_IMAGE_SPEC),
+    ).save(path)
     model = CostModel.load(path)
     assert model.spec.name == "Qwen-Image"
     assert model.spec.n_layers == 60

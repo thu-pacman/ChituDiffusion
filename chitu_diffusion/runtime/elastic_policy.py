@@ -33,8 +33,8 @@ from chitu_diffusion.runtime.cost_model import (
     latent_token_count,
 )
 
-# Committed per-hardware calibrations live alongside the offline experiment; the runtime
-# defaults to the RTX 4090 model there (the 4-GPU no-NVLink box the scheduler targets).
+# Local per-hardware calibrations may live alongside the offline experiment; generated
+# JSON files are gitignored and the runtime falls back to the analytical model when absent.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 COST_MODELS_DIR = _REPO_ROOT / "experiments" / "cp_dp_hot_switch" / "cost_models"
 

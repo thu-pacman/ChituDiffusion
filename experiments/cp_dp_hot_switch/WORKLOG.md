@@ -289,9 +289,9 @@
 ## 2026-07-07 整理与清理（准备接入 runtime）
 
 - **确定当前主线（canonical）**：设计 = [`slo_elastic_scheduler_strategy.md`](slo_elastic_scheduler_strategy.md)，
-  结果 = [`m8_slo_elastic_report.md`](m8_slo_elastic_report.md)（图已迁到提交入库的 `figures/`，不再依赖 gitignore 的 `out/`）。
+  结果 = [`m8_slo_elastic_report.md`](m8_slo_elastic_report.md)（图表作为本地生成物保留在 gitignored `figures/`，不入库）。
   核心代码收敛为 `simulate.py`（引擎 + `slo_elastic`）、`run_serve_policies.py`（自包含 runner+可视化）、
-  `gen_client_trace.py`（trace 生成，含 bursty 模式）；成本模型 `cost_models/{rtx4090,h20}.json` + 传统默认 `cost_model.json`。
+  `gen_client_trace.py`（trace 生成，含 bursty 模式）；成本模型 `cost_models/{rtx4090,h20}.json` + 传统默认 `cost_model.json` 均为本地生成/拷贝的数据文件，不入库。
   runtime 机制参考保留：`m1_cost_model_report.md`（成本模型）、`m6_dynamic_sp_report.md`（step 边界 SP 切换机制）、
   `profile_worker.py` / `profile_stages.py`（真机标定）。
 - **删除的冗余文件**（结论已并入本 WORKLOG，故安全删除）：
@@ -302,7 +302,7 @@
     `run_static_baselines.py`（静态 baseline 已由 pool 引擎的 `static_*` policy 覆盖；其 3 个可视化 helper
     `_safe_name/_nice_tick_seconds/_shape_color` 已内联进 `run_serve_policies.py`）、
     `gen_structured_trace.py`、`convert_sd3_trace.py`（一次性 trace 转换器）。
-  - 数据：`out/` 下体量大的 SVG dump（可由 runner 重新生成）；报告引用的 PNG 已固化到 `figures/`。
+  - 数据：`out/` 下体量大的 SVG dump、`figures/` PNG、trace JSON、cost model JSON 都可由 runner/profile/trace generator 重新生成，统一 gitignore。
 - **下一步（runtime 接入）**：把 `slo_elastic` 的决策语义映射到 runtime 的统一 `SchedulingPlan`——
   每次决策输出 `{work-item ids, 每请求 target sp_degree/width, GPU 分配, 可选 switch, 可选 FlexCache 动作,
   predicted cost, deadline slack, deciding reason}`；generator 只执行 plan（收口 M4 admission 与 M6 env-driven SP 切换）；

@@ -1,24 +1,25 @@
 # Cost Models (per-hardware) — CP/DP Hot-Switch
 
-This directory holds **hardware-specific** decoupled cost models (worker roofline +
+This directory documents **hardware-specific** decoupled cost models (worker roofline +
 communication) for Z-Image, produced by
-[`../profile_worker.py`](../profile_worker.py). The simulator and the static
-baseline runner select one **by parameter** so the same trace/policy analysis can
-be re-run on different GPUs without editing code.
+[`../profile_worker.py`](../profile_worker.py). Generated JSON files are local
+experiment data and are intentionally gitignored; keep them here on the machine where
+you run the simulator/runtime, or pass an explicit JSON path.
 
-| file | hardware | interconnect | provenance |
+| local file | hardware | interconnect | provenance |
 | --- | --- | --- | --- |
-| [`h20.json`](h20.json) | NVIDIA H20 (bf16) | NVLink | M1 calibration (copy of the legacy top-level `cost_model.json`) |
-| [`rtx4090.json`](rtx4090.json) | 4× NVIDIA RTX 4090 48GB (bf16) | PCIe P2P (no NVLink) | re-profiled from `/dockerdata/Z-Image` on this machine |
+| `h20.json` | NVIDIA H20 (bf16) | NVLink | M1 calibration |
+| `rtx4090.json` | 4× NVIDIA RTX 4090 48GB (bf16) | PCIe P2P (no NVLink) | re-profiled from `/dockerdata/Z-Image` on this machine |
 
-The legacy top-level `../cost_model.json` is kept unchanged (H20) so existing
-report links keep working; `h20.json` here is an identical copy.
+The legacy top-level `../cost_model.json` is also treated as local generated data.
+When no local JSON is present, simulator/runtime code falls back to the analytical
+default cost model.
 
 ## How the simulator reads it (by parameter)
 
 Both entry points accept `--cost-model`, which takes either a **hardware name**
-(resolved to `cost_models/<name>.json`) or an **explicit JSON path**. Omitting it
-falls back to the legacy `cost_model.json`.
+(resolved to a local `cost_models/<name>.json`) or an **explicit JSON path**. Omitting
+it uses a local legacy `cost_model.json` when present, otherwise the analytical default.
 
 ```bash
 # Hot-switch policy simulator (Z-Image profiles derived from the cost model)

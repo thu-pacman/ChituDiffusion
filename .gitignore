@@ -140,7 +140,14 @@ service_framework/runs/
 
 # CP/DP hot-switch generated experiment artifacts
 experiments/cp_dp_hot_switch/out/
+experiments/cp_dp_hot_switch/__pycache__/
 experiments/cp_dp_hot_switch/stage_profile.json
+experiments/cp_dp_hot_switch/cost_model.json
+experiments/cp_dp_hot_switch/cost_models/*.json
+experiments/cp_dp_hot_switch/calibrate_offline/
+experiments/cp_dp_hot_switch/figures/
+experiments/cp_dp_hot_switch/traces/**/*.json
+experiments/cp_dp_hot_switch/traces/**/*.txt
 experiments/cp_dp_hot_switch/traces/sd3_trace.txt
 experiments/cp_dp_hot_switch/traces/serve/sd3_trace_stride300_n60.json
 

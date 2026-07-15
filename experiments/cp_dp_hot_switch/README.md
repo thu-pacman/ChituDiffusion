@@ -13,7 +13,7 @@
 
 - **内部使用说明**：[`HOT_SWITCH_README.md`](HOT_SWITCH_README.md) —— 给同事复现实验和试用 runtime hot switch 的 README，包含当前实现状态、模型适配范围、配置项、trace / simulator / runtime serving 的使用方式和已知风险。
 - **策略设计**：[`slo_elastic_scheduler_strategy.md`](slo_elastic_scheduler_strategy.md) —— SLO-aware `slo_elastic` 调度器的设计（合法 GPU layout 枚举 → rolling-horizon 前向模拟 → 字典序 SLO-first 目标 + FlexCache 紧急闸门）。
-- **最新结果**：[`m8_slo_elastic_report.md`](m8_slo_elastic_report.md) —— `slo_elastic` vs `elastic_hot_switch` / static 的头对头结果、GPU 使用时间线（图见 `figures/`）、FlexCache 敏感性、诚实的代价与局限。
+- **最新结果**：[`m8_slo_elastic_report.md`](m8_slo_elastic_report.md) —— `slo_elastic` vs `elastic_hot_switch` / static 的头对头结果、GPU 使用时间线生成方式、FlexCache 敏感性、诚实的代价与局限。
 - **工作记录**：[`WORKLOG.md`](WORKLOG.md) —— 按日期的上下文同步、bug 修复、trace 调整、M1~M8 关键结论与本次清理口径（已折叠的旧文档结论都在这里）。
 
 ### 代码
@@ -26,11 +26,13 @@
 | `profile_worker.py` / `profile_stages.py` | 真机标定：DiT 逐 step（DP/SP）与非去噪阶段延迟，产出 `cost_models/*.json` |
 | `bench_3way_analyze.py` | 分析 runtime 三臂 serving 结果：`slo_elastic` / `pure_dp` / `pure_sp` 同 pool engine 对比 |
 
-### 数据
+### 本地数据与生成物
 
-- `cost_models/{rtx4090,h20}.json` + [`cost_models/report.md`](cost_models/report.md)：按硬件的逐 step 延迟标定（compute roofline + comm）。`cost_model.json` 是传统默认。
-- `traces/serve/*.json`：serving 评估 trace（`realistic_sd3_mixed` 默认；`poisson_*` 负载 sweep；`bursty_idle_mixed` 演示空闲 SP↔突发 DP 的切换；`staggered_mixed` 便于看 lane）。
-- `figures/`：m8 报告引用的时间线 PNG（已入库，不依赖 gitignore 的 `out/`）。
+实验数据不再入库：`cost_model.json`、`cost_models/*.json`、`traces/**/*.json`、`figures/`、`calibrate_offline/` 和 `out/` 都是 gitignored 的本地文件。需要复现时按下面命令生成，或从同事共享目录拷贝到对应路径。
+
+- cost model：由 `profile_worker.py` / `profile_stages.py` 在目标机器上标定生成，说明见 [`cost_models/report.md`](cost_models/report.md)。
+- serving trace：由 `gen_client_trace.py` / `gen_sweep_traces.py` 生成，常用命令记录在 `WORKLOG.md` 或结果报告里。
+- 图表：由 `run_serve_policies.py`、`plot_*`、`bench_3way_analyze.py` 从本地 metrics/trace 重新生成。
 
 ### Runtime 接入状态
 
