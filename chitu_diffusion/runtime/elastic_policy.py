@@ -14,7 +14,7 @@ denoise-step boundary: the pool of ``total_gpus`` GPUs is partitioned into lanes
 width in {1, 2, 4, 8} (SP degree; width 1 == a DP replica), each lane runs one distinct
 request (request-level DP), and layouts may switch at step boundaries. The objective
 is a lexicographic SLO-first vector scored by a rolling-horizon forward simulation
-(see ``slo_elastic_scheduler_strategy.md``).
+(see ``experiments/cp_dp_hot_switch/EXPERIMENT_REPORT.md``).
 """
 
 from __future__ import annotations
@@ -357,8 +357,7 @@ def _pool_start_step(
 # --------------------------------------------------------------------------- #
 # slo_elastic: SLO-aware, lexicographic, rolling-horizon scheduler + FlexCache
 # --------------------------------------------------------------------------- #
-# Lexicographic objective (compared field-by-field, earlier fields dominate). See
-# slo_elastic_scheduler_strategy.md section 5.
+# Lexicographic objective: earlier fields dominate switching and flow-time costs.
 SLO_OBJECTIVE_FIELDS = (
     "slo_miss_count",
     "max_tardiness_ms",

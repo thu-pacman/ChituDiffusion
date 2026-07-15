@@ -2,7 +2,7 @@
 """Profile the NON-denoise Z-Image pipeline stages (text-encode, VAE-decode, image save).
 
 This extends the M1 worker-roofline work (``profile_worker.py`` /
-``cost_model.py`` / ``m1_cost_model_report.md``) from the denoise DiT step to the
+``cost_model.py`` / ``EXPERIMENT_REPORT.md``) from the denoise DiT step to the
 other pipeline stages that the runtime drives per request:
 
   * ``encode_text``  (z_image.py:435)  -> Qwen3 text encoder forward, [B, 512]

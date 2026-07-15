@@ -1,7 +1,7 @@
 """Regression tests for the SLO-aware elastic scheduler (``slo_elastic``).
 
-Torch-free. Covers the must-test scenarios from
-``experiments/cp_dp_hot_switch/slo_elastic_scheduler_strategy.md`` section 12:
+Torch-free. Covers the key invariants recorded in
+``experiments/cp_dp_hot_switch/EXPERIMENT_REPORT.md``:
 DP-keep on SP-negative shapes, no-regression vs M7 elastic on mixed/realistic,
 the homogeneous-saturated DP fix, head-of-line fairness, the FlexCache emergency
 gate (fires under impossible SLO, silent otherwise), switch-window legality, and

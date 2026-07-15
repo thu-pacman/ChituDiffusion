@@ -420,7 +420,8 @@ class RuntimeCalibrator:
     measures (``pool_denoise_ms`` per lane, taken before the world barrier so it
     excludes spin) and maintains a multiplicative correction per execution key.
 
-    Design (validated offline, see experiments/.../calibrate_offline.py):
+    Design and validation scope are recorded in
+    ``experiments/cp_dp_hot_switch/EXPERIMENT_REPORT.md``:
       * key = ``(img_tokens, sp_degree, cfg_parallel)`` -- exactly the axes
         ``predict_step_ms`` is parameterised on, so the correction composes cleanly.
       * two-level: a per-key EWMA factor ``c_key = EWMA(measured / predicted)`` with

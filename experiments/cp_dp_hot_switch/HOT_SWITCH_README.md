@@ -132,7 +132,7 @@ python3 run_serve_policies.py \
 - `serve_policies.json`：机器可读结果和 decision log。
 - `serve_policy_timelines.md` / `serve_policy_timelines/*.svg`：GPU x 时间的执行图。
 
-`out/`、`traces/`、`figures/`、`cost_model.json`、`cost_models/*.json` 都按本地实验数据处理，已被 git ignore。
+`out/`、`traces/`、`figures/`、`cost_model.json`、`cost_models/*.json` 都按本地实验数据处理，已被 git ignore。关键结论只更新到 [`EXPERIMENT_REPORT.md`](EXPERIMENT_REPORT.md)，新实验直接覆盖旧版本。
 
 ## 如何生成 trace
 
@@ -301,11 +301,7 @@ chitu run test/configs/z_image_serve_pool.yaml
 - `cfg_parallel_max=2` 会影响 planner 对 width 的定价；模型若不支持对应 CFG 路径，需要显式降到 1 或做单独验证。
 - 目前不是完全异步 serving runtime，不能把 simulator 里的理想时间线当成最终线上开销。
 
-## 相关阅读
+## 相关文档
 
-- [`README.md`](README.md)：实验目录总览和当前主线。
-- [`slo_elastic_scheduler_strategy.md`](slo_elastic_scheduler_strategy.md)：SLO-aware scheduler 设计。
-- [`m8_slo_elastic_report.md`](m8_slo_elastic_report.md)：M8 离线结果和时间线。
-- [`m6_dynamic_sp_report.md`](m6_dynamic_sp_report.md)：dynamic SP / step-boundary 切换机制。
-- [`cost_models/report.md`](cost_models/report.md)：硬件 cost model 和 RTX 4090 / H20 差异。
-- [`WORKLOG.md`](WORKLOG.md)：按日期记录的上下文、修复和实验结论。
+- [`README.md`](README.md)：实验目录边界和当前维护口径。
+- [`EXPERIMENT_REPORT.md`](EXPERIMENT_REPORT.md)：当前唯一实验报告，包含关键结果、限制和复现命令。
