@@ -11,6 +11,7 @@
 
 ## 当前主线（canonical）
 
+- **内部使用说明**：[`HOT_SWITCH_README.md`](HOT_SWITCH_README.md) —— 给同事复现实验和试用 runtime hot switch 的 README，包含当前实现状态、模型适配范围、配置项、trace / simulator / runtime serving 的使用方式和已知风险。
 - **策略设计**：[`slo_elastic_scheduler_strategy.md`](slo_elastic_scheduler_strategy.md) —— SLO-aware `slo_elastic` 调度器的设计（合法 GPU layout 枚举 → rolling-horizon 前向模拟 → 字典序 SLO-first 目标 + FlexCache 紧急闸门）。
 - **最新结果**：[`m8_slo_elastic_report.md`](m8_slo_elastic_report.md) —— `slo_elastic` vs `elastic_hot_switch` / static 的头对头结果、GPU 使用时间线（图见 `figures/`）、FlexCache 敏感性、诚实的代价与局限。
 - **工作记录**：[`WORKLOG.md`](WORKLOG.md) —— 按日期的上下文同步、bug 修复、trace 调整、M1~M8 关键结论与本次清理口径（已折叠的旧文档结论都在这里）。

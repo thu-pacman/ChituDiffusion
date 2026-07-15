@@ -71,7 +71,7 @@
 | **Wan2.1-T2V-1.3B** FlexCache | MeanCache30 达 **1.658x**（PSNR 35.60）；Cubic **1.568-2.203x** | [→](ChituBench/result_flexcache.md#wan2_1_t2v_1_3b_flexcache) |
 | **Qwen-Image** 并行 | 8-GPU CFG + image CP4 达 **5.404x** | [→](ChituBench/result.md#qwen_image_parallel) |
 | **Qwen-Image** FlexCache | MeanCache 覆盖 **3.616x / 5.331x / 9.092x** 三档 | [→](ChituBench/result_flexcache.md#qwen_image_flexcache) |
-| **Z-Image** FlexCache | Runtime、单卡 FlashAttention、MeanCache 与 TracePlanner 探索已接入 | [→](ChituBench/configs/z_image/flexcache/base_flash.yaml) |
+| **Z-Image** Runtime / 并行 / FlexCache | Stage-level runtime、CFG + 模型自管 CP 混合并行、VAE 并行与 MeanCache / TracePlanner 路径已接入 | [→](ChituBench/configs/z_image/flexcache/base_flash.yaml) |
 
 ### 📈 速度-质量曲线快照
 
@@ -106,12 +106,13 @@ Legend: ✅ 已支持，❌ 不支持或不适用，👷 计划中或验证中�
 | `Flux1-dev` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | `FLUX.2-klein-4B` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | 👷 | ✅ |
 | `Qwen-Image` | T2I | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `Z-Image` | T2I | ✅ | 👷 | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `Z-Image` | T2I | ✅ | 👷 | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `Wan2.1-T2V-1.3B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | `Wan2.1-T2V-14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 |
 | `Wan2.2-T2V-A14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 |
 
 > 模型可用性取决于本地 checkpoint 路径及 `chitu_diffusion/core/config/models/` 下的对应配置。
+> Z-Image 已接入 ChituDiffusion 的 stage-level runtime，支持 CFG parallel、模型自管 context parallel、CFG+CP 混合并行与 VAE parallel；FlexCache 当前以 MeanCache / FreeCache / StepTrace / TracePlanner 等 step-level 策略为主。
 
 ---
 
@@ -418,7 +419,7 @@ A Feature-Cache-native evaluation suite that compares speed, quality, and memory
 | **Wan2.1-T2V-1.3B** FlexCache | MeanCache30 reaches **1.658x** (PSNR 35.60); Cubic **1.568-2.203x** | [→](ChituBench/result_flexcache.md#wan2_1_t2v_1_3b_flexcache) |
 | **Qwen-Image** Parallel | 8-GPU CFG + image CP4 reaches **5.404x** | [→](ChituBench/result.md#qwen_image_parallel) |
 | **Qwen-Image** FlexCache | MeanCache spans **3.616x / 5.331x / 9.092x** speed-quality points | [→](ChituBench/result_flexcache.md#qwen_image_flexcache) |
-| **Z-Image** FlexCache | Runtime path, single-GPU FlashAttention, MeanCache, and TracePlanner probes are integrated | [→](ChituBench/configs/z_image/flexcache/base_flash.yaml) |
+| **Z-Image** Runtime / Parallel / FlexCache | Stage-level runtime, CFG + model-managed CP mixed parallelism, VAE parallelism, and MeanCache / TracePlanner paths are integrated | [→](ChituBench/configs/z_image/flexcache/base_flash.yaml) |
 
 ### 📈 Speed-Quality Snapshots
 
@@ -453,12 +454,13 @@ Legend: ✅ supported, ❌ unsupported or not applicable, 👷 planned or still 
 | `Flux1-dev` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | `FLUX.2-klein-4B` | T2I | ✅ | ✅ | ❌ | ✅ | ✅ | 👷 | ✅ |
 | `Qwen-Image` | T2I | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `Z-Image` | T2I | ✅ | 👷 | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `Z-Image` | T2I | ✅ | 👷 | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `Wan2.1-T2V-1.3B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | `Wan2.1-T2V-14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 |
 | `Wan2.2-T2V-A14B` | T2V | ✅ | ✅ | ✅ | ✅ | ❌ | 👷 | 👷 |
 
 > Availability depends on local checkpoint paths and the corresponding config under `chitu_diffusion/core/config/models/`.
+> Z-Image is integrated with the ChituDiffusion stage-level runtime and supports CFG parallelism, model-managed context parallelism, CFG+CP mixed parallelism, and VAE parallelism; FlexCache support currently focuses on step-level strategies such as MeanCache, FreeCache, StepTrace, and TracePlanner.
 
 ---
 
