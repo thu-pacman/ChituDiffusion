@@ -37,7 +37,6 @@ from chitu_diffusion.runtime.task import (
     DiffusionTaskStatus,
 )
 from chitu_diffusion.core.distributed.parallel_state import (
-    get_cfg_group,
     get_cp_group,
     get_world_group,
     dynamic_sp_degrees,
@@ -1452,46 +1451,51 @@ class Generator:
         output: Optional[torch.Tensor],
         leader: int,
     ) -> Optional[torch.Tensor]:
-        """Move one lane leader's decoded tensor to rank 0 without a world gather."""
+        """Move one lane leader's decoded tensor to rank 0 on the prebuilt CPU group.
+
+        Point-to-point NCCL on the world group lazily creates a new pair communicator
+        for every previously unseen lane leader. EPE must not create communicators at
+        runtime, so retirement reuses the world group's prewarmed Gloo communicator.
+        """
         if leader == 0:
             return output if self.rank == 0 else None
 
-        use_cpu = bool(DiffusionBackend.use_gloo)
-        device = torch.device("cpu") if use_cpu else torch.device("cuda", self.local_rank)
+        world = get_world_group()
+        group = world.cpu_group
+        device = torch.device("cpu")
         header_len = 8
         if self.rank == leader:
             if output is None:
                 header = torch.full((header_len,), -1, dtype=torch.int64, device=device)
-                dist.send(header, dst=0)
-                return None
-            payload = output.detach().to(device).contiguous()
-            dtype_code = self._DTYPE_CODES.get(payload.dtype)
-            if dtype_code is None or payload.ndim > header_len - 2:
-                raise ValueError(
-                    f"Unsupported decoded tensor dtype/shape: {payload.dtype} {tuple(payload.shape)}"
+                payload = None
+            else:
+                payload = output.detach().to(device).contiguous()
+                dtype_code = self._DTYPE_CODES.get(payload.dtype)
+                if dtype_code is None or payload.ndim > header_len - 2:
+                    raise ValueError(
+                        f"Unsupported decoded tensor dtype/shape: {payload.dtype} "
+                        f"{tuple(payload.shape)}"
+                    )
+                header = torch.full((header_len,), -1, dtype=torch.int64, device=device)
+                header[0] = payload.ndim
+                header[1] = dtype_code
+                header[2 : 2 + payload.ndim] = torch.tensor(
+                    payload.shape, dtype=torch.int64, device=device
                 )
-            header = torch.full((header_len,), -1, dtype=torch.int64, device=device)
-            header[0] = payload.ndim
-            header[1] = dtype_code
-            header[2 : 2 + payload.ndim] = torch.tensor(
-                payload.shape, dtype=torch.int64, device=device
-            )
-            dist.send(header, dst=0)
-            dist.send(payload, dst=0)
-            return None
-        if self.rank != 0:
-            return None
+        else:
+            header = torch.empty(header_len, dtype=torch.int64, device=device)
+            payload = None
 
-        header = torch.empty(header_len, dtype=torch.int64, device=device)
-        dist.recv(header, src=leader)
+        dist.broadcast(header, src=leader, group=group)
         ndim = int(header[0].item())
         if ndim < 0:
             return None
         dtype = self._CODE_DTYPES[int(header[1].item())]
         shape = tuple(int(x) for x in header[2 : 2 + ndim].tolist())
-        payload = torch.empty(shape, dtype=dtype, device=device)
-        dist.recv(payload, src=leader)
-        return payload
+        if payload is None:
+            payload = torch.empty(shape, dtype=dtype, device=device)
+        dist.broadcast(payload, src=leader, group=group)
+        return payload if self.rank == 0 else None
 
     def _pool_retire_finished(self, lanes: List[Dict[str, Any]]) -> None:
         """Decode each finished task on its final denoise lane, then retire it."""

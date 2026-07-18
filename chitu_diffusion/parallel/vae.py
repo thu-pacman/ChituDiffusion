@@ -79,12 +79,12 @@ def parallel_tiled_vae_decode(
     rank_in_group = group.rank_in_group
     halo = _halo() if halo is None else halo
 
-    global_rank = dist.get_rank() if dist.is_initialized() else 0
-
     h_latent = latents.shape[latent_split_dim]
-    # Fall back to legacy rank-0-only decode when parallelism can't help or is off.
+    # Fall back to lane-leader-only decode when parallelism can't help or is off.
+    # Dynamic EPE lanes can start at a non-zero global rank, so global rank 0 is
+    # not necessarily a member of the active VAE group.
     if not parallel_decode_enabled() or world <= 1 or h_latent < world:
-        if global_rank != 0:
+        if rank_in_group != 0:
             return None
         return decode_fn(latents)
 
