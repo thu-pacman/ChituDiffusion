@@ -1,0 +1,55 @@
+launch:
+  tag: chitu-api-zimage
+  backend: srun
+  num_nodes: 1
+  gpus_per_node: 4
+  python_script: experiments/chitu_api/serve.py
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    mem_per_gpu: 242144
+    job_name: chitu-api-zimage
+
+runtime:
+  chitu_debug: false
+  cuda_launch_blocking: false
+
+model:
+  name: Z-Image
+  ckpt_dir: /home/chenyy/WORK/models/Z-Image
+
+parallel:
+  cfp: 1
+  up: 1
+
+infer:
+  attn_type: flash_attn
+  low_mem_level: 0
+  cp_backend: auto
+
+eval:
+  eval_type: []
+  reference_path: null
+
+output:
+  root_dir: outputs/chitu-api
+  run_log: true
+  memory: false
+  timer: true
+  log_ranks: [0]
+
+overrides:
+  - serve.host=0.0.0.0
+  - serve.port=18080
+  - infer.max_reqs=64
+  - infer.diffusion.topology_mode=elastic
+  - infer.diffusion.elastic_allowed_widths=[1,2,4]
+  - infer.diffusion.scheduling_policy=slo_elastic
+  - infer.diffusion.dynamic_sp=true
+  - infer.diffusion.switch_allowed_until_step=20
+  - infer.diffusion.cost_model=rtx4090
+  - infer.diffusion.epe.cfg_parallel_max=1
+  - infer.diffusion.epe.phase_max_steps=1
+  - infer.diffusion.epe.online_calibration=true
+  - infer.diffusion.epe.enable_flexcache=false
+  - models.sampler.sample_steps=20
