@@ -320,6 +320,15 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             x_seq, x_freqs, x_mask, _, x_noise_tensor = transformer._prepare_sequence(
                 list(x_emb.split(x_seqlens, dim=0)), x_pos_ids, x_pad_mask, transformer.x_pad_token, None, device
             )
+            # This diffusers build always materializes a (possibly all-ones)
+            # attention mask, whereas the CP fast path below is gated on
+            # ``x_mask is None`` (the sharded noise_refiner cannot take a
+            # full-length mask against a sequence-sharded input). For an
+            # unpadded single sample the mask is all-ones, i.e. full attention
+            # == no mask, so drop it to None to unblock CP. A genuinely ragged
+            # mask (real padding) stays non-None and correctly disables CP.
+            if x_mask is not None and bool(x_mask.all()):
+                x_mask = None
 
             _mark("context_refiner")
             # Caption embed + refine: pure text, kept replicated on every rank
@@ -330,6 +339,10 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             cap_seq, cap_freqs, cap_mask, _, _ = transformer._prepare_sequence(
                 list(cap_emb.split(cap_seqlens, dim=0)), cap_pos_ids, cap_pad_mask, transformer.cap_pad_token, None, device
             )
+            # Same trivial-mask normalization as the image stream: an all-ones
+            # caption mask is full attention, so treat it as None to unblock CP.
+            if cap_mask is not None and bool(cap_mask.all()):
+                cap_mask = None
             for layer in transformer.context_refiner:
                 cap_seq = layer(cap_seq, cap_mask, cap_freqs)
 
