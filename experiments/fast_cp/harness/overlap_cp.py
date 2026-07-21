@@ -1,9 +1,8 @@
 """Async QKV-comm overlap implemented as a *subclass* of the real CP core.
 
-Kept entirely inside the harness directory: we do NOT modify
-``image_cp_attention.py`` while debugging. Once the schedule here is proven
-(bit-equivalent + visible overlap + speedup), it gets ported into the core's
-``attention_fused()`` per ``async_comm_h20_nvlink_plan.md`` step 5.
+Kept inside the harness directory as a regression/benchmark implementation.
+Production paths may contain a subset of the proven schedule; harness-only graph
+and split experiments remain isolated here.
 
 ``OverlapCPAttention`` adds:
   * a lazily-created CUDA comm stream;

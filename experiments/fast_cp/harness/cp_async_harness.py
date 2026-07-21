@@ -6,8 +6,6 @@ packed Q/K/V, with no Z-Image / scheduler / config / model weights in the loop.
 Use it to debug, bit-equivalence-check, profile, and A/B the async QKV-comm
 overlap (``attention_fused``) before wiring it into ``z_image_attention.py``.
 
-See ``async_comm_h20_nvlink_plan.md`` section 1.5 for why this is the boundary.
-
 Launch (single node, cp4)::
 
     bash experiments/fast_cp/harness/run_harness.sh 4 -- --mode agkv --check
