@@ -30,5 +30,9 @@ fi
 
 # 执行实际的 Python 脚本
 RUNTIME_PYTHON="${CHITU_PYTHON_BIN:-python}"
+if [ -n "${CHITU_PYTHON_BIN:-}" ]; then
+    RUNTIME_BIN_DIR="$(dirname "$RUNTIME_PYTHON")"
+    export PATH="$RUNTIME_BIN_DIR:$PATH"
+fi
 echo "Task $RANK: using python=$RUNTIME_PYTHON"
 exec "$RUNTIME_PYTHON" "$@"

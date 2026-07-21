@@ -26,6 +26,26 @@ from chitu_diffusion.runtime.adapter.base import (
 logger = getLogger(__name__)
 
 
+def _resolve_zimage_norm_fusion_mode() -> tuple[str, bool]:
+    configured = os.getenv("CHITU_Z_IMAGE_NORM_FUSION")
+    if configured is not None:
+        mode = configured.strip().lower()
+        if mode in {"", "auto"}:
+            return "diffusers_fp32", False
+        if mode not in {"off", "diffusers_fp32", "native_bf16"}:
+            raise ValueError(
+                "CHITU_Z_IMAGE_NORM_FUSION must be one of: auto, off, diffusers_fp32, native_bf16"
+            )
+        return mode, False
+    legacy_enabled = os.getenv("CHITU_Z_IMAGE_NATIVE_NORM", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    return ("native_bf16", True) if legacy_enabled else ("diffusers_fp32", False)
+
+
 @register_model_runtime("z-image", "Z-Image")
 class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
     def __init__(self, spec):
@@ -186,6 +206,7 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
             ).to(dtype=torch_dtype)
         if attn_backend is not None:
             self._install_attention_processor(transformer, attn_backend)
+        self._install_native_norm_fusions(transformer)
         transformer.eval().requires_grad_(False)
         self.transformer = transformer
         return transformer
@@ -203,6 +224,32 @@ class ZImageRuntimeAdapter(DiffusionRuntimeAdapter):
         self._z_attn_processor = processor
         self._configured_attn_backend = getattr(attn_backend, "impl", attn_backend.__class__.__name__)
         logger.info("Installed Z-Image Chitu attention processor: %s", self._configured_attn_backend)
+
+    def _install_native_norm_fusions(self, transformer) -> None:
+        """Install the selected Z-Image norm recipe, defaulting to the measured best mode."""
+
+        mode, used_legacy_variable = _resolve_zimage_norm_fusion_mode()
+        if mode == "off":
+            return
+        if used_legacy_variable:
+            logger.warning(
+                "CHITU_Z_IMAGE_NATIVE_NORM is deprecated; use "
+                "CHITU_Z_IMAGE_NORM_FUSION=native_bf16."
+            )
+        from chitu_diffusion.modules.attention.z_image_native_norm import install_zimage_native_norm_fusions
+        from kernel_adapters.zimage_native_norm import triton_available
+
+        blocks = list(transformer.noise_refiner) + list(transformer.context_refiner) + list(transformer.layers)
+        patched = install_zimage_native_norm_fusions(blocks, mode=mode)
+        if triton_available():
+            logger.info("Installed Z-Image %s norm fusion adapter on %d blocks.", mode, patched)
+        else:
+            logger.warning(
+                "Z-Image %s norm adapter installed on %d blocks, but Triton is unavailable; "
+                "all calls will use the matching unfused reduction.",
+                mode,
+                patched,
+            )
 
     def configure_after_backend_build(self, backend) -> None:
         cp_size = int(getattr(backend.args.infer.diffusion, "cp_size", 1))

@@ -363,8 +363,21 @@ class WanRuntimeAdapter(DiffusionRuntimeAdapter):
         target_decode_device = 0
         if torch.distributed.get_rank() != target_decode_device:
             return None
+        from kernel_adapters.wan_vae_causal_conv3d import cat_pad_stats, reset_cat_pad_stats
+
+        reset_cat_pad_stats()
         with device_scope(backend.vae.model, backend):
-            return backend.vae.decode([task.buffer.latents])[0]
+            decoded = backend.vae.decode([task.buffer.latents])[0]
+        if os.getenv("CHITU_WAN_VAE_CAT_PAD_STATS", "0") == "1":
+            stats = cat_pad_stats()
+            logger.info(
+                "Wan VAE causal cat+pad stats: cached_calls=%d supported_calls=%d fused_calls=%d fallback_calls=%d",
+                stats.cached_calls,
+                stats.supported_calls,
+                stats.fused_calls,
+                stats.fallback_calls,
+            )
+        return decoded
 
     def save_output(self, task, output: Optional[torch.Tensor], generator, backend) -> None:
         if torch.distributed.get_rank() == 0:

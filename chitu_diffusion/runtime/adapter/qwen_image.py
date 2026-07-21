@@ -20,6 +20,25 @@ from chitu_diffusion.runtime.parallel_utils import SequencePadder
 logger = getLogger(__name__)
 
 
+def _qwen_image_modulation_fusion_enabled() -> bool:
+    """Return the explicit opt-in state for experimental Qwen block fusion."""
+
+    value = os.getenv("CHITU_QWEN_IMAGE_MODULATION_FUSION", "off").strip().lower()
+    if value in {"off", "0", "false", "no", "benchmark_only"}:
+        return False
+    if value in {"select01", "1", "true", "yes"}:
+        raise ValueError(
+            "Qwen-Image select01 fusion is benchmark-only: H20 representative-shape "
+            "correctness does not meet its strict tolerance gate. Keep "
+            "CHITU_QWEN_IMAGE_MODULATION_FUSION=off until an exact reduction "
+            "implementation passes."
+        )
+    raise ValueError(
+        "CHITU_QWEN_IMAGE_MODULATION_FUSION must be 'off' or 'benchmark_only', "
+        f"got {value!r}."
+    )
+
+
 @register_model_runtime("qwen-image", "Qwen-Image")
 class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
     def __init__(self, spec):
@@ -143,6 +162,16 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         if attn_backend is not None:
             self._install_attention_processor(transformer, attn_backend)
         self._install_backbone_api(transformer)
+        if _qwen_image_modulation_fusion_enabled():
+            from chitu_diffusion.modules.attention.qwen_image_modulation import (
+                install_qwen_image_modulation_fusions,
+            )
+
+            patched = install_qwen_image_modulation_fusions(transformer.transformer_blocks)
+            logger.info(
+                "Installed experimental Qwen-Image select01 modulation fusions on %d blocks.",
+                patched,
+            )
         transformer.eval().requires_grad_(False)
         self.transformer = transformer
         return transformer

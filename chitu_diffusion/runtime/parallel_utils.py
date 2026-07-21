@@ -2,6 +2,7 @@ import torch
 from datetime import datetime
 import torch.nn.functional as F
 from typing import List, Dict, Tuple, Optional
+from kernel_adapters.attention_state_merge import try_merge_attention_states
 from chitu_diffusion.core.distributed.comm_group import CommGroup
 
 class SequencePadder:
@@ -92,7 +93,11 @@ def update_out_and_lse(
       out = block_out.to(torch.float32)
       lse = transpose_and_unsqueeze(block_lse)
     else:
-      out, lse = _update_out_and_lse(out, lse, block_out, block_lse)
+      # The Triton candidate is benchmark-only after the real CP gate showed
+      # no steady-state gain and material trajectory drift. Production calls
+      # always preserve this established JIT path.
+      if not try_merge_attention_states(out, lse, block_out, block_lse):
+        out, lse = _update_out_and_lse(out, lse, block_out, block_lse)
       
     return out, lse
 

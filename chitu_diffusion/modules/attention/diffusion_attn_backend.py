@@ -3,17 +3,18 @@ import time
 from typing import Optional, Tuple
 from contextlib import nullcontext
 from torch.nn.attention import SDPBackend, sdpa_kernel
+from kernel_adapters.attention import flash_attention3_available, flash_attention3_forward
+from kernel_adapters.varlen import (
+    VarlenMetadata,
+    build_varlen_metadata,
+    pack_qkv,
+    scatter_padded,
+)
 from chitu_diffusion.core.distributed.parallel_state import get_cp_group, get_up_group
 
 from logging import getLogger
 from chitu_diffusion.runtime.parallel_utils import update_out_and_lse, squeeze_and_transpose
 from chitu_diffusion.observability.timer import Timer
-
-# try:
-#     import flash_attn_interface       
-#     FLASH_ATTN_3_AVAILABLE = True
-# except ModuleNotFoundError:
-FLASH_ATTN_3_AVAILABLE = False
 
 try:
     import flash_attn                   
@@ -50,7 +51,8 @@ class DiffusionAttnBackend:
     2. Fallback to PyTorch SDPA as default
     
     Supported types:
-    - auto: prefer sparge, then sage, then flashinfer, then flash_attn, then torch_sdpa
+    - auto: prefer the measured exact SDPA baseline; lossy backends require explicit selection
+    - flash_attn3: FlashAttention v3 on Hopper
     - flash_attn: Flash Attention v2
     - flashinfer: FlashInfer prefill attention
     - sage: SageAttention
@@ -65,7 +67,7 @@ class DiffusionAttnBackend:
         requested = self._normalize_attn_type(attn_type)
 
         if requested == "auto":
-            for candidate in ("sparge", "sage", "flashinfer", "flash_attn", "torch_sdpa"):
+            for candidate in ("torch_sdpa", "flash_attn3", "flashinfer", "flash_attn", "sage", "sparge"):
                 if self._is_available(candidate):
                     self.impl = candidate
                     break
@@ -90,6 +92,9 @@ class DiffusionAttnBackend:
             "flash2": "flash_attn",
             "flash_v2": "flash_attn",
             "fa2": "flash_attn",
+            "flash3": "flash_attn3",
+            "flash_v3": "flash_attn3",
+            "fa3": "flash_attn3",
             "fi": "flashinfer",
             "flash_infer": "flashinfer",
             "sdpa": "torch_sdpa",
@@ -105,6 +110,10 @@ class DiffusionAttnBackend:
 
     @staticmethod
     def _is_available(backend: str) -> bool:
+        if backend == "flash_attn3":
+            if not flash_attention3_available() or not torch.cuda.is_available():
+                return False
+            return torch.cuda.get_device_capability()[0] == 9
         if backend == "flash_attn":
             return FLASH_ATTN_2_AVAILABLE
         if backend == "flashinfer":
@@ -120,6 +129,7 @@ class DiffusionAttnBackend:
     @staticmethod
     def availability_report() -> str:
         return (
+            f"flash_attn3={DiffusionAttnBackend._is_available('flash_attn3')}, "
             f"flash_attn={FLASH_ATTN_2_AVAILABLE}, "
             f"flashinfer={FLASHINFER_AVAILABLE}, "
             f"sage={SAGE_ATTENTION_AVAILABLE}, "
@@ -153,6 +163,15 @@ class DiffusionAttnBackend:
         """
         use_varlen = cu_seqlens_q is not None
 
+        if self.impl == "flash_attn3":
+            return self._fwd_v3(
+                q, k, v,
+                cu_seqlens_q, cu_seqlens_k,
+                max_seqlen_q, max_seqlen_k,
+                dropout_p, softmax_scale,
+                causal, window_size,
+                deterministic, return_attn_probs,
+            )
         if self.impl == "sparge":
             return self._fwd_sparge(
                 q, k, v,
@@ -205,6 +224,99 @@ class DiffusionAttnBackend:
                 return_attn_probs,
             )
         raise RuntimeError(f"Unknown attention backend implementation '{self.impl}'.")
+
+    def padded_varlen_attention(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        valid_mask: torch.Tensor,
+        *,
+        dropout_p: float = 0.0,
+        softmax_scale: Optional[float] = None,
+        causal: bool = False,
+        window_size: Tuple[int, int] = (-1, -1),
+        deterministic: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """Run single-device padded self-attention with a boolean valid-token mask.
+
+        This narrow API exists for Qwen-Image joint attention.  It is not a
+        context-parallel API: callers must reject masked CP before reaching it.
+        All-valid batches deliberately take the existing dense backend path.
+        """
+
+        metadata = build_varlen_metadata(valid_mask)
+        if q.shape != k.shape or q.shape != v.shape or q.ndim != 4:
+            raise ValueError("padded varlen attention requires matching [B, S, H, D] q/k/v tensors.")
+        if q.shape[:2] != (metadata.batch_size, metadata.sequence_length):
+            raise ValueError(
+                "valid_mask layout must match q/k/v [B, S]; "
+                f"mask={tuple(valid_mask.shape)}, q={tuple(q.shape)}."
+            )
+        if metadata.all_valid:
+            return self(
+                q, k, v, dropout_p=dropout_p, softmax_scale=softmax_scale,
+                causal=causal, window_size=window_size, deterministic=deterministic,
+            )
+
+        # FlashAttention's varlen API is exact for this joint-self-attention
+        # layout.  Other backends do not have a stable masked-varlen contract;
+        # use the explicit masked SDPA reference below instead.
+        if self.impl in {"flash_attn", "flash_attn3"} and metadata.num_valid > 0:
+            packed_q, packed_k, packed_v = pack_qkv(q, k, v, metadata)
+            packed_out, _, _ = self(
+                packed_q,
+                packed_k,
+                packed_v,
+                cu_seqlens_q=metadata.cu_seqlens,
+                cu_seqlens_k=metadata.cu_seqlens,
+                max_seqlen_q=metadata.max_seqlen,
+                max_seqlen_k=metadata.max_seqlen,
+                dropout_p=dropout_p,
+                softmax_scale=softmax_scale,
+                causal=causal,
+                window_size=window_size,
+                deterministic=deterministic,
+            )
+            return scatter_padded(packed_out, metadata), None, None
+
+        if self.impl not in {"torch_sdpa", "torch_sdpa_math"}:
+            logger.info(
+                "Backend %s has no padded-varlen contract; using masked torch SDPA for Qwen-Image.",
+                self.impl,
+            )
+        return self._fwd_torch_sdpa_masked(
+            q, k, v, valid_mask, dropout_p=dropout_p,
+            softmax_scale=softmax_scale, causal=causal,
+        )
+
+    def _fwd_torch_sdpa_masked(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        valid_mask: torch.Tensor,
+        *,
+        dropout_p: float,
+        softmax_scale: Optional[float],
+        causal: bool,
+    ) -> Tuple[torch.Tensor, None, None]:
+        """Masked SDPA fallback; ``True`` in ``valid_mask`` means token is valid."""
+
+        if causal:
+            raise NotImplementedError("Qwen padded-varlen fallback only supports non-causal self-attention.")
+        q_in, k_in, v_in = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+        # SDPA bool masks use True to participate in attention.  The key mask
+        # broadcasts across all query rows; invalid query rows are zeroed below
+        # to match pack/scatter's documented padded-output contract.
+        sdpa_mask = valid_mask[:, None, None, :]
+        kernel_ctx = sdpa_kernel(SDPBackend.MATH) if self.impl == "torch_sdpa_math" else nullcontext()
+        with kernel_ctx:
+            out = torch.nn.functional.scaled_dot_product_attention(
+                q_in, k_in, v_in, attn_mask=sdpa_mask, dropout_p=dropout_p,
+                is_causal=False, scale=softmax_scale,
+            ).transpose(1, 2).contiguous()
+        return out.masked_fill(~valid_mask[:, :, None, None], 0), None, None
 
     def _fwd_sparge(
         self,
@@ -399,6 +511,40 @@ class DiffusionAttnBackend:
             return out, lse
         out = flashinfer.prefill.single_prefill_with_kv_cache(q, k, v, **kwargs)
         return out, None
+
+    def _fwd_v3(
+        self,
+        q, k, v,
+        cu_seqlens_q, cu_seqlens_k,
+        max_seqlen_q, max_seqlen_k,
+        dropout_p, softmax_scale,
+        causal, window_size,
+        deterministic,
+        return_attn_probs,
+    ):
+        if dropout_p != 0.0:
+            raise NotImplementedError("FlashAttention 3 inference does not support dropout.")
+        if deterministic:
+            logger.debug("FlashAttention 3 forward is inference-only; deterministic has no effect.")
+        out, lse = flash_attention3_forward(
+            q,
+            k,
+            v,
+            cu_seqlens_q=cu_seqlens_q,
+            cu_seqlens_k=cu_seqlens_k,
+            max_seqlen_q=max_seqlen_q,
+            max_seqlen_k=max_seqlen_k,
+            softmax_scale=softmax_scale,
+            causal=causal,
+            window_size=window_size,
+            return_lse=return_attn_probs,
+        )
+        if return_attn_probs and lse is None:
+            raise NotImplementedError(
+                "The installed FlashAttention 3 provider does not expose logsumexp "
+                "required by ring context parallelism."
+            )
+        return out, lse, None
 
     # ------------- v2 分支 -------------
     def _fwd_v2(

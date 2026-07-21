@@ -6,6 +6,7 @@ import torch.amp as amp
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
+from kernel_adapters.wan_vae_causal_conv3d import try_causal_conv3d_cat_pad
 
 __all__ = [
     'WanVAE',
@@ -29,6 +30,9 @@ class CausalConv3d(nn.Conv3d):
         padding = list(self._padding)
         if cache_x is not None and self._padding[4] > 0:
             cache_x = cache_x.to(x.device)
+            fused = try_causal_conv3d_cat_pad(x, cache_x, padding)
+            if fused is not None:
+                return super().forward(fused)
             x = torch.cat([cache_x, x], dim=2)
             padding[4] -= cache_x.shape[2]
         x = F.pad(x, padding)

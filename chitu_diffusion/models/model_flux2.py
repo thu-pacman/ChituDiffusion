@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import inspect
+import os
 from typing import Any
 
 import torch
@@ -41,6 +42,55 @@ from chitu_diffusion.models.registry import ModelType, register_model
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
+
+
+def _flux2_qknorm_rope_fusion_enabled() -> bool:
+    """Enable the measured-best SM90 fusion unless explicitly disabled."""
+
+    mode = os.getenv("CHITU_FLUX2_FUSED_QKNORM_ROPE", "auto").strip().lower()
+    if mode in {"", "auto", "1", "true", "yes", "on"}:
+        return True
+    if mode in {"off", "0", "false", "no"}:
+        return False
+    raise ValueError(
+        "CHITU_FLUX2_FUSED_QKNORM_ROPE must be one of: auto, on, off."
+    )
+
+
+def _flux2_silu_mul_fusion_enabled() -> bool:
+    """Enable the measured-best BF16 fusion unless explicitly disabled."""
+
+    mode = os.getenv("CHITU_FLUX2_SILU_MUL_FUSION", "auto").strip().lower()
+    if mode in {"", "auto", "triton", "1", "true", "yes", "on"}:
+        return True
+    if mode in {"off", "0", "false", "no", "benchmark_only"}:
+        return False
+    raise ValueError(
+        "CHITU_FLUX2_SILU_MUL_FUSION must be one of: auto, triton, off, benchmark_only."
+    )
+
+
+def _fused_qknorm_rope_or_fallback(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    norm_q: nn.RMSNorm,
+    norm_k: nn.RMSNorm,
+    image_rotary_emb: tuple[torch.Tensor, torch.Tensor] | None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Use the Flux2 SM90 kernel when its eager BSHD contract is supported."""
+    if _flux2_qknorm_rope_fusion_enabled() and image_rotary_emb is not None:
+        from kernel_adapters.qknorm_rope import fused_inplace
+
+        cos, sin = image_rotary_emb
+        if fused_inplace(query, key, norm_q.weight, norm_k.weight, cos, sin, norm_q.eps):
+            return query, key
+
+    query = norm_q(query)
+    key = norm_k(key)
+    if image_rotary_emb is not None:
+        query = apply_rotary_emb(query, image_rotary_emb, sequence_dim=1)
+        key = apply_rotary_emb(key, image_rotary_emb, sequence_dim=1)
+    return query, key
 
 
 def _get_projections(attn: "Flux2Attention", hidden_states, encoder_hidden_states=None):
@@ -84,6 +134,12 @@ class Flux2SwiGLU(nn.Module):
         self.gate_fn = nn.SiLU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if _flux2_silu_mul_fusion_enabled():
+            from kernel_adapters.silu_and_mul import silu_and_mul
+
+            fused = silu_and_mul(x)
+            if fused is not None:
+                return fused
         x1, x2 = x.chunk(2, dim=-1)
         x = self.gate_fn(x1) * x2
         return x
@@ -139,24 +195,32 @@ class Flux2AttnProcessor:
         key = key.unflatten(-1, (attn.heads, -1))
         value = value.unflatten(-1, (attn.heads, -1))
 
-        query = attn.norm_q(query)
-        key = attn.norm_k(key)
-
         if attn.added_kv_proj_dim is not None:
             encoder_query = encoder_query.unflatten(-1, (attn.heads, -1))
             encoder_key = encoder_key.unflatten(-1, (attn.heads, -1))
             encoder_value = encoder_value.unflatten(-1, (attn.heads, -1))
+            text_seq_len = encoder_query.shape[1]
+            text_rotary_emb = (
+                (image_rotary_emb[0][:text_seq_len], image_rotary_emb[1][:text_seq_len])
+                if image_rotary_emb is not None
+                else None
+            )
+            image_rotary_emb = (
+                (image_rotary_emb[0][text_seq_len:], image_rotary_emb[1][text_seq_len:])
+                if image_rotary_emb is not None
+                else None
+            )
+            encoder_query, encoder_key = _fused_qknorm_rope_or_fallback(
+                encoder_query, encoder_key, attn.norm_added_q, attn.norm_added_k, text_rotary_emb
+            )
+        query, key = _fused_qknorm_rope_or_fallback(
+            query, key, attn.norm_q, attn.norm_k, image_rotary_emb
+        )
 
-            encoder_query = attn.norm_added_q(encoder_query)
-            encoder_key = attn.norm_added_k(encoder_key)
-
+        if attn.added_kv_proj_dim is not None:
             query = torch.cat([encoder_query, query], dim=1)
             key = torch.cat([encoder_key, key], dim=1)
             value = torch.cat([encoder_value, value], dim=1)
-
-        if image_rotary_emb is not None:
-            query = apply_rotary_emb(query, image_rotary_emb, sequence_dim=1)
-            key = apply_rotary_emb(key, image_rotary_emb, sequence_dim=1)
 
         # kv cache update and reuse
 
@@ -218,24 +282,32 @@ class Flux2ChituAttnProcessor(Flux2AttnProcessor):
         key = key.unflatten(-1, (attn.heads, -1))
         value = value.unflatten(-1, (attn.heads, -1))
 
-        query = attn.norm_q(query)
-        key = attn.norm_k(key)
-
         if attn.added_kv_proj_dim is not None:
             encoder_query = encoder_query.unflatten(-1, (attn.heads, -1))
             encoder_key = encoder_key.unflatten(-1, (attn.heads, -1))
             encoder_value = encoder_value.unflatten(-1, (attn.heads, -1))
+            text_seq_len = encoder_query.shape[1]
+            text_rotary_emb = (
+                (image_rotary_emb[0][:text_seq_len], image_rotary_emb[1][:text_seq_len])
+                if image_rotary_emb is not None
+                else None
+            )
+            image_rotary_emb = (
+                (image_rotary_emb[0][text_seq_len:], image_rotary_emb[1][text_seq_len:])
+                if image_rotary_emb is not None
+                else None
+            )
+            encoder_query, encoder_key = _fused_qknorm_rope_or_fallback(
+                encoder_query, encoder_key, attn.norm_added_q, attn.norm_added_k, text_rotary_emb
+            )
+        query, key = _fused_qknorm_rope_or_fallback(
+            query, key, attn.norm_q, attn.norm_k, image_rotary_emb
+        )
 
-            encoder_query = attn.norm_added_q(encoder_query)
-            encoder_key = attn.norm_added_k(encoder_key)
-
+        if attn.added_kv_proj_dim is not None:
             query = torch.cat([encoder_query, query], dim=1)
             key = torch.cat([encoder_key, key], dim=1)
             value = torch.cat([encoder_value, value], dim=1)
-
-        if image_rotary_emb is not None:
-            query = apply_rotary_emb(query, image_rotary_emb, sequence_dim=1)
-            key = apply_rotary_emb(key, image_rotary_emb, sequence_dim=1)
 
         hidden_states = self.attn_backend(query, key, value, causal=False)[0]
         hidden_states = hidden_states.flatten(2, 3).to(query.dtype)
@@ -357,12 +429,9 @@ class Flux2ParallelSelfAttnProcessor:
         key = key.unflatten(-1, (attn.heads, -1))
         value = value.unflatten(-1, (attn.heads, -1))
 
-        query = attn.norm_q(query)
-        key = attn.norm_k(key)
-
-        if image_rotary_emb is not None:
-            query = apply_rotary_emb(query, image_rotary_emb, sequence_dim=1)
-            key = apply_rotary_emb(key, image_rotary_emb, sequence_dim=1)
+        query, key = _fused_qknorm_rope_or_fallback(
+            query, key, attn.norm_q, attn.norm_k, image_rotary_emb
+        )
 
         # kv cache update and reuse
 
@@ -419,12 +488,9 @@ class Flux2ChituParallelSelfAttnProcessor(Flux2ParallelSelfAttnProcessor):
         key = key.unflatten(-1, (attn.heads, -1))
         value = value.unflatten(-1, (attn.heads, -1))
 
-        query = attn.norm_q(query)
-        key = attn.norm_k(key)
-
-        if image_rotary_emb is not None:
-            query = apply_rotary_emb(query, image_rotary_emb, sequence_dim=1)
-            key = apply_rotary_emb(key, image_rotary_emb, sequence_dim=1)
+        query, key = _fused_qknorm_rope_or_fallback(
+            query, key, attn.norm_q, attn.norm_k, image_rotary_emb
+        )
 
         hidden_states = self.attn_backend(query, key, value, causal=False)[0]
         hidden_states = hidden_states.flatten(2, 3).to(query.dtype)

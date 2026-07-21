@@ -57,6 +57,37 @@ class QwenImageChituAttnProcessor:
     def _shape(tensor: torch.Tensor) -> tuple[int, ...]:
         return tuple(tensor.shape)
 
+    @staticmethod
+    def _validate_joint_valid_mask(
+        attention_mask: torch.Tensor,
+        *,
+        batch_size: int,
+        text_sequence_length: int,
+        image_sequence_length: int,
+        device: torch.device,
+    ) -> None:
+        """Validate Qwen's ``True == valid`` joint token mask contract."""
+
+        expected_shape = (batch_size, text_sequence_length + image_sequence_length)
+        if attention_mask.dtype is not torch.bool or attention_mask.ndim != 2:
+            raise ValueError(
+                "Qwen-Image masked attention requires a bool valid mask with "
+                f"layout [batch, text_seq + image_seq]; got dtype={attention_mask.dtype}, "
+                f"shape={tuple(attention_mask.shape)}."
+            )
+        if tuple(attention_mask.shape) != expected_shape:
+            raise ValueError(
+                "Qwen-Image joint valid-mask layout does not match attention inputs: "
+                f"expected {expected_shape}, got {tuple(attention_mask.shape)}."
+            )
+        if attention_mask.device != device:
+            raise ValueError(
+                "Qwen-Image attention_mask must be on the same device as hidden_states; "
+                f"got {attention_mask.device} and {device}."
+            )
+        if not bool(attention_mask.any(dim=1).all().item()):
+            raise ValueError("Qwen-Image valid mask must retain at least one token in every batch item.")
+
     def __call__(
         self,
         attn: Attention,
@@ -70,7 +101,18 @@ class QwenImageChituAttnProcessor:
         if encoder_hidden_states is None:
             raise ValueError("QwenImageChituAttnProcessor requires encoder_hidden_states.")
         if attention_mask is not None:
-            raise NotImplementedError("Qwen-Image Chitu attention backend does not support attention_mask yet.")
+            self._validate_joint_valid_mask(
+                attention_mask,
+                batch_size=hidden_states.shape[0],
+                text_sequence_length=encoder_hidden_states.shape[1],
+                image_sequence_length=hidden_states.shape[1],
+                device=hidden_states.device,
+            )
+            if qwen_cp_info is not None:
+                raise NotImplementedError(
+                    "Qwen-Image masked joint attention is single-device only; "
+                    "context-parallel masked attention remains unsupported."
+                )
 
         seq_txt = encoder_hidden_states.shape[1]
 
@@ -263,12 +305,26 @@ class QwenImageChituAttnProcessor:
         joint_key = joint_key.to(target_dtype)
 
         attn_backend = self.base_attn_backend if qwen_cp_info is not None else self.attn_backend
-        joint_hidden_states = attn_backend(
-            joint_query,
-            joint_key,
-            joint_value,
-            causal=False,
-        )[0]
+        if attention_mask is None:
+            joint_hidden_states = attn_backend(
+                joint_query,
+                joint_key,
+                joint_value,
+                causal=False,
+            )[0]
+        else:
+            if not hasattr(attn_backend, "padded_varlen_attention"):
+                raise NotImplementedError(
+                    "Qwen-Image masked joint attention requires DiffusionAttnBackend's "
+                    "single-device padded-varlen API."
+                )
+            joint_hidden_states = attn_backend.padded_varlen_attention(
+                joint_query,
+                joint_key,
+                joint_value,
+                attention_mask,
+                causal=False,
+            )[0]
         joint_hidden_states = joint_hidden_states.flatten(2, 3)
         joint_hidden_states = joint_hidden_states.to(joint_query.dtype)
 
