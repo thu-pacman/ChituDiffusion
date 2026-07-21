@@ -38,6 +38,7 @@ Optional acceleration and evaluation stacks are installed only when needed:
 uv sync --extra sage
 uv sync --extra sparge
 uv sync --extra flash
+uv sync --extra flash3  # Hopper SM90; loads kernels-community/flash-attn3 on first use
 uv sync --extra flashinfer
 uv sync --extra eval
 ```

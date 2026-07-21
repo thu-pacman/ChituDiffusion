@@ -1,0 +1,10 @@
+[
+  {
+    "case": "torch_sdpa_math",
+    "num_tasks": 2,
+    "psnr_mean": Infinity,
+    "ssim_mean": 0.9992211759090424,
+    "one_minus_lpips_mean": 0.9997190434660297,
+    "hpsv3_score_mean": null
+  }
+]

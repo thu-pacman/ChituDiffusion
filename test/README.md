@@ -9,6 +9,14 @@ Install optional backends before running the full matrix:
 uv sync --extra flash --extra flashinfer --extra sage --extra sparge
 ```
 
+FlashAttention 3 is an SM90-only optional case and is not in the default matrix:
+
+```bash
+uv sync --extra flash3
+CHITU_ATTN_BACKENDS="torch_sdpa flash3 flash" test/run_flux_attention_backends.sh
+CHITU_ATTN_BACKENDS="torch_sdpa flash3 flash" test/run_wan_attention_backends.sh
+```
+
 Run Flux attention backends:
 
 ```bash
@@ -41,7 +49,7 @@ CHITU_FLUX_FLEXCACHE_STRATEGIES="teacache pab" test/run_flexcache_smoke.sh
 Useful environment overrides:
 
 - `CHITU_BIN=/path/to/chitu`
-- `CHITU_ATTN_BACKENDS="torch_sdpa flash flashinfer sage sparge"`
+- `CHITU_ATTN_BACKENDS="torch_sdpa flash3 flash flashinfer sage sparge"`
 - `CHITU_CP_ATTN_BACKENDS="sage sparge"`
 - `CHITU_WAN_STEPS=3`
 - `CHITU_FLEXCACHE_STRATEGIES="teacache,pab,blockdance,taylorseer,cubic"`
