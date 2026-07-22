@@ -117,6 +117,7 @@ eval = [
     "hpsv3==1.0.0",
 ]
 flash = ["flash_attn"]
+usp = ["flash_attn", "yunchang>=0.6.0"]
 flashinfer = ["flashinfer-python", "ninja"]
 sage = ["sageattention"]
 sparge = ["spas_sage_attn"]
