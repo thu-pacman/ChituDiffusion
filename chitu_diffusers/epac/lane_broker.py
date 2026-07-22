@@ -247,10 +247,22 @@ class PulseLaneBroker:
         budget_ms = lease.deadline_ms - float(self._clock_ms()) - self.guard_ms
         if budget_ms < predicted:
             return 0
-        return min(
+        steps = min(
             request.profile.remaining_steps,
             max(0, math.floor(budget_ms / predicted)),
         )
+        if steps >= request.profile.remaining_steps:
+            terminal_predictor = getattr(
+                self.coordinator.policy, "predict_terminal_ms", None
+            )
+            terminal_ms = (
+                0.0
+                if terminal_predictor is None
+                else float(terminal_predictor(request, lease.width))
+            )
+            if request.profile.remaining_steps * predicted + terminal_ms > budget_ms:
+                steps = request.profile.remaining_steps - 1
+        return max(0, steps)
 
     def _request_by_id(
         self, request_id: str, *, include_pending: bool

@@ -9,7 +9,11 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn.functional as F
 
-from chitu_diffusers.parallel import EpeParallelContext, ImageContextParallelAttention
+from chitu_diffusers.parallel import (
+    EpeParallelContext,
+    ImageContextParallelAttention,
+    parallel_tiled_vae_decode,
+)
 
 
 def _free_port() -> int:
@@ -109,6 +113,46 @@ def _usp_worker(rank: int, world_size: int, port: int) -> None:
     dist.destroy_process_group()
 
 
+def _vae_worker(rank: int, world_size: int, port: int) -> None:
+    os.environ.update(
+        MASTER_ADDR="127.0.0.1",
+        MASTER_PORT=str(port),
+        RANK=str(rank),
+        WORLD_SIZE=str(world_size),
+        LOCAL_RANK=str(rank),
+    )
+    dist.init_process_group("gloo", rank=rank, world_size=world_size)
+    parallel = EpeParallelContext.from_torchrun(
+        allowed_widths=(1, 2),
+        owns_process_group=False,
+    )
+    latents = torch.arange(1 * 2 * 5 * 3, dtype=torch.float32).reshape(1, 2, 5, 3)
+    with parallel.activate((0, 1)) as topology:
+        decoded = parallel_tiled_vae_decode(
+            latents,
+            lambda value: value.repeat_interleave(2, dim=2),
+            topology=topology,
+            latent_split_dim=2,
+            pixel_split_dim=2,
+            scale=2,
+            halo=1,
+        )
+    if rank == 0:
+        expected = latents.repeat_interleave(2, dim=2)
+        assert decoded is not None
+        torch.testing.assert_close(decoded, expected)
+    else:
+        assert decoded is None
+    dist.barrier()
+    parallel.close()
+    dist.destroy_process_group()
+
+
 @pytest.mark.skipif(not dist.is_available(), reason="torch.distributed unavailable")
 def test_dynamic_u2r2_and_u2r1_match_full_attention() -> None:
     mp.spawn(_usp_worker, args=(4, _free_port()), nprocs=4, join=True)
+
+
+@pytest.mark.skipif(not dist.is_available(), reason="torch.distributed unavailable")
+def test_dynamic_lane_parallel_vae_gathers_only_on_leader() -> None:
+    mp.spawn(_vae_worker, args=(2, _free_port()), nprocs=2, join=True)

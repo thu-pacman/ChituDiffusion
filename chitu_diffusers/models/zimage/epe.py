@@ -12,6 +12,7 @@ import torch.distributed as dist
 from ...epac.cost import (
     CalibratedStepCostModel,
     MeasuredStepCostModel,
+    MeasuredTransferCostModel,
     RuntimeCostCalibrator,
 )
 from ...epac.epe import EpeSchedulingPolicy
@@ -36,6 +37,7 @@ class EpeRequest:
     deadline_at_ms: float | None = None
     batch_size: int = 1
     cfg_conditions: int = 2
+    state_bytes: int = 0
     current_ranks: tuple[int, ...] | None = None
 
     @property
@@ -57,6 +59,7 @@ class EpeRequest:
                 attributes={
                     "batch_size": self.batch_size,
                     "conditions": self.cfg_conditions,
+                    "state_bytes": self.state_bytes,
                 },
             ),
             current_ranks=self.current_ranks,
@@ -136,6 +139,7 @@ class ZImageEpeModule(torch.nn.Module):
             raise ValueError("attention_mode must be one of: agkv, usp")
         self.attention_mode = attention_mode
         self.cost_model = MeasuredStepCostModel()
+        self.transfer_cost_model = MeasuredTransferCostModel()
         self.calibrator = RuntimeCostCalibrator(
             self.cost_model,
             enabled=online_calibration,
@@ -171,6 +175,7 @@ class ZImageEpeModule(torch.nn.Module):
                 world_size=self.parallel.world_size,
                 allowed_lane_widths=self.parallel.allowed_widths,
                 cost_model=self._calibrated_cost_model,
+                transfer_cost_model=self.transfer_cost_model,
                 strategy=self.policy,
                 switch_allowed_until_step=self.switch_allowed_until_step,
                 balanced_k=self.balanced_k,
@@ -187,6 +192,9 @@ class ZImageEpeModule(torch.nn.Module):
 
     def initialize_cost_model(self, rows: Iterable[dict[str, Any]]) -> None:
         self.cost_model.initialize(rows)
+
+    def initialize_transfer_cost_model(self, rows: Iterable[dict[str, Any]]) -> None:
+        self.transfer_cost_model.initialize(rows)
 
     @torch.inference_mode()
     def warmup_transformer(

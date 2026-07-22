@@ -7,6 +7,7 @@ from .config import EngineConfig
 from .cost import (
     CalibratedStepCostModel,
     MeasuredStepCostModel,
+    MeasuredTransferCostModel,
     RuntimeCostCalibrator,
 )
 from .engine import DiffusersEngine
@@ -90,6 +91,7 @@ __all__ = [
     "LaneWorkItem",
     "LaneWorkResult",
     "MeasuredStepCostModel",
+    "MeasuredTransferCostModel",
     "ModelStepContext",
     "OptimizationChain",
     "PipelineCapabilities",

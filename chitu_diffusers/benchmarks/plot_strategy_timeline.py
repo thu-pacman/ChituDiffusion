@@ -962,6 +962,9 @@ def render(
     request_ids = [str(request["request_id"]) for request in requests]
     colors = request_colors(request_ids)
     run_colors = strategy_colors(runs)
+    arrival_runs = [run for run in runs if run.name.lower() == "elastic"]
+    if len(arrival_runs) != 1:
+        raise ValueError("request arrival panel requires exactly one Elastic run")
     deadlines_ms, deadline_sources = derive_deadlines_ms(
         requests,
         runs,
@@ -998,7 +1001,7 @@ def render(
     draw_arrivals(
         arrival_ax,
         requests,
-        runs,
+        arrival_runs,
         colors,
         run_colors,
         deadlines_ms,

@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
-from .cost import MeasuredStepCostModel
+from .cost import MeasuredStepCostModel, MeasuredTransferCostModel
 from .scheduling import (
     LaneConstraints,
     SchedulableRequest,
@@ -26,6 +26,7 @@ class _EpeRequest:
     priority: int
     batch_size: int
     conditions: int
+    state_bytes: int
     current_ranks: tuple[int, ...] | None
     admitted: bool
 
@@ -43,6 +44,7 @@ class EpeSchedulingPolicy:
         world_size: int,
         allowed_lane_widths: Iterable[int],
         cost_model: MeasuredStepCostModel,
+        transfer_cost_model: MeasuredTransferCostModel | None = None,
         strategy: ScheduleStrategy = "elastic",
         switch_allowed_until_step: int = 0,
         balanced_k: bool = True,
@@ -59,6 +61,7 @@ class EpeSchedulingPolicy:
         self.world_size = self.constraints.world_size
         self.allowed_lane_widths = self.constraints.allowed_widths
         self.cost_model = cost_model
+        self.transfer_cost_model = transfer_cost_model
         self.switch_allowed_until_step = int(switch_allowed_until_step)
         self.balanced_k = bool(balanced_k)
         self.starvation_ms = float(starvation_ms)
@@ -131,9 +134,26 @@ class EpeSchedulingPolicy:
             self._predict(request, len(layout[request.request_id]))
             for request in assigned
         ]
-        steps = self._step_caps(assigned, latencies, pulse_steps)
+        transfers = [
+            self._predict_transfer(request, layout[request.request_id])
+            for request in assigned
+        ]
+        dispatch_ms = sum(transfers)
+        terminals = [
+            self._predict_terminal(request, len(layout[request.request_id]))
+            for request in assigned
+        ]
+        steps = self._step_caps(
+            assigned,
+            latencies,
+            terminals,
+            pulse_steps,
+            dispatch_ms=dispatch_ms,
+        )
         plans = []
-        for request, latency, count in zip(assigned, latencies, steps):
+        for request, latency, terminal, transfer, count in zip(
+            assigned, latencies, terminals, transfers, steps
+        ):
             ranks = layout[request.request_id]
             previous = request.current_ranks
             plans.append(
@@ -144,7 +164,16 @@ class EpeSchedulingPolicy:
                     metadata={
                         "switched": previous is not None and previous != ranks,
                         "predicted_step_ms": latency,
-                        "predicted_phase_ms": latency * count,
+                        "predicted_terminal_ms": (
+                            terminal if count >= request.remaining_steps else 0.0
+                        ),
+                        "predicted_transfer_ms": transfer,
+                        "predicted_dispatch_ms": dispatch_ms,
+                        "predicted_phase_ms": (
+                            dispatch_ms
+                            + latency * count
+                            + (terminal if count >= request.remaining_steps else 0.0)
+                        ),
                         "sequence_length": request.sequence_length,
                     },
                 )
@@ -173,6 +202,7 @@ class EpeSchedulingPolicy:
             priority=request.priority,
             batch_size=int(profile.attributes.get("batch_size", 1)),
             conditions=int(profile.attributes.get("conditions", 1)),
+            state_bytes=int(profile.attributes.get("state_bytes", 0)),
             admitted=request.admitted,
             current_ranks=(
                 request.current_ranks
@@ -189,6 +219,38 @@ class EpeSchedulingPolicy:
             conditions=request.conditions,
         )
 
+    def _predict_terminal(self, request: _EpeRequest, width: int) -> float:
+        predictor = getattr(self.cost_model, "predict_terminal_ms", None)
+        if predictor is None:
+            return 0.0
+        return float(
+            predictor(
+                sequence_length=request.sequence_length,
+                width=width,
+                batch_size=request.batch_size,
+                conditions=request.conditions,
+            )
+        )
+
+    def _predict_transfer(
+        self,
+        request: _EpeRequest,
+        lane: tuple[int, ...],
+    ) -> float:
+        previous = request.current_ranks
+        if previous is None or previous == lane or self.transfer_cost_model is None:
+            return 0.0
+        source = previous[0]
+        return sum(
+            self.transfer_cost_model.predict_transfer_ms(
+                bytes=request.state_bytes,
+                source=source,
+                destination=destination,
+            )
+            for destination in lane
+            if destination not in previous
+        )
+
     def predict_step_ms(self, request: SchedulableRequest, width: int) -> float:
         """Expose the measured estimate used for opportunistic lane pulls."""
         if width not in self.allowed_lane_widths:
@@ -197,14 +259,25 @@ class EpeSchedulingPolicy:
             )
         return self._predict(self._convert(request), width)
 
-    def _best_step_ms(self, request: _EpeRequest) -> float:
-        return min(self._predict(request, width) for width in self.allowed_lane_widths)
+    def predict_terminal_ms(self, request: SchedulableRequest, width: int) -> float:
+        """Expose terminal cost so lane pulls do not overrun a pulse."""
+        if width not in self.allowed_lane_widths:
+            raise ValueError(
+                f"lane width {width} is not allowed for {self.constraints.strategy}"
+            )
+        return self._predict_terminal(self._convert(request), width)
 
     def _request_order(
         self, requests: Iterable[_EpeRequest], now_ms: float
     ) -> list[_EpeRequest]:
         def key(request: _EpeRequest) -> tuple[float, float, float, float]:
-            remaining_ms = request.remaining_steps * self._best_step_ms(request)
+            best_width = min(
+                self.allowed_lane_widths,
+                key=lambda width: self._predict(request, width),
+            )
+            remaining_ms = request.remaining_steps * self._predict(
+                request, best_width
+            ) + self._predict_terminal(request, best_width)
             if request.deadline_at_ms is not None:
                 slack = (
                     request.deadline_at_ms
@@ -306,7 +379,10 @@ class EpeSchedulingPolicy:
         self,
         requests: list[_EpeRequest],
         step_ms: list[float],
+        terminal_ms: list[float],
         pulse_steps: int,
+        *,
+        dispatch_ms: float = 0.0,
     ) -> list[int]:
         caps = []
         for request in requests:
@@ -321,14 +397,32 @@ class EpeSchedulingPolicy:
             base = min(pulse_steps, min(caps))
             return [min(base, cap) for cap in caps]
 
-        default_pulse_ms = pulse_steps * max(step_ms)
-        completion_pulse_ms = min(
-            request.remaining_steps * latency
+        default_pulse_ms = dispatch_ms + pulse_steps * max(step_ms)
+        denoise_finish_ms = [
+            dispatch_ms + request.remaining_steps * latency
             for request, latency in zip(requests, step_ms)
-        )
-        pulse_ms = min(default_pulse_ms, completion_pulse_ms)
+        ]
+        full_finish_ms = [
+            denoise + terminal
+            for denoise, terminal in zip(denoise_finish_ms, terminal_ms)
+        ]
+        pulse_ms = min(default_pulse_ms, min(full_finish_ms))
+        # Finalize is non-preemptible. If a lane enters VAE before the target
+        # pulse, extend the lease through that terminal section so independent
+        # lanes can consume the otherwise idle interval with additional steps.
+        while True:
+            blockers = [
+                finish
+                for denoise, finish in zip(denoise_finish_ms, full_finish_ms)
+                if denoise <= pulse_ms < finish
+            ]
+            extended = max([pulse_ms, *blockers])
+            if extended <= pulse_ms + 1e-6:
+                break
+            pulse_ms = extended
+        compute_budget_ms = max(0.0, pulse_ms - dispatch_ms)
         return [
-            min(cap, max(1, math.floor(pulse_ms / latency + 0.5)))
+            min(cap, max(1, math.floor(compute_budget_ms / latency + 0.5)))
             for cap, latency in zip(caps, step_ms)
         ]
 
@@ -380,15 +474,15 @@ class EpeSchedulingPolicy:
                 / max(
                     1.0,
                     request.total_steps
-                    * self._predict(request, min(self.allowed_lane_widths)),
+                    * self._predict(request, min(self.allowed_lane_widths))
+                    + self._predict_terminal(request, min(self.allowed_lane_widths)),
                 ),
             )
             for request, flow_ms in zip(requests, flow)
         ]
-        switches = sum(
-            request.current_ranks is not None
-            and request.current_ranks != layout.get(request.request_id)
-            for request in requests
+        transfer_ms = sum(
+            self._predict_transfer(request, layout[request.request_id])
+            for request in assigned
         )
         used = sum(len(lane) for lane in layout.values())
         return (
@@ -400,7 +494,7 @@ class EpeSchedulingPolicy:
             -effective_throughput,
             float(math.ceil(max(slowdown, default=1.0) / 0.25)),
             float(sum(slowdown)),
-            float(switches),
+            float(math.ceil(transfer_ms / 10.0)),
             float(max(flow, default=0.0)),
             float(sum(flow)),
             -raw_throughput,
@@ -419,11 +513,18 @@ class EpeSchedulingPolicy:
         running: list[tuple[float, int, int, str]] = []
         sequence = 0
         used = 0
+        dispatch_ms = sum(
+            self._predict_transfer(by_id[request_id], lane)
+            for request_id, lane in layout.items()
+        )
         for request_id, lane in layout.items():
             request = by_id[request_id]
             width = len(lane)
-            completion = now_ms + request.remaining_steps * self._predict(
-                request, width
+            completion = (
+                now_ms
+                + dispatch_ms
+                + request.remaining_steps * self._predict(request, width)
+                + self._predict_terminal(request, width)
             )
             heapq.heappush(running, (completion, sequence, width, request_id))
             sequence += 1
@@ -469,8 +570,10 @@ class EpeSchedulingPolicy:
                     break
                 if not request.admitted:
                     admitted_states += 1
-                completion = current_ms + request.remaining_steps * self._predict(
-                    request, width
+                completion = (
+                    current_ms
+                    + request.remaining_steps * self._predict(request, width)
+                    + self._predict_terminal(request, width)
                 )
                 heapq.heappush(
                     running,
@@ -500,7 +603,11 @@ class EpeSchedulingPolicy:
             viable = [
                 width
                 for width in widths
-                if start_ms + request.remaining_steps * self._predict(request, width)
+                if (
+                    start_ms
+                    + request.remaining_steps * self._predict(request, width)
+                    + self._predict_terminal(request, width)
+                )
                 <= effective_deadline
             ]
             if viable:

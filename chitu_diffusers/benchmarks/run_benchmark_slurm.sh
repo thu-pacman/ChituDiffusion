@@ -22,6 +22,8 @@ RUN_DIR=${EPAC_RUN_DIR:-$ROOT_DIR/outputs/epac-benchmark/job-${SLURM_JOB_ID}}
 SCHEDULE_STRATEGY=${EPAC_SCHEDULE_STRATEGY:-elastic}
 ATTENTION_MODE=${EPAC_ATTENTION_MODE:-agkv}
 ULYSSES_DEGREE=${EPAC_ULYSSES_DEGREE:-2}
+PARALLEL_VAE=${EPAC_PARALLEL_VAE:-1}
+VAE_PARALLEL_HALO=${EPAC_VAE_PARALLEL_HALO:-8}
 ARRIVAL_RATE=${EPAC_ARRIVAL_RATE:-}
 DEFAULT_DEADLINE_MS=${EPAC_DEFAULT_DEADLINE_MS:-}
 ENDPOINT="http://127.0.0.1:$PORT"
@@ -36,6 +38,9 @@ export TORCH_NCCL_ENABLE_MONITORING=${TORCH_NCCL_ENABLE_MONITORING:-0}
 mkdir -p "$RUN_DIR"
 
 SERVICE_ARGS=()
+if [[ "$PARALLEL_VAE" == "0" ]]; then
+  SERVICE_ARGS+=(--no-parallel-vae)
+fi
 if [[ -n "$DEFAULT_DEADLINE_MS" ]]; then
   SERVICE_ARGS+=(--default-deadline-ms "$DEFAULT_DEADLINE_MS")
 fi
@@ -55,6 +60,7 @@ fi
   --pulse-steps 5 \
   --attention-mode "$ATTENTION_MODE" \
   --ulysses-degree "$ULYSSES_DEGREE" \
+  --vae-parallel-halo "$VAE_PARALLEL_HALO" \
   --schedule-strategy "$SCHEDULE_STRATEGY" \
   --default-steps 50 \
   --max-inflight-requests 4 \

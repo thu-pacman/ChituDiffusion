@@ -80,6 +80,8 @@ def serve_zimage_pipeline(
                 "default_height": config.default_height,
                 "attention_mode": epe.attention_mode,
                 "ulysses_degree": parallel.active_usp.ulysses_degree,
+                "parallel_vae": config.parallel_vae,
+                "vae_parallel_halo": config.vae_parallel_halo,
             },
             "service": {
                 "host": config.host,
@@ -98,6 +100,8 @@ def serve_zimage_pipeline(
             default_width=config.default_width,
             default_height=config.default_height,
             default_num_steps=config.default_num_steps,
+            parallel_vae=config.parallel_vae,
+            vae_parallel_halo=config.vae_parallel_halo,
         ),
     )
     run_runtime(runtime, service_config)

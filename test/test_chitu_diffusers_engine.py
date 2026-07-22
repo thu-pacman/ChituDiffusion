@@ -21,6 +21,7 @@ from chitu_diffusers import (
     LaneTask,
     LaneWorker,
     MeasuredStepCostModel,
+    MeasuredTransferCostModel,
     LaneWorkItem,
     LaneWorkResult,
     OptimizationChain,
@@ -429,6 +430,75 @@ def test_measured_cost_model_accepts_existing_image_tokens_rows() -> None:
     assert model.snapshot()["source"] == "startup_warmup"
     with pytest.raises(RuntimeError, match="warmup"):
         MeasuredStepCostModel().predict_step_ms(sequence_length=4096, width=2)
+
+
+def test_measured_cost_model_tracks_terminal_and_transfer_costs() -> None:
+    model = MeasuredStepCostModel()
+    model.initialize(
+        [
+            {
+                "image_tokens": 1024,
+                "width": 2,
+                "latency_ms": 40,
+                "terminal_ms": 65,
+                "vae_latency_ms": 60,
+                "d2h_latency_ms": 5,
+            }
+        ]
+    )
+    transfers = MeasuredTransferCostModel()
+    transfers.initialize(
+        [{"bytes": 4096, "source": 0, "destination": 1, "latency_ms": 3}]
+    )
+
+    assert model.predict_terminal_ms(sequence_length=1024, width=2) == 65
+    assert transfers.predict_transfer_ms(bytes=8192, source=0, destination=1) == 6
+
+
+def test_terminal_cost_lets_other_lane_fill_finalize_tail() -> None:
+    model = MeasuredStepCostModel()
+    model.initialize(
+        [
+            {
+                "image_tokens": 1024,
+                "width": 1,
+                "latency_ms": 10,
+                "terminal_ms": 50,
+            },
+            {
+                "image_tokens": 4096,
+                "width": 1,
+                "latency_ms": 20,
+                "terminal_ms": 0,
+            },
+        ]
+    )
+    policy = EpeSchedulingPolicy(
+        world_size=2,
+        allowed_lane_widths=(1, 2),
+        cost_model=model,
+        strategy="static_dp",
+    )
+
+    plans = policy.plan_at(
+        [
+            _schedulable(
+                "finishing",
+                image_tokens=1024,
+                total_steps=10,
+                completed_steps=9,
+            ),
+            _schedulable("running", image_tokens=4096, total_steps=20),
+        ],
+        pulse_steps=5,
+        now_ms=0,
+    )
+    by_id = {plan.request_id: plan for plan in plans}
+
+    assert by_id["finishing"].steps == 1
+    assert by_id["finishing"].metadata["predicted_terminal_ms"] == 50
+    assert by_id["running"].steps == 3
+    assert max(plan.metadata["predicted_phase_ms"] for plan in plans) == 60
 
 
 def test_epe_policy_uses_sequence_cost_and_balanced_k() -> None:

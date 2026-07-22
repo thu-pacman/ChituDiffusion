@@ -207,8 +207,9 @@ class ImageDecoderExecutor(Protocol):
         self,
         state: Any,
         *,
+        lane_ranks: tuple[int, ...],
         timings: dict[str, object],
-    ) -> torch.Tensor: ...
+    ) -> torch.Tensor | None: ...
 
     def postprocess(self, host_output: torch.Tensor) -> Any: ...
 

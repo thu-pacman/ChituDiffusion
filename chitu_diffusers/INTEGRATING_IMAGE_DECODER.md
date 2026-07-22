@@ -26,7 +26,7 @@ all stage ranks
        |
   EmbeddedDiffusionRuntime.start()
        |
-  warmup(resolutions, 5 steps)  populate measured cost model
+  warmup(resolutions, 5 steps)  measure DiT + terminal + transfer costs
        |
 leader: submit / poll / cancel
 followers: worker loop
@@ -43,14 +43,14 @@ followers: worker loop
 | --- | --- |
 | `normalize_request` / `validate_request` | 接受模型专用 request，补默认值并拒绝未 warmup 的 shape |
 | `serialize_request` / `deserialize_request` | 只传输可序列化字段，不传 CUDA tensor |
-| `request_profile` | 在 prepare 前提供总步数、序列长度、batch/condition 属性 |
+| `request_profile` | 在 prepare 前提供总步数、序列长度、batch/condition 和 `state_bytes` |
 | `request_deadline_ms` | 返回逐请求 SLO；返回 `None` 时使用 pool 的 `default_deadline_ms` |
 | `prepare_request` | 运行 encoder/tokenizer，创建独立 scheduler、timesteps、latent 和 step cursor |
 | `profile` | 从 state 返回当前 `completed_steps`，结果必须与真实 cursor 一致 |
 | `denoise_step` | 只推进一步；按照 `lane_ranks` 执行当前 lane 的 CP，不自行调度下一步 |
 | `synchronize_state` | lane 切换后把所有 rank 的 cursor 对齐到指定 step |
 | `export_state` | 返回继续推理所需的 canonical tensor；不能依赖旧 lane 的局部分片 |
-| `finalize_gpu` | VAE decode 并将结果转为 CPU tensor，不做 PNG 编码 |
+| `finalize_gpu` | 所有 `lane_ranks` collective 进入 VAE；只在 lane leader 返回 GPU tensor |
 | `postprocess` | CPU image processor；由 runtime 线程池异步调用 |
 | `abort_request` | 释放该 request 的模型私有资源，必须幂等 |
 | `close` | 按 ownership 释放 lane group、model 和 process group，必须可重复调用 |
@@ -66,7 +66,9 @@ followers: worker loop
   executor 不应自行执行额外 K 步。
 - `export_state` 必须足以让 cp1/cp2/cp4 之间切换。若模型包含除 latent 外的可变状态，
   需要一并放入 `TransferBundle.tensors` 或可序列化 metadata。
-- encoder 和 VAE 可以先保持原生 Diffusers 实现；性能优化不应改变 executor contract。
+- encoder 和 VAE module 保持原生 Diffusers 实现。宽 lane 可复用
+  `parallel_tiled_vae_decode`，但所有 lane rank 必须以相同顺序进入 collective；runtime
+  只在 leader 执行 D2H，CPU postprocess/PNG 继续异步。
 
 ## LLaDA2 团队需要确定的内容
 
@@ -84,7 +86,8 @@ followers: worker loop
 
 1. 单卡 `static_dp` 与原始模型在相同 seed/request 下完成 shape 和数值合理性检查。
 2. 四卡 `static_cp` 完成 512/1024/2048、完整 denoise steps，并输出可解码图片。
-3. 启动 warmup 覆盖所有声明的 `(resolution, lane_width)`，生成 measured cost table。
+3. 启动 warmup 覆盖所有声明的 `(resolution, lane_width)`，测量 DiT step、VAE/D2H
+   terminal，并对所有 rank pair 测量 request state transfer。
 4. elastic trace 至少覆盖 cp4 -> cp1、cp1 -> cp2 和 request completion 后 lane pull。
 5. static-DP/static-CP/elastic 均无 NCCL/Gloo error，所有请求 exactly-once completion。
 6. graceful stop 后无残留 worker，timeline 可绘制，HTTP 和 embedded 两个入口结果一致。

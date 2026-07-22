@@ -3,7 +3,8 @@
 EPAC（Elastic Parallel Caching Engine）是 `chitu_diffusers` 面向社区接口的重构原型。
 它不接管完整
 Diffusers pipeline，而是把 DiT denoise loop 提取成可暂停、可调度的模型级执行单元；
-tokenizer、encoder、scheduler、VAE 和 image processor 继续使用上游 Diffusers。
+tokenizer、encoder、scheduler、VAE module 和 image processor 继续使用上游 Diffusers；
+EPAC 只在 VAE 调用外增加动态 lane 的 tile/halo 通信层。
 
 ## 当前结构
 
@@ -47,15 +48,15 @@ SchedulingPolicy <---- measured cost     EPAC pulse boundary
 | `epac/pulse.py` | lane lease、deadline、report rendezvous 和 producer-consumer pull 协议 |
 | `epac/scheduling.py` | 通用 `StepPlan`、`RequestProfile` 和三策略 lane constraints |
 | `epac/epe.py` | measured-cost SLO layout、动态 lane、balanced-K pulse |
-| `epac/cost.py` | 每次启动 warmup rows 初始化的 sequence-length cost table |
+| `epac/cost.py` | 启动实测的 DiT step、VAE/D2H terminal 和 state-transfer cost table |
 | `epac/optimization.py` | 可组合的 DiT forward wrapper，是新 FlexCache 公共入口 |
-| `parallel/` | 动态 lane group；当前实现 AGKV 与 xDiT/yunchang Ulysses x Ring，预留 CFG parallel |
+| `parallel/` | 动态 lane group、AGKV、xDiT/yunchang Ulysses x Ring 和 tile-parallel VAE |
 | `models/zimage/` | Z-Image pipeline、transformer、adapter 和 API 门面 |
 | `serve/` | HTTP schema、服务配置、Z-Image runtime 和 torchrun 生命周期 |
 
-公共 EPE cost model 兼容当前 warmup 报告中的 `image_tokens`、`width`、
-`batch_size`、`cfg_conditions` 字段，也接受更通用的 `sequence_length` 和
-`conditions` 名称。
+公共 EPE cost model 兼容 warmup 报告中的 `image_tokens`、`width`、`batch_size`、
+`cfg_conditions`、`terminal_ms` 和 `state_bytes`。`terminal_ms` 是当前 lane 的 VAE
+critical path 加 leader D2H；`transfer_rows` 则按 state bytes 和 GPU rank pair 实测。
 
 ## Pipeline API
 
@@ -95,6 +96,8 @@ pipeline.serve(
         pulse_steps=5,
         default_deadline_ms=30_000,  # request.deadline_ms can override this SLO
         schedule_strategy="elastic",  # or "static_cp" / "static_dp" baseline
+        parallel_vae=True,
+        vae_parallel_halo=8,
     )
 )
 ```
@@ -104,12 +107,18 @@ pipeline.serve(
 安装 `usp` 可选依赖后，可使用 `attention_mode="usp", ulysses_degree=2`；cp4/cp2 lane
 分别映射为 u2r2/u2r1。
 
+Z-Image VAE 包含全局 mid-block attention/normalization，因此空间 tile decode 是质量近似，
+不是逐像素等价。4x H20、512、halo=8 的同 seed/request 端到端对照为 34.91 dB
+PSNR，最大像素差 10/255，未观察到 tile seam；对要求 bitwise/native decode 的场景可设置
+`parallel_vae=False` 或 CLI `--no-parallel-vae`。启动 warmup 会分别测量每个 lane width，
+因此 scheduler 使用的是所选模式的真实 terminal cost。
+
 ## SLO-aware Elastic Scheduling
 
 `default_deadline_ms` 是从请求到达开始计算的默认端到端 SLO；请求携带的
 `deadline_ms` 优先于默认值。两者都不设置时，elastic 退化为 throughput/fairness/
-flow-time 调度，而不是伪造 deadline。`deadline_guard_ms`（默认 3000ms）从 deadline
-中预留给控制、VAE、D2H 和结果发布，因此 planner 优化的是更早的 DiT 完成时刻。
+flow-time 调度，而不是伪造 deadline。`deadline_guard_ms`（默认 3000ms）仍用于覆盖
+控制面和 CPU 结果发布等未稳定建模的尾部；VAE、D2H 和 state transfer 已进入实测模型。
 
 每个 pulse 都会用启动 warmup 得到的 sequence-length/lane-width cost table 前向预测完整
 pending + running 队列。布局评分按 SLO miss 数、最大与总 tardiness、starvation、并发
@@ -117,6 +126,12 @@ admission、等价单卡工作吞吐、slowdown 和 flow time 依次排序。等
 `Σ(T_cp1 / T_lane)`，避免 raw steps/s 将全部 GPU 分给扩展效率较低的短序列。
 `max_inflight_requests` 只限制已创建 request state 的数量；等待请求即使尚未 admission，
 也会参与预测，避免队首以外的紧急请求对 planner 不可见。
+
+balanced-K 以完整 phase 而非纯 denoise 时间确定 pulse。若一个 lane 将在 nominal pulse
+前完成 denoise，它的预测 VAE/D2H 被视为不可抢占 terminal section；其他独立 lane 会把
+这段时间换算成额外的一到数个 denoise step，随后一起进入 pulse。宽 lane 的 VAE 使用
+当前动态 group 做空间 tile + halo decode 和 lane-local gather，不创建新通信组，也不做
+lane shrink；只有 leader 保留完整 image tensor 并执行 D2H。
 
 ## Embedded Runtime API
 
@@ -199,7 +214,7 @@ Serve 端到端结果：
 
 该多到达率表和对应曲线来自 cp1-normalized useful-throughput tie-break 引入前的 job
 `195614/195443/195317`，用于保留 attention backend 与 static baseline 对照；当前调度器的
-最新端到端回归是下方 job `196541`。因此不能将该曲线视为最新策略的性能复测。
+最新端到端回归是下方同节点三策略 job `196740`。因此不能将该曲线视为最新策略的性能复测。
 
 ![AGKV and USP throughput, P95 latency, and mean queue delay by arrival rate](benchmarks/figures/attention_rate.png)
 
@@ -228,28 +243,55 @@ u1r1 的正确执行，但没有形成性能收益。0.12 req/s 的 rank-local t
 scaling 结论。原始 metrics、warmup、rank timeline、日志和图片位于
 `outputs/epac-attention/job-{195614,195443,195317}/`，由 Git 忽略。
 
-### SLO 回归
+### Parallel-VAE / SLO 三策略回归
 
-Slurm job `196541` 在 node-038 使用 4 x H20、Elastic AGKV 和
-`phased_dp_cp_slo_n15_12step.json` 验证 full-queue SLO planner，以 `0:0` 完成：
+2026-07-22 的 Slurm job `196740` 在同一 node-033、4 x H20 allocation 中顺序运行
+Static DP、Static CP 和 Elastic AGKV。每种策略都独立执行 5-step startup warmup，再回放
+`phased_dp_cp_slo_n15_12step.json`；三组均以 `15/15` 完成，共生成并重新解码验证 45 张
+PNG。Elastic warmup 的 DiT step 与 `VAE critical path + leader D2H` terminal 如下：
 
-| Requests | Explicit SLO | SLO met | SLO request latency | Tardiness | Throughput | Mean latency |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 15/15 | 22.5s | 1/1 | 20.81s | 0ms | 0.1139 req/s | 22.48s |
+| Resolution | DiT cp1 | DiT cp2 | DiT cp4 | Terminal cp1 | Terminal cp2 | Terminal cp4 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 512 | 239.81ms | 165.85ms | 109.27ms | 42.84ms | 27.28ms | 22.12ms |
+| 1024 | 983.80ms | 543.75ms | 320.40ms | 170.99ms | 95.28ms | 63.13ms |
+| 2048 | 5284.10ms | 2780.21ms | 1486.92ms | 771.58ms | 378.29ms | 219.37ms |
 
-紧急的 2048 请求 `req0010` 在到达后的首个 pulse 获得 cp4，完成后才调度同批普通
-1024 请求。dense 1024 burst 的 132 个 denoise steps 中，cp1/cp2/cp4 分别为
-`98/27/7`；无 backlog 的 512 tail 则使用 cp4，在资源效率和孤立请求延迟之间按预期切换。
+CP4 parallel VAE 相对单卡 terminal 分别加速 `1.94x / 2.71x / 3.52x`。本次 Elastic
+发生 9 次实际 state transfer（source/destination timeline 共 18 条），合计约
+`2.01 GPU-ms`、单条最大 `0.162ms`；虽然当前节点上它不是主要瓶颈，planner 仍使用按
+state bytes 和 rank pair 启动实测的 transfer cost。
 
-![Elastic AGKV SLO timeline](benchmarks/figures/attention_timeline.png)
+| Strategy | Throughput | Mean latency | P95 latency | Mean queue | P95 queue | SLO request | SLO met | Tardiness | DiT util. | Makespan |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Static DP | 0.0962 req/s | 28.62s | 67.41s | 4.78s | 12.57s | 65.98s | 0/1 | 43.48s | 51.9% | 155.98s |
+| Static CP | 0.1139 req/s | 19.99s | 31.66s | 12.39s | 27.20s | 20.59s | 1/1 | 0ms | 74.3% | 131.67s |
+| Elastic | 0.1139 req/s | 20.23s | 28.05s | 7.57s | 18.21s | 20.85s | 1/1 | 0ms | 67.9% | 131.65s |
 
-上方 request panel 中，圆/方/三角是请求到达，策略色 `> ... ×` 分别表示首次调度与
-完成，红色竖线是 DDL。trace 未显式提供 deadline 时，图中默认使用
-`1.2 × measured cp1 denoise time`，仅用于解释 timeline，不会反向修改服务调度。
+Elastic 保持了 Static CP 的吞吐和 SLO 命中，同时将 P95 latency 降低 `11.4%`、mean
+queue 降低 `38.9%`。相较于 parallel VAE 和 terminal/transfer 建模前的单策略 job
+`196541`，本次 Elastic mean latency 从 `22.48s` 降至 `20.23s`，P95 从 `31.37s`
+降至 `28.05s`；这是不同节点上的单次回归对照，不能拆分为 VAE 与调度器各自的独立收益。
 
-所有 15 张 PNG 均由 benchmark client 解码并验证实际分辨率。该单次回归证明 deadline
-路径和 lane 选择按预期执行，不代表 SLO 的统计置信区间；原始记录位于
-`outputs/epac-benchmark/job-196541/`。
+Elastic 的 180 个 request-step 中，cp1/cp2/cp4 分别为 `98/26/56`：dense 1024 burst
+主要使用 cp1，稀疏 2048 和 512 请求使用 cp4，末段并发 1024 请求在 cp1/cp2/cp4 间
+逐步合并。显式 22.5s SLO 的 `req0010` 到达后立即获得 cp4，并在 `20.85s` 完成。
+
+![Static DP, Static CP, and Elastic phased timeline](benchmarks/figures/strategy_timeline.png)
+
+上方 request panel 中，圆/方/三角是请求到达，绿色 `> ... ×` 只表示 Elastic 的首次
+调度与完成，红色竖线是 DDL。trace 未显式提供 deadline 时，图中默认使用
+`1.2 × measured cp1 denoise time`，仅用于解释 timeline，不会反向修改服务调度。下方
+三组 GPU panel 直接合并各 rank 独立记录的 wall-clock spans，包括 VAE、D2H、state
+transfer、pulse/control wait 和异步 CPU postprocess/PNG。
+
+该短 trace 用于交付回归和解释调度行为，不代表 SLO 的统计置信区间。原始 metrics、
+warmup、日志、rank timeline 和图片位于 `outputs/epac-phased/parallel-vae-final/`，由 Git
+忽略；可复现命令为：
+
+```bash
+ZIMAGE_MODEL_PATH=/path/to/Z-Image \
+  sbatch chitu_diffusers/benchmarks/run_strategy_comparison_slurm.sh
+```
 
 ## 本地验证
 

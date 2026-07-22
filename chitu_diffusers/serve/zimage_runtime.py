@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import statistics
 import threading
 import time
 from collections import deque
@@ -115,6 +116,8 @@ class EpeZImageServiceRuntime:
             default_num_steps=config.factory_args.num_steps,
             attention_mode=config.factory_args.attention_mode,
             ulysses_degree=config.factory_args.ulysses_degree,
+            parallel_vae=config.factory_args.parallel_vae,
+            vae_parallel_halo=config.factory_args.vae_parallel_halo,
         ).build(ExecutorBuildContext(world=world, pool=config.parallelism.chitu_pool))
         return cls(config, executor)
 
@@ -128,6 +131,14 @@ class EpeZImageServiceRuntime:
             resolutions=pool.warmup_resolutions,
             steps=pool.warmup_steps,
         )
+        transfer_rows = self._warmup_state_transfers(
+            report.get("rows", ()),
+            steps=pool.warmup_steps,
+        )
+        report["transfer_rows"] = transfer_rows
+        initialize_transfer = getattr(self.epe, "initialize_transfer_cost_model", None)
+        if initialize_transfer is not None:
+            initialize_transfer(transfer_rows)
         self._warmup_report = report
         if self.rank == 0:
             output_dir = Path(self.config.output_root)
@@ -138,6 +149,80 @@ class EpeZImageServiceRuntime:
             )
             logger.info("Wrote EPE warmup report to %s", path)
         return report
+
+    def _warmup_state_transfers(
+        self,
+        cost_rows: object,
+        *,
+        steps: int,
+    ) -> list[dict[str, object]]:
+        """Measure the exact state sizes used by supported request shapes."""
+        if self.world_size <= 1 or not dist.is_initialized():
+            return []
+        if not isinstance(cost_rows, list):
+            raise TypeError("warmup report rows must be a list")
+        state_sizes = sorted(
+            {
+                int(row["state_bytes"])
+                for row in cost_rows
+                if isinstance(row, dict) and int(row.get("state_bytes", 0)) > 0
+            }
+        )
+        device = (
+            torch.device("cuda", self.parallel.local_rank)
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
+        rows: list[dict[str, object]] = []
+        barrier_kwargs = (
+            {"device_ids": [self.parallel.local_rank]} if device.type == "cuda" else {}
+        )
+        for state_bytes in state_sizes:
+            payload = torch.empty(state_bytes, dtype=torch.uint8, device=device)
+            for source in range(self.world_size):
+                for destination in range(self.world_size):
+                    if source == destination:
+                        continue
+                    samples_ms = []
+                    for _ in range(steps):
+                        dist.barrier(**barrier_kwargs)
+                        if device.type == "cuda":
+                            torch.cuda.synchronize(device)
+                        started = time.perf_counter()
+                        if self.rank == source:
+                            dist.send(payload, dst=destination)
+                        elif self.rank == destination:
+                            dist.recv(payload, src=source)
+                        if device.type == "cuda":
+                            torch.cuda.synchronize(device)
+                        local_ms = (
+                            (time.perf_counter() - started) * 1000.0
+                            if self.rank in {source, destination}
+                            else 0.0
+                        )
+                        critical = torch.tensor(
+                            local_ms,
+                            dtype=torch.float64,
+                            device=device,
+                        )
+                        dist.all_reduce(critical, op=dist.ReduceOp.MAX)
+                        if self.rank == 0:
+                            samples_ms.append(float(critical.item()))
+                    if self.rank == 0:
+                        rows.append(
+                            {
+                                "bytes": state_bytes,
+                                "source": source,
+                                "destination": destination,
+                                "latency_ms": float(statistics.median(samples_ms)),
+                                "samples_ms": samples_ms,
+                            }
+                        )
+            del payload
+        broadcast = [rows if self.rank == 0 else None]
+        dist.broadcast_object_list(broadcast, src=0)
+        assert broadcast[0] is not None
+        return broadcast[0]
 
     def submit_request(self, request: object) -> str:
         if self.rank != 0 or not self._accepting:
@@ -692,32 +777,40 @@ class EpeZImageServiceRuntime:
                 observations.append(measured_step_ms)
                 state_profile = self.executor.profile(state)
                 current_step = state_profile.completed_steps
-                if state_profile.remaining_steps == 0 and self.rank == ranks[0]:
-                    host_image, finalize_profile = self._decode_to_host(
+                if state_profile.remaining_steps == 0:
+                    finalized = self._decode_to_host(
                         state,
                         request_id=current_id,
                         lane_ranks=ranks,
                     )
-                    completed_at = time.time()
-                    result = LaneWorkResult(
-                        request_id=current_id,
-                        output=host_image,
-                        metadata={
-                            "strategy": "elastic",
-                            "lane_rank": ranks[0],
-                            "lane_ranks": list(ranks),
-                            "started_at": started_at,
-                            "denoise_started_at": started_at,
-                            "completed_at": completed_at,
-                            "steps": steps,
-                            "image_tokens": state_profile.image_tokens,
-                            "batch_size": state_profile.attributes["batch_size"],
-                            "cfg_conditions": state_profile.attributes["conditions"],
-                            "predicted_step_ms": float(command["predicted_step_ms"]),
-                            "measured_step_ms": measured_step_ms,
-                            "finalize_profile": finalize_profile,
-                        },
-                    )
+                    if self.rank == ranks[0]:
+                        if finalized is None:
+                            raise RuntimeError("lane leader did not receive VAE output")
+                        host_image, finalize_profile = finalized
+                        completed_at = time.time()
+                        result = LaneWorkResult(
+                            request_id=current_id,
+                            output=host_image,
+                            metadata={
+                                "strategy": "elastic",
+                                "lane_rank": ranks[0],
+                                "lane_ranks": list(ranks),
+                                "started_at": started_at,
+                                "denoise_started_at": started_at,
+                                "completed_at": completed_at,
+                                "steps": steps,
+                                "image_tokens": state_profile.image_tokens,
+                                "batch_size": state_profile.attributes["batch_size"],
+                                "cfg_conditions": state_profile.attributes[
+                                    "conditions"
+                                ],
+                                "predicted_step_ms": float(
+                                    command["predicted_step_ms"]
+                                ),
+                                "measured_step_ms": measured_step_ms,
+                                "finalize_profile": finalize_profile,
+                            },
+                        )
             except Exception as exc:
                 local_error = str(exc)
                 error = local_error
@@ -845,16 +938,14 @@ class EpeZImageServiceRuntime:
         *,
         request_id: str,
         lane_ranks: tuple[int, ...],
-    ) -> tuple[torch.Tensor, dict[str, object]]:
+    ) -> tuple[torch.Tensor, dict[str, object]] | None:
         timings: dict[str, object] = {}
         finalize_started = time.perf_counter()
-        decoded = self.executor.finalize_gpu(state, timings=timings)
-        d2h_started_ns = time.time_ns()
-        d2h_started = time.perf_counter()
-        host_image = decoded.to(device="cpu")
-        d2h_ended_ns = time.time_ns()
-        timings["d2h_ms"] = (time.perf_counter() - d2h_started) * 1000.0
-        timings["finalize_total_ms"] = (time.perf_counter() - finalize_started) * 1000.0
+        decoded = self.executor.finalize_gpu(
+            state,
+            lane_ranks=lane_ranks,
+            timings=timings,
+        )
         self.timeline.record(
             "vae",
             start_unix_ns=int(timings["vae_start_unix_ns"]),
@@ -862,6 +953,16 @@ class EpeZImageServiceRuntime:
             request_id=request_id,
             lane_ranks=lane_ranks,
         )
+        if self.rank != lane_ranks[0]:
+            return None
+        if decoded is None:
+            raise RuntimeError("lane leader did not receive VAE output")
+        d2h_started_ns = time.time_ns()
+        d2h_started = time.perf_counter()
+        host_image = decoded.to(device="cpu")
+        d2h_ended_ns = time.time_ns()
+        timings["d2h_ms"] = (time.perf_counter() - d2h_started) * 1000.0
+        timings["finalize_total_ms"] = (time.perf_counter() - finalize_started) * 1000.0
         self.timeline.record(
             "d2h",
             start_unix_ns=d2h_started_ns,
@@ -973,14 +1074,17 @@ class EpeZImageServiceRuntime:
                 },
             )
             measured_step_ms = denoise_ms / steps
+            finalized = self._decode_to_host(
+                state,
+                request_id=item.request_id,
+                lane_ranks=lane_ranks,
+            )
             host_image = None
             finalize_profile: dict[str, object] = {}
             if self.rank == lane_rank:
-                host_image, finalize_profile = self._decode_to_host(
-                    state,
-                    request_id=item.request_id,
-                    lane_ranks=lane_ranks,
-                )
+                if finalized is None:
+                    raise RuntimeError("lane leader did not receive VAE output")
+                host_image, finalize_profile = finalized
             completed_at = time.time()
             return LaneWorkResult(
                 request_id=item.request_id,

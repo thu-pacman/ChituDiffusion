@@ -37,6 +37,8 @@ class EPACServeConfig:
     output_root: str = "outputs/chitu-api"
     record_timeline: bool = False
     postprocess_workers: int = 4
+    parallel_vae: bool = True
+    vae_parallel_halo: int = 8
     cache: CacheConfig = CacheConfig()
     schedule_strategy: Literal["elastic", "static_cp", "static_dp"] = "elastic"
 
@@ -61,6 +63,8 @@ class EPACServeConfig:
             raise ValueError("deadline_guard_ms must be >= 0")
         if self.default_deadline_ms is not None and self.default_deadline_ms <= 0:
             raise ValueError("default_deadline_ms must be positive")
+        if self.vae_parallel_halo < 0:
+            raise ValueError("vae_parallel_halo must be non-negative")
         if self.schedule_strategy not in {"elastic", "static_cp", "static_dp"}:
             raise ValueError(
                 "schedule_strategy must be one of: elastic, static_cp, static_dp"
@@ -227,6 +231,8 @@ class ZImageFactoryConfig:
     default_height: int = 1024
     attention_mode: str = "agkv"
     ulysses_degree: int = 1
+    parallel_vae: bool = True
+    vae_parallel_halo: int = 8
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "ZImageFactoryConfig":
@@ -250,6 +256,9 @@ class ZImageFactoryConfig:
             raise ValueError("factory_args.attention_mode must be one of: agkv, usp")
         if ulysses_degree < 1:
             raise ValueError("factory_args.ulysses_degree must be positive")
+        vae_parallel_halo = int(raw.get("vae_parallel_halo", 8))
+        if vae_parallel_halo < 0:
+            raise ValueError("factory_args.vae_parallel_halo must be non-negative")
         return cls(
             model_path=model_path,
             num_steps=num_steps,
@@ -258,6 +267,8 @@ class ZImageFactoryConfig:
             default_height=height,
             attention_mode=attention_mode,
             ulysses_degree=ulysses_degree,
+            parallel_vae=bool(raw.get("parallel_vae", True)),
+            vae_parallel_halo=vae_parallel_halo,
         )
 
 

@@ -70,7 +70,8 @@ sbatch chitu_diffusers/benchmarks/run_benchmark_slurm.sh
 - `timeline-rankN.jsonl`：rank 独立记录的绝对时间戳；只在服务退出时一次性落盘。
 
 可通过环境变量覆盖 `EPAC_VENV`、`EPAC_PORT`、`EPAC_TRACE`、`EPAC_RUN_DIR`、
-`EPAC_GPUS_PER_NODE`、`EPAC_ROOT` 和 `ZIMAGE_MODEL_PATH`。脚本默认以
+`EPAC_GPUS_PER_NODE`、`EPAC_ROOT`、`EPAC_PARALLEL_VAE=0|1`、
+`EPAC_VAE_PARALLEL_HALO` 和 `ZIMAGE_MODEL_PATH`。脚本默认以
 `SLURM_SUBMIT_DIR` 作为仓库根目录，因此应从仓库根目录执行 `sbatch`。
 设置 `EPAC_DEFAULT_DEADLINE_MS` 可为 trace 中未显式填写 `deadline_ms` 的请求配置统一
 端到端 SLO；显式 deadline 始终优先。
@@ -82,8 +83,8 @@ EPAC_TRACE="$PWD/chitu_diffusers/benchmarks/traces/smoke_512_n1_2step.json" \
   sbatch chitu_diffusers/benchmarks/run_benchmark_slurm.sh
 ```
 
-服务默认使用 4 个有界 CPU worker 异步执行 Diffusers image postprocess 和 PNG encode；
-GPU lane 只等待 VAE 与 D2H，随后进入下一个请求。直接启动 example 时可通过
+服务默认使用当前动态 lane 并行执行 VAE、由 leader 完成 D2H，再用 4 个有界 CPU
+worker 异步执行 Diffusers image postprocess 和 PNG encode。直接启动 example 时可通过
 `--postprocess-workers N` 调整并发数。请求在异步阶段返回 `postprocessing` 状态，PNG
 发布后才变为 `completed`。
 
@@ -121,8 +122,9 @@ sbatch chitu_diffusers/benchmarks/run_strategy_comparison_slurm.sh
 
 结果位于 `outputs/epac-phased/job-JOBID/{static_dp,static_cp,elastic}/`，共享时间轴为
 `outputs/epac-phased/job-JOBID/strategy_timeline.{png,svg}`。timeline 会标出绝对 deadline，
-策略标题同时显示 SLO 命中数。服务默认用 3000ms `deadline_guard_ms` 为未纳入 DiT
-warmup cost 的控制、VAE 和结果发布阶段预留时间；直接启动时可用
+策略标题同时显示 SLO 命中数。VAE、D2H 和 state transfer 已由 startup warmup 实测并
+纳入 phase/完成时间预测；服务仍默认用 3000ms `deadline_guard_ms` 为控制面和 CPU
+结果发布等未稳定建模的部分预留时间。直接启动时可用
 `--deadline-guard-ms` 调整。
 
 多种策略完成后可按请求对齐生成图像总览：
@@ -138,13 +140,16 @@ warmup cost 的控制、VAE 和结果发布阶段预留时间；直接启动时�
 
 ## 三策略 timeline
 
+最新的 parallel-VAE / terminal-aware 回归使用 4 x H20 Slurm job `196740`，原始结果在
+`outputs/epac-phased/parallel-vae-final/`，顶层 README 保存对应数据表和精选 timeline。
+
 压测脚本默认传入 `--record-timeline`。每个 rank 在内存中记录 prepare、denoise lease、
 pulse/control wait、state transfer、VAE、postprocess 和 PNG 的绝对时间戳，服务退出时写入
 独立 JSONL。热路径不写文件，也不为 tracing 增加分布式同步。
 
 `plot_strategy_timeline.py` 优先合并这些 rank trace，统一绘制请求到达、static-DP、
 static-CP 和 elastic 的真实 4-GPU timeline。缺少 JSONL 的旧压测目录仍回退到 service log
-重建。共享 request panel 会为每种策略标出首次调度与完成时间；显式 `deadline_ms` 优先，
+重建。共享 request panel 只标出 Elastic 的首次调度与完成时间；显式 `deadline_ms` 优先，
 否则默认 DDL 为多个 run 的 cp1 warmup 单步耗时中位数乘以 denoise steps 和 `1.2`。
 可通过 `--default-deadline-factor` 调整该系数。下例使用三次同 trace 压测结果：
 

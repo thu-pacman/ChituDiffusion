@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import statistics
 import time
 from dataclasses import dataclass
 from typing import Any
 
 import torch
+import torch.distributed as dist
 from diffusers import ZImagePipeline
 from diffusers.pipelines.z_image.pipeline_output import ZImagePipelineOutput
 from diffusers.pipelines.z_image.pipeline_z_image import (
@@ -13,7 +15,11 @@ from diffusers.pipelines.z_image.pipeline_z_image import (
 )
 
 from .epe import ZImageEpeModule
-from ...parallel import EpeParallelContext
+from ...parallel import (
+    ActiveLaneTopology,
+    EpeParallelContext,
+    parallel_tiled_vae_decode,
+)
 from .transformer import EpeZImageTransformer2DModel
 
 
@@ -116,6 +122,126 @@ class EpeZImagePipeline(ZImagePipeline):
             text_tokens=text_tokens,
             cfg_conditions=cfg_conditions,
         )
+
+    @torch.inference_mode()
+    def warmup_vae(
+        self,
+        *,
+        resolutions: tuple[tuple[int, int], ...],
+        steps: int,
+        parallel_vae: bool,
+        vae_parallel_halo: int,
+    ) -> list[dict[str, Any]]:
+        """Measure lane-critical VAE decode and leader D2H for every shape."""
+        parameter = next(self.vae.parameters())
+        device = parameter.device
+        dtype = self.vae.dtype
+        latent_channels = int(self.vae.config.latent_channels)
+        rows: list[dict[str, Any]] = []
+        for height, width in resolutions:
+            latent_shape = (
+                1,
+                latent_channels,
+                height // int(self.vae_scale_factor),
+                width // int(self.vae_scale_factor),
+            )
+            image_tokens = (height // 16) * (width // 16)
+            for lane_width in self.parallel_context.allowed_widths:
+                offset = (self.parallel_context.rank // lane_width) * lane_width
+                lane = tuple(range(offset, offset + lane_width))
+                generator = torch.Generator(device=device).manual_seed(
+                    7_000_001 + height * 97 + width * 193 + lane[0] * 997
+                )
+                latents = torch.randn(
+                    latent_shape,
+                    generator=generator,
+                    device=device,
+                    dtype=dtype,
+                )
+                vae_samples_ms = []
+                d2h_samples_ms = []
+                with self.parallel_context.activate(lane) as topology:
+                    for _ in range(steps):
+                        if device.type == "cuda":
+                            torch.cuda.synchronize(device)
+                        started = time.perf_counter()
+                        decoded = parallel_tiled_vae_decode(
+                            latents,
+                            lambda value: self.vae.decode(value, return_dict=False)[0],
+                            topology=topology,
+                            latent_split_dim=2,
+                            pixel_split_dim=2,
+                            scale=int(self.vae_scale_factor),
+                            halo=vae_parallel_halo,
+                            enabled=parallel_vae,
+                        )
+                        if device.type == "cuda":
+                            torch.cuda.synchronize(device)
+                        vae_samples_ms.append((time.perf_counter() - started) * 1000.0)
+                        if topology.is_leader:
+                            if decoded is None:
+                                raise RuntimeError("VAE warmup leader has no output")
+                            d2h_started = time.perf_counter()
+                            host = decoded.to(device="cpu")
+                            d2h_samples_ms.append(
+                                (time.perf_counter() - d2h_started) * 1000.0
+                            )
+                            del host
+                        del decoded
+
+                local = {
+                    "rank": self.parallel_context.rank,
+                    "lane": list(lane),
+                    "vae_samples_ms": vae_samples_ms,
+                    "d2h_samples_ms": d2h_samples_ms,
+                }
+                gathered = [local]
+                if self.parallel_context.world_size > 1:
+                    gathered = [None] * self.parallel_context.world_size
+                    dist.all_gather_object(gathered, local)
+                if self.parallel_context.rank == 0:
+                    lane_groups: dict[tuple[int, ...], list[dict[str, Any]]] = {}
+                    for item in gathered:
+                        assert item is not None
+                        lane_groups.setdefault(tuple(item["lane"]), []).append(item)
+                    critical_samples = []
+                    vae_critical_samples = []
+                    d2h_samples = []
+                    for members in lane_groups.values():
+                        leader = min(members, key=lambda item: item["rank"])
+                        for sample_index in range(steps):
+                            vae_ms = max(
+                                item["vae_samples_ms"][sample_index] for item in members
+                            )
+                            d2h_ms = leader["d2h_samples_ms"][sample_index]
+                            vae_critical_samples.append(vae_ms)
+                            d2h_samples.append(d2h_ms)
+                            critical_samples.append(vae_ms + d2h_ms)
+                    rows.append(
+                        {
+                            "resolution": [height, width],
+                            "image_tokens": image_tokens,
+                            "width": lane_width,
+                            "batch_size": 1,
+                            "cfg_conditions": 2,
+                            # Denoise state remains float32 until VAE finalize,
+                            # even when the VAE itself runs in bf16/fp16.
+                            "state_bytes": latents.numel()
+                            * torch.empty((), dtype=torch.float32).element_size(),
+                            "terminal_ms": float(statistics.median(critical_samples)),
+                            "vae_latency_ms": float(
+                                statistics.median(vae_critical_samples)
+                            ),
+                            "d2h_latency_ms": float(statistics.median(d2h_samples)),
+                            "terminal_samples_ms": critical_samples,
+                        }
+                    )
+                del latents
+        broadcast = [rows if self.parallel_context.rank == 0 else None]
+        if self.parallel_context.world_size > 1:
+            dist.broadcast_object_list(broadcast, src=0)
+        assert broadcast[0] is not None
+        return broadcast[0]
 
     @torch.inference_mode()
     def __call__(
@@ -321,8 +447,11 @@ class EpeZImagePipeline(ZImagePipeline):
         self,
         state: ZImageDenoiseState,
         *,
+        topology: ActiveLaneTopology | None = None,
+        parallel_vae: bool = True,
+        vae_parallel_halo: int = 8,
         timings: dict[str, Any] | None = None,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor | None:
         """Decode completed latents without performing CPU image conversion."""
         if not state.complete:
             raise RuntimeError("cannot finalize an incomplete denoise state")
@@ -352,7 +481,21 @@ class EpeZImagePipeline(ZImagePipeline):
         ) + self.vae.config.shift_factor
         profile["vae_start_unix_ns"] = time.time_ns()
         decode_started = time.perf_counter()
-        image = self.vae.decode(latents, return_dict=False)[0]
+        active = topology or self.parallel_context.active
+
+        def decode_fn(value: torch.Tensor) -> torch.Tensor:
+            return self.vae.decode(value, return_dict=False)[0]
+
+        image = parallel_tiled_vae_decode(
+            latents,
+            decode_fn,
+            topology=active,
+            latent_split_dim=2,
+            pixel_split_dim=2,
+            scale=int(self.vae_scale_factor),
+            halo=vae_parallel_halo,
+            enabled=parallel_vae,
+        )
         if device.type == "cuda":
             torch.cuda.synchronize(device)
         profile["vae_end_unix_ns"] = time.time_ns()

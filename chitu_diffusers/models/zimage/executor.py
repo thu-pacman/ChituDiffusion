@@ -29,11 +29,17 @@ class ZImageImageDecoderExecutor(ImageDecoderExecutor):
         default_width: int = 1024,
         default_height: int = 1024,
         default_num_steps: int = 50,
+        parallel_vae: bool = True,
+        vae_parallel_halo: int = 8,
     ) -> None:
         self.pipeline = pipeline
         self.default_width = int(default_width)
         self.default_height = int(default_height)
         self.default_num_steps = int(default_num_steps)
+        self.parallel_vae = bool(parallel_vae)
+        self.vae_parallel_halo = int(vae_parallel_halo)
+        if self.vae_parallel_halo < 0:
+            raise ValueError("vae_parallel_halo must be non-negative")
 
     @property
     def parallel_context(self):
@@ -44,7 +50,36 @@ class ZImageImageDecoderExecutor(ImageDecoderExecutor):
         return self.pipeline.transformer.epe
 
     def warmup(self, *, resolutions, steps):
-        return self.pipeline.warmup_epe(resolutions=resolutions, steps=steps)
+        report = self.pipeline.warmup_epe(resolutions=resolutions, steps=steps)
+        terminal_rows = self.pipeline.warmup_vae(
+            resolutions=resolutions,
+            steps=steps,
+            parallel_vae=self.parallel_vae,
+            vae_parallel_halo=self.vae_parallel_halo,
+        )
+        terminal_by_key = {
+            (int(row["image_tokens"]), int(row["width"])): row for row in terminal_rows
+        }
+        for row in report["rows"]:
+            terminal = terminal_by_key[(int(row["image_tokens"]), int(row["width"]))]
+            row.update(
+                {
+                    key: value
+                    for key, value in terminal.items()
+                    if key
+                    in {
+                        "state_bytes",
+                        "terminal_ms",
+                        "vae_latency_ms",
+                        "d2h_latency_ms",
+                        "terminal_samples_ms",
+                    }
+                }
+            )
+        report["parallel_vae"] = self.parallel_vae
+        report["vae_parallel_halo"] = self.vae_parallel_halo
+        self.scheduling_module.initialize_cost_model(report["rows"])
+        return report
 
     def normalize_request(self, request: Any) -> EPACRequest:
         if isinstance(request, EPACRequest):
@@ -113,6 +148,7 @@ class ZImageImageDecoderExecutor(ImageDecoderExecutor):
         normalized = self.normalize_request(request)
         height, width = self._shape(normalized)
         steps = normalized.num_steps
+        state_bytes = 16 * (height // 8) * (width // 8) * 4
         return RequestProfile(
             total_steps=steps,
             completed_steps=int(completed_steps),
@@ -120,6 +156,7 @@ class ZImageImageDecoderExecutor(ImageDecoderExecutor):
             attributes={
                 "batch_size": 1,
                 "conditions": 2 if normalized.guidance_scale > 0 else 1,
+                "state_bytes": state_bytes,
             },
         )
 
@@ -151,6 +188,7 @@ class ZImageImageDecoderExecutor(ImageDecoderExecutor):
             attributes={
                 "batch_size": state.actual_batch_size,
                 "conditions": 2 if state.guidance_scale > 0 else 1,
+                "state_bytes": state.latents.numel() * state.latents.element_size(),
             },
         )
 
@@ -166,8 +204,15 @@ class ZImageImageDecoderExecutor(ImageDecoderExecutor):
             step_index=state.step_index,
         )
 
-    def finalize_gpu(self, state, *, timings):
-        return self.pipeline.decode_request(state, timings=timings)
+    def finalize_gpu(self, state, *, lane_ranks, timings):
+        with self.parallel_context.activate(lane_ranks) as topology:
+            return self.pipeline.decode_request(
+                state,
+                topology=topology,
+                parallel_vae=self.parallel_vae,
+                vae_parallel_halo=self.vae_parallel_halo,
+                timings=timings,
+            )
 
     def postprocess(self, host_output):
         return self.pipeline.image_processor.postprocess(
@@ -192,6 +237,8 @@ class ZImageExecutorFactory:
     default_num_steps: int = 50
     attention_mode: str = "agkv"
     ulysses_degree: int | None = None
+    parallel_vae: bool = True
+    vae_parallel_halo: int = 8
 
     def build(self, context: ExecutorBuildContext) -> ZImageImageDecoderExecutor:
         world = context.world
@@ -265,4 +312,6 @@ class ZImageExecutorFactory:
             default_width=self.default_width,
             default_height=self.default_height,
             default_num_steps=self.default_num_steps,
+            parallel_vae=self.parallel_vae,
+            vae_parallel_halo=self.vae_parallel_halo,
         )

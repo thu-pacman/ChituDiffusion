@@ -47,6 +47,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--ulysses-degree", type=int, default=2)
     parser.add_argument(
+        "--parallel-vae",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use the active EPAC lane for spatially tiled VAE decode.",
+    )
+    parser.add_argument("--vae-parallel-halo", type=int, default=8)
+    parser.add_argument(
         "--default-deadline-ms",
         type=float,
         help=(
@@ -120,6 +127,8 @@ def main() -> None:
                 output_root=args.output_root,
                 record_timeline=args.record_timeline,
                 postprocess_workers=args.postprocess_workers,
+                parallel_vae=args.parallel_vae,
+                vae_parallel_halo=args.vae_parallel_halo,
             )
         )
     finally:

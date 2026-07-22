@@ -11,6 +11,7 @@ class MeasuredStepCostModel:
 
     def __init__(self) -> None:
         self._latency_ms: dict[tuple[int, int, int, int], float] = {}
+        self._terminal_ms: dict[tuple[int, int, int, int], float] = {}
         self._rows: list[dict[str, Any]] = []
 
     @property
@@ -19,6 +20,7 @@ class MeasuredStepCostModel:
 
     def initialize(self, rows: Iterable[dict[str, Any]]) -> None:
         latency: dict[tuple[int, int, int, int], float] = {}
+        terminal: dict[tuple[int, int, int, int], float] = {}
         normalized = []
         for row in rows:
             sequence_length = row.get("sequence_length", row.get("image_tokens"))
@@ -34,18 +36,31 @@ class MeasuredStepCostModel:
             if min(key) <= 0 or value <= 0:
                 raise ValueError(f"invalid warmup row: {row}")
             latency[key] = value
-            normalized.append(
-                {
-                    "sequence_length": key[0],
-                    "width": key[1],
-                    "batch_size": key[2],
-                    "conditions": key[3],
-                    "latency_ms": value,
-                }
-            )
+            normalized_row = {
+                "sequence_length": key[0],
+                "width": key[1],
+                "batch_size": key[2],
+                "conditions": key[3],
+                "latency_ms": value,
+            }
+            terminal_value = row.get("terminal_ms")
+            if terminal_value is not None:
+                terminal_value = float(terminal_value)
+                if terminal_value < 0:
+                    raise ValueError(f"invalid terminal warmup row: {row}")
+                terminal[key] = terminal_value
+                normalized_row.update(
+                    {
+                        "terminal_ms": terminal_value,
+                        "vae_latency_ms": float(row.get("vae_latency_ms", 0.0)),
+                        "d2h_latency_ms": float(row.get("d2h_latency_ms", 0.0)),
+                    }
+                )
+            normalized.append(normalized_row)
         if not latency:
             raise ValueError("warmup produced no latency rows")
         self._latency_ms = latency
+        self._terminal_ms = terminal
         self._rows = sorted(
             normalized,
             key=lambda row: (
@@ -119,6 +134,48 @@ class MeasuredStepCostModel:
         batch_scale = target[2] / key[2]
         condition_scale = target[3] / key[3]
         return value * batch_scale * condition_scale
+
+    def predict_terminal_ms(
+        self,
+        *,
+        sequence_length: int,
+        width: int,
+        batch_size: int = 1,
+        conditions: int = 1,
+    ) -> float:
+        """Predict lane-critical VAE decode plus leader D2H latency."""
+        if not self._terminal_ms:
+            return 0.0
+        target = (
+            int(sequence_length),
+            int(width),
+            int(batch_size),
+            int(conditions),
+        )
+        exact = self._terminal_ms.get(target)
+        if exact is not None:
+            return exact
+        candidates = [
+            (key, value)
+            for key, value in self._terminal_ms.items()
+            if key[0] == target[0] and key[1] == target[1]
+        ]
+        if not candidates:
+            candidates = [
+                (key, value)
+                for key, value in self._terminal_ms.items()
+                if key[1] == target[1]
+            ]
+        if not candidates:
+            candidates = list(self._terminal_ms.items())
+        key, value = min(
+            candidates,
+            key=lambda item: tuple(
+                abs(candidate - expected)
+                for candidate, expected in zip(item[0], target)
+            ),
+        )
+        return value * target[2] / key[2]
 
     def snapshot(self) -> dict[str, Any]:
         return {"source": self.source, "ready": self.ready, "rows": self._rows}
@@ -273,3 +330,78 @@ class CalibratedStepCostModel:
             batch_size,
             conditions,
         )
+
+    def predict_terminal_ms(
+        self,
+        *,
+        sequence_length: int,
+        width: int,
+        batch_size: int = 1,
+        conditions: int = 1,
+    ) -> float:
+        return self.model.predict_terminal_ms(
+            sequence_length=sequence_length,
+            width=width,
+            batch_size=batch_size,
+            conditions=conditions,
+        )
+
+
+class MeasuredTransferCostModel:
+    """Startup-measured point-to-point state transfer latency."""
+
+    source = "startup_warmup"
+
+    def __init__(self) -> None:
+        self._latency_ms: dict[tuple[int, int, int], float] = {}
+        self._rows: list[dict[str, Any]] = []
+
+    @property
+    def ready(self) -> bool:
+        return bool(self._latency_ms)
+
+    def initialize(self, rows: Iterable[dict[str, Any]]) -> None:
+        latency: dict[tuple[int, int, int], float] = {}
+        normalized = []
+        for row in rows:
+            key = (int(row["bytes"]), int(row["source"]), int(row["destination"]))
+            value = float(row["latency_ms"])
+            if key[0] <= 0 or key[1] < 0 or key[2] < 0 or value <= 0:
+                raise ValueError(f"invalid transfer warmup row: {row}")
+            latency[key] = value
+            normalized.append(
+                {
+                    "bytes": key[0],
+                    "source": key[1],
+                    "destination": key[2],
+                    "latency_ms": value,
+                }
+            )
+        self._latency_ms = latency
+        self._rows = sorted(
+            normalized,
+            key=lambda row: (row["bytes"], row["source"], row["destination"]),
+        )
+
+    def predict_transfer_ms(
+        self, *, bytes: int, source: int, destination: int
+    ) -> float:
+        if source == destination or bytes <= 0:
+            return 0.0
+        if not self._latency_ms:
+            return 0.0
+        exact = self._latency_ms.get((int(bytes), int(source), int(destination)))
+        if exact is not None:
+            return exact
+        candidates = [
+            (key, value)
+            for key, value in self._latency_ms.items()
+            if key[1:] == (int(source), int(destination))
+        ]
+        if not candidates:
+            candidates = list(self._latency_ms.items())
+        key, value = min(candidates, key=lambda item: abs(item[0][0] - int(bytes)))
+        return value * int(bytes) / key[0]
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"source": self.source, "ready": self.ready, "rows": self._rows}

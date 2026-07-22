@@ -145,6 +145,7 @@ experiments/chitu_api/figures/
 chitu_diffusers/benchmarks/figures/*
 !chitu_diffusers/benchmarks/figures/attention_rate.png
 !chitu_diffusers/benchmarks/figures/attention_timeline.png
+!chitu_diffusers/benchmarks/figures/strategy_timeline.png
 
 # CP/DP hot-switch generated experiment artifacts
 experiments/cp_dp_hot_switch/out/
