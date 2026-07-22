@@ -7,17 +7,22 @@ terminal: true
 parallelism:
   sp: 4
   chitu_pool:
-    policy: slo_elastic
+    policy: elastic
     allowed_lane_widths: [1, 2, 4]
     switch_allowed_until_step: 50
-    phase_max_steps: 1
+    pulse_steps: 5
+    balanced_k: true
+    starvation_ms: 30000
+    default_deadline_ms: 30000
+    deadline_guard_ms: 3000
     max_inflight_requests: 4
     max_pending_requests: 64
-    cost_model: auto
-    online_calibration: false
+    warmup_resolutions: [512, 1024, 2048]
+    warmup_steps: 5
+    online_calibration: true
 
 factory_args:
-  model_path: /home/chenyy/WORK/models/Z-Image
+  model_path: /path/to/Z-Image
   num_steps: 50
   sample_solver: flowmatch_euler
   default_width: 1024

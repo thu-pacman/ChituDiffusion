@@ -121,14 +121,17 @@ class StageWorldSpec:
 
 @dataclass(frozen=True)
 class HotSwitchPoolConfig:
-    policy: str = "slo_elastic"
+    policy: str = "elastic"
     allowed_lane_widths: tuple[int, ...] = (1, 2, 4)
     switch_allowed_until_step: int = 8
-    phase_max_steps: int = 1
+    pulse_steps: int = 1
+    balanced_k: bool = True
+    starvation_ms: float = 30000.0
     max_inflight_requests: int = 64
     max_pending_requests: int = 256
     cfg_parallel_max: int = 1
-    cost_model: str = "auto"
+    warmup_resolutions: tuple[tuple[int, int], ...] = ((512, 512), (1024, 1024), (2048, 2048))
+    warmup_steps: int = 5
     online_calibration: bool = True
     default_deadline_ms: float | None = None
     lane_profiles: dict[int, "LaneParallelProfile"] = field(default_factory=dict)
@@ -148,6 +151,9 @@ class LaneParallelProfile:
 - width=1 表示 request-level DP replica，不执行 CP collective。
 - 每个 width 的 attention 形式必须显式可配置。当前实验中 width=4 应允许使用 ring_degree=4，不能把 width 固定解释为 Ulysses。
 - planner 输出的 lane width、CP/CFG degree 和 attention mode 必须与 executor 实际读取的 active topology 一致。
+- standalone EPE 的 cost model 必须在服务 ready 前由当前 GPU pool 的 warmup 实测初始化，不再依赖静态 H20/4090 JSON。
+- warmup 必须覆盖所有支持的 request 分辨率和所有允许的 lane width；每个组合默认执行 5 step random-tensor DiT forward，并记录 lane leader step latency。
+- admission 必须拒绝 warmup profile 未覆盖的分辨率，除非后续实现了在线 profile 扩展。
 - 配置必须来自 SGLang-Omni StageConfig；环境变量只允许测试覆盖，并输出 deprecated warning。
 5.4 Partial Image Decoder Executor
 
@@ -304,10 +310,12 @@ class RuntimeHealth:
     sp: 4
     chitu_pool:
       enabled: true
-      policy: slo_elastic
+      policy: elastic
       allowed_lane_widths: [1, 2, 4]
       switch_allowed_until_step: 8
-      phase_max_steps: 1
+      pulse_steps: 1
+      balanced_k: true
+      starvation_ms: 30000
       lane_profiles:
         1: {attention_mode: auto, ulysses_degree: 1, ring_degree: 1}
         2: {attention_mode: auto, ulysses_degree: 2, ring_degree: 1}

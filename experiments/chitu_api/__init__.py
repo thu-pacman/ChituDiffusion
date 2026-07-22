@@ -1,5 +1,5 @@
-"""Experimental embedded/standalone Chitu EPE service API."""
+"""Compatibility entry point for the promoted chitu_diffusers service."""
 
-from .config import StageServiceConfig, load_stage_service_config
+from chitu_diffusers.serve import StageServiceConfig, load_stage_service_config
 
 __all__ = ["StageServiceConfig", "load_stage_service_config"]

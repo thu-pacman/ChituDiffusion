@@ -7,13 +7,18 @@ terminal: true
 parallelism:
   sp: 4
   chitu_pool:
-    policy: slo_elastic
+    policy: elastic
     allowed_lane_widths: [1, 2, 4]
     switch_allowed_until_step: 20
-    phase_max_steps: 1
+    pulse_steps: 5
+    balanced_k: true
+    starvation_ms: 30000
+    default_deadline_ms: 30000
+    deadline_guard_ms: 3000
     max_inflight_requests: 64
     max_pending_requests: 256
-    cost_model: rtx4090
+    warmup_resolutions: [512, 1024, 2048]
+    warmup_steps: 5
     online_calibration: true
 
 factory_args:
@@ -22,6 +27,7 @@ factory_args:
   sample_solver: flowmatch_euler
   default_width: 1024
   default_height: 1024
+  attention_mode: agkv
 
 service:
   host: 0.0.0.0

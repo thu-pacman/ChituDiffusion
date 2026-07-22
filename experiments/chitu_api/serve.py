@@ -3,13 +3,13 @@
 import os
 import sys
 
-from experiments.chitu_api.zimage.serve import main, run_config
+from chitu_diffusers.serve.torchrun import main, run_config
 
 
 def _run_chitu_cli() -> None:
     from chitu_diffusion.core.config_loader import load_config
 
-    from experiments.chitu_api.config import StageServiceConfig
+    from chitu_diffusers.serve import StageServiceConfig
 
     args = load_config(sys.argv[1:])
     config = StageServiceConfig.from_chitu_runtime(

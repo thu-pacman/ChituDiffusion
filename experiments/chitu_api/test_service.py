@@ -3,15 +3,14 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from experiments.chitu_api.config import StageServiceConfig
-from experiments.chitu_api.protocol import (
+from chitu_diffusers.serve import StageServiceConfig, create_app
+from chitu_diffusers.serve.protocol import (
     AdmissionResponse,
     CancelResponse,
     HealthResponse,
     ImageGenerateRequest,
     RequestStatusResponse,
 )
-from experiments.chitu_api.service import create_app
 
 
 def _config() -> StageServiceConfig:
@@ -34,11 +33,21 @@ def _config() -> StageServiceConfig:
 def test_stage_config_builds_zimage_epe_overrides() -> None:
     config = _config()
     assert config.parallelism.sp == 4
+    assert config.parallelism.chitu_pool.policy == "elastic"
     assert config.service.endpoint == "http://127.0.0.1:18080"
     overrides = config.chitu_overrides()
     assert "infer.diffusion.cfg_size=1" in overrides
     assert "infer.diffusion.epe.cfg_parallel_max=1" in overrides
+    assert "infer.diffusion.epe.balanced_k=true" in overrides
     assert "infer.diffusion.elastic_allowed_widths=[1,2,4]" in overrides
+    assert "infer.diffusion.scheduling_policy=slo_elastic" in overrides
+    assert "infer.diffusion.starvation_ms=30000.0" in overrides
+    assert config.parallelism.chitu_pool.warmup_resolutions == (
+        (512, 512),
+        (1024, 1024),
+        (2048, 2048),
+    )
+    assert config.parallelism.chitu_pool.warmup_steps == 5
 
 
 def test_stage_config_rejects_non_divisor_lane_width() -> None:
@@ -53,6 +62,37 @@ def test_stage_config_rejects_non_divisor_lane_width() -> None:
         "factory_args": {"model_path": "/models/Z-Image"},
     }
     with pytest.raises(ValueError, match="divisors"):
+        StageServiceConfig.from_mapping(raw)
+
+
+@pytest.mark.parametrize("policy", ["static_cp", "static_dp"])
+def test_stage_config_accepts_static_baseline(policy: str) -> None:
+    raw = {
+        "name": "image_decode",
+        "factory": "zimage",
+        "gpu": [0, 1, 2, 3],
+        "parallelism": {
+            "sp": 4,
+            "chitu_pool": {"policy": policy, "allowed_lane_widths": [1, 2, 4]},
+        },
+        "factory_args": {"model_path": "/models/Z-Image"},
+    }
+    config = StageServiceConfig.from_mapping(raw)
+    assert config.parallelism.chitu_pool.policy == policy
+
+
+def test_stage_config_rejects_unknown_policy() -> None:
+    raw = {
+        "name": "image_decode",
+        "factory": "zimage",
+        "gpu": [0, 1, 2, 3],
+        "parallelism": {
+            "sp": 4,
+            "chitu_pool": {"policy": "unknown", "allowed_lane_widths": [1, 2, 4]},
+        },
+        "factory_args": {"model_path": "/models/Z-Image"},
+    }
+    with pytest.raises(ValueError, match="elastic, static_cp, static_dp"):
         StageServiceConfig.from_mapping(raw)
 
 
@@ -109,6 +149,19 @@ def test_http_admission_status_and_not_ready_image() -> None:
     assert response.json()["request_id"] == "req-1"
     assert client.get("/v1/image-decode/req-1").json()["status"] == "pending"
     assert client.get("/v1/image-decode/req-1/image").status_code == 409
+
+
+def test_http_returns_validation_error_for_unsupported_resolution() -> None:
+    class RejectingBackend(_FakeBackend):
+        def submit(self, request: ImageGenerateRequest) -> AdmissionResponse:
+            raise ValueError("unsupported resolution")
+
+    client = TestClient(create_app(RejectingBackend()))
+    response = client.post(
+        "/v1/image-decode",
+        json={"request_id": "req-bad", "prompt": "test", "width": 768, "height": 768},
+    )
+    assert response.status_code == 422
 
 
 def test_http_returns_completed_png() -> None:
