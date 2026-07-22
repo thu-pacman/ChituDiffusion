@@ -138,6 +138,14 @@ third_party/Cubic/
 # Service runtime artifacts
 service_framework/runs/
 
+# Generated figures from the retired chitu_api prototype.
+experiments/chitu_api/figures/
+
+# EPAC raw plots are regenerated from ignored run outputs; keep final README figures.
+chitu_diffusers/benchmarks/figures/*
+!chitu_diffusers/benchmarks/figures/attention_rate.png
+!chitu_diffusers/benchmarks/figures/attention_timeline.png
+
 # CP/DP hot-switch generated experiment artifacts
 experiments/cp_dp_hot_switch/out/
 experiments/cp_dp_hot_switch/__pycache__/
