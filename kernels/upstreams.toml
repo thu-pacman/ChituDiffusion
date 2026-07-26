@@ -56,3 +56,11 @@ branch = "main"
 priority = "high"
 paths = ["vllm_omni/diffusion", "tests", "benchmarks"]
 topics = ["diffusion", "attention-backend", "sageattention3", "cudnn-attention"]
+
+[[source]]
+name = "fast-ulysses"
+url = "git@github.com:triple-mu/fast-ulysses.git"
+branch = "master"
+priority = "high"
+paths = ["fast_ulysses", "tests", "benchmark"]
+topics = ["context-parallel", "ulysses", "all-to-all", "nvshmem", "nvlink"]

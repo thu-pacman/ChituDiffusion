@@ -64,12 +64,12 @@
 |:---|:---|:---|
 | **Flux1-dev** Attention | SageAttention 达 **1.160x** 加速（质量无损） | [→](ChituBench/result.md#flux1_dev_attention) |
 | **Flux1-dev** FlexCache | MeanCache 达 **4.989x**；Cubic 与 TaylorSeer 覆盖中高速区间 | [→](ChituBench/result_flexcache.md#flux1_dev_flexcache) |
-| **Flux1-dev** 序列并行 | 8-GPU Ulysses 达 **4.843x**（vs 1 GPU） | [→](ChituBench/result.md#flux1_dev_sequence_parallel) |
+| **Flux1-dev** 序列并行 | 8-GPU fast-ulysses 达 **5.55x**（vs 1 GPU） | [→](ChituBench/result_parallel_dit.md#flux1_dev_sequence_parallel) |
 | **Flux2-klein** Attention | SageAttention 达 **1.163x** | [→](ChituBench/result.md#flux2_klein_attention) |
 | **Wan2.1-T2V-1.3B** Attention | Sparge 达 **2.228x**；Torch SDPA 保持最佳质量 | [→](ChituBench/result.md#wan2_1_t2v_1_3b_attention) |
 | **Wan2.1-T2V-1.3B** 并行 | 16-GPU 达 **12.813x**（vs 1 GPU）🔥 | [→](ChituBench/result_parallel_dit.md#wan2_1_t2v_1_3b_parallel) |
 | **Wan2.1-T2V-1.3B** FlexCache | MeanCache30 达 **1.658x**（PSNR 35.60）；Cubic **1.568-2.203x** | [→](ChituBench/result_flexcache.md#wan2_1_t2v_1_3b_flexcache) |
-| **Qwen-Image** 并行 | 8-GPU CFG + image CP4 达 **5.404x** | [→](ChituBench/result.md#qwen_image_parallel) |
+| **Qwen-Image** 并行 | 8-GPU CFG + fast-ulysses CP4 达 **5.86x** | [→](ChituBench/result_parallel_dit.md#qwen_image_parallel) |
 | **Qwen-Image** FlexCache | MeanCache 覆盖 **3.616x / 5.331x / 9.092x** 三档 | [→](ChituBench/result_flexcache.md#qwen_image_flexcache) |
 | **Z-Image** FlexCache | Runtime、单卡 FlashAttention、MeanCache 与 TracePlanner 探索已接入 | [→](ChituBench/configs/z_image/flexcache/base_flash.yaml) |
 
@@ -181,6 +181,7 @@ uv sync --extra sage          # SageAttention
 uv sync --extra sparge        # SpargeAttention
 uv sync --extra flash         # FlashAttention
 uv sync --extra flashinfer    # FlashInfer
+uv sync --extra fast-ulysses  # Hopper NVSHMEM Ulysses transport
 uv sync --extra eval          # 评估指标 (PSNR, LPIPS, HPSv3...)
 ```
 
@@ -189,6 +190,8 @@ uv sync --extra eval          # 评估指标 (PSNR, LPIPS, HPSv3...)
 `matplotlib` / `tensorboard`。
 
 > ⚠️ CUDA 扩展需要在 GPU 计算节点上编译，确保 CUDA toolkit 与 PyTorch 版本匹配。
+> fast-ulysses 还要求单节点 NVLink/P2P、NVSHMEM 3.7+；完整版本矩阵与
+> auto/NCCL 回退规则见 [安装指南](docs/install_and_launch.md#optional-fast-ulysses-transport)。
 
 也支持手动环境配置：
 
@@ -411,12 +414,12 @@ A Feature-Cache-native evaluation suite that compares speed, quality, and memory
 |:---|:---|:---|
 | **Flux1-dev** Attention | SageAttention reaches **1.160x** (quality-preserving) | [→](ChituBench/result.md#flux1_dev_attention) |
 | **Flux1-dev** FlexCache | MeanCache reaches **4.989x**; Cubic & TaylorSeer cover mid/high-speed frontier | [→](ChituBench/result_flexcache.md#flux1_dev_flexcache) |
-| **Flux1-dev** Sequence Parallel | 8-GPU Ulysses reaches **4.843x** (vs 1 GPU) | [→](ChituBench/result.md#flux1_dev_sequence_parallel) |
+| **Flux1-dev** Sequence Parallel | 8-GPU fast-ulysses reaches **5.55x** (vs 1 GPU) | [→](ChituBench/result_parallel_dit.md#flux1_dev_sequence_parallel) |
 | **Flux2-klein** Attention | SageAttention reaches **1.163x** | [→](ChituBench/result.md#flux2_klein_attention) |
 | **Wan2.1-T2V-1.3B** Attention | Sparge reaches **2.228x**; Torch SDPA keeps best quality | [→](ChituBench/result.md#wan2_1_t2v_1_3b_attention) |
 | **Wan2.1-T2V-1.3B** Parallel | 16-GPU reaches **12.813x** (vs 1 GPU) 🔥 | [→](ChituBench/result_parallel_dit.md#wan2_1_t2v_1_3b_parallel) |
 | **Wan2.1-T2V-1.3B** FlexCache | MeanCache30 reaches **1.658x** (PSNR 35.60); Cubic **1.568-2.203x** | [→](ChituBench/result_flexcache.md#wan2_1_t2v_1_3b_flexcache) |
-| **Qwen-Image** Parallel | 8-GPU CFG + image CP4 reaches **5.404x** | [→](ChituBench/result.md#qwen_image_parallel) |
+| **Qwen-Image** Parallel | 8-GPU CFG + fast-ulysses CP4 reaches **5.86x** | [→](ChituBench/result_parallel_dit.md#qwen_image_parallel) |
 | **Qwen-Image** FlexCache | MeanCache spans **3.616x / 5.331x / 9.092x** speed-quality points | [→](ChituBench/result_flexcache.md#qwen_image_flexcache) |
 | **Z-Image** FlexCache | Runtime path, single-GPU FlashAttention, MeanCache, and TracePlanner probes are integrated | [→](ChituBench/configs/z_image/flexcache/base_flash.yaml) |
 
@@ -528,6 +531,7 @@ uv sync --extra sage          # SageAttention
 uv sync --extra sparge        # SpargeAttention
 uv sync --extra flash         # FlashAttention
 uv sync --extra flashinfer    # FlashInfer
+uv sync --extra fast-ulysses  # Hopper NVSHMEM Ulysses transport
 uv sync --extra eval          # Metrics (PSNR, LPIPS, HPSv3...)
 ```
 
@@ -536,6 +540,9 @@ The `eval` extra contains the ChituBench/runtime quality stack: `scikit-image`,
 `matplotlib` / `tensorboard` required by the HPSv3 import chain.
 
 > ⚠️ Build CUDA extension extras on a GPU compute node whose CUDA toolkit matches the selected PyTorch build.
+> fast-ulysses additionally requires a single-node NVLink/P2P topology and
+> NVSHMEM 3.7+. See the [installation guide](docs/install_and_launch.md#optional-fast-ulysses-transport)
+> for the complete version matrix and auto/NCCL fallback policy.
 
 Manual environments are also supported:
 

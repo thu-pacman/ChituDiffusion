@@ -18,6 +18,7 @@ export CHITUBENCH_NUM_SEEDS="${CHITUBENCH_NUM_SEEDS:-3}"
 export CHITUBENCH_BASE_SEED="${CHITUBENCH_BASE_SEED:-42}"
 export CHITUBENCH_WARMUP_RUNS="${CHITUBENCH_WARMUP_RUNS:-1}"
 export CHITUBENCH_CASES="${CHITUBENCH_CASES:-baseline_1gpu ring_2gpu ulysses_2gpu ring_4gpu usp_r2u2_4gpu ulysses_4gpu ring_8gpu usp_r4u2_8gpu ulysses_8gpu}"
+export CHITUBENCH_CP_BACKEND="${CHITUBENCH_CP_BACKEND:-auto}"
 
 mkdir -p "$RESULT_ROOT/configs"
 
@@ -25,6 +26,7 @@ render_config() {
   local source_config="$1"
   local output_config="$2"
   "$PYTHON_BIN" - "$source_config" "$output_config" "$RESULT_ROOT" <<'PY'
+import os
 import sys
 from pathlib import Path
 import yaml
@@ -32,6 +34,7 @@ import yaml
 source, output, result_root = sys.argv[1:4]
 cfg = yaml.safe_load(Path(source).read_text())
 cfg.setdefault("output", {})["root_dir"] = result_root
+cfg.setdefault("infer", {})["cp_backend"] = os.environ["CHITUBENCH_CP_BACKEND"]
 Path(output).parent.mkdir(parents=True, exist_ok=True)
 Path(output).write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
 PY

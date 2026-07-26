@@ -10,7 +10,10 @@ from kernel_adapters.varlen import (
     pack_qkv,
     scatter_padded,
 )
-from chitu_diffusion.core.distributed.parallel_state import get_cp_group, get_up_group
+from chitu_diffusion.core.distributed.parallel_state import (
+    get_cp_group,
+    get_ulysses_group,
+)
 
 from logging import getLogger
 from chitu_diffusion.runtime.parallel_utils import update_out_and_lse, squeeze_and_transpose
@@ -840,7 +843,7 @@ class DiffusionAttention_with_CP:
             return serial()
 
         ulysses_size = self.cp_size if self.cp_size <= self.ulysses_limit else self.ulysses_limit
-        ulysses_group = get_up_group(ulysses_size)
+        ulysses_group = get_ulysses_group(ulysses_size)
         seq_dim, head_dim = 1, 2
         cur = torch.cuda.current_stream()
         cs = self._get_cp_comm_stream()
@@ -905,7 +908,7 @@ class DiffusionAttention_with_CP:
         max_seqlen_k = attn_kwargs["max_seqlen_k"]
 
         if ulysses_size > 1:
-            ulysses_group = get_up_group(ulysses_size)
+            ulysses_group = get_ulysses_group(ulysses_size)
 
         if use_varlen:
             seq_dim = 0
@@ -1059,7 +1062,7 @@ class DiffusionAttention_with_CP:
         seq_dim = 1
         head_dim = 2
         if ulysses_size > 1:
-            ulysses_group = get_up_group(ulysses_size)
+            ulysses_group = get_ulysses_group(ulysses_size)
             ulysses_rank = ulysses_group.rank_in_group
             txt_q = torch.tensor_split(txt_q, ulysses_size, head_dim)[ulysses_rank].contiguous()
             txt_k = torch.tensor_split(txt_k, ulysses_size, head_dim)[ulysses_rank].contiguous()
@@ -1226,7 +1229,7 @@ class DiffusionAttention_with_CP:
         deterministic: bool,
         ulysses_size: int,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        ulysses_group = get_up_group(ulysses_size)
+        ulysses_group = get_ulysses_group(ulysses_size)
         ulysses_rank = ulysses_group.rank_in_group
         seq_dim, head_dim = 1, 2
         cur = torch.cuda.current_stream()

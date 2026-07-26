@@ -47,7 +47,7 @@ from typing import Optional, Tuple
 import torch
 import torch.distributed as dist
 
-from chitu_diffusion.core.distributed.parallel_state import get_up_group
+from chitu_diffusion.core.distributed.parallel_state import get_ulysses_group
 from chitu_diffusion.runtime.parallel_utils import update_out_and_lse
 
 logger = getLogger(__name__)
@@ -426,6 +426,11 @@ class ImageContextParallelAttention:
             lambda: grp.all_to_all(tensor, scatter_dim, gather_dim), "a2a", recv_bytes
         )
 
+    def _reset_ulysses_all_to_all_sequence(self) -> None:
+        reset = getattr(self._group, "reset_all_to_all_sequence", None)
+        if reset is not None:
+            reset()
+
     def _all_gather_heads(self, tensor: torch.Tensor) -> torch.Tensor:
         grp = self._group
         tensor = tensor.contiguous()
@@ -740,6 +745,7 @@ class ImageContextParallelAttention:
     def _attn_ulysses(self, txt_q, txt_k, txt_v, img_q, img_k, img_v):
         """DeepSpeed-Ulysses: all-to-all swaps sequence-sharding for head-sharding,
         compute full-sequence attention on a head slice, then swap back."""
+        self._reset_ulysses_all_to_all_sequence()
         grp = self._group
         cp = grp.group_size
         r = grp.rank_in_group
@@ -778,6 +784,7 @@ class ImageContextParallelAttention:
         produce_txt_k,
         produce_txt_v,
     ):
+        self._reset_ulysses_all_to_all_sequence()
         grp = self._group
         cp = grp.group_size
         r = grp.rank_in_group
@@ -830,6 +837,7 @@ class ImageContextParallelAttention:
         return txt_out.contiguous(), img_out.contiguous()
 
     def _attn_ulysses_packed_fused(self, img_len, produce_q, produce_k, produce_v):
+        self._reset_ulysses_all_to_all_sequence()
         grp = self._group
         cp = grp.group_size
         r = grp.rank_in_group
@@ -972,7 +980,7 @@ class ImageContextParallelAttention:
 
         ulysses_group = None
         if ulysses_size > 1:
-            ulysses_group = get_up_group(ulysses_size)
+            ulysses_group = get_ulysses_group(ulysses_size)
             u_rank = ulysses_group.rank_in_group
             # Text replicated everywhere -> keep only this rank's head slice.
             txt_q = torch.tensor_split(txt_q, ulysses_size, head_dim)[u_rank].contiguous()

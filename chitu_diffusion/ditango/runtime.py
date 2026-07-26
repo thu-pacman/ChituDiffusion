@@ -3,7 +3,10 @@ from typing import Dict, Optional, Tuple
 
 import torch
 
-from chitu_diffusion.core.distributed.parallel_state import get_cp_group, get_up_group
+from chitu_diffusion.core.distributed.parallel_state import (
+    get_cp_group,
+    get_ulysses_group,
+)
 from chitu_diffusion.ditango.planner import DiTangoPlanner, get_timestep
 from chitu_diffusion.ditango.state import AttentionState
 from chitu_diffusion.observability.timer import Timer
@@ -158,7 +161,7 @@ class DitangoAttention:
         }
 
         if self.ulysses_size > 1:
-            ulysses_group = get_up_group(self.ulysses_size)
+            ulysses_group = get_ulysses_group(self.ulysses_size)
             q = ulysses_group.all_to_all(q, head_dim, seq_dim)
             k = ulysses_group.all_to_all(k, head_dim, seq_dim)
             v = ulysses_group.all_to_all(v, head_dim, seq_dim)

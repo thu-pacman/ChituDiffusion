@@ -14,9 +14,9 @@ Best parallel point at each GPU count (DiT-forward speedup vs 1 GPU):
 
 | model | 1 GPU | 4 GPU | 8 GPU | 16 GPU |
 | --- | ---: | ---: | ---: | ---: |
-| Flux.1-dev (50-step, Ulysses) | 1.00x | 3.28x | 4.84x | - |
-| Flux2-klein-4B (4-step, Ulysses) | 1.00x | 3.32x | 4.88x | - |
-| Qwen-Image (50-step, CFG+CP) | 1.00x | 3.36x | 5.40x | - |
+| Flux.1-dev (50-step, Ulysses) | 1.00x | **3.39x** (fast) | **5.55x** (fast) | - |
+| Flux2-klein-4B (4-step, Ulysses) | 1.00x | 3.32x | **5.86x** (fast) | - |
+| Qwen-Image (50-step, CFG+CP) | 1.00x | 3.36x | **5.86x** (fast) | - |
 | Wan2.1-T2V-1.3B (50-step video, CFP+Ring/UP) | 1.00x | 3.85x | 7.25x | 12.81x |
 
 ## flux1_dev_sequence_parallel
@@ -68,6 +68,35 @@ Notes:
 
 ![flux1_dev_sequence_parallel scaling](plots/flux1_dev_sequence_parallel/parallel_scaling_flux1_sp_50step_20260613_144519.png)
 
+### fast-ulysses end-to-end points
+
+Run: `flux1_fast_ulysses_e2e_50step_20260726`
+
+Protocol: one 1024x1024 prompt at seed 42, 50 steps, Flash Attention, UCP pinned,
+fast-ulysses transport, two full warmup requests followed by one measured
+request per layout on `bjdb-h20-node-020`.
+
+```bash
+CHITUBENCH_CASES='ulysses_2gpu ulysses_4gpu ulysses_8gpu' \
+CHITUBENCH_PROMPT_FILE=ChituBench/prompts/flux1_fast_ulysses_e2e.json \
+CHITUBENCH_STEPS=50 \
+CHITUBENCH_NUM_SEEDS=1 \
+CHITUBENCH_WARMUP_RUNS=2 \
+CHITUBENCH_CP_BACKEND=ucp \
+CHITU_CP_ULYSSES_BACKEND=fast_ulysses \
+bash ChituBench/scripts/run_flux1_sequence_parallel.sh
+```
+
+| layout | GPUs | DiT forward (s) | denoise (s) | measured end-to-end (s) | E2E scaling vs CP2 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ulysses CP2 | 2 | 20.369 | 20.396 | 20.545 | 1.00x |
+| Ulysses CP4 | 4 | 11.230 | 11.258 | 11.377 | 1.81x |
+| Ulysses CP8 | 8 | 6.853 | 6.880 | 6.980 | 2.94x |
+
+The measured outputs remain visually equivalent across CP degrees despite
+expected reduction-order differences: relative to CP2, CP4/CP8 reach
+43.47/42.27 dB PSNR and 0.9957/0.9955 SSIM.
+
 ## flux2_klein_sequence_parallel
 
 Model: `Flux2-klein-4B`
@@ -118,6 +147,17 @@ Notes:
 ### Parallel Scaling
 
 ![flux2_klein_sequence_parallel scaling](plots/flux2_klein_sequence_parallel/parallel_scaling_flux2_klein_sp_4step_20260613_1545.png)
+
+### fast-ulysses 8-GPU point
+
+Run: `flux2_fast_ulysses_8gpu_w2m1_20260726`
+
+One 1024x1024 prompt at seed 42, 4 steps, Flash Attention, UCP pinned, two
+warmup requests and one measured request. Fast-ulysses reduced the CP8
+DiT-forward latency to **0.232s** (denoise 0.236s, measured end-to-end 0.329s),
+**16.8% below** the original native-Ulysses CP8 point and equivalent to
+**5.86x** versus the historical 1-GPU baseline. The scaling plot overlays this
+measured point on the original sweep.
 
 ## qwen_image_parallel
 
@@ -177,6 +217,17 @@ Notes:
 ### Parallel Scaling
 
 ![qwen_image_parallel scaling](plots/qwen_image_parallel/parallel_scaling_qwen_parallel_50step_20260616_cfp1up2_cfp2up4.png)
+
+### fast-ulysses 8-GPU point
+
+Run: `qwen_fast_ulysses_8gpu_w2m1_20260726`
+
+One 1328x1328 prompt at seed 42, 50 steps, Flash Attention, CFP2+UCP4, two
+warmup requests and one measured request. The two CFP branches use independent
+NVSHMEM teams. Fast-ulysses reached **23.708s** DiT-forward (24.111s denoise,
+24.265s measured end-to-end), **7.7% below** the original native-Ulysses CP4
+point and equivalent to **5.86x** versus the historical 1-GPU baseline. The
+scaling plot overlays this measured point on the original sweep.
 
 ## qwen_image_cp_backend (AGCP vs UCP)
 
@@ -497,3 +548,53 @@ Notes:
 ### Parallel Scaling
 
 ![wan2_1_t2v_1_3b_parallel scaling](plots/wan2_1_t2v_1_3b_parallel_dit/parallel_scaling_wan21_13b_parallel_2video_50step_20260619.png)
+
+## Wan UCP transport: NCCL vs fast-ulysses
+
+Model: `Wan2.1-T2V-1.3B`
+
+Family: NVSHMEM transport ablation for pure Ulysses inside two CFP branches.
+Both variants pin `infer.cp_backend=ucp`; only
+`CHITU_CP_ULYSSES_BACKEND=nccl|fast_ulysses` changes.
+
+Runs: `wan_ucp_nccl_same_node_50step_20260726` and
+`wan_ucp_fast_ulysses_ab_50step_20260726`
+
+Command shape:
+
+```bash
+CHITUBENCH_CASES='cfp2up2_4gpu cfp2up4_8gpu' \
+CHITUBENCH_STEPS=50 \
+CHITUBENCH_NUM_SEEDS=1 \
+CHITUBENCH_WARMUP_RUNS=0 \
+CHITUBENCH_CP_BACKEND=ucp \
+CHITU_CP_ULYSSES_BACKEND=<nccl|fast_ulysses> \
+bash ChituBench/scripts/run_wan2_1_t2v_1_3b_parallel_dit.sh
+```
+
+Protocol:
+
+- Same `bjdb-h20-node-020` H20 node, Flash Attention, 81 frames at 832x480.
+- Two prompts, seed 42, 50 denoising steps; no separate warmup request.
+- The generated MP4 files are byte-identical across NCCL, fast-ulysses, CP2,
+  and CP4 for each prompt (matching SHA-256).
+
+| layout | GPUs | transport | DiT forward mean (s) | denoise mean (s) | serving mean (s) | DiT delta |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| CFP2 + CP2 | 4 | NCCL | 80.521 | 80.912 | 88.163 | - |
+| CFP2 + CP2 | 4 | fast-ulysses | 79.700 | 80.091 | 87.342 | **+1.0%** |
+| CFP2 + CP4 | 8 | NCCL | 42.779 | 42.960 | 50.212 | - |
+| CFP2 + CP4 | 8 | fast-ulysses | 41.186 | 41.383 | 48.659 | **+3.7%** |
+
+Readout:
+
+- Subgroup NVSHMEM is correctness-preserving in the full Wan pipeline, including
+  collective teardown after two independent CFP branches.
+- CP2 is a stable ~1.0% DiT-forward improvement across both prompts.
+- CP4 has a larger +3.7% mean improvement, but most of it comes from the first
+  request (`+6.7%`); the second steady request is `+0.6%`. This suggests the
+  eager NVSHMEM setup avoids part of NCCL's first-collective cost, while the
+  steady-state transport gain at this model shape is modest.
+- Keep NVSHMEM optional: UCP transport auto-selection may use fast-ulysses on a
+  validated Hopper/P2P installation, while machines without the extra retain
+  NCCL without making NVSHMEM a mandatory dependency.

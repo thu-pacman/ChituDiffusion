@@ -478,6 +478,85 @@ SpargeAttention 和 PyTorch SDPA，但 FlashAttention 3 的导入分支被注释
 3. 只在 profiler 证明稀疏 attention 占优且能稳定生成 block mask 后，评估 HPC-Ops
    FP8 block-sparse prefill。
 
+## 2026-07-24：fast-ulysses NVSHMEM all-to-all
+
+- 上游：`triple-mu/fast-ulysses`，commit
+  `6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87`，Apache-2.0；检出到
+  `refs/fast-ulysses/`，并加入 `kernels/upstreams.toml`。
+- 目标：单节点 H20 NVLink 上替换纯 Ulysses CP 的 NCCL
+  `all_to_all_single`；保持 AGKV、Ring 和跨节点路径不变，并支持 CFP2
+  产生的两个 CP subgroup。
+- 环境：8×NVIDIA H20（SM90），Torch 2.9.1+cu130，CUDA 13.0 编译工具，
+  NVSHMEM 3.7.2。由于 Torch 2.9.1 元数据固定 NVSHMEM 3.3.24，验证时把
+  3.7.2 隔离到 reference checkout，未改变项目锁文件。
+- correctness：
+  - 上游 `a2a_correctness.py` 在 CP8 对 fp16/bf16、D=64/128/256/512、
+    mode0/mode1、auto/TMA/non-TMA/CE、tag alias 和混合 epoch 全部通过。
+  - 上游 `a2a_async.py` 的 async、3 in-flight QKV、mode1 roundtrip、
+    grouped barrier 和 CE deep-pile 全部通过。
+  - `experiments/fast_cp` 的 4096 image token、512 text token、H=24、D=128
+    CP8 serial/overlap 均与 NCCL 基线逐元素一致。
+  - 2026-07-26 新增 NVSHMEM subgroup 回归：4 GPU 上两个连续 CP team
+    使用不同 shape 和不同 collective 次数均逐元素一致且正常 teardown；
+    Chitu `cfg_size=2, cp_size=2` 的 `torch_sdpa` attention 与完整序列参考一致。
+- microbenchmark：
+  - CP8、H=24、D=128、N=4096：mode0 89.2→40.9 μs（2.18×），
+    mode1 60.0→40.1 μs（1.50×）。
+  - N=32760：mode0 155.5→97.0 μs（1.60×），mode1
+    150.5→117.0 μs（1.29×）。
+  - Z-Image-like CP core：NCCL serial 1.088 ms，fast-ulysses
+    1.014 ms（快 6.8%）；overlap 1.095→1.003 ms（快 8.4%）。
+  - CE sync core 为 1.100 ms，没有收益，因此未接入生产路径。
+- 端到端：Z-Image 1024²、3 steps、CP2、FlashAttention、同一 H20 节点：
+  NCCL denoise 2375.42 ms，fast-ulysses 2130.12 ms，快 10.3%；
+  overall 3590.34→3375.08 ms，快 6.0%。两张输出 PNG 逐像素一致
+  （max abs=0、SSIM=1.0）。Z-Image 当前 30 heads 不能整除 CP8，CP8 会按既有
+  逻辑退回 AGKV，因此该模型的真实 Ulysses A/B 使用 CP2。
+- 2026-07-26 Wan subgroup ChituBench：Wan2.1-T2V-1.3B、50 steps、
+  81×832×480、FlashAttention、固定 UCP、同一 `bjdb-h20-node-020`，两条 prompt：
+  - CFP2+CP2：NCCL/fast DiT-forward 80.521→79.700 s（快 1.0%），
+    denoise 80.912→80.091 s。
+  - CFP2+CP4：42.779→41.186 s（均值快 3.7%），但首请求快 6.7%、
+    第二条稳态请求仅快 0.6%，说明收益包含 NCCL first-collective 冷启动成本。
+  - 相同 prompt 的 NCCL/fast、CP2/CP4 输出 MP4 SHA-256 完全一致。
+- 2026-07-26 Flux.1 fast-only ChituBench：50 steps、1024²、FlashAttention、
+  固定 UCP、同一 `bjdb-h20-node-020`，每个 case 完整 warmup 2 次后测 1 次：
+  - CP2/CP4/CP8 DiT-forward 为 20.369/11.230/6.853 s；
+    measured end-to-end 为 20.545/11.377/6.980 s，CP4/CP8 相对 CP2
+    E2E scaling 为 1.81×/2.94×。
+  - CP4/CP8 输出相对 CP2 为 43.47/42.27 dB PSNR、
+    0.9957/0.9955 SSIM；差异来自不同 CP reduction ordering。
+- 2026-07-26 补充 8-GPU fast-only ChituBench（各完整 warmup 2 次后测 1 次）：
+  - Flux2-klein-4B、4 steps、1024²、CP8：DiT-forward 0.232 s，
+    denoise 0.236 s，measured end-to-end 0.329 s；相对历史单卡 DiT
+    baseline 为 5.86×。
+  - Qwen-Image、50 steps、1328²、CFP2+CP4 subgroup：DiT-forward
+    23.708 s，denoise 24.111 s，measured end-to-end 24.265 s；
+    相对历史单卡 DiT baseline 为 5.86×。Flux2 与 Qwen 分别运行在
+    `bjdb-h20-node-020` / `bjdb-h20-node-021`，按本次实验约定不校正节点差异。
+- 实现：新增 `kernel_adapters.fast_ulysses` 可选适配器；
+  `CHITU_CP_ULYSSES_BACKEND=auto` 默认在全 rank 探测到 Hopper、单节点
+  CUDA P2P、可加载扩展及所需 subgroup feature 时启用，否则保持 NCCL；
+  `fast_ulysses`/`nccl` 可强制选择。自动/强制 TMA 由
+  `CHITU_FAST_ULYSSES_USE_TMA` 控制。固定四个 tag slot 在每次 attention
+  前重置，避免 Q/K/V alias 和跨层 symmetric-heap 增长；终止时在所有 rank
+  collective destroy。Image CP 和通用 pure-Ulysses 都复用同一个 full-CP
+  NVSHMEM group，避免为等价的 full-size UP group 再分配一份 symmetric heap；
+  unified Ulysses+Ring 的较小 UP subgroup 保留现有 NCCL 路径。Subgroup 支持通过
+  WORLD 一次性 symmetric arena、subgroup-local bump pool 和全 rank
+  确定性创建 NVSHMEM team 实现，运行期 allocation/autotune/barrier 不跨 CFP 分支。
+- 门禁：只允许单节点、4D Ulysses layout，以及覆盖 WORLD 的连续、不相交
+  subgroup partition；强制模式下包、NVSHMEM、拓扑或 subgroup 不满足时显式
+  报错，auto 模式则一致回退 NCCL。
+  3D varlen、FP8 和 CUDA Graph capture 保留 NCCL 路径（graph replay 不能复用
+  host 侧递增的 NVSHMEM barrier epoch）。
+- 安装：新增 `uv sync --extra fast-ulysses`，锁定上游 `6e5dcb2`；构建仍要求
+  外部 CUDA toolkit 与 NVSHMEM 3.7+。锁定的上游包仅支持 WORLD group，
+  CFP2 自动启用还要求带 `SUPPORTS_WORLD_PARTITION_SUBGROUPS` 标记的 Chitu
+  subgroup build。
+- 决策：**作为 Ulysses 内部 capability-gated auto transport 采用**，但
+  NVSHMEM 保持可选依赖。后续评估 async grouped handshake；当前不采用 CE 路径。
+
 ## 记录模板
 
 ### YYYY-MM-DD：候选名称

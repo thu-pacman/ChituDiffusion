@@ -501,10 +501,14 @@ class DiffusionBackend:
             == non_expert_data_parallel_size * cfg_size * context_parallel_size
         ), f"World size not match: {world_size} != {non_expert_data_parallel_size} * {cfg_size} * {context_parallel_size}"
 
+        DiffusionBackend.parallel_plan = build_parallel_plan(
+            args, DiffusionBackend.model_adapter
+        )
         initialize_diffusion_parallel_groups(
             cfg_size= cfg_size,
             up=up,
             cp_size=context_parallel_size,
+            enable_ulysses_transport=DiffusionBackend.parallel_plan.dit.uses_ucp,
         )
 
     @staticmethod
@@ -787,7 +791,10 @@ class DiffusionBackend:
 
         # Setup environment and basic configuration
         DiffusionBackend._setup_environment(args)
-        DiffusionBackend.parallel_plan = build_parallel_plan(args, DiffusionBackend.model_adapter)
+        if DiffusionBackend.parallel_plan is None:
+            DiffusionBackend.parallel_plan = build_parallel_plan(
+                args, DiffusionBackend.model_adapter
+            )
         logger.info("Resolved parallel runtime plan: %s", DiffusionBackend.parallel_plan)
 
         # Initialize tokenizer and formatter

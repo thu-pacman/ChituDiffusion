@@ -158,6 +158,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("experiment_dir")
     parser.add_argument("--title", default="Flux1-dev Sequence Parallel Scaling")
+    parser.add_argument(
+        "--overlay-summary",
+        help="Optional summary.csv (or containing run directory) to overlay.",
+    )
+    parser.add_argument("--overlay-label", default="Fast Ulysses")
+    parser.add_argument("--output", help="Optional explicit output PNG path.")
     args = parser.parse_args()
 
     experiment_dir = Path(args.experiment_dir).resolve()
@@ -173,6 +179,21 @@ def main() -> int:
         speedup = baseline_time / float(row["dit_forward_s_mean"])
         row["speedup_vs_1gpu"] = speedup
         row["parallel_efficiency"] = speedup / GPU_COUNT.get(row["case"], 1)
+
+    overlay = []
+    if args.overlay_summary:
+        overlay_path = Path(args.overlay_summary).resolve()
+        if overlay_path.is_dir():
+            overlay_path = overlay_path / "summary.csv"
+        overlay = [
+            row
+            for row in read_summary(overlay_path)
+            if row["case"] in GPU_COUNT
+        ]
+        for row in overlay:
+            speedup = baseline_time / float(row["dit_forward_s_mean"])
+            row["speedup_vs_1gpu"] = speedup
+            row["parallel_efficiency"] = speedup / GPU_COUNT[row["case"]]
 
     (experiment_dir / "summary_parallel.json").write_text(json.dumps(ordered, indent=2), encoding="utf-8")
     with (experiment_dir / "summary_parallel.csv").open("w", encoding="utf-8", newline="") as f:
@@ -213,7 +234,10 @@ def main() -> int:
         ax.spines["left"].set_color("#cfc7bc")
         ax.spines["bottom"].set_color("#cfc7bc")
 
-    gpu_ticks = sorted({GPU_COUNT[row["case"]] for row in ordered})
+    gpu_ticks = sorted(
+        {GPU_COUNT[row["case"]] for row in ordered}
+        | {GPU_COUNT[row["case"]] for row in overlay}
+    )
     for row in ordered:
         case = row["case"]
         method = method_for_case(case)
@@ -229,6 +253,51 @@ def main() -> int:
         axes[1].scatter(x, speedup_value, s=92, color=color, marker=marker, edgecolor="white", linewidth=1.4, zorder=3)
         axes[0].annotate(label, (x, time_value), xytext=text_offset, textcoords="offset points", ha="center", fontsize=8.5, color="#3f3a34")
         axes[1].annotate(f"{format_float(speedup_value)}x", (x, speedup_value), xytext=text_offset, textcoords="offset points", ha="center", fontsize=8.5, color="#3f3a34")
+
+    for row in overlay:
+        gpu = GPU_COUNT[row["case"]]
+        x = gpu + 0.22
+        time_value = float(row["dit_forward_s_mean"])
+        speedup_value = float(row["speedup_vs_1gpu"])
+        color = "#d946ef"
+        axes[0].scatter(
+            x,
+            time_value,
+            s=120,
+            color=color,
+            marker="*",
+            edgecolor="white",
+            linewidth=1.2,
+            zorder=4,
+        )
+        axes[1].scatter(
+            x,
+            speedup_value,
+            s=120,
+            color=color,
+            marker="*",
+            edgecolor="white",
+            linewidth=1.2,
+            zorder=4,
+        )
+        axes[0].annotate(
+            f"{time_value:.2f}s",
+            (x, time_value),
+            xytext=(15, -19),
+            textcoords="offset points",
+            ha="center",
+            fontsize=8.5,
+            color="#3f3a34",
+        )
+        axes[1].annotate(
+            f"{format_float(speedup_value)}x",
+            (x, speedup_value),
+            xytext=(12, 13),
+            textcoords="offset points",
+            ha="center",
+            fontsize=8.5,
+            color="#3f3a34",
+        )
 
     ideal_x = gpu_ticks
     axes[1].plot(ideal_x, ideal_x, color="#a79f92", linewidth=1.2, linestyle=(0, (4, 4)), label="Ideal scaling")
@@ -270,11 +339,30 @@ def main() -> int:
         )
         for method in methods
     ]
+    if overlay:
+        legend_items.append(
+            Line2D(
+                [0],
+                [0],
+                marker="*",
+                color="none",
+                markerfacecolor="#d946ef",
+                markeredgecolor="white",
+                markersize=11,
+                label=args.overlay_label,
+            )
+        )
     legend_items.append(Line2D([0], [0], color="#a79f92", linewidth=1.2, linestyle=(0, (4, 4)), label="Ideal"))
     fig.legend(handles=legend_items, loc="lower center", ncol=5, frameon=False, bbox_to_anchor=(0.5, -0.01))
     fig.suptitle(args.title, fontsize=15, fontweight="semibold", color="#25211d")
     fig.tight_layout(rect=(0, 0.09, 1, 0.92), w_pad=2.0)
-    fig.savefig(plot_dir / "parallel_scaling.png", dpi=220)
+    output_path = (
+        Path(args.output).resolve()
+        if args.output
+        else plot_dir / "parallel_scaling.png"
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=220)
     plt.close(fig)
     return 0
 

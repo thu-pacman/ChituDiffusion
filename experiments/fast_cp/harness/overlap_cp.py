@@ -94,8 +94,11 @@ class OverlapCPAttention(ImageContextParallelAttention):
 
     def _serial_fused(self, img_len, produce_q, produce_k, produce_v):
         grp = self._group
-        if hasattr(grp, "reset_a2a_sequence"):
-            grp.reset_a2a_sequence()
+        reset = getattr(grp, "reset_a2a_sequence", None)
+        if reset is None:
+            reset = getattr(grp, "reset_all_to_all_sequence", None)
+        if reset is not None:
+            reset()
         q, k, v = produce_q(), produce_k(), produce_v()
         return self.attention(
             q[:, img_len:], k[:, img_len:], v[:, img_len:],
@@ -165,8 +168,11 @@ class OverlapCPAttention(ImageContextParallelAttention):
     # ------------------------------------------------------------------ #
     def _ulysses_fused(self, img_len, produce_q, produce_k, produce_v, q_pre=None):
         grp = self._group
-        if hasattr(grp, "reset_a2a_sequence"):
-            grp.reset_a2a_sequence()
+        reset = getattr(grp, "reset_a2a_sequence", None)
+        if reset is None:
+            reset = getattr(grp, "reset_all_to_all_sequence", None)
+        if reset is not None:
+            reset()
         cp = grp.group_size
         r = grp.rank_in_group
         cur = torch.cuda.current_stream()
@@ -395,8 +401,11 @@ class OverlapCPAttention(ImageContextParallelAttention):
     # ------------------------------------------------------------------ #
     def _ulysses_from_hidden(self, img_len, hs, produce_one):
         grp = self._group
-        if hasattr(grp, "reset_a2a_sequence"):
-            grp.reset_a2a_sequence()
+        reset = getattr(grp, "reset_a2a_sequence", None)
+        if reset is None:
+            reset = getattr(grp, "reset_all_to_all_sequence", None)
+        if reset is not None:
+            reset()
         cp = grp.group_size
         r = grp.rank_in_group
         cur = torch.cuda.current_stream()
@@ -469,8 +478,11 @@ class OverlapCPAttention(ImageContextParallelAttention):
 
     def _serial_from_hidden(self, img_len, hs, produce_packed):
         grp = self._group
-        if hasattr(grp, "reset_a2a_sequence"):
-            grp.reset_a2a_sequence()
+        reset = getattr(grp, "reset_a2a_sequence", None)
+        if reset is None:
+            reset = getattr(grp, "reset_all_to_all_sequence", None)
+        if reset is not None:
+            reset()
         q, k, v = produce_packed(hs)
         return self.attention(
             q[:, img_len:], k[:, img_len:], v[:, img_len:],

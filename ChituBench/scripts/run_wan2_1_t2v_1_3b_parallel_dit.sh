@@ -20,6 +20,7 @@ export CHITUBENCH_WARMUP_RUNS="${CHITUBENCH_WARMUP_RUNS:-0}"
 export CHITUBENCH_VIDEO_SIZE="${CHITUBENCH_VIDEO_SIZE:-832,480}"
 export CHITUBENCH_FRAME_NUM="${CHITUBENCH_FRAME_NUM:-81}"
 export CHITUBENCH_CASES="${CHITUBENCH_CASES:-baseline_1gpu cfp2_2gpu up2_2gpu cfp2up2_4gpu}"
+export CHITUBENCH_CP_BACKEND="${CHITUBENCH_CP_BACKEND:-auto}"
 
 mkdir -p "$RESULT_ROOT/configs"
 
@@ -31,12 +32,12 @@ render_config() {
   local up="$5"
   local ring_cudagraph="${6:-false}"
   local output_config="$RESULT_ROOT/configs/${case_id}.yaml"
-  "$PYTHON_BIN" - "$CONFIG" "$output_config" "$RESULT_ROOT" "$case_id" "$nodes" "$gpus_per_node" "$cfp" "$up" "$ring_cudagraph" <<'PY'
+  "$PYTHON_BIN" - "$CONFIG" "$output_config" "$RESULT_ROOT" "$case_id" "$nodes" "$gpus_per_node" "$cfp" "$up" "$ring_cudagraph" "$CHITUBENCH_CP_BACKEND" <<'PY'
 import sys
 from pathlib import Path
 import yaml
 
-source, output, result_root, case_id, nodes, gpus_per_node, cfp, up, ring_cudagraph = sys.argv[1:10]
+source, output, result_root, case_id, nodes, gpus_per_node, cfp, up, ring_cudagraph, cp_backend = sys.argv[1:11]
 cfg = yaml.safe_load(Path(source).read_text(encoding="utf-8"))
 cfg.setdefault("launch", {})["tag"] = f"chitubench-wan21-13b-parallel-{case_id}"
 cfg["launch"]["num_nodes"] = int(nodes)
@@ -44,6 +45,7 @@ cfg["launch"]["gpus_per_node"] = int(gpus_per_node)
 cfg.setdefault("launch", {}).setdefault("srun", {})["job_name"] = f"chitubench-wan21-parallel-{case_id}"
 cfg.setdefault("parallel", {})["cfp"] = int(cfp)
 cfg["parallel"]["up"] = int(up)
+cfg.setdefault("infer", {})["cp_backend"] = cp_backend
 cfg.setdefault("output", {})["root_dir"] = result_root
 cfg["output"]["log_ranks"] = [0]
 if str(ring_cudagraph).lower() in {"1", "true", "yes", "on"}:
@@ -78,7 +80,7 @@ run_case() {
   rendered="$(render_config "$case_id" "$nodes" "$gpus_per_node" "$cfp" "$up" "$ring_cudagraph")"
   export CHITUBENCH_CASE_ID="$case_id"
   export CHITU_RUN_TASK_ID="$case_id"
-  echo "=== ChituBench [$EXPERIMENT_ID] $case_id nodes=$nodes gpus_per_node=$gpus_per_node cfp=$cfp up=$up ring_cudagraph=$ring_cudagraph ==="
+  echo "=== ChituBench [$EXPERIMENT_ID] $case_id nodes=$nodes gpus_per_node=$gpus_per_node cfp=$cfp up=$up cp_backend=$CHITUBENCH_CP_BACKEND ring_cudagraph=$ring_cudagraph ==="
   if [[ "$ring_cudagraph" == "true" ]]; then
     export NCCL_GRAPH_MIXING_SUPPORT=1
   fi

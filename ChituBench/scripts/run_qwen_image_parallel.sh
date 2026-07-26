@@ -17,6 +17,7 @@ export CHITUBENCH_BASE_SEED="${CHITUBENCH_BASE_SEED:-42}"
 export CHITUBENCH_WARMUP_RUNS="${CHITUBENCH_WARMUP_RUNS:-0}"
 export CHITUBENCH_IMAGE_SIZE="${CHITUBENCH_IMAGE_SIZE:-1328,1328}"
 export CHITUBENCH_ATTN_TYPE="${CHITUBENCH_ATTN_TYPE:-flash_attn}"
+export CHITUBENCH_CP_BACKEND="${CHITUBENCH_CP_BACKEND:-auto}"
 
 mkdir -p "$RESULT_ROOT/configs"
 
@@ -27,6 +28,7 @@ render_config() {
   local up="$4"
   local output_config="$RESULT_ROOT/configs/${case_id}.yaml"
   "$PYTHON_BIN" - "$BASE_CONFIG" "$output_config" "$RESULT_ROOT" "$case_id" "$gpus" "$cfp" "$up" "$CHITUBENCH_ATTN_TYPE" <<'PY'
+import os
 import sys
 from pathlib import Path
 
@@ -43,6 +45,7 @@ cfg.setdefault("launch", {}).setdefault("srun", {})["job_name"] = f"chitubench-q
 cfg.setdefault("parallel", {})["cfp"] = cfp
 cfg["parallel"]["up"] = up
 cfg.setdefault("infer", {})["attn_type"] = attn_type
+cfg["infer"]["cp_backend"] = os.environ["CHITUBENCH_CP_BACKEND"]
 cfg.setdefault("output", {})["root_dir"] = result_root
 cfg["output"]["log_ranks"] = [0]
 Path(output).parent.mkdir(parents=True, exist_ok=True)

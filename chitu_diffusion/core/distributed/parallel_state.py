@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import socket
 from typing import Optional, Any, List, Dict
 
 import torch
@@ -326,6 +327,27 @@ def get_up_group(size: int) -> CommGroup:
         raise ValueError(f"UP group of size {size} not initialized.")
     return _UP_GROUP_DICT[size]
 
+def get_ulysses_group(size: int) -> CommGroup:
+    """Return the transport group for one Ulysses attention invocation.
+
+    The optional fast-ulysses backend owns the full CP group. Reuse that group
+    for pure Ulysses instead of constructing a second NVSHMEM group and
+    symmetric heap for the equivalent full-size UP topology. Unified
+    Ulysses+Ring keeps using its existing NCCL UP subgroup.
+    """
+    cp_group = get_cp_group()
+    if not cp_group.fast_ulysses_enabled:
+        return get_up_group(size)
+    if size != cp_group.group_size:
+        return get_up_group(size)
+    cp_group.reset_all_to_all_sequence()
+    return cp_group
+
+def destroy_diffusion_kernel_backends() -> None:
+    """Collectively release optional communication backends before PG teardown."""
+    if _CP_GROUP is not None:
+        _CP_GROUP.destroy_fast_ulysses()
+
 def initialize_cfg_group(cfg_size: int, rank: int, local_rank: int, world_size: int):
     global _CFG_GROUP
     assert _CFG_GROUP is None
@@ -344,7 +366,14 @@ def initialize_cfg_group(cfg_size: int, rank: int, local_rank: int, world_size: 
     else:
         raise ValueError("CFG size can only be 1 or 2")
 
-def initialize_cp_group(cp_size: int, cfg_size: int, rank: int, local_rank: int, world_size: int):
+def initialize_cp_group(
+    cp_size: int,
+    cfg_size: int,
+    rank: int,
+    local_rank: int,
+    world_size: int,
+    enable_ulysses_transport: bool = True,
+):
     global _CP_GROUP
     assert _CP_GROUP is None
     
@@ -360,6 +389,54 @@ def initialize_cp_group(cp_size: int, cfg_size: int, rank: int, local_rank: int,
         rank_list = [list(range(world_size))]
     
     _CP_GROUP = CommGroup(rank_list, rank, local_rank)
+    if _CP_GROUP.group_size == 1 or not enable_ulysses_transport:
+        return
+    ulysses_backend = os.environ.get("CHITU_CP_ULYSSES_BACKEND", "auto").strip().lower()
+    if ulysses_backend in ("", "nccl", "torch"):
+        return
+    if ulysses_backend in ("auto", "fast_ulysses"):
+        from kernel_adapters.fast_ulysses import probe_fast_ulysses
+
+        local_ready, local_reason = probe_fast_ulysses(
+            _CP_GROUP.device,
+            require_hopper=ulysses_backend == "auto",
+            require_subgroups=_CP_GROUP.group_size
+            != torch.distributed.get_world_size(),
+        )
+        readiness: list[tuple[bool, str, str]] = [
+            (False, "capability probe did not run", "")
+        ] * torch.distributed.get_world_size()
+        torch.distributed.all_gather_object(
+            readiness,
+            (local_ready, local_reason, socket.gethostname()),
+            group=torch.distributed.group.WORLD,
+        )
+        failures = [
+            f"rank {probe_rank}: {reason}"
+            for probe_rank, (ready, reason, _) in enumerate(readiness)
+            if not ready
+        ]
+        hosts = sorted({host for _, _, host in readiness})
+        if len(hosts) != 1:
+            failures.append(f"WORLD spans multiple hosts: {hosts}")
+        if failures:
+            message = "fast-ulysses unavailable; " + "; ".join(failures)
+            if ulysses_backend == "fast_ulysses":
+                raise RuntimeError(message)
+            if rank == 0:
+                logger.info("%s. Falling back to NCCL Ulysses transport.", message)
+            return
+        _CP_GROUP.enable_fast_ulysses()
+        if rank == 0:
+            logger.info(
+                "Selected fast-ulysses for Ulysses transport (%s).",
+                local_reason,
+            )
+        return
+    raise ValueError(
+        "CHITU_CP_ULYSSES_BACKEND must be auto, nccl, or fast_ulysses, "
+        f"got {ulysses_backend!r}."
+    )
 
 def initialize_up_groups(up_sizes: List[int], up: int, cfg_size: int, rank: int, local_rank: int, world_size: int):
     global _UP_GROUP_DICT
@@ -402,12 +479,14 @@ def initialize_diffusion_parallel_groups(
     cfg_size: int,
     cp_size: int,
     up: int = 8,
+    enable_ulysses_transport: bool = True,
 ):
     global _PARALLEL_GROUPS_INITIALIZED
     assert not _PARALLEL_GROUPS_INITIALIZED
     
     logger.info(
-        f"initialize_diffusion_parallel_groups: {cfg_size=}, {cp_size=}, {up=}"
+        "initialize_diffusion_parallel_groups: "
+        f"{cfg_size=}, {cp_size=}, {up=}, {enable_ulysses_transport=}"
     )
     
     rank = torch.distributed.get_rank()
@@ -417,7 +496,14 @@ def initialize_diffusion_parallel_groups(
     # Initialize groups in order
     initialize_world_group(rank, local_rank, world_size)
     initialize_cfg_group(cfg_size, rank, local_rank, world_size)
-    initialize_cp_group(cp_size, cfg_size, rank, local_rank, world_size)
+    initialize_cp_group(
+        cp_size,
+        cfg_size,
+        rank,
+        local_rank,
+        world_size,
+        enable_ulysses_transport=enable_ulysses_transport,
+    )
 
     max_up_size = min(up, cp_size)
     up_sizes = [max_up_size, max_up_size // 2] # TODO: More up sizes to support DiTango Support

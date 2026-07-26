@@ -27,7 +27,10 @@ from chitu_diffusion.core.utils import (
 )
 from chitu_diffusion.core.schemas.utils import ModelConfigResolver
 from chitu_diffusion.core.utils import ceil_div
-from chitu_diffusion.core.distributed.parallel_state import get_dp_group
+from chitu_diffusion.core.distributed.parallel_state import (
+    destroy_diffusion_kernel_backends,
+    get_dp_group,
+)
 from chitu_diffusion.core.logging_utils import setup_chitu_logging
 
 from chitu_diffusion.runtime.task import DiffusionTask, DiffusionTaskPool, DiffusionTaskType
@@ -309,10 +312,14 @@ def chitu_terminate():
     Terminated and sending a termination signal through the generator.
     """
     if DiffusionBackend.state == BackendState.Terminated:
+        destroy_diffusion_kernel_backends()
         return
     if torch.distributed.get_rank() == 0:
         DiffusionTaskPool.request_shutdown("Chitu terminate requested")
-    chitu_generate()
+    try:
+        chitu_generate()
+    finally:
+        destroy_diffusion_kernel_backends()
 
 
 def chitu_cancel_current(reason: str = "Current generation cancelled"):

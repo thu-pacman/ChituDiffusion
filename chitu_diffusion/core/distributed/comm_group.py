@@ -105,6 +105,7 @@ class CommGroup:
         self.moe_comm_group = None
         self.p2p_ops = []
         self.p2p_reqs= None
+        self._fast_ulysses = None
 
     @property
     def next_rank(self):
@@ -119,6 +120,10 @@ class CommGroup:
         rank_in_group = self.rank_in_group
         group_size = self.group_size
         return self.rank_list[(rank_in_group - 1) % group_size]
+
+    @property
+    def fast_ulysses_enabled(self) -> bool:
+        return self._fast_ulysses is not None
 
     @property
     def is_first_rank(self):
@@ -326,10 +331,30 @@ class CommGroup:
         self.p2p_ops.clear()
         self.p2p_reqs = None
 
+    def enable_fast_ulysses(self):
+        if self._fast_ulysses is not None or self.group_size == 1:
+            return
+        from kernel_adapters.fast_ulysses import FastUlyssesAllToAll
+
+        self._fast_ulysses = FastUlyssesAllToAll(self.gpu_group, self.device)
+
+    def reset_all_to_all_sequence(self):
+        if self._fast_ulysses is not None:
+            self._fast_ulysses.reset_sequence()
+
+    def destroy_fast_ulysses(self):
+        if self._fast_ulysses is not None:
+            self._fast_ulysses.destroy()
+            self._fast_ulysses = None
+
     def all_to_all(self, input_: torch.Tensor, scatter_dim: int = 2, gather_dim: int = 1) -> torch.Tensor:
         world_size = self.group_size
         if world_size == 1:
             return input_
+        if self._fast_ulysses is not None and self._fast_ulysses.supports(
+            input_, scatter_dim, gather_dim
+        ):
+            return self._fast_ulysses.all_to_all(input_, scatter_dim, gather_dim)
         if self._supports_all_to_all_single(input_, scatter_dim=scatter_dim, gather_dim=gather_dim):
             return self._all_to_all_single(input_, scatter_dim=scatter_dim, gather_dim=gather_dim)
         input_list = [t.contiguous() for t in torch.tensor_split(input_, world_size, scatter_dim)]
@@ -384,5 +409,6 @@ class CommGroup:
         )
 
     def destroy(self):
-        torch.distributed.destroy_process_group(self.gpu_group)
+        self.destroy_fast_ulysses()
         torch.distributed.destroy_process_group(self.cpu_group)
+        torch.distributed.destroy_process_group(self.gpu_group)

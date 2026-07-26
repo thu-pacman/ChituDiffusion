@@ -72,6 +72,7 @@ class HarnessGroup:
         self._a2a_sequence_idx = 0
         self._symm_mem = None
         self._symm_group_name = None
+        self._fast_ulysses = None
         if self.a2a_backend in ("symm_single", "symm_pipe"):
             import torch.distributed._symmetric_memory as symm_mem
 
@@ -88,6 +89,15 @@ class HarnessGroup:
                         print(f"[harness] symm_mem.set_backend({backend!r}) failed: {exc!r}", flush=True)
             self._symm_group_name = getattr(self.gpu_group, "group_name", None) or "0"
             symm_mem.enable_symm_mem_for_group(self._symm_group_name)
+        elif self.a2a_backend in ("fast_ulysses", "fast_ulysses_ce"):
+            from fast_ulysses import UlyssesGroup
+
+            pool_bytes = int(os.environ.get("CHITU_FAST_ULYSSES_POOL_BYTES", str(2 << 30)))
+            self._fast_ulysses = UlyssesGroup(
+                process_group=self.gpu_group,
+                device=torch.device("cuda", torch.cuda.current_device()),
+                initial_pool_bytes=pool_bytes,
+            )
 
     def reset_a2a_sequence(self):
         self._a2a_sequence_idx = 0
@@ -95,6 +105,8 @@ class HarnessGroup:
     def all_to_all(self, input_: torch.Tensor, scatter_dim: int = 2, gather_dim: int = 1) -> torch.Tensor:
         if self.group_size == 1:
             return input_
+        if self.a2a_backend in ("fast_ulysses", "fast_ulysses_ce"):
+            return self._fast_all_to_all(input_, scatter_dim=scatter_dim, gather_dim=gather_dim)
         if self.a2a_backend in ("single", "symm_single", "symm_pipe"):
             return self._all_to_all_single(
                 input_, scatter_dim=scatter_dim, gather_dim=gather_dim,
@@ -105,6 +117,38 @@ class HarnessGroup:
         out_list = [torch.empty_like(in_list[0]) for _ in range(self.group_size)]
         dist.all_to_all(out_list, in_list, group=self.gpu_group)
         return torch.cat(out_list, dim=gather_dim).contiguous()
+
+    def _fast_all_to_all(
+        self,
+        input_: torch.Tensor,
+        *,
+        scatter_dim: int,
+        gather_dim: int,
+    ) -> torch.Tensor:
+        if scatter_dim == 2 and gather_dim == 1:
+            mode = 0
+        elif scatter_dim == 1 and gather_dim == 2:
+            mode = 1
+        else:
+            raise NotImplementedError(
+                "fast_ulysses supports only the Ulysses 4D layouts, got "
+                f"scatter_dim={scatter_dim}, gather_dim={gather_dim}"
+            )
+        slot = self._a2a_sequence_idx
+        self._a2a_sequence_idx += 1
+        tag = f"chitu_harness_{slot}"
+        if self.a2a_backend == "fast_ulysses_ce":
+            return self._fast_ulysses.all_to_all_single_4d_ce(
+                input_, mode=mode, tag=tag
+            )
+        return self._fast_ulysses.all_to_all_single_4d(
+            input_, mode=mode, tag=tag, use_tma=None
+        )
+
+    def destroy(self):
+        if self._fast_ulysses is not None:
+            self._fast_ulysses.destroy()
+            self._fast_ulysses = None
 
     def _symm_buffers(self, shape, dtype, device, slot: int):
         key = (slot, tuple(shape), dtype, device.index)
@@ -375,6 +419,11 @@ def main():
                     help="capture serial-graph then overlap-graph once each, with stage prints, then exit")
     ap.add_argument("--profile-parts", action="store_true",
                     help="time projection / gather / attention separately for the overlap ceiling")
+    ap.add_argument(
+        "--production-group",
+        action="store_true",
+        help="use the production CommGroup (and enable its fast_ulysses adapter)",
+    )
     ap.add_argument("--iters", type=int, default=30)
     ap.add_argument("--warmup", type=int, default=10)
     # Z-Image 1024x1024-ish defaults; override per experiment.
@@ -420,12 +469,28 @@ def main():
             print(f"[harness] ulysses needs heads {args.heads} divisible by cp_size {world}", flush=True)
 
     # CP group over all ranks (the harness uses the full world as one CP group).
-    group = HarnessGroup(dist.group.WORLD, list(range(world)))
+    if args.production_group:
+        from chitu_diffusion.core.distributed.comm_group import CommGroup
+
+        group = CommGroup([list(range(world))], rank, local_rank)
+        if a2a_backend == "fast_ulysses":
+            group.enable_fast_ulysses()
+        elif a2a_backend != "single":
+            raise ValueError(
+                "--production-group supports CHITU_HARNESS_A2A=single or fast_ulysses"
+            )
+    else:
+        group = HarnessGroup(dist.group.WORLD, list(range(world)))
     cp = OverlapCPAttention(sdpa_backend, mode=args.mode, profile=False)
     cp.enable(group)
     has_fused = hasattr(cp, "attention_fused")
     used_cuda_graph = False
-    used_symm_mem = a2a_backend in ("symm_single", "symm_pipe")
+    used_external_a2a = a2a_backend in (
+        "symm_single",
+        "symm_pipe",
+        "fast_ulysses",
+        "fast_ulysses_ce",
+    )
 
     s_img_local = args.img_tokens // world
     # Per-rank generator -> each rank holds its own shard, but seed is fixed so a
@@ -758,11 +823,13 @@ def main():
                           f"active in this env; trace is CPU-only.", flush=True)
             dist.barrier()
 
-    if used_cuda_graph or used_symm_mem:
+    if used_cuda_graph or used_external_a2a:
         torch.cuda.synchronize()
+        group.destroy()
         _exit_after_graph()
 
     dist.barrier()
+    group.destroy()
     dist.destroy_process_group()
 
 

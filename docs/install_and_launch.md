@@ -40,6 +40,7 @@ uv sync --extra sparge
 uv sync --extra flash
 uv sync --extra flash3  # Hopper SM90; loads kernels-community/flash-attn3 on first use
 uv sync --extra flashinfer
+uv sync --extra fast-ulysses
 uv sync --extra eval
 ```
 
@@ -50,6 +51,71 @@ runtime evaluator: `scikit-image`, `lpips`, `pytorch-fid`, `torch-fidelity`,
 
 Build CUDA extension extras on a GPU machine whose CUDA toolkit and PyTorch
 version match the selected wheel index.
+
+### Optional fast-ulysses transport
+
+`fast-ulysses` is a compiled NVSHMEM extension, not a portable Python-only
+dependency. ChituDiffusion pins the reviewed upstream revision and exposes it
+through the `fast-ulysses` uv extra, but the host must provide the CUDA toolkit
+and NVSHMEM installation:
+
+```bash
+export CUDA_HOME=/usr/local/cuda
+export CUDACXX="$CUDA_HOME/bin/nvcc"
+export NVSHMEM_HOME=/opt/nvshmem
+export FAST_ULYSSES_CUDA_ARCH=90  # H100/H200/H20
+
+uv sync --extra fast-ulysses
+```
+
+Validated stack:
+
+- Linux, Python 3.12, PyTorch 2.9.1+cu130.
+- CUDA toolkit 13.0, including a matching compiler, runtime, and CCCL headers.
+- NVSHMEM 3.7.2; NVSHMEM 3.7 or newer is required.
+- One node with 2-8 mutually P2P-reachable NVIDIA GPUs. Hopper SM90 with NVLink
+  is the validated and automatically selected target.
+
+The CUDA toolkit must match the CUDA major/minor used by PyTorch. In particular,
+do not mix CUDA 13.2 `nvcc`/PTX tools with the cu130 headers and runtime. Set
+`LD_LIBRARY_PATH` so the CUDA runtime and `$NVSHMEM_HOME/lib` are visible when
+importing the extension.
+
+The upstream uv package supports a WORLD-spanning Ulysses group. CFP2 requires
+the Chitu subgroup extension (`SUPPORTS_WORLD_PARTITION_SUBGROUPS`) in the
+reviewed development checkout under `refs/fast-ulysses`. Install that checkout
+instead when testing CFP2:
+
+```bash
+NVSHMEM_HOME=/opt/nvshmem \
+  uv pip install --no-build-isolation -e refs/fast-ulysses
+```
+
+Without the subgroup feature marker, transport auto-selection safely retains
+NCCL for subgroup layouts. Publishing the subgroup revision upstream (or from a
+maintained fork) is required before the one-command uv extra can provide CFP2
+support on a fresh clone.
+
+At runtime there are two independent choices:
+
+- `infer.cp_backend=auto` selects AGCP or UCP.
+- Within UCP, `CHITU_CP_ULYSSES_BACKEND=auto` (the default) selects
+  fast-ulysses only when every rank reports Hopper, a single-node P2P topology,
+  a loadable extension, and required subgroup support. Otherwise it retains
+  NCCL.
+
+Explicit overrides are available for diagnosis and benchmarking:
+
+```bash
+export CHITU_CP_ULYSSES_BACKEND=fast_ulysses  # fail if prerequisites are absent
+export CHITU_CP_ULYSSES_BACKEND=nccl          # always use the Torch/NCCL path
+export CHITU_FAST_ULYSSES_USE_TMA=auto        # auto, tma, or non_tma
+export CHITU_FAST_ULYSSES_POOL_BYTES=$((2 << 30))
+```
+
+Fast transport is limited to eager, uniform 4D FP16/BF16 Ulysses swaps. CUDA
+Graph capture, 3D varlen attention, FP8 communication, multi-node layouts, and
+hybrid Ulysses+Ring groups with a smaller UP subgroup continue to use NCCL.
 
 ## Install With pip
 
