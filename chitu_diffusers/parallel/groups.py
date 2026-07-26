@@ -25,12 +25,43 @@ class ActiveLaneTopology:
         return self.rank_in_lane == 0
 
 
+@dataclass(frozen=True)
+class CfgParallelTopology:
+    """CFP-2 placement for one lane: cond half, uncond half, paired shards."""
+
+    lane_ranks: tuple[int, ...]
+    cp_ranks: tuple[int, ...]
+    cfg_ranks: tuple[int, int]
+    branch_index: int
+    cp_rank: int
+    cp_width: int
+    cp_process_group: object | None
+    cfg_process_group: object
+
+    @property
+    def branch_name(self) -> str:
+        return "cond" if self.branch_index == 0 else "uncond"
+
+
+def cfg_parallel_rank_groups(
+    lane_ranks: tuple[int, ...],
+) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], tuple[tuple[int, int], ...]]:
+    """Return the two CP halves and shard-aligned CFG pairs for a CFP-2 lane."""
+    lane = tuple(int(rank) for rank in lane_ranks)
+    if len(lane) < 2 or len(lane) % 2:
+        raise ValueError("CFP-2 requires an even lane width of at least 2")
+    stride = len(lane) // 2
+    cp_groups = (lane[:stride], lane[stride:])
+    cfg_pairs = tuple(zip(cp_groups[0], cp_groups[1], strict=True))
+    return cp_groups, cfg_pairs
+
+
 class EpeParallelContext:
     """Instance-local EPAC process-group registry and active lane view.
 
     All configured groups are created in a deterministic order during startup.
     Activating a lane only changes an instance field; it never calls new_group().
-    The registry is shared by context parallelism and future CFG parallelism.
+    The registry is shared by context parallelism and CFG parallelism.
     """
 
     def __init__(
@@ -42,6 +73,7 @@ class EpeParallelContext:
         allowed_widths: tuple[int, ...],
         groups: dict[tuple[int, ...], object | None],
         usp_topologies: dict[tuple[int, ...], UspTopology],
+        cfg_topologies: dict[tuple[int, ...], CfgParallelTopology],
         owned_groups: tuple[object, ...],
         owns_world: bool,
     ) -> None:
@@ -51,6 +83,7 @@ class EpeParallelContext:
         self.allowed_widths = allowed_widths
         self._groups = groups
         self._usp_topologies = usp_topologies
+        self._cfg_topologies = cfg_topologies
         self._owned_groups = owned_groups
         self._owns_world = owns_world
         self._worker_control_plane: object | None = None
@@ -138,7 +171,10 @@ class EpeParallelContext:
             return group
 
         usp_topologies: dict[tuple[int, ...], UspTopology] = {}
-        for width in widths:
+        topology_widths = tuple(
+            sorted({*widths, *(width // 2 for width in widths if width % 2 == 0)})
+        )
+        for width in topology_widths:
             effective_ulysses = min(int(ulysses_degree), width)
             while width % effective_ulysses:
                 effective_ulysses -= 1
@@ -177,6 +213,33 @@ class EpeParallelContext:
                     ring_process_group=process_group_for(ring_ranks),
                 )
 
+        cfg_topologies: dict[tuple[int, ...], CfgParallelTopology] = {}
+        for width in widths:
+            if width < 2 or width % 2:
+                continue
+            for offset in range(0, world_size, width):
+                lane = tuple(range(offset, offset + width))
+                cp_groups, cfg_pairs = cfg_parallel_rank_groups(lane)
+                for subgroup in (*cp_groups, *cfg_pairs):
+                    process_group_for(subgroup)
+                if rank not in lane:
+                    continue
+                branch_index = 0 if rank in cp_groups[0] else 1
+                cp_ranks = cp_groups[branch_index]
+                cfg_ranks = next(pair for pair in cfg_pairs if rank in pair)
+                cfg_topologies[lane] = CfgParallelTopology(
+                    lane_ranks=lane,
+                    cp_ranks=cp_ranks,
+                    cfg_ranks=cfg_ranks,
+                    branch_index=branch_index,
+                    cp_rank=cp_ranks.index(rank),
+                    cp_width=len(cp_ranks),
+                    cp_process_group=process_group_for(cp_ranks),
+                    cfg_process_group=process_group_for(cfg_ranks),
+                )
+
+        groups.update(auxiliary_groups)
+
         return cls(
             rank=rank,
             world_size=world_size,
@@ -184,6 +247,7 @@ class EpeParallelContext:
             allowed_widths=widths,
             groups=groups,
             usp_topologies=usp_topologies,
+            cfg_topologies=cfg_topologies,
             owned_groups=tuple(owned),
             owns_world=owns_world,
         )
@@ -230,6 +294,13 @@ class EpeParallelContext:
                 f"USP topology was not initialized for lane {topology.ranks}"
             ) from exc
 
+    def cfg_parallel_topology(
+        self, lane_ranks: tuple[int, ...]
+    ) -> CfgParallelTopology | None:
+        """Return this rank's CFP-2 topology, or None for an ineligible lane."""
+        lane = tuple(int(rank) for rank in lane_ranks)
+        return self._cfg_topologies.get(lane)
+
     @contextmanager
     def activate(self, ranks: tuple[int, ...]) -> Iterator[ActiveLaneTopology]:
         topology = self._topology_for(tuple(int(rank) for rank in ranks))
@@ -249,6 +320,20 @@ class EpeParallelContext:
         pieces = [torch.empty_like(tensor) for _ in range(topology.width)]
         dist.all_gather(pieces, tensor.contiguous(), group=topology.process_group)
         return torch.cat(pieces, dim=1).contiguous()
+
+    def all_gather_cfg(
+        self,
+        tensor: torch.Tensor,
+        topology: CfgParallelTopology,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Gather cond and uncond predictions in stable branch order."""
+        pieces = [torch.empty_like(tensor) for _ in range(2)]
+        dist.all_gather(
+            pieces,
+            tensor.contiguous(),
+            group=topology.cfg_process_group,
+        )
+        return pieces[0], pieces[1]
 
     def barrier(self) -> None:
         topology = self.active

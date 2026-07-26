@@ -31,6 +31,12 @@ def parse_args() -> argparse.Namespace:
         default="agkv",
     )
     parser.add_argument("--ulysses-degree", type=int, default=2)
+    parser.add_argument(
+        "--cfg-parallel",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Prefer CFP-2 before context parallelism on eligible lanes.",
+    )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument(
         "--dtype",
@@ -59,6 +65,7 @@ def main() -> None:
         local_files_only=args.local_files_only,
         attention_mode=args.attention_mode,
         ulysses_degree=args.ulysses_degree,
+        cfg_parallel=args.cfg_parallel,
     )
     try:
         output = pipeline.generate(

@@ -46,6 +46,31 @@ class ZImageDenoiseState:
         return self.step_index >= len(self.timesteps)
 
 
+def combine_cfg_predictions(
+    positive: torch.Tensor,
+    negative: torch.Tensor,
+    *,
+    guidance_scale: float,
+    normalize: bool,
+) -> torch.Tensor:
+    """Combine batched cond/uncond predictions with Z-Image CFG semantics."""
+    predictions = []
+    for positive_value, negative_value in zip(positive, negative, strict=True):
+        positive_value = positive_value.float()
+        negative_value = negative_value.float()
+        prediction = positive_value + guidance_scale * (
+            positive_value - negative_value
+        )
+        if normalize:
+            original_norm = torch.linalg.vector_norm(positive_value)
+            prediction_norm = torch.linalg.vector_norm(prediction)
+            max_norm = original_norm * float(normalize)
+            if prediction_norm > max_norm:
+                prediction = prediction * (max_norm / prediction_norm)
+        predictions.append(prediction)
+    return torch.stack(predictions)
+
+
 class EpeZImagePipeline(ZImagePipeline):
     """A Diffusers-compatible Z-Image pipeline independent of Chitu runtime state."""
 
@@ -54,11 +79,13 @@ class EpeZImagePipeline(ZImagePipeline):
         parallel = kwargs.pop("parallel_context", None)
         allowed_widths = kwargs.pop("allowed_lane_widths", None)
         attention_mode = str(kwargs.pop("attention_mode", "agkv"))
+        cfg_parallel = bool(kwargs.pop("cfg_parallel", True))
         ulysses_degree = kwargs.pop("ulysses_degree", None)
         if ulysses_degree is None:
             ulysses_degree = 2 if attention_mode == "usp" else 1
         epe_options = dict(kwargs.pop("epe_options", {}))
         epe_options.setdefault("attention_mode", attention_mode)
+        epe_options.setdefault("cfg_parallel", cfg_parallel)
         if parallel is None:
             parallel = EpeParallelContext.from_torchrun(
                 allowed_widths=(
@@ -388,38 +415,58 @@ class EpeZImagePipeline(ZImagePipeline):
             latent_model_input = state.latents.to(self.transformer.dtype)
             prompt_model_input = state.prompt_embeds
             timestep_model_input = timestep
-            if apply_cfg:
+            epe = self.transformer.epe
+            cfg_topology = (
+                self.parallel_context.cfg_parallel_topology(lane_ranks)
+                if apply_cfg and epe.cfg_parallel
+                else None
+            )
+            if apply_cfg and cfg_topology is None:
                 if state.negative_prompt_embeds is None:
                     raise RuntimeError("CFG state has no negative prompt embeddings")
                 latent_model_input = latent_model_input.repeat(2, 1, 1, 1)
                 prompt_model_input = state.prompt_embeds + state.negative_prompt_embeds
                 timestep_model_input = timestep.repeat(2)
 
-            model_out = self.transformer(
-                list(latent_model_input.unsqueeze(2).unbind(dim=0)),
-                timestep_model_input,
-                prompt_model_input,
-                return_dict=False,
-            )[0]
-            if apply_cfg:
-                positive = model_out[: state.actual_batch_size]
-                negative = model_out[state.actual_batch_size :]
-                predictions = []
-                for positive_value, negative_value in zip(positive, negative):
-                    positive_value = positive_value.float()
-                    negative_value = negative_value.float()
-                    prediction = positive_value + current_guidance_scale * (
-                        positive_value - negative_value
-                    )
-                    if state.cfg_normalization:
-                        original_norm = torch.linalg.vector_norm(positive_value)
-                        prediction_norm = torch.linalg.vector_norm(prediction)
-                        max_norm = original_norm * float(state.cfg_normalization)
-                        if prediction_norm > max_norm:
-                            prediction = prediction * (max_norm / prediction_norm)
-                    predictions.append(prediction)
-                noise_pred = torch.stack(predictions)
+            if cfg_topology is not None:
+                if state.negative_prompt_embeds is None:
+                    raise RuntimeError("CFG state has no negative prompt embeddings")
+                branch_prompt = (
+                    state.prompt_embeds
+                    if cfg_topology.branch_index == 0
+                    else state.negative_prompt_embeds
+                )
+                with self.parallel_context.activate(cfg_topology.cp_ranks):
+                    local_out = self.transformer(
+                        list(latent_model_input.unsqueeze(2).unbind(dim=0)),
+                        timestep_model_input,
+                        branch_prompt,
+                        return_dict=False,
+                    )[0]
+                positive, negative = self.parallel_context.all_gather_cfg(
+                    torch.stack(local_out), cfg_topology
+                )
+                model_out = None
             else:
+                model_out = self.transformer(
+                    list(latent_model_input.unsqueeze(2).unbind(dim=0)),
+                    timestep_model_input,
+                    prompt_model_input,
+                    return_dict=False,
+                )[0]
+            if apply_cfg:
+                if cfg_topology is None:
+                    assert model_out is not None
+                    positive = torch.stack(model_out[: state.actual_batch_size])
+                    negative = torch.stack(model_out[state.actual_batch_size :])
+                noise_pred = combine_cfg_predictions(
+                    positive,
+                    negative,
+                    guidance_scale=current_guidance_scale,
+                    normalize=state.cfg_normalization,
+                )
+            else:
+                assert model_out is not None
                 noise_pred = torch.stack([value.float() for value in model_out])
 
             noise_pred = -noise_pred.squeeze(2)
@@ -533,13 +580,14 @@ class EpeZImagePipeline(ZImagePipeline):
         else:
             image = self.decode_request(state, timings=timings)
             profile = timings if timings is not None else {}
-            profile["postprocess_start_unix_ns"] = time.time_ns()
-            postprocess_started = time.perf_counter()
-            image = self.image_processor.postprocess(image, output_type=output_type)
-            profile["postprocess_end_unix_ns"] = time.time_ns()
-            profile["postprocess_ms"] = (
-                time.perf_counter() - postprocess_started
-            ) * 1000.0
+            if image is not None:
+                profile["postprocess_start_unix_ns"] = time.time_ns()
+                postprocess_started = time.perf_counter()
+                image = self.image_processor.postprocess(image, output_type=output_type)
+                profile["postprocess_end_unix_ns"] = time.time_ns()
+                profile["postprocess_ms"] = (
+                    time.perf_counter() - postprocess_started
+                ) * 1000.0
         if not return_dict:
             return (image,)
         return ZImagePipelineOutput(images=image)

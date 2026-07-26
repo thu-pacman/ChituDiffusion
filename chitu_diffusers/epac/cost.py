@@ -191,8 +191,9 @@ class RuntimeCostCalibrator:
         enabled: bool,
         alpha: float = 0.25,
         warmup_skip: int = 1,
-        min_samples: int = 2,
+        min_samples: int = 1,
         outlier_clip: float = 4.0,
+        tolerance: float = 0.05,
     ) -> None:
         self.model = model
         self.enabled = bool(enabled)
@@ -200,6 +201,9 @@ class RuntimeCostCalibrator:
         self.warmup_skip = int(warmup_skip)
         self.min_samples = int(min_samples)
         self.outlier_clip = float(outlier_clip)
+        self.tolerance = float(tolerance)
+        if not 0.0 <= self.tolerance < 1.0:
+            raise ValueError("calibration tolerance must be in [0, 1)")
         self._skipped: dict[tuple[int, int, int, int], int] = {}
         self._count: dict[tuple[int, int, int, int], int] = {}
         self._factor: dict[tuple[int, int, int, int], float] = {}
@@ -224,7 +228,10 @@ class RuntimeCostCalibrator:
         key = (sequence_length, width, batch_size, conditions)
         if self._count.get(key, 0) >= self.min_samples:
             return self._factor[key]
-        return self.global_factor
+        # An unseen shape starts from the measured warmup model. Reusing a
+        # global factor across unrelated resolutions can badly distort an
+        # extrapolated key before it has produced its first online sample.
+        return 1.0
 
     def observe(
         self,
@@ -269,10 +276,16 @@ class RuntimeCostCalibrator:
             ratio > current * self.outlier_clip or ratio * self.outlier_clip < current
         ):
             return
+        reference = 1.0 if current is None else current
+        relative_error = ratio / reference - 1.0
         self._factor[key] = (
-            ratio
-            if current is None
-            else (1.0 - self.alpha) * current + self.alpha * ratio
+            reference
+            if abs(relative_error) <= self.tolerance
+            else (
+                ratio
+                if current is None
+                else (1.0 - self.alpha) * current + self.alpha * ratio
+            )
         )
         self._count[key] = self._count.get(key, 0) + 1
         self._global_log_sum += math.log(ratio)
@@ -281,6 +294,7 @@ class RuntimeCostCalibrator:
     def snapshot(self) -> dict[str, Any]:
         return {
             "global_factor": self.global_factor,
+            "tolerance": self.tolerance,
             "per_key": {
                 ":".join(str(value) for value in key): {
                     "factor": factor,

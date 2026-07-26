@@ -116,6 +116,7 @@ class EpeZImageServiceRuntime:
             default_num_steps=config.factory_args.num_steps,
             attention_mode=config.factory_args.attention_mode,
             ulysses_degree=config.factory_args.ulysses_degree,
+            cfg_parallel=config.factory_args.cfg_parallel,
             parallel_vae=config.factory_args.parallel_vae,
             vae_parallel_halo=config.factory_args.vae_parallel_halo,
         ).build(ExecutorBuildContext(world=world, pool=config.parallelism.chitu_pool))
@@ -447,6 +448,7 @@ class EpeZImageServiceRuntime:
                 payload=self._elastic_payload,
                 update_progress=self._update_elastic_progress,
                 complete=self._complete_elastic_work,
+                observe=self.epe.observe_schedulable,
                 should_stop=stop_requested.is_set,
             )
             if self.rank == 0
@@ -603,6 +605,7 @@ class EpeZImageServiceRuntime:
                     metadata={
                         "reported_epoch": previous_epoch,
                         "next_epoch": int(response["epoch"]),
+                        **response.get("planner", {}),
                     },
                 )
             for request_id in response.get("retired_request_ids", ()):
@@ -747,6 +750,7 @@ class EpeZImageServiceRuntime:
             steps = min(int(command["steps"]), state_profile.remaining_steps)
             local_error = None
             result = None
+            measured_step_ms = None
             try:
                 if torch.cuda.is_available():
                     torch.cuda.synchronize(self.parallel.local_rank)
@@ -824,6 +828,7 @@ class EpeZImageServiceRuntime:
                     "request_id": current_id,
                     "current_step": current_step,
                     "result": result,
+                    "observed_step_ms": measured_step_ms,
                     "error": local_error,
                 }
             )
@@ -1257,17 +1262,18 @@ class EpeZImageServiceRuntime:
                 result.request_id,
             )
             return
-        assignment = {
-            "ranks": [int(rank) for rank in metadata["lane_ranks"]],
-            "image_tokens": int(metadata["image_tokens"]),
-            "batch_size": int(metadata["batch_size"]),
-            "cfg_conditions": int(metadata["cfg_conditions"]),
-        }
-        with self._lock:
-            self.epe.observe_assignment(
-                assignment,
-                float(metadata["measured_step_ms"]),
-            )
+        if strategy != "elastic":
+            assignment = {
+                "ranks": [int(rank) for rank in metadata["lane_ranks"]],
+                "image_tokens": int(metadata["image_tokens"]),
+                "batch_size": int(metadata["batch_size"]),
+                "cfg_conditions": int(metadata["cfg_conditions"]),
+            }
+            with self._lock:
+                self.epe.observe_assignment(
+                    assignment,
+                    float(metadata["measured_step_ms"]),
+                )
         finalize = metadata.get("finalize_profile", {})
         if not isinstance(finalize, dict):
             finalize = {}

@@ -51,6 +51,7 @@ class EpeSchedulingPolicy:
         starvation_ms: float = 30_000.0,
         deadline_guard_ms: float = 0.0,
         max_active_requests: int | None = None,
+        max_layout_candidates: int = 256,
         clock_ms=None,
     ) -> None:
         self.constraints = LaneConstraints.create(
@@ -73,8 +74,12 @@ class EpeSchedulingPolicy:
         )
         if self.max_active_requests is not None and self.max_active_requests < 1:
             raise ValueError("max_active_requests must be positive")
+        self.max_layout_candidates = int(max_layout_candidates)
+        if self.max_layout_candidates < 1:
+            raise ValueError("max_layout_candidates must be positive")
         self._clock_ms = clock_ms or (lambda: time.time() * 1000.0)
         self._current_lanes: dict[str, tuple[int, ...]] = {}
+        self.last_plan_stats: dict[str, float | int] = {}
 
     def plan(
         self,
@@ -95,6 +100,7 @@ class EpeSchedulingPolicy:
         pulse_steps: int,
         now_ms: float,
     ) -> Sequence[StepPlan]:
+        planning_started = time.perf_counter()
         if pulse_steps <= 0:
             raise ValueError("pulse_steps must be positive")
         if not self.cost_model.ready:
@@ -108,6 +114,12 @@ class EpeSchedulingPolicy:
         active = [self._convert(request) for request in requests]
         active = [request for request in active if request.remaining_steps > 0]
         if not active:
+            self.last_plan_stats = {
+                "planning_ms": (time.perf_counter() - planning_started) * 1000.0,
+                "queue_size": 0,
+                "layout_request_count": 0,
+                "candidate_count": 0,
+            }
             return ()
         ordered = self._request_order(active, now_ms)
         admitted_count = sum(request.admitted for request in ordered)
@@ -179,6 +191,12 @@ class EpeSchedulingPolicy:
                 )
             )
             self._current_lanes[request.request_id] = ranks
+        self.last_plan_stats = {
+            "planning_ms": (time.perf_counter() - planning_started) * 1000.0,
+            "queue_size": len(active),
+            "layout_request_count": len(layout_requests),
+            "candidate_count": len(layouts),
+        }
         return tuple(plans)
 
     def _convert(self, request: SchedulableRequest) -> _EpeRequest:
@@ -341,7 +359,52 @@ class EpeSchedulingPolicy:
                 flexible.append(request)
 
         candidates: list[dict[str, tuple[int, ...]]] = []
+        signatures: set[tuple[tuple[str, int, tuple[int, ...]], ...]] = set()
         lanes = self._canonical_lanes()
+
+        def add_candidate(candidate: dict[str, tuple[int, ...]]) -> None:
+            if not candidate or len(candidates) >= self.max_layout_candidates:
+                return
+            by_id = {request.request_id: request for request in requests}
+            signature = tuple(
+                sorted(
+                    (
+                        request_id,
+                        len(lane),
+                        lane if by_id[request_id].current_ranks is not None else (),
+                    )
+                    for request_id, lane in candidate.items()
+                )
+            )
+            if signature not in signatures:
+                signatures.add(signature)
+                candidates.append(dict(candidate))
+
+        # Seed the bounded search with deterministic throughput/fairness layouts.
+        # This guarantees cpN and fully split alternatives remain scoreable even
+        # when a dense queue would otherwise exhaust the DFS budget early.
+        for preferred_width in reversed(self.allowed_lane_widths):
+            current = dict(fixed)
+            used = set(occupied)
+            admitted_pending = 0
+            for request in flexible:
+                if not request.admitted and admitted_pending >= admission_slots:
+                    continue
+                lane = next(
+                    (
+                        candidate
+                        for candidate in lanes
+                        if len(candidate) == preferred_width
+                        and not used.intersection(candidate)
+                    ),
+                    None,
+                )
+                if lane is None:
+                    continue
+                current[request.request_id] = lane
+                used.update(lane)
+                admitted_pending += int(not request.admitted)
+            add_candidate(current)
 
         def visit(
             index: int,
@@ -349,11 +412,10 @@ class EpeSchedulingPolicy:
             used: set[int],
             admitted_pending: int,
         ) -> None:
-            if len(candidates) >= 8192:
+            if len(candidates) >= self.max_layout_candidates:
                 return
             if index >= len(flexible):
-                if current:
-                    candidates.append(dict(current))
+                add_candidate(current)
                 return
             request = flexible[index]
             can_admit = request.admitted or admitted_pending < admission_slots
@@ -372,7 +434,7 @@ class EpeSchedulingPolicy:
 
         visit(0, dict(fixed), occupied, 0)
         if not candidates and fixed:
-            candidates.append(fixed)
+            add_candidate(fixed)
         return candidates
 
     def _step_caps(

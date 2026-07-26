@@ -1,4 +1,58 @@
-# Z-Image examples
+# chitu_diffusers examples
+
+## FLUX.1-dev
+
+以下命令通过 Slurm wrapper 使用共享 ChituDiffusion 环境：
+
+```bash
+export CHITU_PROJECT_ROOT="$PWD"
+export CHITU_PYTHON_BIN=/home/chenyy/WORK/cyy/ChituDiffusion/.venv/bin/python
+export FLUX1_MODEL_PATH=/home/chenyy/WORK/models/Flux-1
+```
+
+原生 Diffusers 基线：
+
+```bash
+bash script/srun_direct.sh 1 1 chitu_diffusers/examples/flux1_native.py \
+  --model-path "$FLUX1_MODEL_PATH" \
+  --output outputs/flux1-diffusers/native.png
+```
+
+静态 full-world AGKV lane：
+
+```bash
+bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux1_epac.py \
+  --model-path "$FLUX1_MODEL_PATH" \
+  --output outputs/flux1-diffusers/cp4.png
+```
+
+动态 lane 切换正确性检查：
+
+```bash
+bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux1_dynamic.py \
+  --model-path "$FLUX1_MODEL_PATH" \
+  --lane-widths 1,4,2 \
+  --output outputs/flux1-diffusers/dynamic.png
+```
+
+embedded runtime：
+
+```bash
+bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux1_embedded.py \
+  --model-path "$FLUX1_MODEL_PATH" \
+  --resolution 512 \
+  --steps 2 \
+  --output outputs/flux1-diffusers/embedded.png
+```
+
+embedded runtime 默认按 active lane 做 parallel VAE。使用
+`--no-parallel-vae` 可切回 leader-only decode；`--vae-parallel-halo N` 可调整
+Flux AutoencoderKL 的 latent halo，默认值为 8。
+
+当前 FLUX.1 路径已验证 AGKV 和 parallel VAE，尚未验收 USP、true CFG、IP-Adapter、
+ControlNet、LoRA、Schnell 和 FlexCache。
+
+## Z-Image
 
 先设置模型路径：
 
@@ -33,6 +87,9 @@ warmup，也不运行 elastic layout planner。
 
 单卡可以将 `torchrun` 替换为普通 Python。默认输出为
 `outputs/chitu-diffusers/zimage_epe.png`。
+
+多卡 CFG 默认采用 CFP2 优先布局：二卡为 CFP2 x CP1，四卡为 CFP2 x CP2。
+传入 `--no-cfg-parallel` 可运行整 lane 纯 CP 对照。
 
 ## Embedded Runtime（无 HTTP）
 

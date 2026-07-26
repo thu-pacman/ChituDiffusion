@@ -28,6 +28,9 @@ class PulseLaneBroker:
         update_progress: Callable[[str, int, tuple[int, ...]], None],
         complete: Callable[[LaneWorkResult], None],
         should_stop: Callable[[], bool],
+        observe: Callable[
+            [SchedulableRequest, tuple[int, ...], float], None
+        ] | None = None,
         guard_ms: float = 2.0,
         clock_ms=None,
     ) -> None:
@@ -42,6 +45,7 @@ class PulseLaneBroker:
         self._payload = payload
         self._update_progress = update_progress
         self._complete = complete
+        self._observe = observe
         self._should_stop = should_stop
         self.guard_ms = float(guard_ms)
         self._clock_ms = clock_ms or (lambda: time.monotonic() * 1000.0)
@@ -141,11 +145,13 @@ class PulseLaneBroker:
                     "payload": self._payload(lease.request_id),
                 }
             )
+        planner_stats = getattr(self.coordinator.policy, "last_plan_stats", {})
         return {
             "action": "pulse",
             "retired_request_ids": retired,
             "epoch": plan.epoch,
             "deadline_ms": plan.deadline_ms,
+            "planner": dict(planner_stats),
             "leases": [
                 {
                     "ranks": list(lease.ranks),
@@ -169,6 +175,17 @@ class PulseLaneBroker:
         result = leader.get("result")
         request_id = leader.get("request_id")
         current_step = leader.get("current_step")
+        observed_step_ms = leader.get("observed_step_ms")
+        if (
+            self._observe is not None
+            and request_id is not None
+            and observed_step_ms is not None
+        ):
+            self._observe(
+                self._request_by_id(request_id, include_pending=True),
+                ranks,
+                float(observed_step_ms),
+            )
         if errors:
             if request_id is not None:
                 result = LaneWorkResult(

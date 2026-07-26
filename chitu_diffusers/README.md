@@ -26,11 +26,13 @@ SchedulingPolicy <---- measured cost     EPAC pulse boundary
   request + lane ranks + K steps
 ```
 
-源码按所有权分为四部分：`epac/` 是模型无关核心，`models/zimage/` 是 Z-Image 实现，
-`parallel/` 是模型无关的并行 group 与通信实现，`serve/` 是 HTTP 与 torchrun 生命周期。
+源码按所有权分为四部分：`epac/` 是模型无关核心，`models/` 只保存 Z-Image、Flux.1 等
+模型差异，`parallel/` 是模型无关的并行 group 与通信实现，`serve/` 是 HTTP 与 torchrun 生命周期。
 详细协议见 `epac/README.md`。
 新增 image decoder 的实现清单和验收条件见
 [`INTEGRATING_IMAGE_DECODER.md`](INTEGRATING_IMAGE_DECODER.md)。
+Flux.1 的 Diffusers-native 适配范围、代码映射和 bring-up 顺序见
+[`models/flux1/README.md`](models/flux1/README.md)。
 
 这两个边界有意分开：
 
@@ -48,10 +50,14 @@ SchedulingPolicy <---- measured cost     EPAC pulse boundary
 | `epac/pulse.py` | lane lease、deadline、report rendezvous 和 producer-consumer pull 协议 |
 | `epac/scheduling.py` | 通用 `StepPlan`、`RequestProfile` 和三策略 lane constraints |
 | `epac/epe.py` | measured-cost SLO layout、动态 lane、balanced-K pulse |
+| `epac/model_scheduling.py` | 所有模型共享的 cost/calibration/planner facade |
+| `epac/model_executor.py` | stage world、request/state、decode/postprocess 通用生命周期 |
+| `epac/api.py` | typed request helper 与同步 full-world Diffusers facade |
 | `epac/cost.py` | 启动实测的 DiT step、VAE/D2H terminal 和 state-transfer cost table |
 | `epac/optimization.py` | 可组合的 DiT forward wrapper，是新 FlexCache 公共入口 |
 | `parallel/` | 动态 lane group、AGKV、xDiT/yunchang Ulysses x Ring 和 tile-parallel VAE |
 | `models/zimage/` | Z-Image pipeline、transformer、adapter 和 API 门面 |
+| `models/flux1/` | FLUX.1-dev split-step pipeline、动态 AGKV CP、embedded executor 和 API 门面 |
 | `serve/` | HTTP schema、服务配置、Z-Image runtime 和 torchrun 生命周期 |
 
 公共 EPE cost model 兼容 warmup 报告中的 `image_tokens`、`width`、`batch_size`、
@@ -96,6 +102,7 @@ pipeline.serve(
         pulse_steps=5,
         default_deadline_ms=30_000,  # request.deadline_ms can override this SLO
         schedule_strategy="elastic",  # or "static_cp" / "static_dp" baseline
+        cfg_parallel=True,
         parallel_vae=True,
         vae_parallel_halo=8,
     )
@@ -106,6 +113,11 @@ pipeline.serve(
 其他 ranks 运行 follower loop。完整命令见 `chitu_diffusers/examples/README.md`。
 安装 `usp` 可选依赖后，可使用 `attention_mode="usp", ulysses_degree=2`；cp4/cp2 lane
 分别映射为 u2r2/u2r1。
+
+Z-Image 默认优先使用 CFP2：开启 CFG 时，偶数宽度 lane 先拆成 cond/uncond
+两条分支，每条分支再使用 `width/2` 路 CP（例如四卡为 CFP2 x CP2）。设置
+`cfg_parallel=False` 或 CLI `--no-cfg-parallel` 可回到整 lane 串行执行两条 CFG
+分支的纯 CP baseline。warmup 会测量实际采用的 CFP/CP 组合。
 
 Z-Image VAE 包含全局 mid-block attention/normalization，因此空间 tile decode 是质量近似，
 不是逐像素等价。4x H20、512、halo=8 的同 seed/request 端到端对照为 34.91 dB
@@ -320,16 +332,17 @@ GPU 端到端验收不能由 CPU 单测替代；4x H20 Slurm 的复现命令、�
 - 将旧 `FlexCacheManager` 和各策略从全局 `DiffusionBackend.flexcache` 迁移为
   request-local `DenoiseOptimization`；当前 `CacheConfig` 仅保留 MeanCache/TeaCache 接口，
   非 `none` 策略会 fail fast。
-- 增加第二个模型 adapter，验证抽象不依赖 Z-Image。
+- 验收 Flux.1 的 USP、true CFG 和 FlexCache；当前已验收 AGKV、动态 cp1/cp2/cp4、
+  parallel VAE、offline/embedded API 和三策略 benchmark。
 - distributed worker 当前只取消 pending request；running request 的 step-boundary cancel
   和任意 rank fatal-state broadcast 尚未接入 control transport。
 - `StageWorldSpec` 支持自建或复用 stage WORLD；任意 torch.distributed subgroup 注入尚未
   支持，当前会显式 fail fast。
 
-因此当前交付边界是 **EPAC developer preview + 可运行的 Z-Image reference adapter**。
-它足以让另一个模型团队按 executor contract 接入并运行 Slurm/torchrun 验证，但尚不应
-标记为具备跨 rank 容灾保证的 production GA。LLaDA2 的 VQ/SigVQ、模型 state 和 decode
-细节不在本仓库中，本次不做猜测性实现。
+因此当前交付边界是 **EPAC developer preview + 可运行的 Z-Image 服务适配和 Flux.1
+Diffusers-native offline/embedded 适配**。它足以让另一个模型团队按 executor contract
+接入并运行 Slurm/torchrun 验证，但尚不应标记为具备跨 rank 容灾保证的 production GA。
+LLaDA2 的 VQ/SigVQ、模型 state 和 decode 细节不在本仓库中，本次不做猜测性实现。
 
 现有可运行的 4-GPU 服务、Z-Image 模型实现和压测入口均已迁入 `chitu_diffusers`；
 `experiments/chitu_api` 只保留历史记录、兼容 launcher 和回归测试。新包不会 import

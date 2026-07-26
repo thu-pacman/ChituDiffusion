@@ -47,6 +47,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--ulysses-degree", type=int, default=2)
     parser.add_argument(
+        "--cfg-parallel",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Prefer CFP-2 before context parallelism on eligible lanes.",
+    )
+    parser.add_argument(
         "--parallel-vae",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -109,6 +115,7 @@ def main() -> None:
             local_files_only=args.local_files_only,
             attention_mode=args.attention_mode,
             ulysses_degree=args.ulysses_degree,
+            cfg_parallel=args.cfg_parallel,
         )
         pipeline.serve(
             EPACServeConfig(
@@ -127,6 +134,7 @@ def main() -> None:
                 output_root=args.output_root,
                 record_timeline=args.record_timeline,
                 postprocess_workers=args.postprocess_workers,
+                cfg_parallel=args.cfg_parallel,
                 parallel_vae=args.parallel_vae,
                 vae_parallel_halo=args.vae_parallel_halo,
             )

@@ -11,7 +11,10 @@ ChituDiffusion backend.
 | `request.py` | Framework-neutral request, status, result, and metrics |
 | `adapters/` | Model adapter protocol and registry |
 | `engine.py` | Request-local state and synchronous reference execution |
+| `api.py` | Shared typed-request helpers and synchronous Diffusers facade |
 | `image_decoder.py` | Stage world, executor, transfer, completion, and embedded API types |
+| `model_executor.py` | Reusable executor lifecycle and stage-world construction |
+| `model_scheduling.py` | Measured cost state, online calibration, and planner facade |
 | `executor.py` | One denoise step and optimization boundaries |
 | `optimization.py` | FlexCache-compatible model/prediction hooks |
 | `cost.py` | Startup-measured sequence-length/lane-width cost table |
@@ -92,3 +95,18 @@ SLO misses and tardiness before starvation, concurrent admission, cp1-normalized
 useful throughput, slowdown, and flow time. Normalized throughput is
 `sum(T_cp1 / T_lane)`, so raw short-sequence steps cannot monopolize the pool.
 This rolling prediction is recomputed at every pulse.
+
+Dense queues use a bounded layout search. The planner first inserts
+deterministic cp-width/fairness layouts, then explores at most 256 unique
+candidates; rank permutations that are equivalent for requests without an
+existing placement are deduplicated. `last_plan_stats` exposes queue size,
+candidate count, and planning time, and the distributed runtime records those
+fields on each `pulse_wait` timeline event.
+
+Startup cost profiling requires at least three measured steps so a cold first
+forward cannot define the median. Online calibration is exact-keyed by sequence
+length, lane width, batch size, and condition count. An unseen key uses the
+startup table (including its interpolation/extrapolation), while the first
+lane-command observation enables correction for the next scheduling pulse.
+Updates inside a 5% relative-error deadband retain the current factor; factors
+from other resolutions are never used as a fallback.

@@ -30,6 +30,7 @@ from chitu_diffusers import (
     PulseLaneBroker,
     RequestProfile,
     RequestStatus,
+    RuntimeCostCalibrator,
     SchedulableRequest,
     StepPlan,
     StepOutcome,
@@ -563,6 +564,76 @@ def test_epe_normalizes_throughput_across_mixed_sequence_lengths() -> None:
     }
 
 
+def test_dense_epe_layout_search_is_bounded() -> None:
+    policy = EpeSchedulingPolicy(
+        world_size=4,
+        allowed_lane_widths=(1, 2, 4),
+        cost_model=_measured_cost_model(),
+        switch_allowed_until_step=20,
+        max_active_requests=4,
+        max_layout_candidates=64,
+    )
+
+    plans = policy.plan_at(
+        [
+            _schedulable(
+                f"request-{index}",
+                image_tokens=(1024, 4096, 9216)[index % 3],
+                total_steps=50,
+                admitted=False,
+            )
+            for index in range(12)
+        ],
+        pulse_steps=5,
+        now_ms=0.0,
+    )
+
+    assert plans
+    assert policy.last_plan_stats["queue_size"] == 12
+    assert policy.last_plan_stats["layout_request_count"] == 8
+    assert 1 <= policy.last_plan_stats["candidate_count"] <= 64
+
+
+def test_online_calibration_is_exact_keyed_and_tolerates_small_error() -> None:
+    model = MeasuredStepCostModel()
+    model.initialize(
+        [
+            {"image_tokens": 1024, "width": 1, "latency_ms": 100},
+            {"image_tokens": 4096, "width": 1, "latency_ms": 100},
+        ]
+    )
+    calibrator = RuntimeCostCalibrator(
+        model,
+        enabled=True,
+        warmup_skip=0,
+        tolerance=0.05,
+    )
+
+    calibrator.observe(
+        image_tokens=1024,
+        width=1,
+        batch_size=1,
+        cfg_conditions=1,
+        measured_step_ms=50,
+    )
+    assert calibrator.factor(1024, 1, 1, 1) == pytest.approx(0.5)
+    assert calibrator.factor(4096, 1, 1, 1) == pytest.approx(1.0)
+
+    calibrator.observe(
+        image_tokens=4096,
+        width=1,
+        batch_size=1,
+        cfg_conditions=1,
+        measured_step_ms=103,
+    )
+    assert calibrator.factor(4096, 1, 1, 1) == pytest.approx(1.0)
+
+
+def test_hot_switch_pool_requires_three_warmup_steps() -> None:
+    with pytest.raises(ValueError, match="warmup_steps must be >= 3"):
+        HotSwitchPoolConfig(warmup_steps=2)
+
+
 def test_epe_uses_fair_lane_share_for_future_queue_prediction() -> None:
     model = MeasuredStepCostModel()
     model.initialize(
@@ -859,6 +930,7 @@ def test_pulse_lane_broker_pulls_work_without_waiting_for_other_lanes() -> None:
     status = {request_id: "pending" for request_id in requests}
     placements: dict[str, tuple[int, ...]] = {}
     completed: list[str] = []
+    observed: list[tuple[str, tuple[int, ...], float]] = []
 
     def schedulable(include_running: bool):
         output = []
@@ -896,6 +968,9 @@ def test_pulse_lane_broker_pulls_work_without_waiting_for_other_lanes() -> None:
             request_id, ranks
         ),
         complete=complete,
+        observe=lambda request, ranks, step_ms: observed.append(
+            (request.request_id, ranks, step_ms)
+        ),
         should_stop=lambda: False,
         clock_ms=lambda: now_ms,
     )
@@ -927,11 +1002,13 @@ def test_pulse_lane_broker_pulls_work_without_waiting_for_other_lanes() -> None:
             "request_id": first_request,
             "current_step": 5,
             "result": LaneWorkResult(first_request, output=b"done"),
+            "observed_step_ms": 12.5,
             "error": None,
         },
     )
 
     assert completed == [first_request]
+    assert observed == [(first_request, tuple(rank0_lease["ranks"]), 12.5)]
     assert response["action"] == "run"
     assert response["request_id"] == "req4"
 

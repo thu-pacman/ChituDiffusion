@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from chitu_diffusers.parallel import (
     EpeParallelContext,
     ImageContextParallelAttention,
+    cfg_parallel_rank_groups,
     parallel_tiled_vae_decode,
 )
 
@@ -34,6 +35,16 @@ def _reference_attention(
         dropout_p=0.0,
         is_causal=False,
     ).transpose(1, 2)
+
+
+def test_cfg_parallel_rank_groups_pair_matching_cp_shards() -> None:
+    cp_groups, cfg_pairs = cfg_parallel_rank_groups((4, 5, 6, 7))
+
+    assert cp_groups == ((4, 5), (6, 7))
+    assert cfg_pairs == ((4, 6), (5, 7))
+
+    with pytest.raises(ValueError, match="even lane width"):
+        cfg_parallel_rank_groups((0, 1, 2))
 
 
 def _assert_lane_equivalence(

@@ -58,6 +58,7 @@ class ImageContextParallelAttention:
         *,
         lane_process_group: object | None,
         usp_topology: UspTopology | None = None,
+        joint_first: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Return ``(joint_output, local_image_output)`` in sequence-major layout."""
         if self.mode == "usp":
@@ -76,6 +77,17 @@ class ImageContextParallelAttention:
         local_image_tokens = image_query.shape[1]
         full_image_key = _all_gather_sequence(image_key, lane_process_group)
         full_image_value = _all_gather_sequence(image_value, lane_process_group)
+        if joint_first:
+            joint_tokens = joint_query.shape[1]
+            output = _sdpa(
+                torch.cat([joint_query, image_query], dim=1),
+                torch.cat([joint_key, full_image_key], dim=1),
+                torch.cat([joint_value, full_image_value], dim=1),
+            )
+            return (
+                output[:, :joint_tokens].contiguous(),
+                output[:, joint_tokens:].contiguous(),
+            )
         output = _sdpa(
             torch.cat([image_query, joint_query], dim=1),
             torch.cat([full_image_key, joint_key], dim=1),

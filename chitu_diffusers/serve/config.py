@@ -37,6 +37,7 @@ class EPACServeConfig:
     output_root: str = "outputs/chitu-api"
     record_timeline: bool = False
     postprocess_workers: int = 4
+    cfg_parallel: bool = True
     parallel_vae: bool = True
     vae_parallel_halo: int = 8
     cache: CacheConfig = CacheConfig()
@@ -57,6 +58,8 @@ class EPACServeConfig:
             <= 0
         ):
             raise ValueError("step counts and request limits must be positive")
+        if self.warmup_steps < 3:
+            raise ValueError("warmup_steps must be >= 3")
         if not self.warmup_resolutions:
             raise ValueError("warmup_resolutions must not be empty")
         if self.deadline_guard_ms < 0:
@@ -121,6 +124,10 @@ class HotSwitchPoolConfig:
     warmup_steps: int = 5
     online_calibration: bool = True
 
+    def __post_init__(self) -> None:
+        if self.warmup_steps < 3:
+            raise ValueError("warmup_steps must be >= 3")
+
     @classmethod
     def from_mapping(
         cls, raw: Mapping[str, Any], *, world_size: int
@@ -178,8 +185,8 @@ class HotSwitchPoolConfig:
             raise ValueError("default_deadline_ms must be positive")
         if deadline_guard_ms < 0:
             raise ValueError("deadline_guard_ms must be >= 0")
-        if warmup_steps < 1:
-            raise ValueError("warmup_steps must be >= 1")
+        if warmup_steps < 3:
+            raise ValueError("warmup_steps must be >= 3")
         if not warmup_resolutions:
             raise ValueError("warmup_resolutions must not be empty")
 
@@ -231,6 +238,7 @@ class ZImageFactoryConfig:
     default_height: int = 1024
     attention_mode: str = "agkv"
     ulysses_degree: int = 1
+    cfg_parallel: bool = True
     parallel_vae: bool = True
     vae_parallel_halo: int = 8
 
@@ -267,6 +275,7 @@ class ZImageFactoryConfig:
             default_height=height,
             attention_mode=attention_mode,
             ulysses_degree=ulysses_degree,
+            cfg_parallel=bool(raw.get("cfg_parallel", True)),
             parallel_vae=bool(raw.get("parallel_vae", True)),
             vae_parallel_halo=vae_parallel_halo,
         )

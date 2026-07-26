@@ -10,6 +10,8 @@ from ...epac.adapters import DiffusersModelAdapter
 from ...epac.capabilities import PipelineCapabilities
 from ...epac.request import DiffusionRequest
 from ...epac.scheduling import RequestProfile, StepPlan
+from ...parallel import CfgParallelTopology
+from .pipeline import combine_cfg_predictions
 
 
 @dataclass(slots=True)
@@ -20,6 +22,7 @@ class _ZImageStepInputs:
     prompt_model_input: list[torch.Tensor]
     apply_cfg: bool
     current_guidance_scale: float
+    cfg_topology: CfgParallelTopology | None
 
 
 class ZImageModelAdapter(DiffusersModelAdapter):
@@ -54,7 +57,6 @@ class ZImageModelAdapter(DiffusersModelAdapter):
         return pipeline.prepare_request(**kwargs)
 
     def prepare_step(self, pipeline: Any, state: Any, plan: StepPlan) -> Any:
-        del pipeline, plan
         if state.complete:
             raise RuntimeError("denoise state is already complete")
 
@@ -70,7 +72,29 @@ class ZImageModelAdapter(DiffusersModelAdapter):
         latent_model_input = state.latents
         prompt_model_input = state.prompt_embeds
         timestep_model_input = timestep
-        if apply_cfg:
+        parallel = getattr(pipeline, "parallel_context", None)
+        lane_ranks = plan.lane_ranks
+        if parallel is not None and lane_ranks is None:
+            lane_ranks = tuple(range(parallel.world_size))
+        epe = getattr(pipeline.transformer, "epe", None)
+        cfg_topology = (
+            parallel.cfg_parallel_topology(lane_ranks)
+            if apply_cfg
+            and parallel is not None
+            and lane_ranks is not None
+            and epe is not None
+            and epe.cfg_parallel
+            else None
+        )
+        if apply_cfg and cfg_topology is not None:
+            if state.negative_prompt_embeds is None:
+                raise RuntimeError("CFG state has no negative prompt embeddings")
+            prompt_model_input = (
+                state.prompt_embeds
+                if cfg_topology.branch_index == 0
+                else state.negative_prompt_embeds
+            )
+        elif apply_cfg:
             if state.negative_prompt_embeds is None:
                 raise RuntimeError("CFG state has no negative prompt embeddings")
             latent_model_input = latent_model_input.repeat(2, 1, 1, 1)
@@ -84,6 +108,7 @@ class ZImageModelAdapter(DiffusersModelAdapter):
             prompt_model_input=prompt_model_input,
             apply_cfg=apply_cfg,
             current_guidance_scale=current_guidance_scale,
+            cfg_topology=cfg_topology,
         )
 
     def model_forward(
@@ -94,18 +119,31 @@ class ZImageModelAdapter(DiffusersModelAdapter):
         plan: StepPlan,
     ) -> Any:
         del state
+        parallel = getattr(pipeline, "parallel_context", None)
         lane_context = self._lane_context(pipeline, plan.lane_ranks)
         with lane_context:
-            return pipeline.transformer(
-                list(
-                    model_inputs.latent_model_input.to(pipeline.transformer.dtype)
-                    .unsqueeze(2)
-                    .unbind(dim=0)
-                ),
-                model_inputs.timestep_model_input,
-                model_inputs.prompt_model_input,
-                return_dict=False,
-            )[0]
+            execution_context = (
+                parallel.activate(model_inputs.cfg_topology.cp_ranks)
+                if parallel is not None and model_inputs.cfg_topology is not None
+                else nullcontext()
+            )
+            with execution_context:
+                output = pipeline.transformer(
+                    list(
+                        model_inputs.latent_model_input.to(pipeline.transformer.dtype)
+                        .unsqueeze(2)
+                        .unbind(dim=0)
+                    ),
+                    model_inputs.timestep_model_input,
+                    model_inputs.prompt_model_input,
+                    return_dict=False,
+                )[0]
+            if model_inputs.cfg_topology is not None:
+                assert parallel is not None
+                return parallel.all_gather_cfg(
+                    torch.stack(output), model_inputs.cfg_topology
+                )
+            return output
 
     def process_model_output(
         self,
@@ -117,23 +155,17 @@ class ZImageModelAdapter(DiffusersModelAdapter):
     ) -> torch.Tensor:
         del pipeline, plan
         if model_inputs.apply_cfg:
-            positive = model_output[: state.actual_batch_size]
-            negative = model_output[state.actual_batch_size :]
-            predictions = []
-            for positive_value, negative_value in zip(positive, negative):
-                positive_value = positive_value.float()
-                negative_value = negative_value.float()
-                prediction = positive_value + model_inputs.current_guidance_scale * (
-                    positive_value - negative_value
-                )
-                if state.cfg_normalization:
-                    original_norm = torch.linalg.vector_norm(positive_value)
-                    prediction_norm = torch.linalg.vector_norm(prediction)
-                    max_norm = original_norm * float(state.cfg_normalization)
-                    if prediction_norm > max_norm:
-                        prediction = prediction * (max_norm / prediction_norm)
-                predictions.append(prediction)
-            noise_pred = torch.stack(predictions)
+            if model_inputs.cfg_topology is not None:
+                positive, negative = model_output
+            else:
+                positive = torch.stack(model_output[: state.actual_batch_size])
+                negative = torch.stack(model_output[state.actual_batch_size :])
+            noise_pred = combine_cfg_predictions(
+                positive,
+                negative,
+                guidance_scale=model_inputs.current_guidance_scale,
+                normalize=state.cfg_normalization,
+            )
         else:
             noise_pred = torch.stack([value.float() for value in model_output])
 

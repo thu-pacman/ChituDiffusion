@@ -7,6 +7,79 @@
 最终交付数据、表格和精选图统一维护在 `chitu_diffusers/README.md`，本目录只保留
 可复现入口和 canonical trace，不再维护独立的过程性 `result.md`。
 
+## Flux.1 Embedded 策略对照
+
+下列命令在四卡上使用相同 closed-batch workload，只切换 lane policy：
+
+```bash
+for strategy in static_dp static_cp elastic; do
+  CHITU_PYTHON_BIN=/path/to/ChituDiffusion/.venv/bin/python \
+  CHITU_PROJECT_ROOT="$PWD" \
+    bash script/srun_direct.sh 1 4 \
+      chitu_diffusers/benchmarks/flux1_embedded_benchmark.py \
+      --model-path /path/to/Flux-1 \
+      --strategy "$strategy" \
+      --output-dir "outputs/flux1-benchmark/$strategy"
+done
+```
+
+每个 `metrics.json` 的 request makespan 不包含模型加载和 startup warmup，并记录逐请求
+latency、queue delay、图片 pixel hash、实测 cost table 和结束时的 lane snapshot。
+`elastic` 即 EPE 对照组。
+
+Flux embedded benchmark 默认启用 active-lane parallel VAE，可用
+`--no-parallel-vae` 做 leader-only 对照，或用 `--vae-parallel-halo` 调整 latent halo。
+
+也可以直接回放 Z-Image canonical trace，并用 `--steps` 统一覆盖 trace 内原始步数：
+
+```bash
+CHITU_PYTHON_BIN=/path/to/ChituDiffusion/.venv/bin/python \
+CHITU_PROJECT_ROOT="$PWD" \
+  bash script/srun_direct.sh 1 4 \
+    chitu_diffusers/benchmarks/flux1_embedded_benchmark.py \
+    --model-path /path/to/Flux-1 \
+    --strategy elastic \
+    --trace chitu_diffusers/benchmarks/traces/phased_dp_cp_slo_n15_12step.json \
+    --steps 50 --pulse-steps 5 --warmup-steps 3 \
+    --output-dir outputs/flux1-benchmark/phased50/elastic
+```
+
+trace 模式保留原始 `arrival_ms`、尺寸、prompt、seed、priority 和 deadline；后者不会随
+`--steps` 自动缩放。因此把 12-step trace 改跑 50 步时，原 deadline 只作为旧负载标记，
+不能直接用于跨模型 SLO 结论。
+
+推荐使用 warmup 自适应的统一三 arm 测试，避免跨模型复用固定到达率和 deadline：
+
+```bash
+CHITU_PYTHON_BIN=/path/to/ChituDiffusion/.venv/bin/python \
+CHITU_PROJECT_ROOT="$PWD" \
+  bash script/srun_direct.sh 1 4 \
+    -m chitu_diffusers.benchmarks.run_flux1_3arm_adaptive \
+    --model-path /path/to/Flux-1 \
+    --output-dir outputs/flux1-benchmark/adaptive-3arm \
+    --steps 50 --warmup-steps 3 --requests-per-phase 6
+```
+
+该入口先独立运行 measured calibration，再从 cp1/cp4 的 denoise 与 terminal warmup
+推导 static-DP/static-CP 容量。生成的同一 trace 包含 sparse、capacity crossover 和
+overload 三段到达率，然后依次执行 static-DP、串行 static-CP 与 EPE。所有请求使用同一
+相对 SLO：`1.2 * max(cp1_step * steps + cp1_terminal)`。结果目录包含
+`adaptive_trace.json`、`comparison.{json,md}`、三条 arm 的 metrics/rank timeline，
+以及统一的 `strategy_timeline.{png,svg}`。
+
+绘制这种覆盖步数后的 embedded 三策略 timeline 时，同样向绘图器传入覆盖值：
+
+```bash
+/path/to/ChituDiffusion/.venv/bin/python -m \
+  chitu_diffusers.benchmarks.plot_strategy_timeline \
+  --trace chitu_diffusers/benchmarks/traces/mixed_512_1024_2048_r3n12_12step.json \
+  --steps 50 \
+  --run "Static DP=outputs/flux1-benchmark/mixed50/static_dp" \
+  --run "Static CP=outputs/flux1-benchmark/mixed50/static_cp" \
+  --run "Elastic=outputs/flux1-benchmark/mixed50/elastic" \
+  --output outputs/flux1-benchmark/mixed50/strategy_timeline.png
+```
+
 ## 策略 / Attention 多到达率对照
 
 下列脚本在同一 Slurm allocation 和节点内，顺序执行 Elastic AGKV、Static DP AGKV、
@@ -36,6 +109,7 @@ EPAC_VARIANTS="static_dp static_cp" \
 单次压测也可设置 `EPAC_ATTENTION_MODE=agkv|usp`、`EPAC_ULYSSES_DEGREE=2` 和
 `EPAC_ARRIVAL_RATE` 后运行 `run_benchmark_slurm.sh`。到达率缩放只修改 trace 的
 `arrival_ms`，request shape、seed、prompt 和 denoise steps 保持不变。
+`EPAC_CFG_PARALLEL=0` 可关闭默认的 CFP2 优先布局，用于纯 CP A/B。
 
 ## 只启动服务
 

@@ -230,7 +230,7 @@ def test_epac_pipeline_serve_reuses_loaded_pipeline(monkeypatch, tmp_path) -> No
     epac.serve(
         EPACServeConfig(
             warmup_resolutions=((128, 128),),
-            warmup_steps=1,
+            warmup_steps=3,
             pulse_steps=3,
             switch_allowed_until_step=3,
             max_inflight_requests=1,
@@ -262,7 +262,7 @@ def test_single_rank_warmup_initializes_measured_cost_model() -> None:
     pipeline = _tiny_pipeline()
     report = pipeline.warmup_epe(
         resolutions=((128, 128),),
-        steps=1,
+        steps=3,
         text_tokens=8,
         cfg_conditions=1,
     )
@@ -571,11 +571,15 @@ def _cp_worker(rank: int, world_size: int, port: int) -> None:
     )
     warmup_report = epe_pipeline.warmup_epe(
         resolutions=((128, 128),),
-        steps=1,
+        steps=3,
         text_tokens=8,
-        cfg_conditions=1,
+        cfg_conditions=2,
     )
     assert sorted(row["width"] for row in warmup_report["rows"]) == [1, 2]
+    assert {
+        row["width"]: (row["cfp_degree"], row["cp_degree"])
+        for row in warmup_report["rows"]
+    } == {1: (1, 1), 2: (2, 1)}
     prompt_embeds = [inputs[2][0].clone()]
     state = epe_pipeline.prepare_request(
         prompt_embeds=prompt_embeds,
@@ -597,6 +601,31 @@ def _cp_worker(rank: int, world_size: int, port: int) -> None:
     torch.testing.assert_close(replicas[0], replicas[1], rtol=0, atol=0)
     assert state.complete
     assert state.scheduler.step_index == 2
+
+    negative_prompt_embeds = [-prompt_embeds[0]]
+    epe.epe.cfg_parallel = False
+    pure_cp = epe_pipeline.prepare_request(
+        prompt_embeds=prompt_embeds,
+        negative_prompt_embeds=negative_prompt_embeds,
+        guidance_scale=4.0,
+        height=128,
+        width=128,
+        num_inference_steps=1,
+        generator=torch.Generator().manual_seed(29),
+    )
+    epe_pipeline.denoise_step(pure_cp, lane_ranks=(0, 1))
+    epe.epe.cfg_parallel = True
+    cfp2 = epe_pipeline.prepare_request(
+        prompt_embeds=prompt_embeds,
+        negative_prompt_embeds=negative_prompt_embeds,
+        guidance_scale=4.0,
+        height=128,
+        width=128,
+        num_inference_steps=1,
+        generator=torch.Generator().manual_seed(29),
+    )
+    epe_pipeline.denoise_step(cfp2, lane_ranks=(0, 1))
+    torch.testing.assert_close(cfp2.latents, pure_cp.latents, rtol=4e-4, atol=4e-4)
     context.close()
 
 

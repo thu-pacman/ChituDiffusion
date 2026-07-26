@@ -1,4 +1,4 @@
-diffusers==0.36.0
+diffusers==0.37.0
 blobfile
 einops==0.8.1
 faker

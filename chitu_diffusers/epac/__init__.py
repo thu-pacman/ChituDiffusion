@@ -1,6 +1,7 @@
 """Model-independent Elastic Parallel Caching engine."""
 
 from .adapters import AdapterRegistry, DiffusersModelAdapter
+from .api import DiffusersEPACPipeline, StaticFullWorldPolicy
 from .cache import CacheConfig
 from .capabilities import PipelineCapabilities
 from .config import EngineConfig
@@ -24,6 +25,8 @@ from .image_decoder import (
     TransferBundle,
 )
 from .lane_broker import PulseLaneBroker
+from .model_executor import DiffusersImageDecoderExecutor
+from .model_scheduling import EpePhaseAssignment, EpeRequest, EpeSchedulingModule
 from .executor import DenoiseStepExecutor
 from .optimization import (
     CachedPrediction,
@@ -68,12 +71,17 @@ __all__ = [
     "DenoiseOptimization",
     "DenoiseStepExecutor",
     "DiffusersEngine",
+    "DiffusersEPACPipeline",
+    "DiffusersImageDecoderExecutor",
     "DiffusersModelAdapter",
     "DiffusionRequest",
     "DiffusionResult",
     "DistributedRankExchange",
     "EngineConfig",
     "EpeSchedulingPolicy",
+    "EpeSchedulingModule",
+    "EpePhaseAssignment",
+    "EpeRequest",
     "EmbeddedRuntimeConfig",
     "EmbeddedRuntimeHealth",
     "ExecutorBuildContext",
@@ -112,6 +120,7 @@ __all__ = [
     "StepPlan",
     "StepOutcome",
     "StageWorldSpec",
+    "StaticFullWorldPolicy",
     "SingletonLaneWorkerPool",
     "StructuredError",
     "TransferBundle",

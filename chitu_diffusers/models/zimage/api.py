@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,11 +7,13 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 import torch
 
+from ...epac.api import (
+    DiffusersEPACPipeline,
+    build_diffusion_request,
+    validate_image_request,
+)
 from ...epac.cache import CacheConfig
-from ...epac.config import EngineConfig
-from ...epac.engine import DiffusersEngine
-from ...epac.request import DiffusionRequest, RequestStatus
-from ...epac.scheduling import SchedulableRequest, StepPlan
+from ...epac.request import DiffusionRequest
 from .adapter import ZImageModelAdapter
 from .pipeline import EpeZImagePipeline
 
@@ -39,54 +40,27 @@ class EPACRequest:
     extra_inputs: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.prompt and "prompt_embeds" not in self.extra_inputs:
-            raise ValueError("prompt or extra_inputs['prompt_embeds'] is required")
-        if not self.request_id:
-            raise ValueError("request_id must not be empty")
-        if self.num_steps <= 0:
-            raise ValueError("num_steps must be positive")
-        if self.width < 16 or self.height < 16:
-            raise ValueError("width and height must be at least 16")
-        if self.width % 16 or self.height % 16:
-            raise ValueError("width and height must be multiples of 16")
-        if self.deadline_ms is not None and self.deadline_ms <= 0:
-            raise ValueError("deadline_ms must be positive")
+        validate_image_request(self)
 
     def to_diffusion_request(self, *, device: torch.device) -> DiffusionRequest:
         self.cache.require_available()
-        inputs = dict(self.extra_inputs)
-        reserved = {
-            "prompt",
-            "negative_prompt",
-            "width",
-            "height",
-            "guidance_scale",
-            "generator",
-            "num_inference_steps",
-            "output_type",
-        }
-        overlap = reserved.intersection(inputs)
-        if overlap:
-            raise ValueError(
-                "extra_inputs contains reserved fields: " + ", ".join(sorted(overlap))
-            )
-        inputs.update(
-            {
+        return build_diffusion_request(
+            self,
+            device=device,
+            model_inputs={
                 "prompt": self.prompt,
                 "negative_prompt": self.negative_prompt,
-                "width": self.width,
-                "height": self.height,
-                "guidance_scale": self.guidance_scale,
-                "generator": torch.Generator(device=device).manual_seed(self.seed),
-            }
-        )
-        return DiffusionRequest(
-            request_id=self.request_id,
-            inputs=inputs,
-            num_inference_steps=self.num_steps,
-            output_type=self.output_type,
-            deadline_ms=self.deadline_ms,
-            priority=self.priority,
+            },
+            reserved_fields={
+                "prompt",
+                "negative_prompt",
+                "width",
+                "height",
+                "guidance_scale",
+                "generator",
+                "num_inference_steps",
+                "output_type",
+            },
             metadata={"cache": self.cache.strategy},
         )
 
@@ -107,42 +81,21 @@ class EPACRequest:
         }
 
 
-class _StaticFullWorldPolicy:
-    def __init__(self, ranks: tuple[int, ...]) -> None:
-        self.ranks = ranks
-
-    def plan(
-        self,
-        requests: Sequence[SchedulableRequest],
-        *,
-        pulse_steps: int,
-    ) -> Sequence[StepPlan]:
-        if len(requests) != 1:
-            raise RuntimeError("static generate supports exactly one active request")
-        request = requests[0]
-        return (
-            StepPlan(
-                request_id=request.request_id,
-                steps=min(pulse_steps, request.profile.remaining_steps),
-                lane_ranks=self.ranks,
-            ),
-        )
-
-
-class EPACPipeline:
+class EPACPipeline(DiffusersEPACPipeline):
     """Diffusers-style facade for static generation and elastic serving."""
+
+    pipeline_class = EpeZImagePipeline
+    adapter_class = ZImageModelAdapter
 
     def __init__(
         self,
         pipeline: EpeZImagePipeline,
         *,
         model_path: str,
-        default_cache: CacheConfig,
+        default_cache: CacheConfig | None = None,
     ) -> None:
-        self._pipeline = pipeline
-        self.model_path = str(model_path)
-        self.default_cache = default_cache
-        self._closed = False
+        super().__init__(pipeline, model_path=model_path)
+        self.default_cache = default_cache or CacheConfig()
 
     @classmethod
     def from_pretrained(
@@ -152,78 +105,29 @@ class EPACPipeline:
         allowed_lane_widths: Sequence[int] | None = None,
         attention_mode: str = "agkv",
         ulysses_degree: int | None = None,
+        cfg_parallel: bool = True,
         cache: CacheConfig | None = None,
         device: str | torch.device | None = None,
         **kwargs: Any,
     ) -> "EPACPipeline":
-        world_size = int(os.environ.get("WORLD_SIZE", "1"))
-        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-        widths = tuple(
-            int(width)
-            for width in (
-                allowed_lane_widths
-                or tuple(
-                    width
-                    for width in range(1, world_size + 1)
-                    if world_size % width == 0
-                )
-            )
-        )
-        selected_device = torch.device(
-            device or (f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
-        )
-        if selected_device.type == "cuda" and selected_device.index is None:
-            selected_device = torch.device("cuda", local_rank)
-
-        pipeline = EpeZImagePipeline.from_pretrained(
+        facade = super().from_pretrained(
             pretrained_model_name_or_path,
-            allowed_lane_widths=widths,
+            allowed_lane_widths=allowed_lane_widths,
             attention_mode=attention_mode,
             ulysses_degree=ulysses_degree,
+            cfg_parallel=cfg_parallel,
+            device=device,
             **kwargs,
-        ).to(selected_device)
-        pipeline.set_progress_bar_config(disable=True)
-        return cls(
-            pipeline,
-            model_path=str(pretrained_model_name_or_path),
-            default_cache=cache or CacheConfig(),
         )
+        assert isinstance(facade, cls)
+        facade.default_cache = cache or CacheConfig()
+        return facade
 
-    @property
-    def diffusers_pipeline(self) -> EpeZImagePipeline:
-        return self._pipeline
-
-    @property
-    def parallel_context(self):
-        return self._pipeline.parallel_context
-
-    def generate(self, request: EPACRequest):
-        self._ensure_open()
+    def _before_generate(self, request: EPACRequest) -> None:
         cache = request.cache
         if cache.strategy == "none" and self.default_cache.strategy != "none":
             cache = self.default_cache
         cache.require_available()
-        diffusion_request = request.to_diffusion_request(
-            device=torch.device("cuda", self.parallel_context.local_rank)
-            if torch.cuda.is_available()
-            else torch.device("cpu")
-        )
-        world_ranks = tuple(range(self.parallel_context.world_size))
-        engine = DiffusersEngine.from_pipeline(
-            self._pipeline,
-            adapter=ZImageModelAdapter(),
-            config=EngineConfig(
-                max_pending_requests=1,
-                max_inflight_requests=1,
-                pulse_steps=request.num_steps,
-            ),
-            policy=_StaticFullWorldPolicy(world_ranks),
-        )
-        result = engine.generate(diffusion_request)
-        if result.status is not RequestStatus.COMPLETED:
-            detail = result.error.message if result.error is not None else result.status
-            raise RuntimeError(f"EPAC generation failed: {detail}")
-        return result.output
 
     def serve(self, config: "EPACServeConfig | None" = None) -> None:
         """Warm up all configured lanes and run the blocking torchrun service."""
@@ -240,13 +144,3 @@ class EPACPipeline:
             )
         finally:
             self._closed = True
-
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._pipeline.close()
-        self._closed = True
-
-    def _ensure_open(self) -> None:
-        if self._closed:
-            raise RuntimeError("EPACPipeline is closed")

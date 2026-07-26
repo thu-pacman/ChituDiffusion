@@ -8,6 +8,8 @@ from .epac import (
     DenoiseOptimization,
     DenoiseStepExecutor,
     DiffusersEngine,
+    DiffusersEPACPipeline,
+    DiffusersImageDecoderExecutor,
     DiffusersModelAdapter,
     DiffusionRequest,
     DiffusionResult,
@@ -16,6 +18,9 @@ from .epac import (
     EmbeddedRuntimeHealth,
     EngineConfig,
     EpeSchedulingPolicy,
+    EpeSchedulingModule,
+    EpePhaseAssignment,
+    EpeRequest,
     FullWorldLaneWorkerPool,
     ImageDecodeCompletion,
     ImageDecoderExecutor,
@@ -61,6 +66,13 @@ from .models.zimage import (
     ZImageImageDecoderExecutor,
     ZImageModelAdapter,
 )
+from .models.flux1 import (
+    Flux1EPACPipeline,
+    Flux1ExecutorFactory,
+    Flux1ImageDecoderExecutor,
+    Flux1ModelAdapter,
+    Flux1Request,
+)
 from .serve import EmbeddedDiffusionRuntime, EPACServeConfig, HotSwitchPoolConfig
 
 __all__ = [
@@ -70,6 +82,8 @@ __all__ = [
     "DenoiseOptimization",
     "DenoiseStepExecutor",
     "DiffusersEngine",
+    "DiffusersEPACPipeline",
+    "DiffusersImageDecoderExecutor",
     "DiffusersModelAdapter",
     "DiffusionRequest",
     "DiffusionResult",
@@ -82,7 +96,15 @@ __all__ = [
     "EPACRequest",
     "EPACServeConfig",
     "EpeSchedulingPolicy",
+    "EpeSchedulingModule",
+    "EpePhaseAssignment",
+    "EpeRequest",
     "FullWorldLaneWorkerPool",
+    "Flux1EPACPipeline",
+    "Flux1ExecutorFactory",
+    "Flux1ImageDecoderExecutor",
+    "Flux1ModelAdapter",
+    "Flux1Request",
     "HotSwitchPoolConfig",
     "ImageDecodeCompletion",
     "ImageDecoderExecutor",

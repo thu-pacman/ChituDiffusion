@@ -33,6 +33,11 @@ def main() -> None:
         default="agkv",
     )
     parser.add_argument("--ulysses-degree", type=int, default=2)
+    parser.add_argument(
+        "--cfg-parallel",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     parser.add_argument("--output", default="outputs/chitu-diffusers/embedded.png")
     args = parser.parse_args()
     if not args.model_path:
@@ -67,6 +72,7 @@ def main() -> None:
             default_num_steps=args.steps,
             attention_mode=args.attention_mode,
             ulysses_degree=args.ulysses_degree,
+            cfg_parallel=args.cfg_parallel,
         ),
         config=EmbeddedRuntimeConfig(
             output_root=str(Path(args.output).parent),

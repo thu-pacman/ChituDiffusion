@@ -1180,6 +1180,11 @@ def main() -> None:
         help="Named run containing service.log, metrics.json and rank timelines",
     )
     parser.add_argument("--arrival-rate", type=float)
+    parser.add_argument(
+        "--steps",
+        type=int,
+        help="Override num_steps for every trace request when plotting",
+    )
     parser.add_argument("--static-dp-log", type=Path)
     parser.add_argument("--static-dp-metrics", type=Path)
     parser.add_argument("--static-cp-log", type=Path)
@@ -1200,6 +1205,11 @@ def main() -> None:
     args = parser.parse_args()
 
     trace = json.loads(args.trace.read_text(encoding="utf-8"))
+    if args.steps is not None:
+        if args.steps <= 0:
+            parser.error("--steps must be positive")
+        for request in trace["requests"]:
+            request["num_steps"] = args.steps
     if args.arrival_rate is not None:
         from .benchmark_client import scale_trace_arrivals
 

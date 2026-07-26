@@ -6,15 +6,27 @@ CPU 后处理。模型接入不应复制这些逻辑。
 
 ## 交付物
 
-每个模型家族只需要提供两个对象：
+每个模型家族只需要提供两个轻量对象：
 
 1. `ImageDecoderExecutorFactory`：在每个 stage rank 上根据
    `ExecutorBuildContext(world, pool)` 创建模型、通信组和 executor。
-2. `ImageDecoderExecutor`：定义请求编解码、request-local denoise state、单步 DiT、
-   state transfer、VAE decode 和 CPU postprocess。
+2. `ImageDecoderExecutor`：在共享基类上实现请求编解码、warmup、request-local state
+   准备、condition/state-byte 计算和模型特有 VAE 参数。
 
-Z-Image 的参考实现位于 `models/zimage/executor.py`。宿主入口只依赖
+不要从零实现完整 executor。模型 executor 应继承
+`epac.model_executor.DiffusersImageDecoderExecutor`，只提供 request codec、warmup、
+prompt/state 准备、condition/state-byte 计算和模型特有 decode 参数；stage world 校验、
+request profile、state transfer、单步调用、postprocess 和 close 生命周期由共享基类负责。
+factory 使用 `build_stage_parallel_context()` 和 `scheduling_options_from_pool()`。
+
+Z-Image 与 Flux.1 的参考实现分别位于 `models/zimage/executor.py` 和
+`models/flux1/executor.py`。宿主入口只依赖
 `EmbeddedDiffusionRuntime.create(..., executor_factory=...)`，不得 import 模型私有类型。
+
+调度成本、在线校准和 planner facade 统一使用
+`epac.model_scheduling.EpeSchedulingModule`。模型只保留产生 warmup 行的逻辑。离线
+Diffusers 风格 API 继承 `epac.api.DiffusersEPACPipeline`，模型侧只声明 pipeline、adapter
+和 typed request；不要复制 full-world policy 或 engine 驱动。
 
 ## 生命周期
 
@@ -39,21 +51,17 @@ followers: worker loop
 
 ## Executor 方法
 
-| 方法 | 模型侧责任 |
+| 方法 | 默认所有者 / 模型侧责任 |
 | --- | --- |
-| `normalize_request` / `validate_request` | 接受模型专用 request，补默认值并拒绝未 warmup 的 shape |
-| `serialize_request` / `deserialize_request` | 只传输可序列化字段，不传 CUDA tensor |
-| `request_profile` | 在 prepare 前提供总步数、序列长度、batch/condition 和 `state_bytes` |
-| `request_deadline_ms` | 返回逐请求 SLO；返回 `None` 时使用 pool 的 `default_deadline_ms` |
-| `prepare_request` | 运行 encoder/tokenizer，创建独立 scheduler、timesteps、latent 和 step cursor |
-| `profile` | 从 state 返回当前 `completed_steps`，结果必须与真实 cursor 一致 |
-| `denoise_step` | 只推进一步；按照 `lane_ranks` 执行当前 lane 的 CP，不自行调度下一步 |
-| `synchronize_state` | lane 切换后把所有 rank 的 cursor 对齐到指定 step |
-| `export_state` | 返回继续推理所需的 canonical tensor；不能依赖旧 lane 的局部分片 |
-| `finalize_gpu` | 所有 `lane_ranks` collective 进入 VAE；只在 lane leader 返回 GPU tensor |
-| `postprocess` | CPU image processor；由 runtime 线程池异步调用 |
-| `abort_request` | 释放该 request 的模型私有资源，必须幂等 |
-| `close` | 按 ownership 释放 lane group、model 和 process group，必须可重复调用 |
+| `normalize_request` / `serialize_request` | 模型实现 typed request codec；只传可序列化字段 |
+| `validate_request` / `deserialize_request` | 共享基类校验 warmup shape，并复用 normalize |
+| `request_profile` / `profile` | 共享基类组装 profile；模型只返回 condition 与预估 state bytes |
+| `request_id` / `request_deadline_ms` | 共享基类读取 typed request 字段 |
+| `prepare_request` / `warmup` | 模型运行 encoder、创建 state，并产生 DiT/terminal 实测行 |
+| `denoise_step` / `synchronize_state` | 共享基类调用 pipeline 的单步和 cursor 同步接口 |
+| `export_state` | 共享默认迁移 canonical latent；额外可变状态由模型覆写 |
+| `finalize_gpu` | 共享基类管理 lane context；模型只提供 decode kwargs，必要时覆写 |
+| `postprocess` / `abort_request` / `close` | 共享基类提供 Diffusers 默认生命周期，模型资源特殊时覆写 |
 
 ## DiT 与并行约束
 
