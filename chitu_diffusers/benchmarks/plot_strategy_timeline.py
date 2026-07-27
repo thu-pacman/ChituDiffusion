@@ -283,12 +283,14 @@ def parse_rank_timeline(
         "png": "png",
         "cpu_postprocess": "cpu_postprocess",
         "cpu_png": "cpu_png",
+        "result_transfer": "result_transfer",
     }
     segments: list[Segment] = []
     typed_gpu_ms: dict[str, float] = {kind: 0.0 for kind in set(stage_kinds.values())}
     typed_cpu_ms: dict[str, float] = {
         "cpu_postprocess": 0.0,
         "cpu_png": 0.0,
+        "result_transfer": 0.0,
     }
     phase_counter = 0
     for event in sorted(events, key=lambda item: int(item["start_unix_ns"])):
@@ -379,6 +381,7 @@ def parse_rank_timeline(
         "png_gpu_ms": typed_gpu_ms.get("png", 0.0),
         "cpu_postprocess_ms": typed_cpu_ms.get("cpu_postprocess", 0.0),
         "cpu_png_ms": typed_cpu_ms.get("cpu_png", 0.0),
+        "result_transfer_ms": typed_cpu_ms.get("result_transfer", 0.0),
         "denoise_gpu_utilization": compute_gpu_ms / (wall_ms * world_size),
     }
 
@@ -600,7 +603,12 @@ def derive_deadlines_ms(
             deadlines[request_id] = arrival_ms + float(explicit_ms)
             sources[request_id] = "explicit"
             continue
-        image_tokens = (int(request["height"]) // 16) * (int(request["width"]) // 16)
+        image_tokens = int(
+            request.get(
+                "image_tokens",
+                (int(request["height"]) // 16) * (int(request["width"]) // 16),
+            )
+        )
         cp1_costs = [
             run.step_cost_ms[(image_tokens, 1)]
             for run in runs
@@ -620,6 +628,12 @@ def derive_deadlines_ms(
 def strategy_colors(runs: list[Run]) -> dict[str, tuple[float, ...]]:
     palette = plt.colormaps.get_cmap("tab10")
     return {run.name: palette(index % palette.N) for index, run in enumerate(runs)}
+
+
+def _request_shape_text(request: dict) -> str:
+    width = int(request["width"])
+    height = int(request["height"])
+    return f"{width}²" if width == height else f"{width}×{height}"
 
 
 def draw_arrivals(
@@ -716,7 +730,7 @@ def draw_arrivals(
         range(len(requests)),
         [
             (
-                f"{request['request_id']}  {int(request['width'])}²"
+                f"{request['request_id']}  {_request_shape_text(request)}"
                 + (
                     f"  SLO {float(request['deadline_ms']) / 1000.0:g}s"
                     if deadline_sources[str(request["request_id"])] == "explicit"
@@ -845,6 +859,7 @@ def draw_strategy(
             "d2h",
             "cpu_postprocess",
             "cpu_png",
+            "result_transfer",
         }:
             styles = {
                 "prepare": ("#d1e9ff", "#1570ef", ""),
@@ -857,6 +872,7 @@ def draw_strategy(
                 "d2h": ("#a5f0fc", "#0e7090", ""),
                 "cpu_postprocess": ("#e9d7fe", "#7f56d9", "...."),
                 "cpu_png": ("#fedf89", "#dc6803", "...."),
+                "result_transfer": ("#d1e9ff", "#175cd3", "xxxx"),
             }
             facecolor, edgecolor, hatch = styles[segment.kind]
             ax.barh(
@@ -932,9 +948,14 @@ def draw_strategy(
     slo_label = (
         f"  |  SLO {int(benchmark['num_slo_met'])}/{slo_total}" if slo_total else ""
     )
+    load_label = (
+        f"{int(benchmark['num_requests'])} completed"
+        if any(float(request["arrival_ms"]) > 0 for request in requests)
+        else f"throughput {benchmark['throughput_req_per_s']:.3f} req/s"
+    )
     ax.set_title(
         f"{run.name}  |  makespan {makespan_s:.1f}s  |  "
-        f"throughput {benchmark['throughput_req_per_s']:.3f} req/s  |  "
+        f"{load_label}  |  "
         f"{utilization_label} {utilization:.1f}%{slo_label}",
         loc="left",
         fontsize=10.5,
@@ -943,7 +964,7 @@ def draw_strategy(
     ax.set_xlim(0.0, shared_end_ms / 1000.0)
     labels = [f"GPU {gpu}" for gpu in range(world_size)]
     if has_cpu_lane:
-        labels.append("CPU encode")
+        labels.append("CPU / result I/O")
     ax.set_yticks(range(lane_count), labels)
     ax.invert_yaxis()
     ax.grid(axis="x", color="#e4e7ec", linewidth=0.65)
@@ -1035,14 +1056,28 @@ def render(
         fontsize=16,
         fontweight="bold",
     )
-    sizes = sorted({int(request["width"]) for request in requests})
+    shapes = sorted(
+        {(int(request["height"]), int(request["width"])) for request in requests}
+    )
+    frame_counts = sorted(
+        {int(request["num_frames"]) for request in requests if "num_frames" in request}
+    )
     steps = sorted({int(request["num_steps"]) for request in requests})
-    size_text = " / ".join(f"{size}²" for size in sizes)
+    size_text = " / ".join(
+        f"{width}²" if width == height else f"{width}×{height}"
+        for height, width in shapes
+    )
+    frame_text = (
+        " · " + "/".join(str(value) for value in frame_counts) + " frames"
+        if frame_counts
+        else ""
+    )
     step_text = "/".join(str(value) for value in steps)
     fig.text(
         0.065,
         0.94,
-        f"{len(requests)} requests · {size_text} · {step_text} denoise steps · "
+        f"{len(requests)} requests · {size_text}{frame_text} · "
+        f"{step_text} denoise steps · "
         f"{world_size}× GPU",
         fontsize=10,
         color="#475467",
@@ -1083,6 +1118,12 @@ def render(
             edgecolor="#dc6803",
             hatch="....",
             label="async CPU PNG",
+        ),
+        Patch(
+            facecolor="#d1e9ff",
+            edgecolor="#175cd3",
+            hatch="xxxx",
+            label="result transfer after replan",
         ),
         Patch(
             facecolor="#e4e7ec",
@@ -1215,8 +1256,12 @@ def main() -> None:
 
         trace["requests"], _ = scale_trace_arrivals(trace, args.arrival_rate)
     request_tokens = {
-        str(request["request_id"]): (int(request["height"]) // 16)
-        * (int(request["width"]) // 16)
+        str(request["request_id"]): int(
+            request.get(
+                "image_tokens",
+                (int(request["height"]) // 16) * (int(request["width"]) // 16),
+            )
+        )
         for request in trace["requests"]
     }
     if args.run:

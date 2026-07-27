@@ -81,6 +81,13 @@ from .models.qwen_image import (
     QwenImageModelAdapter,
     QwenImageRequest,
 )
+from .models.wan import (
+    WanEPACPipeline,
+    WanExecutorFactory,
+    WanModelAdapter,
+    WanRequest,
+    WanVideoDecoderExecutor,
+)
 from .serve import EmbeddedDiffusionRuntime, EPACServeConfig, HotSwitchPoolConfig
 
 __all__ = [
@@ -119,6 +126,11 @@ __all__ = [
     "QwenImageExecutorFactory",
     "QwenImageModelAdapter",
     "QwenImageRequest",
+    "WanEPACPipeline",
+    "WanExecutorFactory",
+    "WanModelAdapter",
+    "WanRequest",
+    "WanVideoDecoderExecutor",
     "HotSwitchPoolConfig",
     "ImageDecodeCompletion",
     "ImageDecoderExecutor",

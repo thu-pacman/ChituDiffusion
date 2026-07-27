@@ -49,6 +49,43 @@ bash script/srun_direct.sh 1 4 chitu_diffusers/examples/qwen_image_embedded.py \
 `--no-cfg-parallel` 可切换到整 lane 串行 CFG 对照，`--no-parallel-vae` 可关闭
 并行 VAE。
 
+## Wan2.1 T2V 1.3B
+
+本地 Wan 原始权重会加载进官方 Diffusers/Transformers 模块。单卡官方
+Diffusers loop：
+
+```bash
+export CHITU_PROJECT_ROOT="$PWD"
+bash script/srun_direct.sh 1 1 chitu_diffusers/examples/wan_native.py \
+  --model-path /path/to/Wan2.1-T2V-1.3B \
+  --steps 4 --frames 17 \
+  --output outputs/chitu-diffusers/wan/diffusers_native/wan.mp4
+```
+
+四卡同步 EPAC 默认采用 CFP2 x CP2：
+
+```bash
+bash script/srun_direct.sh 1 4 chitu_diffusers/examples/wan_epac.py \
+  --model-path /path/to/Wan2.1-T2V-1.3B \
+  --steps 4 --frames 17 \
+  --output outputs/chitu-diffusers/wan/epac/wan.mp4
+```
+
+embedded elastic runtime 会执行至少三次 warmup；增加短请求可覆盖 lane 重规划和
+state migration：
+
+```bash
+bash script/srun_direct.sh 1 4 chitu_diffusers/examples/wan_embedded.py \
+  --model-path /path/to/Wan2.1-T2V-1.3B \
+  --steps 8 --secondary-steps 2 --frames 17 --warmup-steps 3 \
+  --policy elastic --no-balanced-k --record-timeline \
+  --output outputs/chitu-diffusers/wan/embedded/wan.mp4
+```
+
+视频 VAE 默认按 active lane 切分 latent width 并行 decode，使用 8 列 latent halo，
+再由 lane leader 汇总完整视频帧。`--no-parallel-vae` 可切回 leader-only 对照，
+`--vae-parallel-halo N` 可调整 overlap；尚未提供 HTTP MP4 endpoint。
+
 ## FLUX.1-dev
 
 以下命令通过 Slurm wrapper 使用共享 ChituDiffusion 环境：

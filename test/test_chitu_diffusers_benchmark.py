@@ -5,6 +5,9 @@ from chitu_diffusers.benchmarks.benchmark_client import scale_trace_arrivals
 from chitu_diffusers.benchmarks.flux1_3arm_summary import build_comparison
 from chitu_diffusers.benchmarks.flux1_adaptive_trace import build_adaptive_trace
 from chitu_diffusers.benchmarks.flux1_embedded_benchmark import _request_specs
+from chitu_diffusers.benchmarks.wan_adaptive_trace import build_wan_adaptive_trace
+from chitu_diffusers.benchmarks.wan_embedded_benchmark import _safe_request_id
+from chitu_diffusers.benchmarks.plot_strategy_timeline import Run, derive_deadlines_ms
 
 
 def test_scale_trace_arrivals_preserves_order_and_scales_rate() -> None:
@@ -22,6 +25,28 @@ def test_scale_trace_arrivals_preserves_order_and_scales_rate() -> None:
     assert [request["request_id"] for request in requests] == ["first", "later"]
     assert requests[1]["arrival_ms"] == 3000.0
     assert trace["requests"][0]["arrival_ms"] == 300.0
+
+
+def test_wan_video_filename_sanitizes_trace_request_id() -> None:
+    assert _safe_request_id("480p/2s request") == "480p_2s_request"
+    assert _safe_request_id("../") == "request"
+
+
+def test_timeline_deadline_uses_explicit_video_token_count() -> None:
+    request = {
+        "request_id": "video",
+        "arrival_ms": 0.0,
+        "height": 480,
+        "width": 832,
+        "image_tokens": 32_760,
+        "num_steps": 50,
+    }
+    run = Run("Elastic", [], [], {}, {}, {(32_760, 1): 100.0})
+
+    deadlines, sources = derive_deadlines_ms([request], [run], default_factor=1.2)
+
+    assert deadlines == {"video": 6000.0}
+    assert sources == {"video": "cp1_default"}
 
 
 def test_flux1_benchmark_replays_trace_arrivals_and_deadlines(tmp_path) -> None:
@@ -128,6 +153,44 @@ def test_flux1_adaptive_trace_uses_warmup_capacity_and_longest_cp1_slo() -> None
     )
 
 
+def test_wan_adaptive_trace_uses_measured_cfp2_capacity_and_explicit_slo() -> None:
+    warmup = {
+        "rows": [
+            {
+                "resolution": [720, 1280],
+                "width": 2,
+                "latency_ms": 100.0,
+                "terminal_ms": 1000.0,
+            }
+        ]
+    }
+
+    trace = build_wan_adaptive_trace(
+        warmup,
+        slo_ms=6500.0,
+        height=720,
+        width=1280,
+        num_frames=81,
+        steps=50,
+        world_size=8,
+        requests_per_phase=2,
+    )
+
+    assert len(trace["requests"]) == 6
+    assert {request["deadline_ms"] for request in trace["requests"]} == {6500.0}
+    assert {request["image_tokens"] for request in trace["requests"]} == {75_600}
+    capacity = trace["meta"]["capacity_estimate"]
+    assert capacity["request_latency_ms"] == 6000.0
+    assert capacity["capacity_req_per_s"] == 4 / 6
+    assert [
+        phase["load_vs_measured_cfp2_capacity"] for phase in trace["meta"]["phases"]
+    ] == [
+        0.5,
+        0.9,
+        1.2,
+    ]
+
+
 def test_flux1_three_arm_summary_reports_phase_slo_and_cp_improvement() -> None:
     trace = {
         "meta": {
@@ -175,8 +238,6 @@ def test_flux1_three_arm_summary_reports_phase_slo_and_cp_improvement() -> None:
 
     assert comparison["elastic_improvement"]["vs_static_cp"]["throughput_pct"] == 50.0
     assert (
-        comparison["results"]["elastic"]["phases"]["overload"][
-            "slo_attainment_rate"
-        ]
+        comparison["results"]["elastic"]["phases"]["overload"]["slo_attainment_rate"]
         == 0.0
     )

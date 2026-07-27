@@ -80,6 +80,55 @@ overload 三段到达率，然后依次执行 static-DP、串行 static-CP 与 E
   --output outputs/flux1-benchmark/mixed50/strategy_timeline.png
 ```
 
+## Wan 自适应 trace
+
+`wan_embedded_benchmark.py` 支持任意单节点 world size、矩形视频分辨率和 trace arrival。
+视频完成后只保留数组 hash 与 shape，及时释放完整帧数组，避免长 trace 累积 host 内存。
+传入 `--save-videos` 时则用独立的有界 CPU 线程池异步编码 MP4；
+`--video-workers` 控制并发编码数。混合时长 trace 会按 `(height, width, frames)` 分别
+执行 startup warmup，避免用短视频 cost 预测长视频请求。
+推荐先用 2 卡 `static_cp` 单请求得到 CFP2 的实测端到端 latency，再用 8 卡
+`--warmup-only` 得到 width 1/2/4/8 cost table：
+
+```bash
+bash script/srun_direct.sh 1 2 -m chitu_diffusers.benchmarks.wan_embedded_benchmark \
+  --model-path /path/to/Wan2.1-T2V-1.3B --strategy static_cp \
+  --output-dir outputs/wan-adaptive/2gpu-cfp \
+  --width 1280 --height 720 --frames 81 --steps 50 --warmup-steps 3
+
+bash script/srun_direct.sh 1 8 -m chitu_diffusers.benchmarks.wan_embedded_benchmark \
+  --model-path /path/to/Wan2.1-T2V-1.3B --strategy elastic \
+  --output-dir outputs/wan-adaptive/calibration --warmup-only \
+  --width 1280 --height 720 --frames 81 --steps 50 --warmup-steps 3
+```
+
+将 2 卡 `metrics.json` 的单请求 `latency_ms` 原值传给 trace builder。生成器以 8 卡
+warmup 的 width=2 成本估计四条 CFP2 lane 的总容量，创建 sparse、balanced 和 overload
+三段到达率，并给所有请求写入同一个显式 SLO：
+
+```bash
+python -m chitu_diffusers.benchmarks.wan_adaptive_trace \
+  --warmup outputs/wan-adaptive/calibration/epe_warmup.json \
+  --slo-ms MEASURED_CFP2_LATENCY_MS \
+  --output outputs/wan-adaptive/adaptive_trace.json \
+  --width 1280 --height 720 --frames 81 --steps 50 --world-size 8
+
+bash script/srun_direct.sh 1 8 -m chitu_diffusers.benchmarks.wan_embedded_benchmark \
+  --model-path /path/to/Wan2.1-T2V-1.3B --strategy elastic \
+  --trace outputs/wan-adaptive/adaptive_trace.json \
+  --output-dir outputs/wan-adaptive/elastic \
+  --width 1280 --height 720 --frames 81 --steps 50 --warmup-steps 3
+
+python -m chitu_diffusers.benchmarks.plot_strategy_timeline \
+  --trace outputs/wan-adaptive/adaptive_trace.json \
+  --run 'Elastic=outputs/wan-adaptive/elastic' --world-size 8 \
+  --output outputs/wan-adaptive/timeline.png
+```
+
+`warmup-steps` 低于 3 会被拒绝。Wan terminal 默认使用 active-lane parallel VAE 和
+leader D2H；`--no-parallel-vae` 可运行 leader-only 对照。cost table、SLO 和 timeline
+都包含实测终结成本，不把 denoise-only 外推冒充端到端延迟。
+
 ## 策略 / Attention 多到达率对照
 
 下列脚本在同一 Slurm allocation 和节点内，顺序执行 Elastic AGKV、Static DP AGKV、
