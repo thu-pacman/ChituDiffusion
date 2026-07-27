@@ -73,6 +73,7 @@ from .models.flux1 import (
     Flux1ModelAdapter,
     Flux1Request,
 )
+from .models.flux2_klein import Flux2KleinCpPipeline
 from .serve import EmbeddedDiffusionRuntime, EPACServeConfig, HotSwitchPoolConfig
 
 __all__ = [
@@ -105,6 +106,7 @@ __all__ = [
     "Flux1ImageDecoderExecutor",
     "Flux1ModelAdapter",
     "Flux1Request",
+    "Flux2KleinCpPipeline",
     "HotSwitchPoolConfig",
     "ImageDecodeCompletion",
     "ImageDecoderExecutor",

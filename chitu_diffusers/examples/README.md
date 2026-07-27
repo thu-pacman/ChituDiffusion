@@ -1,5 +1,24 @@
 # chitu_diffusers examples
 
+## FLUX.2-klein
+
+FLUX.2-klein currently retains the official Diffusers single-GPU path and a
+fixed full-world context-parallel baseline. The four-step distilled schedule is
+not wired into EPAC elastic switching.
+
+```bash
+bash script/srun_direct.sh 1 1 chitu_diffusers/examples/flux2_klein_native.py \
+  --model-path /path/to/flux2-klein \
+  --output outputs/flux2_klein/native_512_4step.png
+
+bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux2_klein_cp.py \
+  --model-path /path/to/flux2-klein \
+  --output outputs/flux2_klein/fixed_cp_4gpu_512_4step.png
+```
+
+固定 CP 仅支持 distilled checkpoint、AGKV 和 batch size 1。当前限制与验证
+结果见 `chitu_diffusers/models/flux2_klein/README.md`。
+
 ## FLUX.1-dev
 
 以下命令通过 Slurm wrapper 使用共享 ChituDiffusion 环境：
