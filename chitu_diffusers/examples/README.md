@@ -19,6 +19,36 @@ bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux2_klein_cp.py \
 固定 CP 仅支持 distilled checkpoint、AGKV 和 batch size 1。当前限制与验证
 结果见 `chitu_diffusers/models/flux2_klein/README.md`。
 
+## Qwen-Image
+
+使用本地 Qwen-Image Diffusers 权重运行原生 50 步基线：
+
+```bash
+export CHITU_PROJECT_ROOT="$PWD"
+bash script/srun_direct.sh 1 1 chitu_diffusers/examples/qwen_image_native.py \
+  --model-path /path/to/Qwen-Image \
+  --local-files-only --steps 50 \
+  --output outputs/chitu-diffusers/qwen_image/native_512_50.png
+```
+
+四卡 EPAC 默认使用 CFP2 x CP2，并执行三次 startup warmup：
+
+```bash
+bash script/srun_direct.sh 1 4 chitu_diffusers/examples/qwen_image_embedded.py \
+  --model-path /path/to/Qwen-Image \
+  --resolution 512 --steps 50 --warmup-steps 3 \
+  --policy elastic --record-timeline \
+  --output outputs/chitu-diffusers/qwen_image/epac_4gpu_512_50.png
+```
+
+不启动 embedded worker 的同步 full-world API 可使用
+`chitu_diffusers/examples/qwen_image_epac.py`。
+
+增加 `--secondary-steps 25` 会同时提交一个短请求，形成两个 width-2 lane，
+并在短请求完成后验证长请求扩容到 width 4 的 state migration。使用
+`--no-cfg-parallel` 可切换到整 lane 串行 CFG 对照，`--no-parallel-vae` 可关闭
+并行 VAE。
+
 ## FLUX.1-dev
 
 以下命令通过 Slurm wrapper 使用共享 ChituDiffusion 环境：

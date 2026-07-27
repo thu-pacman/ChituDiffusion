@@ -74,6 +74,13 @@ from .models.flux1 import (
     Flux1Request,
 )
 from .models.flux2_klein import Flux2KleinCpPipeline
+from .models.qwen_image import (
+    QwenImageDecoderExecutor,
+    QwenImageEPACPipeline,
+    QwenImageExecutorFactory,
+    QwenImageModelAdapter,
+    QwenImageRequest,
+)
 from .serve import EmbeddedDiffusionRuntime, EPACServeConfig, HotSwitchPoolConfig
 
 __all__ = [
@@ -107,6 +114,11 @@ __all__ = [
     "Flux1ModelAdapter",
     "Flux1Request",
     "Flux2KleinCpPipeline",
+    "QwenImageDecoderExecutor",
+    "QwenImageEPACPipeline",
+    "QwenImageExecutorFactory",
+    "QwenImageModelAdapter",
+    "QwenImageRequest",
     "HotSwitchPoolConfig",
     "ImageDecodeCompletion",
     "ImageDecoderExecutor",
