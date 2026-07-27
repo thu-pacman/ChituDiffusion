@@ -15,6 +15,7 @@ import torch
 import torch.distributed as dist
 
 from ..epac import (
+    AsyncResultChannel,
     DistributedRankExchange,
     FullWorldLaneWorkerPool,
     LaneWorkItem,
@@ -86,9 +87,6 @@ class EpeZImageServiceRuntime:
             )
             if self.rank == 0
             else None
-        )
-        self._postprocess_slots = threading.BoundedSemaphore(
-            config.postprocess_workers * 2
         )
         self._postprocess_futures: set[Future] = set()
         self._accepting = self.rank == 0
@@ -439,6 +437,7 @@ class EpeZImageServiceRuntime:
         if not self.uses_elastic_worker_pool:
             raise RuntimeError("unsupported worker-pool strategy")
         self.parallel.initialize_worker_control_group()
+        self.parallel.initialize_worker_result_group()
         broker = (
             PulseLaneBroker(
                 world_size=self.world_size,
@@ -447,6 +446,7 @@ class EpeZImageServiceRuntime:
                 reserve=self._reserve_elastic_work,
                 payload=self._elastic_payload,
                 update_progress=self._update_elastic_progress,
+                retire=self._retire_elastic_work,
                 complete=self._complete_elastic_work,
                 observe=self.epe.observe_schedulable,
                 should_stop=stop_requested.is_set,
@@ -460,7 +460,25 @@ class EpeZImageServiceRuntime:
             control_group=self.parallel.worker_control_group(1),
             handler=None if broker is None else broker.exchange,
         )
-        exchange.run(self._elastic_worker_loop)
+        result_channel = AsyncResultChannel(
+            rank=self.rank,
+            world_size=self.world_size,
+            control_group=(
+                None if self.world_size == 1 else self.parallel.worker_result_group(1)
+            ),
+            complete=self._complete_elastic_work,
+            on_transfer=self._record_result_transfer,
+        )
+        result_channel.start()
+        try:
+            exchange.run(
+                lambda rank_exchange: self._elastic_worker_loop(
+                    rank_exchange,
+                    result_channel.submit,
+                )
+            )
+        finally:
+            result_channel.close()
 
     def run_fixed_worker_pool(self, stop_requested: threading.Event) -> None:
         if self.uses_singleton_worker_pool:
@@ -577,18 +595,37 @@ class EpeZImageServiceRuntime:
             if result.request_id in self._active_order:
                 self._active_order.remove(result.request_id)
 
-    def _elastic_worker_loop(self, exchange) -> None:
+    def _retire_elastic_work(self, request_id: str) -> None:
+        with self._lock:
+            record = self._records[request_id]
+            if record.status in {"pending", "running"}:
+                record.status = "gpu_completed"
+            self._scheduler_steps.pop(request_id, None)
+            self._placements.pop(request_id, None)
+            if request_id in self._active_order:
+                self._active_order.remove(request_id)
+
+    def _elastic_worker_loop(self, exchange, publish_result) -> None:
         pulse_sync = 0
         previous_report = None
         previous_epoch = -1
         while True:
             pulse_wait_started_ns = time.time_ns()
+            pulse_report = (
+                None
+                if previous_report is None
+                else {
+                    key: value
+                    for key, value in previous_report.items()
+                    if key != "result"
+                }
+            )
             response = exchange(
                 {
                     "kind": "pulse_report",
                     "epoch": previous_epoch,
                     "sync": pulse_sync,
-                    "report": previous_report,
+                    "report": pulse_report,
                 }
             )
             pulse_wait_ended_ns = time.time_ns()
@@ -608,12 +645,21 @@ class EpeZImageServiceRuntime:
                         **response.get("planner", {}),
                     },
                 )
+            pending_result = (
+                None if previous_report is None else previous_report.get("result")
+            )
             for request_id in response.get("retired_request_ids", ()):
                 self._states.pop(str(request_id), None)
+            previous_report = None
+            previous_epoch = -1
             action = response.get("action")
             if action == "stop":
+                if pending_result is not None:
+                    publish_result(pending_result)
                 return
             if action == "idle":
+                if pending_result is not None:
+                    publish_result(pending_result)
                 time.sleep(0.01)
                 pulse_sync += 1
                 continue
@@ -630,12 +676,30 @@ class EpeZImageServiceRuntime:
                     ),
                 )
             self._apply_elastic_dispatch(response)
+            if pending_result is not None:
+                publish_result(pending_result)
             lease = next(
                 item for item in response["leases"] if self.rank in item["ranks"]
             )
             previous_report = self._run_elastic_lease(response, lease, exchange)
             previous_epoch = int(response["epoch"])
             pulse_sync += 1
+
+    def _record_result_transfer(
+        self,
+        result: LaneWorkResult,
+        started_ns: int,
+        ended_ns: int,
+    ) -> None:
+        lane_ranks = tuple(int(rank) for rank in result.metadata["lane_ranks"])
+        self.timeline.record(
+            "result_transfer",
+            start_unix_ns=started_ns,
+            end_unix_ns=ended_ns,
+            request_id=result.request_id,
+            lane_ranks=lane_ranks,
+            resource="cpu",
+        )
 
     def _apply_elastic_dispatch(self, dispatch: dict) -> None:
         assignments = sorted(
@@ -818,6 +882,24 @@ class EpeZImageServiceRuntime:
             except Exception as exc:
                 local_error = str(exc)
                 error = local_error
+            if self.executor.profile(state).remaining_steps == 0:
+                finished_id = current_id
+                completed_ids.append(finished_id)
+                self._states.pop(finished_id, None)
+                return {
+                    "request_id": None,
+                    "current_step": None,
+                    "state_owner_rank": None,
+                    "completed_request_ids": completed_ids,
+                    "observed_step_ms": (
+                        None
+                        if not observations
+                        else sum(observations) / len(observations)
+                    ),
+                    "error": error,
+                    "finished_request_id": finished_id,
+                    "result": result,
+                }
             control_started_ns = time.time_ns()
             response = exchange(
                 {
@@ -983,7 +1065,7 @@ class EpeZImageServiceRuntime:
         *,
         request_id: str,
         lane_ranks: tuple[int, ...],
-    ) -> tuple[bytes, object, dict[str, object]]:
+    ) -> tuple[bytes | None, object, dict[str, object]]:
         timings: dict[str, object] = {}
         postprocess_started_ns = time.time_ns()
         postprocess_started = time.perf_counter()
@@ -992,12 +1074,17 @@ class EpeZImageServiceRuntime:
         timings["postprocess_ms"] = (time.perf_counter() - postprocess_started) * 1000.0
         png_started_ns = time.time_ns()
         png_started = time.perf_counter()
-        output = io.BytesIO()
-        images[0].save(output, format="PNG")
+        package_output = getattr(self.executor, "package_postprocessed_output", None)
+        if package_output is None:
+            output = io.BytesIO()
+            images[0].save(output, format="PNG")
+            output_bytes = output.getvalue()
+            decoded_output = images[0]
+        else:
+            output_bytes, decoded_output = package_output(images)
         png_ended_ns = time.time_ns()
-        output_bytes = output.getvalue()
         timings["png_encode_ms"] = (time.perf_counter() - png_started) * 1000.0
-        timings["png_bytes"] = len(output_bytes)
+        timings["png_bytes"] = 0 if output_bytes is None else len(output_bytes)
         self.timeline.record(
             "cpu_postprocess",
             start_unix_ns=postprocess_started_ns,
@@ -1013,9 +1100,9 @@ class EpeZImageServiceRuntime:
             request_id=request_id,
             lane_ranks=lane_ranks,
             resource="cpu",
-            metadata={"bytes": len(output_bytes)},
+            metadata={"bytes": timings["png_bytes"]},
         )
-        return output_bytes, images[0], timings
+        return output_bytes, decoded_output, timings
 
     def _execute_full_world_work(
         self, item: LaneWorkItem, lane_ranks: tuple[int, ...]
@@ -1135,17 +1222,12 @@ class EpeZImageServiceRuntime:
         ):
             raise TypeError("lane result must contain a decoded CPU tensor")
         lane_ranks = tuple(int(rank) for rank in result.metadata["lane_ranks"])
-        self._postprocess_slots.acquire()
-        try:
-            future = self._postprocess_executor.submit(
-                self._postprocess_to_png,
-                result.output,
-                request_id=result.request_id,
-                lane_ranks=lane_ranks,
-            )
-        except BaseException:
-            self._postprocess_slots.release()
-            raise
+        future = self._postprocess_executor.submit(
+            self._postprocess_to_png,
+            result.output,
+            request_id=result.request_id,
+            lane_ranks=lane_ranks,
+        )
         with self._lock:
             self._postprocess_futures.add(future)
         future.add_done_callback(
@@ -1175,7 +1257,7 @@ class EpeZImageServiceRuntime:
             )
             logger.info(
                 "%s image complete: request=%s postprocess=%.2fms "
-                "png=%.2fms png_bytes=%d",
+                "package=%.2fms encoded_bytes=%d",
                 strategy,
                 result.request_id,
                 float(timings["postprocess_ms"]),
@@ -1202,7 +1284,6 @@ class EpeZImageServiceRuntime:
         finally:
             with self._lock:
                 self._postprocess_futures.discard(future)
-            self._postprocess_slots.release()
 
     def _complete_lane_work(self, result: LaneWorkResult) -> None:
         if self.rank != 0:

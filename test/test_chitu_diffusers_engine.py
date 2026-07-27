@@ -967,6 +967,7 @@ def test_pulse_lane_broker_pulls_work_without_waiting_for_other_lanes() -> None:
         update_progress=lambda request_id, _step, ranks: placements.__setitem__(
             request_id, ranks
         ),
+        retire=lambda _request_id: None,
         complete=complete,
         observe=lambda request, ranks, step_ms: observed.append(
             (request.request_id, ranks, step_ms)
@@ -1011,6 +1012,105 @@ def test_pulse_lane_broker_pulls_work_without_waiting_for_other_lanes() -> None:
     assert observed == [(first_request, tuple(rank0_lease["ranks"]), 12.5)]
     assert response["action"] == "run"
     assert response["request_id"] == "req4"
+
+
+def test_pulse_lane_broker_retires_completion_in_global_report() -> None:
+    now_ms = 1_000.0
+    policy = EpeSchedulingPolicy(
+        world_size=1,
+        allowed_lane_widths=(1,),
+        cost_model=_measured_cost_model(),
+        strategy="static_dp",
+        clock_ms=lambda: now_ms,
+    )
+    coordinator = PulseCoordinator(
+        world_size=1,
+        policy=policy,
+        pulse_steps=1,
+        clock_ms=lambda: now_ms,
+    )
+    request = _schedulable("finishing", image_tokens=1024, total_steps=1)
+    status = "pending"
+    completed = []
+    observed = []
+
+    def schedulable(_include_running: bool):
+        return [request] if status in {"pending", "running"} else []
+
+    def reserve(_request_id: str, _ranks: tuple[int, ...]) -> None:
+        nonlocal status
+        status = "running"
+
+    def complete(result: LaneWorkResult) -> None:
+        nonlocal status
+        status = "completed"
+        completed.append(result.request_id)
+
+    def retire(_request_id: str) -> None:
+        nonlocal status
+        status = "retired"
+
+    broker = PulseLaneBroker(
+        world_size=1,
+        coordinator=coordinator,
+        schedulable=schedulable,
+        reserve=reserve,
+        payload=lambda request_id: {"request_id": request_id},
+        update_progress=lambda _request_id, _step, _ranks: None,
+        retire=retire,
+        complete=complete,
+        observe=lambda item, ranks, step_ms: observed.append(
+            (item.request_id, ranks, step_ms)
+        ),
+        should_stop=lambda: False,
+        clock_ms=lambda: now_ms,
+    )
+    dispatch = broker.exchange(
+        0,
+        {"kind": "pulse_report", "epoch": -1, "sync": 0, "report": None},
+    )
+    result = LaneWorkResult("finishing", output=b"done")
+
+    response = broker.exchange(
+        0,
+        {
+            "kind": "pulse_report",
+            "epoch": dispatch["epoch"],
+            "sync": 1,
+            "report": {
+                "request_id": None,
+                "current_step": None,
+                "state_owner_rank": None,
+                "completed_request_ids": ["finishing"],
+                "observed_step_ms": 12.5,
+                "error": None,
+                "finished_request_id": "finishing",
+            },
+        },
+    )
+
+    assert response == {
+        "action": "idle",
+        "retired_request_ids": ["finishing"],
+    }
+    assert completed == []
+    assert observed == [("finishing", (0,), 12.5)]
+
+    result_response = broker.exchange(
+        0,
+        {
+            "kind": "lane_result",
+            "epoch": dispatch["epoch"],
+            "sync": 1,
+            "ranks": [0],
+            "result": result,
+        },
+    )
+    assert result_response == {
+        "action": "result_ack",
+        "request_id": "finishing",
+    }
+    assert completed == ["finishing"]
 
 
 class _FakeLaneHooks:

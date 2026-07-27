@@ -87,6 +87,7 @@ class EpeParallelContext:
         self._owned_groups = owned_groups
         self._owns_world = owns_world
         self._worker_control_plane: object | None = None
+        self._worker_result_plane: object | None = None
         self._owned_control_groups: list[object] = []
         self._lock = RLock()
         self._closed = False
@@ -365,6 +366,29 @@ class EpeParallelContext:
         if self._worker_control_plane is None:
             raise RuntimeError("worker control group has not been initialized")
         return self._worker_control_plane
+
+    def initialize_worker_result_group(self) -> None:
+        """Collectively create an independent CPU group for large results."""
+        if self.world_size == 1 or self._worker_result_plane is not None:
+            return
+        if not dist.is_initialized():
+            raise RuntimeError("torch.distributed must be initialized")
+        group = dist.new_group(
+            ranks=list(range(self.world_size)),
+            backend="gloo",
+            group_desc="epac-worker-results",
+        )
+        self._worker_result_plane = group
+        self._owned_control_groups.append(group)
+
+    def worker_result_group(self, peer: int) -> object:
+        if self.world_size == 1:
+            return None
+        if not 0 < int(peer) < self.world_size:
+            raise ValueError(f"invalid worker result peer: {peer}")
+        if self._worker_result_plane is None:
+            raise RuntimeError("worker result group has not been initialized")
+        return self._worker_result_plane
 
     def close(self) -> None:
         with self._lock:

@@ -26,11 +26,11 @@ class PulseLaneBroker:
         reserve: Callable[[str, tuple[int, ...]], None],
         payload: Callable[[str], Any],
         update_progress: Callable[[str, int, tuple[int, ...]], None],
+        retire: Callable[[str], None],
         complete: Callable[[LaneWorkResult], None],
         should_stop: Callable[[], bool],
-        observe: Callable[
-            [SchedulableRequest, tuple[int, ...], float], None
-        ] | None = None,
+        observe: Callable[[SchedulableRequest, tuple[int, ...], float], None]
+        | None = None,
         guard_ms: float = 2.0,
         clock_ms=None,
     ) -> None:
@@ -44,6 +44,7 @@ class PulseLaneBroker:
         self._reserve = reserve
         self._payload = payload
         self._update_progress = update_progress
+        self._retire = retire
         self._complete = complete
         self._observe = observe
         self._should_stop = should_stop
@@ -88,11 +89,17 @@ class PulseLaneBroker:
         if kind == "lane_progress":
             ranks = tuple(int(rank) for rank in event["ranks"])
             return (kind, epoch, ranks, sync), ranks
+        if kind == "lane_result":
+            ranks = tuple(int(rank) for rank in event["ranks"])
+            leader = min(ranks)
+            return (kind, epoch, leader, sync), (leader,)
         raise ValueError(f"unsupported lane broker event: {kind}")
 
     def _process(self, kind: str, events: dict[int, dict]) -> dict:
         if kind == "pulse_report":
             return self._process_pulse_reports(events)
+        if kind == "lane_result":
+            return self._process_lane_result(events)
         return self._process_lane_progress(events)
 
     def _process_pulse_reports(self, events: dict[int, dict]) -> dict:
@@ -102,6 +109,35 @@ class PulseLaneBroker:
                 raw = leader_event.get("report")
                 if raw is None:
                     raise RuntimeError("working pulse is missing a lane report")
+                finished_request_id = raw.get("finished_request_id")
+                if finished_request_id is not None:
+                    errors = [
+                        str(events[rank]["report"]["error"])
+                        for rank in lease.ranks
+                        if events[rank]["report"].get("error")
+                    ]
+                    observed_step_ms = raw.get("observed_step_ms")
+                    if self._observe is not None and observed_step_ms is not None:
+                        self._observe(
+                            self._request_by_id(
+                                str(finished_request_id), include_pending=True
+                            ),
+                            lease.ranks,
+                            float(observed_step_ms),
+                        )
+                    self._retire(str(finished_request_id))
+                    if errors:
+                        self._complete(
+                            LaneWorkResult(
+                                request_id=str(finished_request_id),
+                                error="; ".join(errors),
+                                metadata={
+                                    "lane_ranks": list(lease.ranks),
+                                    "strategy": "elastic",
+                                },
+                            )
+                        )
+                    self._retired_request_ids.add(str(finished_request_id))
                 report = LaneReport(
                     epoch=self._current.epoch,
                     ranks=lease.ranks,
@@ -163,6 +199,14 @@ class PulseLaneBroker:
             ],
             "assignments": assignments,
         }
+
+    def _process_lane_result(self, events: dict[int, dict]) -> dict:
+        event = next(iter(events.values()))
+        result = event.get("result")
+        if not isinstance(result, LaneWorkResult):
+            raise TypeError("lane leader returned an invalid result")
+        self._complete(result)
+        return {"action": "result_ack", "request_id": result.request_id}
 
     def _process_lane_progress(self, events: dict[int, dict]) -> dict:
         leader = events[min(events)]

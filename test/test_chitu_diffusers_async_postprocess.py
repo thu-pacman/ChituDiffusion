@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
+import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from types import SimpleNamespace
 
 import torch
 from PIL import Image
 
 from chitu_diffusers.epac.timeline import RankTimelineRecorder
-from chitu_diffusers.epac.worker_pool import LaneWorkResult
+from chitu_diffusers.epac.worker_pool import AsyncResultChannel, LaneWorkResult
 from chitu_diffusers.serve.protocol import ImageGenerateRequest
 from chitu_diffusers.serve.zimage_runtime import (
     EpeZImageServiceRuntime,
@@ -57,7 +59,6 @@ def test_lane_releases_before_cpu_postprocess_completes(tmp_path) -> None:
     runtime.rank = 0
     runtime._lock = threading.RLock()
     runtime._postprocess_executor = ThreadPoolExecutor(max_workers=1)
-    runtime._postprocess_slots = threading.BoundedSemaphore(2)
     runtime._postprocess_futures = set()
     runtime._placements = {"req": (0,)}
     runtime._scheduler_steps = {"req": 1}
@@ -101,9 +102,29 @@ def test_lane_releases_before_cpu_postprocess_completes(tmp_path) -> None:
     assert runtime._records["req"].status == "postprocessing"
     assert runtime._records["req"].png is None
 
+    # Saturating the CPU executor must only queue later outputs. In particular,
+    # publishing a GPU completion must never block the scheduler thread.
+    request_2 = ImageGenerateRequest(request_id="req-2", prompt="test")
+    runtime._records["req-2"] = _RequestRecord(
+        request=request_2,
+        submitted_at=time.time(),
+        status="running",
+    )
+    runtime._placements["req-2"] = (0,)
+    runtime._scheduler_steps["req-2"] = 1
+    queued_at = time.monotonic()
+    runtime._complete_lane_work(
+        replace(result, request_id="req-2", output=torch.ones(1, 3, 4, 4))
+    )
+    assert time.monotonic() - queued_at < 0.1
+    assert runtime._records["req-2"].status == "postprocessing"
+
     processor.release.set()
     deadline = time.monotonic() + 2.0
-    while runtime._records["req"].status == "postprocessing":
+    while any(
+        runtime._records[request_id].status == "postprocessing"
+        for request_id in ("req", "req-2")
+    ):
         assert time.monotonic() < deadline
         time.sleep(0.01)
 
@@ -117,3 +138,86 @@ def test_lane_releases_before_cpu_postprocess_completes(tmp_path) -> None:
         for line in (tmp_path / "timeline-rank0.jsonl").read_text().splitlines()
     }
     assert {"cpu_postprocess", "cpu_png", "request_complete"} <= stages
+
+
+def test_idle_poll_does_not_resend_the_completed_lane_result() -> None:
+    runtime = object.__new__(EpeZImageServiceRuntime)
+    runtime.rank = 0
+    runtime.timeline = SimpleNamespace(record=lambda *_args, **_kwargs: None)
+    runtime._states = {"req": object()}
+    runtime._apply_elastic_dispatch = lambda _response: None
+    result = LaneWorkResult(
+        request_id="req",
+        output=torch.zeros(1),
+        metadata={"lane_ranks": [0]},
+    )
+    runtime._run_elastic_lease = lambda _response, _lease, _exchange: {
+        "request_id": None,
+        "current_step": None,
+        "state_owner_rank": None,
+        "completed_request_ids": ["req"],
+        "observed_step_ms": 1.0,
+        "error": None,
+        "finished_request_id": "req",
+        "result": result,
+    }
+    pulse_reports = []
+    published_results = []
+
+    def exchange(event):
+        pulse_reports.append(event["report"])
+        if len(pulse_reports) == 1:
+            return {
+                "action": "pulse",
+                "retired_request_ids": [],
+                "epoch": 0,
+                "planner": {},
+                "assignments": [],
+                "leases": [{"ranks": [0], "request_id": "req"}],
+            }
+        if len(pulse_reports) == 2:
+            return {"action": "idle", "retired_request_ids": ["req"]}
+        return {"action": "stop", "retired_request_ids": []}
+
+    runtime._elastic_worker_loop(exchange, published_results.append)
+
+    assert published_results == [result]
+    assert pulse_reports[1]["finished_request_id"] == "req"
+    assert pulse_reports[2] is None
+
+
+def test_async_result_channel_drains_remote_results_without_blocking_submit() -> None:
+    to_root = queue.Queue()
+    to_peer = queue.Queue()
+    completed = []
+    transferred = []
+
+    root = AsyncResultChannel(
+        rank=0,
+        world_size=2,
+        control_group=None,
+        complete=completed.append,
+        send=lambda value, _destination: to_peer.put(value),
+        recv=lambda _source: to_root.get(timeout=2.0),
+    )
+    peer = AsyncResultChannel(
+        rank=1,
+        world_size=2,
+        control_group=None,
+        complete=lambda _result: None,
+        on_transfer=lambda result, _start, _end: transferred.append(result.request_id),
+        send=lambda value, _destination: to_root.put(value),
+        recv=lambda _source: to_peer.get(timeout=2.0),
+    )
+    root.start()
+    peer.start()
+    result = LaneWorkResult("remote", output=torch.ones(1024))
+
+    submitted_at = time.monotonic()
+    peer.submit(result)
+    assert time.monotonic() - submitted_at < 0.1
+    peer.close()
+    root.close()
+
+    assert completed == [result]
+    assert transferred == ["remote"]

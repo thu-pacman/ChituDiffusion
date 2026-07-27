@@ -55,6 +55,7 @@ from .scheduling import (
 from .timeline import RankTimelineRecorder
 from .worker import LaneTask, LaneWorker, LaneWorkHooks, StepOutcome
 from .worker_pool import (
+    AsyncResultChannel,
     DistributedRankExchange,
     FullWorldLaneWorkerPool,
     LaneWorkItem,
@@ -65,6 +66,7 @@ from .worker_pool import (
 
 __all__ = [
     "AdapterRegistry",
+    "AsyncResultChannel",
     "CachedPrediction",
     "CacheConfig",
     "CalibratedStepCostModel",

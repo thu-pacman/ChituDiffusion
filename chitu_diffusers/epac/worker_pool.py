@@ -306,6 +306,165 @@ class RankExchange(Protocol):
     def __call__(self, message: Any) -> Any: ...
 
 
+class AsyncResultChannel:
+    """Publish large lane results without blocking the GPU worker loop."""
+
+    def __init__(
+        self,
+        *,
+        rank: int,
+        world_size: int,
+        control_group: object | None,
+        complete: Callable[[LaneWorkResult], None],
+        on_transfer: Callable[[LaneWorkResult, int, int], None] | None = None,
+        send: Callable[[Any, int], None] | None = None,
+        recv: Callable[[int], Any] | None = None,
+    ) -> None:
+        if world_size <= 0 or not 0 <= rank < world_size:
+            raise ValueError("invalid async result channel rank/world_size")
+        self.rank = int(rank)
+        self.world_size = int(world_size)
+        self.control_group = control_group
+        self._complete = complete
+        self._on_transfer = on_transfer
+        self._send_override = send
+        self._recv_override = recv
+        self._pending: queue.Queue[LaneWorkResult | None] = queue.Queue()
+        self._errors: queue.Queue[BaseException] = queue.Queue()
+        self._threads: list[threading.Thread] = []
+        self._started = False
+        self._closed = False
+
+    def start(self) -> None:
+        if self._started:
+            raise RuntimeError("async result channel has already started")
+        self._started = True
+        if self.rank == 0:
+            self._threads = [
+                threading.Thread(
+                    target=self._serve_peer,
+                    args=(peer,),
+                    name=f"epac-result-recv-{peer}",
+                    daemon=True,
+                )
+                for peer in range(1, self.world_size)
+            ]
+        else:
+            self._threads = [
+                threading.Thread(
+                    target=self._publish_remote,
+                    name="epac-result-publish",
+                    daemon=True,
+                )
+            ]
+        for thread in self._threads:
+            thread.start()
+
+    def submit(self, result: LaneWorkResult) -> None:
+        if not isinstance(result, LaneWorkResult):
+            raise TypeError("async result channel requires a LaneWorkResult")
+        if not self._started or self._closed:
+            raise RuntimeError("async result channel is not accepting results")
+        self._raise_error()
+        if self.rank == 0:
+            started_ns = time.time_ns()
+            self._complete(result)
+            self._record_transfer(result, started_ns)
+            return
+        self._pending.put_nowait(result)
+
+    def close(self) -> None:
+        if not self._started or self._closed:
+            return
+        self._closed = True
+        if self.rank != 0:
+            self._pending.put(None)
+        for thread in self._threads:
+            thread.join()
+        self._raise_error()
+
+    def _publish_remote(self) -> None:
+        try:
+            while True:
+                result = self._pending.get()
+                if result is None:
+                    self._send({"kind": "result_channel_close"}, 0)
+                    response = self._recv(0)
+                    if response.get("action") != "result_channel_close_ack":
+                        raise RuntimeError(
+                            "async result channel received an invalid close ack"
+                        )
+                    return
+                started_ns = time.time_ns()
+                self._send({"kind": "lane_result", "result": result}, 0)
+                response = self._recv(0)
+                if (
+                    response.get("action") != "result_ack"
+                    or response.get("request_id") != result.request_id
+                ):
+                    raise RuntimeError(
+                        "async result channel received an invalid result ack"
+                    )
+                self._record_transfer(result, started_ns)
+        except BaseException as exc:
+            self._errors.put(exc)
+
+    def _serve_peer(self, peer: int) -> None:
+        try:
+            while True:
+                message = self._recv(peer)
+                kind = message.get("kind")
+                if kind == "result_channel_close":
+                    self._send({"action": "result_channel_close_ack"}, peer)
+                    return
+                result = message.get("result")
+                if kind != "lane_result" or not isinstance(result, LaneWorkResult):
+                    raise RuntimeError(
+                        "async result channel received an invalid message"
+                    )
+                self._complete(result)
+                self._send(
+                    {"action": "result_ack", "request_id": result.request_id},
+                    peer,
+                )
+        except BaseException as exc:
+            self._errors.put(exc)
+
+    def _send(self, value: Any, destination: int) -> None:
+        if self._send_override is not None:
+            self._send_override(value, destination)
+            return
+        dist.send_object_list(
+            [value],
+            dst=destination,
+            group=self.control_group,
+            device=torch.device("cpu"),
+        )
+
+    def _recv(self, source: int) -> Any:
+        if self._recv_override is not None:
+            return self._recv_override(source)
+        value = [None]
+        dist.recv_object_list(
+            value,
+            src=source,
+            group=self.control_group,
+            device=torch.device("cpu"),
+        )
+        return value[0]
+
+    def _record_transfer(self, result: LaneWorkResult, started_ns: int) -> None:
+        if self._on_transfer is not None:
+            self._on_transfer(result, started_ns, time.time_ns())
+
+    def _raise_error(self) -> None:
+        try:
+            error = self._errors.get_nowait()
+        except queue.Empty:
+            return
+        raise RuntimeError("async result channel failed") from error
+
+
 class DistributedRankExchange:
     """Point-to-point rank-0 control transport for dynamic lane workers.
 
