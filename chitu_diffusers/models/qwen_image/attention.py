@@ -86,6 +86,9 @@ class QwenImageCpAttnProcessor:
             txt_key.to(target_dtype).contiguous(),
             txt_value.contiguous(),
             lane_process_group=self.parallel.active.process_group,
+            usp_topology=(
+                self.parallel.active_usp if self.attention.mode == "usp" else None
+            ),
             joint_first=True,
         )
         image_output = image_output.flatten(2, 3).to(output_dtype)

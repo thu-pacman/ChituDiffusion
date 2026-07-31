@@ -38,6 +38,8 @@ def main() -> None:
     parser.add_argument("--warmup-steps", type=int, default=3)
     parser.add_argument("--true-cfg-scale", type=float, default=4.0)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--attention-mode", choices=("agkv", "usp"), default="agkv")
+    parser.add_argument("--ulysses-degree", type=int)
     parser.add_argument(
         "--policy", choices=("elastic", "static_cp", "static_dp"), default="elastic"
     )
@@ -75,6 +77,8 @@ def main() -> None:
             default_width=args.resolution,
             default_height=args.resolution,
             default_num_steps=args.steps,
+            attention_mode=args.attention_mode,
+            ulysses_degree=args.ulysses_degree,
             cfg_parallel=not args.no_cfg_parallel,
             parallel_vae=not args.no_parallel_vae,
             vae_parallel_halo=args.vae_parallel_halo,

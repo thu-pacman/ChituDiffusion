@@ -26,6 +26,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=4)
     parser.add_argument("--true-cfg-scale", type=float, default=4.0)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--attention-mode", choices=("agkv", "usp"), default="agkv")
+    parser.add_argument("--ulysses-degree", type=int)
     parser.add_argument(
         "--cfg-parallel", action=argparse.BooleanOptionalAction, default=True
     )
@@ -42,7 +44,8 @@ def main() -> None:
         args.model_path,
         torch_dtype=torch.bfloat16,
         local_files_only=True,
-        attention_mode="agkv",
+        attention_mode=args.attention_mode,
+        ulysses_degree=args.ulysses_degree,
         cfg_parallel=args.cfg_parallel,
     )
     try:
@@ -68,6 +71,8 @@ def main() -> None:
                         "steps": args.steps,
                         "true_cfg_scale": args.true_cfg_scale,
                         "cfg_parallel": args.cfg_parallel,
+                        "attention_mode": args.attention_mode,
+                        "ulysses_degree": args.ulysses_degree,
                         "seed": args.seed,
                         "sha256": digest,
                     },

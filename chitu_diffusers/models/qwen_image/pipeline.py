@@ -15,7 +15,11 @@ from diffusers.pipelines.qwenimage.pipeline_qwenimage import (
     retrieve_timesteps,
 )
 
-from ...parallel import EpeParallelContext, parallel_tiled_vae_decode
+from ...parallel import (
+    EpeParallelContext,
+    parallel_tiled_vae_decode,
+    resolve_context_parallel_config,
+)
 from .transformer import EpeQwenImageTransformer2DModel
 
 
@@ -67,22 +71,19 @@ class EpeQwenImagePipeline(QwenImagePipeline):
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
         allowed_widths = kwargs.pop("allowed_lane_widths", None)
-        attention_mode = str(kwargs.pop("attention_mode", "agkv"))
+        attention_mode, ulysses_degree = resolve_context_parallel_config(
+            kwargs.pop("attention_mode", "agkv"),
+            kwargs.pop("ulysses_degree", None),
+        )
         cfg_parallel = bool(kwargs.pop("cfg_parallel", True))
-        ulysses_degree = kwargs.pop("ulysses_degree", None)
-        if attention_mode != "agkv":
-            raise NotImplementedError(
-                "Qwen-Image EPAC currently supports attention_mode='agkv' only"
-            )
-        if ulysses_degree not in (None, 1):
-            raise NotImplementedError("Qwen-Image EPAC requires ulysses_degree=1")
         if parallel is None:
             parallel = EpeParallelContext.from_torchrun(
                 allowed_widths=(
                     tuple(int(width) for width in allowed_widths)
                     if allowed_widths is not None
                     else None
-                )
+                ),
+                ulysses_degree=ulysses_degree,
             )
         transformer = kwargs.pop("transformer", None)
         if transformer is None:
@@ -108,6 +109,8 @@ class EpeQwenImagePipeline(QwenImagePipeline):
             **kwargs,
         )
         pipeline._epac_parallel_context = parallel
+        pipeline._epac_attention_mode = attention_mode
+        pipeline._epac_ulysses_degree = ulysses_degree
         pipeline._epac_cfg_parallel = cfg_parallel
         return pipeline
 
@@ -473,6 +476,8 @@ class EpeQwenImagePipeline(QwenImagePipeline):
                 "steps": steps,
                 "resolutions": [list(value) for value in resolutions],
                 "allowed_lane_widths": list(self.parallel_context.allowed_widths),
+                "attention_mode": self._epac_attention_mode,
+                "ulysses_degree": self._epac_ulysses_degree,
                 "rows": rows,
                 "total_wall_ms": (time.perf_counter() - report_started) * 1000,
             }
@@ -543,8 +548,13 @@ class EpeQwenImagePipeline(QwenImagePipeline):
         if output_type == "latent":
             image = state.latents
         else:
-            image = self.image_processor.postprocess(
-                self.decode_request(state), output_type=output_type
+            decoded = self.decode_request(state)
+            image = (
+                None
+                if decoded is None
+                else self.image_processor.postprocess(
+                    decoded, output_type=output_type
+                )
             )
         self.maybe_free_model_hooks()
         if not return_dict:

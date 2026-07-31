@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 import torch
 
@@ -8,7 +10,10 @@ from chitu_diffusers.epac.api import DiffusersEPACPipeline
 from chitu_diffusers.epac.model_scheduling import EpeSchedulingModule
 from chitu_diffusers.models.qwen_image.api import QwenImageEPACPipeline
 from chitu_diffusers.models.qwen_image.executor import QwenImageDecoderExecutor
-from chitu_diffusers.models.qwen_image.pipeline import combine_qwen_cfg_predictions
+from chitu_diffusers.models.qwen_image.pipeline import (
+    EpeQwenImagePipeline,
+    combine_qwen_cfg_predictions,
+)
 
 
 def test_qwen_image_request_defaults_to_true_cfg() -> None:
@@ -57,6 +62,23 @@ def test_qwen_cfg_combination_matches_native_formula() -> None:
 
 def test_qwen_image_uses_shared_api_layer() -> None:
     assert issubclass(QwenImageEPACPipeline, DiffusersEPACPipeline)
+
+
+def test_qwen_image_finalize_skips_postprocess_on_nonleader() -> None:
+    pipeline = SimpleNamespace(
+        decode_request=lambda state: None,
+        image_processor=SimpleNamespace(
+            postprocess=lambda *args, **kwargs: pytest.fail(
+                "nonleader output must not be postprocessed"
+            )
+        ),
+        maybe_free_model_hooks=lambda: None,
+    )
+    state = SimpleNamespace(latents=torch.empty(1))
+
+    output = EpeQwenImagePipeline.finalize_request(pipeline, state)
+
+    assert output.images is None
 
 
 def test_qwen_image_executor_profiles_cfg_and_packed_state() -> None:

@@ -12,7 +12,7 @@ in `chitu_diffusers.epac`.
 
 - Qwen-Image text-to-image, batch size one;
 - request-local positive/negative Qwen2.5-VL embeddings and scheduler cursor;
-- dynamic AGKV context parallelism with replicated text and sharded image tokens;
+- dynamic AGKV/USP context parallelism with replicated text and sharded image tokens;
 - true CFG with CFP2 preferred on even lanes;
 - lane widths 1, 2, and 4, including live state migration;
 - startup DiT/transfer/VAE warmup with at least three samples;
@@ -20,14 +20,14 @@ in `chitu_diffusers.epac`.
 - synchronous Diffusers-style and embedded runtime entry points.
 
 The initial integration does not expose image editing, ControlNet, LoRA,
-batching, USP, or FlexCache.
+batching or FlexCache.
 
 ## Parallel Layout
 
 Qwen-Image uses a dual-stream block throughout the transformer. Text tokens are
 replicated on every CP rank; packed image tokens and their RoPE frequencies are
-split by the active lane. AGKV gathers image K/V while preserving local image
-queries and full text queries. The projected image sequence is gathered once
+split by the active lane. The shared AGKV/USP backend preserves local image
+queries and full text queries. AGKV is the default. The projected image sequence is gathered once
 before the scheduler step, so the migratable request state remains canonical.
 
 For true CFG, eligible lanes use CFP2 before image CP:

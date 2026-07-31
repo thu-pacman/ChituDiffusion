@@ -245,17 +245,19 @@ class QwenImageExecutorFactory:
     cfg_parallel: bool = True
     parallel_vae: bool = True
     vae_parallel_halo: int = 8
+    ulysses_degree: int | None = None
 
     def build(self, context: ExecutorBuildContext) -> QwenImageDecoderExecutor:
         parallel, local_rank = build_stage_parallel_context(
             context,
             attention_mode=self.attention_mode,
-            ulysses_degree=1,
+            ulysses_degree=self.ulysses_degree,
         )
         pipeline = EpeQwenImagePipeline.from_pretrained(
             self.model_path,
             parallel_context=parallel,
             attention_mode=self.attention_mode,
+            ulysses_degree=self.ulysses_degree,
             cfg_parallel=self.cfg_parallel,
             torch_dtype=self.torch_dtype
             or (torch.bfloat16 if torch.cuda.is_available() else torch.float32),
