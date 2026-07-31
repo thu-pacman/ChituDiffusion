@@ -12,7 +12,11 @@ from diffusers import FluxPipeline
 from diffusers.pipelines.flux.pipeline_flux import calculate_shift, retrieve_timesteps
 from diffusers.pipelines.flux.pipeline_output import FluxPipelineOutput
 
-from ...parallel import EpeParallelContext, parallel_tiled_vae_decode
+from ...parallel import (
+    EpeParallelContext,
+    parallel_tiled_vae_decode,
+    resolve_context_parallel_config,
+)
 from .transformer import EpeFlux1Transformer2DModel
 
 
@@ -46,14 +50,10 @@ class EpeFlux1Pipeline(FluxPipeline):
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
         allowed_widths = kwargs.pop("allowed_lane_widths", None)
-        attention_mode = str(kwargs.pop("attention_mode", "agkv"))
-        if attention_mode != "agkv":
-            raise NotImplementedError(
-                "Flux.1 EPAC currently supports attention_mode='agkv' only"
-            )
-        ulysses_degree = kwargs.pop("ulysses_degree", None)
-        if ulysses_degree is None:
-            ulysses_degree = 2 if attention_mode == "usp" else 1
+        attention_mode, ulysses_degree = resolve_context_parallel_config(
+            kwargs.pop("attention_mode", "agkv"),
+            kwargs.pop("ulysses_degree", None),
+        )
         if parallel is None:
             parallel = EpeParallelContext.from_torchrun(
                 allowed_widths=(
@@ -88,6 +88,7 @@ class EpeFlux1Pipeline(FluxPipeline):
         )
         pipeline._epac_parallel_context = parallel
         pipeline._epac_attention_mode = attention_mode
+        pipeline._epac_ulysses_degree = ulysses_degree
         return pipeline
 
     @property
@@ -213,6 +214,8 @@ class EpeFlux1Pipeline(FluxPipeline):
                 "steps": steps,
                 "resolutions": [list(value) for value in resolutions],
                 "allowed_lane_widths": list(self.parallel_context.allowed_widths),
+                "attention_mode": self._epac_attention_mode,
+                "ulysses_degree": self._epac_ulysses_degree,
                 "rows": rows,
                 "total_wall_ms": (time.perf_counter() - started) * 1000,
             }
@@ -434,8 +437,13 @@ class EpeFlux1Pipeline(FluxPipeline):
         if output_type == "latent":
             image = state.latents
         else:
-            image = self.image_processor.postprocess(
-                self.decode_request(state), output_type=output_type
+            decoded = self.decode_request(state)
+            image = (
+                None
+                if decoded is None
+                else self.image_processor.postprocess(
+                    decoded, output_type=output_type
+                )
             )
         self.maybe_free_model_hooks()
         if not return_dict:

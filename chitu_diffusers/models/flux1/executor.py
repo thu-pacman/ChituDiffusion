@@ -263,6 +263,7 @@ class Flux1ExecutorFactory:
             self.model_path,
             parallel_context=parallel,
             attention_mode=self.attention_mode,
+            ulysses_degree=self.ulysses_degree,
             torch_dtype=self.torch_dtype
             or (torch.bfloat16 if torch.cuda.is_available() else torch.float32),
             local_files_only=self.local_files_only,

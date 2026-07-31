@@ -24,6 +24,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--guidance-scale", type=float, default=3.5)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--attention-mode", choices=("agkv", "usp"), default="agkv")
+    parser.add_argument("--ulysses-degree", type=int)
     return parser.parse_args()
 
 
@@ -40,7 +42,8 @@ def main() -> None:
     pipeline = EpeFlux1Pipeline.from_pretrained(
         args.model_path,
         allowed_lane_widths=tuple(sorted(set((1, world_size, *lane_widths)))),
-        attention_mode="agkv",
+        attention_mode=args.attention_mode,
+        ulysses_degree=args.ulysses_degree,
         torch_dtype=torch.bfloat16,
         local_files_only=True,
     ).to(torch.device("cuda", local_rank))
@@ -76,6 +79,8 @@ def main() -> None:
             metadata = {
                 "output": str(output_path.resolve()),
                 "lane_widths": list(lane_widths),
+                "attention_mode": args.attention_mode,
+                "ulysses_degree": args.ulysses_degree,
                 "step_max_rank_diffs": step_max_rank_diffs,
                 "height": args.height,
                 "width": args.width,

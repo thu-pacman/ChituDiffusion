@@ -29,6 +29,8 @@ def main() -> None:
     parser.add_argument("--warmup-steps", type=int, default=3)
     parser.add_argument("--guidance-scale", type=float, default=3.5)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--attention-mode", choices=("agkv", "usp"), default="agkv")
+    parser.add_argument("--ulysses-degree", type=int)
     parser.add_argument("--no-parallel-vae", action="store_true")
     parser.add_argument("--vae-parallel-halo", type=int, default=8)
     args = parser.parse_args()
@@ -60,6 +62,8 @@ def main() -> None:
             default_width=args.resolution,
             default_height=args.resolution,
             default_num_steps=args.steps,
+            attention_mode=args.attention_mode,
+            ulysses_degree=args.ulysses_degree,
             parallel_vae=not args.no_parallel_vae,
             vae_parallel_halo=args.vae_parallel_halo,
         ),

@@ -23,7 +23,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=2)
     parser.add_argument("--guidance-scale", type=float, default=3.5)
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--attention-mode", choices=("agkv",), default="agkv")
+    parser.add_argument("--attention-mode", choices=("agkv", "usp"), default="agkv")
+    parser.add_argument("--ulysses-degree", type=int)
     return parser.parse_args()
 
 
@@ -39,6 +40,7 @@ def main() -> None:
         torch_dtype=torch.bfloat16,
         local_files_only=True,
         attention_mode=args.attention_mode,
+        ulysses_degree=args.ulysses_degree,
     )
     loaded_at = time.perf_counter()
     try:
@@ -67,6 +69,7 @@ def main() -> None:
                 "guidance_scale": args.guidance_scale,
                 "seed": args.seed,
                 "attention_mode": args.attention_mode,
+                "ulysses_degree": args.ulysses_degree,
                 "world_size": pipeline.parallel_context.world_size,
                 "load_seconds": loaded_at - started,
                 "generate_seconds": generated_at - loaded_at,

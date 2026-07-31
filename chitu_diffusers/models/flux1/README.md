@@ -2,7 +2,8 @@
 
 Date: 2026-07-23
 
-Status: first AGKV implementation complete and validated on 1/2/4 H20 GPUs.
+Status: dynamic AGKV is validated on 1/2/4 H20 GPUs; USP uses the same public
+backend contract and is available through `attention_mode="usp"`.
 
 ## First Integration Scope
 
@@ -13,12 +14,12 @@ Diffusers-native `chitu_diffusers` stack. It supports:
 - request-local CLIP + T5 encoding, packed latents, scheduler, and denoise state;
 - one resumable denoise step through `DiffusersModelAdapter`;
 - offline generation and the generic embedded EPAC runtime;
-- dynamic lane widths with AGKV;
+- dynamic lane widths with AGKV or USP;
 - leader-side image postprocessing and lane-parallel tiled VAE decode.
 
 The first correctness milestone is deliberately narrower than the full upstream
 pipeline. It excludes true CFG, ControlNet, IP-Adapter, LoRA, batching, Schnell,
-USP, and FlexCache. These remain follow-up work.
+and FlexCache. These remain follow-up work.
 
 ## Frozen References
 
@@ -146,7 +147,8 @@ Initial constraints:
 - image token count must divide the active lane width;
 - batch size is one;
 - no attention masks, ControlNet residuals, IP-Adapter inputs, or true CFG;
-- AGKV is the bring-up backend; USP follows after 1/2/4-rank AGKV parity;
+- AGKV is the default backend; USP is selected explicitly and reuses the same
+  dynamic lane topology;
 - cp1 must call the native Diffusers forward to provide a clean parity oracle.
 
 ## VAE And Terminal Work
@@ -185,8 +187,7 @@ state transfer, and synchronous API execution are shared under
    collectives or scheduler cursor drift.
 6. Add startup DiT/VAE warmup and run one embedded-runtime request through the
    real launcher.
-7. Add USP and only then evaluate FlexCache strategies already supported by the
-   older Flux.1 runtime.
+7. Evaluate FlexCache strategies already supported by the older Flux.1 runtime.
 
 The minimum GPU acceptance matrix is 512 and 1024 square images, 1/2/4 ranks,
 one-step smoke plus one complete 50-step image, fixed seed, and a native
@@ -294,5 +295,5 @@ paths, latency rows, and image/latent comparison results.
 
 Remaining validation and release work:
 
-- validate USP before exposing it as accepted rather than experimental;
+- complete the full USP GPU acceptance matrix and performance comparison;
 - adapt and benchmark FlexCache strategies;

@@ -58,13 +58,25 @@ def test_joint_first_image_attention_matches_local_sdpa() -> None:
     assert torch.equal(image_output, expected[:, 3:])
 
 
-def test_flux1_usp_fails_before_model_loading() -> None:
-    with pytest.raises(NotImplementedError, match="agkv"):
-        EpeFlux1Pipeline.from_pretrained("unused", attention_mode="usp")
-
-
 def test_flux1_uses_shared_api_layer() -> None:
     assert issubclass(Flux1EPACPipeline, DiffusersEPACPipeline)
+
+
+def test_flux1_finalize_skips_postprocess_on_nonleader() -> None:
+    pipeline = SimpleNamespace(
+        decode_request=lambda state: None,
+        image_processor=SimpleNamespace(
+            postprocess=lambda *args, **kwargs: pytest.fail(
+                "nonleader output must not be postprocessed"
+            )
+        ),
+        maybe_free_model_hooks=lambda: None,
+    )
+    state = SimpleNamespace(latents=torch.empty(1))
+
+    output = EpeFlux1Pipeline.finalize_request(pipeline, state)
+
+    assert output.images is None
 
 
 def test_shared_scheduling_module_rebuilds_for_runtime_policy_changes() -> None:

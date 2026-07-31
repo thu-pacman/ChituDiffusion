@@ -63,6 +63,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pulse-steps", type=int, default=1)
     parser.add_argument("--guidance-scale", type=float, default=3.5)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--attention-mode", choices=("agkv", "usp"), default="agkv")
+    parser.add_argument("--ulysses-degree", type=int)
     parser.add_argument("--timeout-s", type=float, default=1800.0)
     parser.add_argument(
         "--warmup-only",
@@ -254,6 +256,8 @@ def main() -> None:
             default_width=int(specs[0]["width"]),
             default_height=int(specs[0]["height"]),
             default_num_steps=args.steps,
+            attention_mode=args.attention_mode,
+            ulysses_degree=args.ulysses_degree,
             parallel_vae=not args.no_parallel_vae,
             vae_parallel_halo=args.vae_parallel_halo,
         ),
@@ -352,6 +356,8 @@ def main() -> None:
         )
         report = {
             "strategy": args.strategy,
+            "attention_mode": args.attention_mode,
+            "ulysses_degree": args.ulysses_degree,
             "world_size": world.world_size,
             "allowed_lane_widths": list(widths),
             "workload": {
