@@ -13,9 +13,9 @@ from ...parallel import EpeParallelContext, ImageContextParallelAttention
 class Flux2KleinCpAttnProcessor:
     """Flux2 double-stream attention with sequence-sharded image tokens."""
 
-    def __init__(self, parallel: EpeParallelContext) -> None:
+    def __init__(self, parallel: EpeParallelContext, *, mode: str = "agkv") -> None:
         self.parallel = parallel
-        self.attention = ImageContextParallelAttention(mode="agkv")
+        self.attention = ImageContextParallelAttention(mode=mode)
         self.native = Flux2AttnProcessor()
         self._text_tokens: int | None = None
 
@@ -96,6 +96,9 @@ class Flux2KleinCpAttnProcessor:
             text_key,
             text_value,
             lane_process_group=self.parallel.active.process_group,
+            usp_topology=(
+                self.parallel.active_usp if self.attention.mode == "usp" else None
+            ),
             joint_first=True,
         )
         image_output = image_output.flatten(2, 3).to(image_query.dtype)
@@ -108,9 +111,9 @@ class Flux2KleinCpAttnProcessor:
 class Flux2KleinCpSingleAttnProcessor:
     """Flux2 fused attention/MLP processor for replicated text and local image."""
 
-    def __init__(self, parallel: EpeParallelContext) -> None:
+    def __init__(self, parallel: EpeParallelContext, *, mode: str = "agkv") -> None:
         self.parallel = parallel
-        self.attention = ImageContextParallelAttention(mode="agkv")
+        self.attention = ImageContextParallelAttention(mode=mode)
         self.native = Flux2ParallelSelfAttnProcessor()
         self._text_tokens: int | None = None
 
@@ -169,6 +172,9 @@ class Flux2KleinCpSingleAttnProcessor:
             text_key,
             text_value,
             lane_process_group=self.parallel.active.process_group,
+            usp_topology=(
+                self.parallel.active_usp if self.attention.mode == "usp" else None
+            ),
             joint_first=True,
         )
         attention_output = torch.cat([text_output, image_output], dim=1)

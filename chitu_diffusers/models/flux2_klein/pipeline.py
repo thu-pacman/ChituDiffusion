@@ -4,7 +4,7 @@ from typing import Any
 
 from diffusers import Flux2KleinPipeline
 
-from ...parallel import EpeParallelContext
+from ...parallel import EpeParallelContext, resolve_context_parallel_config
 from .transformer import Flux2KleinCpTransformer2DModel
 
 
@@ -14,13 +14,18 @@ class Flux2KleinCpPipeline(Flux2KleinPipeline):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
+        attention_mode, ulysses_degree = resolve_context_parallel_config(
+            kwargs.pop("attention_mode", "agkv"),
+            kwargs.pop("ulysses_degree", None),
+        )
         if parallel is None:
-            parallel = EpeParallelContext.from_torchrun()
+            parallel = EpeParallelContext.from_torchrun(ulysses_degree=ulysses_degree)
         transformer = kwargs.pop("transformer", None)
         if transformer is None:
             transformer_kwargs: dict[str, Any] = {
                 "subfolder": "transformer",
                 "parallel_context": parallel,
+                "attention_mode": attention_mode,
             }
             for key in ("torch_dtype", "local_files_only", "variant", "revision"):
                 if key in kwargs:
@@ -32,7 +37,9 @@ class Flux2KleinCpPipeline(Flux2KleinPipeline):
         elif not isinstance(transformer, Flux2KleinCpTransformer2DModel):
             raise TypeError("transformer must be a Flux2KleinCpTransformer2DModel")
         else:
-            transformer.configure_context_parallel(parallel)
+            transformer.configure_context_parallel(
+                parallel, attention_mode=attention_mode
+            )
         pipeline = super().from_pretrained(
             pretrained_model_name_or_path,
             transformer=transformer,

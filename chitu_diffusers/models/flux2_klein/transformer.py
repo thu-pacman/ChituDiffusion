@@ -6,7 +6,7 @@ import torch
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.transformers.transformer_flux2 import Flux2Transformer2DModel
 
-from ...parallel import EpeParallelContext
+from ...parallel import EpeParallelContext, resolve_context_parallel_config
 from .attention import (
     Flux2KleinCpAttnProcessor,
     Flux2KleinCpSingleAttnProcessor,
@@ -19,19 +19,24 @@ class Flux2KleinCpTransformer2DModel(Flux2Transformer2DModel):
     @classmethod
     def from_pretrained(cls, *args: Any, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
-        attention_mode = kwargs.pop("attention_mode", "agkv")
-        if attention_mode != "agkv":
-            raise NotImplementedError(
-                "FLUX.2-klein CP currently supports attention_mode='agkv' only"
-            )
+        attention_mode, _ = resolve_context_parallel_config(
+            kwargs.pop("attention_mode", "agkv")
+        )
         model = super().from_pretrained(*args, **kwargs)
         if parallel is not None:
-            model.configure_context_parallel(parallel)
+            model.configure_context_parallel(parallel, attention_mode=attention_mode)
         return model
 
-    def configure_context_parallel(self, parallel: EpeParallelContext) -> None:
-        double_processor = Flux2KleinCpAttnProcessor(parallel)
-        single_processor = Flux2KleinCpSingleAttnProcessor(parallel)
+    def configure_context_parallel(
+        self,
+        parallel: EpeParallelContext,
+        *,
+        attention_mode: str = "agkv",
+    ) -> None:
+        double_processor = Flux2KleinCpAttnProcessor(parallel, mode=attention_mode)
+        single_processor = Flux2KleinCpSingleAttnProcessor(
+            parallel, mode=attention_mode
+        )
         for block in self.transformer_blocks:
             block.attn.set_processor(double_processor)
         for block in self.single_transformer_blocks:

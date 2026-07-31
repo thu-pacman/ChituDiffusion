@@ -3,7 +3,7 @@
 Date: 2026-07-27
 
 This package keeps the official Diffusers pipeline as the single-GPU baseline
-and adds a fixed, full-world AGKV context-parallel transformer. It intentionally
+and adds a fixed, full-world AGKV/USP context-parallel transformer. It intentionally
 does not expose EPAC or elastic lane switching: the four-step distilled schedule
 leaves too little scheduling interval to justify the state-lifecycle changes
 that an elastic adapter would require.
@@ -14,11 +14,12 @@ that an elastic adapter would require.
 - native single-process Diffusers generation;
 - fixed full-world context parallelism over image tokens;
 - replicated text tokens and request output on every rank;
-- batch size one, no attention mask, no fused double-stream QKV, and AGKV only.
+- batch size one, no attention mask, and no fused double-stream QKV.
 
 The context-parallel implementation shards image tokens before the transformer,
-gathers K/V inside the fixed lane, and gathers projected image tokens before the
-Diffusers pipeline resumes. Dynamic topology, CFG parallelism, parallel VAE,
+runs the selected AGKV or USP backend inside the fixed lane, and gathers projected
+image tokens before the Diffusers pipeline resumes. AGKV remains the default.
+Dynamic topology, CFG parallelism, parallel VAE,
 EPAC serving, and non-distilled checkpoints are outside this integration.
 
 ## Validation Snapshot
