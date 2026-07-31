@@ -29,6 +29,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--flow-shift", type=float, default=8.0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--vae-parallel-halo", type=int, default=8)
+    parser.add_argument("--attention-mode", choices=("agkv", "usp"), default="agkv")
+    parser.add_argument("--ulysses-degree", type=int)
     args = parser.parse_args()
     if args.vae_parallel_halo < 0:
         parser.error("--vae-parallel-halo must be non-negative")
@@ -41,7 +43,8 @@ def main() -> None:
         args.model_path,
         torch_dtype=torch.bfloat16,
         local_files_only=True,
-        attention_mode="agkv",
+        attention_mode=args.attention_mode,
+        ulysses_degree=args.ulysses_degree,
         cfg_parallel=True,
         parallel_vae=True,
         vae_parallel_halo=args.vae_parallel_halo,
@@ -94,6 +97,8 @@ def main() -> None:
             mse = float(difference.square().mean().item())
             metrics = {
                 "world_size": parallel.world_size,
+                "attention_mode": args.attention_mode,
+                "ulysses_degree": args.ulysses_degree,
                 "shape": list(decoded.shape),
                 "vae_parallel_halo": args.vae_parallel_halo,
                 "reference_ms": reference_ms,

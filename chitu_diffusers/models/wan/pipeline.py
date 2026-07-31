@@ -11,7 +11,11 @@ import torch.distributed as dist
 from diffusers import FlowMatchEulerDiscreteScheduler, WanPipeline
 from diffusers.pipelines.wan.pipeline_output import WanPipelineOutput
 
-from ...parallel import EpeParallelContext, parallel_tiled_vae_decode
+from ...parallel import (
+    EpeParallelContext,
+    parallel_tiled_vae_decode,
+    resolve_context_parallel_config,
+)
 from .loader import load_wan_diffusers_components
 from .transformer import EpeWanTransformer3DModel
 
@@ -58,25 +62,24 @@ class EpeWanPipeline(WanPipeline):
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
         allowed_widths = kwargs.pop("allowed_lane_widths", None)
-        attention_mode = str(kwargs.pop("attention_mode", "agkv"))
+        attention_mode, ulysses_degree = resolve_context_parallel_config(
+            kwargs.pop("attention_mode", "agkv"),
+            kwargs.pop("ulysses_degree", None),
+        )
         cfg_parallel = bool(kwargs.pop("cfg_parallel", True))
         parallel_vae = bool(kwargs.pop("parallel_vae", True))
         vae_parallel_halo = int(kwargs.pop("vae_parallel_halo", 8))
         if vae_parallel_halo < 0:
             raise ValueError("vae_parallel_halo must be non-negative")
         flow_shift = float(kwargs.pop("flow_shift", 8.0))
-        ulysses_degree = kwargs.pop("ulysses_degree", None)
-        if attention_mode != "agkv":
-            raise NotImplementedError("Wan EPAC currently supports AGKV only")
-        if ulysses_degree not in (None, 1):
-            raise NotImplementedError("Wan EPAC requires ulysses_degree=1")
         if parallel is None:
             parallel = EpeParallelContext.from_torchrun(
                 allowed_widths=(
                     tuple(int(width) for width in allowed_widths)
                     if allowed_widths is not None
                     else None
-                )
+                ),
+                ulysses_degree=ulysses_degree,
             )
 
         model_path = Path(pretrained_model_name_or_path)
@@ -135,6 +138,8 @@ class EpeWanPipeline(WanPipeline):
                 transformer=transformer,
             )
         pipeline._epac_parallel_context = parallel
+        pipeline._epac_attention_mode = attention_mode
+        pipeline._epac_ulysses_degree = ulysses_degree
         pipeline._epac_cfg_parallel = cfg_parallel
         pipeline._epac_parallel_vae = parallel_vae
         pipeline._epac_vae_parallel_halo = vae_parallel_halo
@@ -440,6 +445,8 @@ class EpeWanPipeline(WanPipeline):
                 "num_frames": num_frames,
                 "resolutions": [list(value) for value in resolutions],
                 "allowed_lane_widths": list(self.parallel_context.allowed_widths),
+                "attention_mode": self._epac_attention_mode,
+                "ulysses_degree": self._epac_ulysses_degree,
                 "rows": rows,
                 "total_wall_ms": (time.perf_counter() - report_started) * 1000,
             }

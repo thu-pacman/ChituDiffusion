@@ -1,22 +1,9 @@
 from __future__ import annotations
 
 import torch
-import torch.distributed as dist
-import torch.nn.functional as F
 from diffusers.models.transformers.transformer_wan import WanAttnProcessor
 
-from ...parallel import EpeParallelContext
-
-
-def _all_gather_sequence(
-    tensor: torch.Tensor, process_group: object | None
-) -> torch.Tensor:
-    width = dist.get_world_size(process_group) if process_group is not None else 1
-    if width == 1:
-        return tensor
-    pieces = [torch.empty_like(tensor) for _ in range(width)]
-    dist.all_gather(pieces, tensor.contiguous(), group=process_group)
-    return torch.cat(pieces, dim=1).contiguous()
+from ...parallel import EpeParallelContext, ImageSelfAttention
 
 
 def _apply_rotary(
@@ -37,9 +24,8 @@ class WanCpAttnProcessor:
     """Wan self-attention with local queries and lane-gathered K/V."""
 
     def __init__(self, parallel: EpeParallelContext, *, mode: str = "agkv") -> None:
-        if mode != "agkv":
-            raise NotImplementedError("Wan EPAC currently supports AGKV only")
         self.parallel = parallel
+        self.attention = ImageSelfAttention(mode=mode)
         self.native = WanAttnProcessor()
 
     def __call__(
@@ -75,15 +61,15 @@ class WanCpAttnProcessor:
             query = _apply_rotary(query, *rotary_emb)
             key = _apply_rotary(key, *rotary_emb)
 
-        full_key = _all_gather_sequence(key, topology.process_group)
-        full_value = _all_gather_sequence(value, topology.process_group)
-        output = F.scaled_dot_product_attention(
-            query.transpose(1, 2),
-            full_key.transpose(1, 2),
-            full_value.transpose(1, 2),
-            dropout_p=0.0,
-            is_causal=False,
-        ).transpose(1, 2)
+        output = self.attention(
+            query,
+            key,
+            value,
+            lane_process_group=topology.process_group,
+            usp_topology=(
+                self.parallel.active_usp if self.attention.mode == "usp" else None
+            ),
+        )
         output = output.flatten(2, 3).type_as(query)
         output = attn.to_out[0](output.contiguous())
         return attn.to_out[1](output)

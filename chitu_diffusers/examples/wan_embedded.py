@@ -35,6 +35,8 @@ def main() -> None:
     parser.add_argument("--guidance-scale", type=float, default=6.0)
     parser.add_argument("--flow-shift", type=float, default=8.0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--attention-mode", choices=("agkv", "usp"), default="agkv")
+    parser.add_argument("--ulysses-degree", type=int)
     parser.add_argument(
         "--policy",
         choices=("elastic", "static_cp", "static_dp"),
@@ -78,6 +80,8 @@ def main() -> None:
             default_height=args.height,
             default_num_frames=args.frames,
             default_num_steps=args.steps,
+            attention_mode=args.attention_mode,
+            ulysses_degree=args.ulysses_degree,
             cfg_parallel=not args.no_cfg_parallel,
             flow_shift=args.flow_shift,
             parallel_vae=not args.no_parallel_vae,

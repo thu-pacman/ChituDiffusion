@@ -15,7 +15,7 @@ official modules during load; the Chitu Wan model implementation is not used.
   the 14B architecture from its `config.json`;
 - original Wan checkpoint directories and converted Diffusers directories;
 - request-local 5D latent state and scheduler cursor;
-- dynamic AGKV context parallelism over flattened video tokens;
+- dynamic AGKV/USP context parallelism over flattened video tokens;
 - CFG with CFP2 preferred on even lanes;
 - lane widths 1, 2, 4, and 8, including live latent migration;
 - startup DiT/transfer/VAE warmup with at least three samples;
@@ -28,14 +28,15 @@ stable than 480p. The adapter accepts positive multiples of 16 for experiments;
 that shape compatibility is not a model-quality guarantee for arbitrary sizes.
 
 The 14B path is not GPU-validated in this change. The initial integration does
-not expose I2V, Wan2.2, USP, FlexCache, LoRA, or an HTTP MP4 endpoint.
+not expose I2V, Wan2.2, FlexCache, LoRA, or an HTTP MP4 endpoint.
 
 ## Parallel Layout
 
 The 3D patch embedding and full Wan RoPE are computed before token sharding.
 Each CP rank keeps a contiguous video-token shard and matching RoPE slice.
-Self-attention gathers K/V within the active CP lane while retaining local
-queries. Cross-attention uses local video queries against replicated text.
+Self-attention uses the shared AGKV or USP backend within the active CP lane
+while retaining local queries; AGKV is the default. Cross-attention uses local
+video queries against replicated text.
 Projected video tokens are gathered before unpatchify and the scheduler step,
 so every rank retains a canonical migratable 5D latent.
 

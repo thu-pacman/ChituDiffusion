@@ -379,15 +379,19 @@ class WanExecutorFactory:
     parallel_vae: bool = True
     vae_parallel_halo: int = 8
     warmup_profiles: tuple[tuple[int, int, int], ...] = ()
+    ulysses_degree: int | None = None
 
     def build(self, context: ExecutorBuildContext) -> WanVideoDecoderExecutor:
         parallel, local_rank = build_stage_parallel_context(
-            context, attention_mode=self.attention_mode, ulysses_degree=1
+            context,
+            attention_mode=self.attention_mode,
+            ulysses_degree=self.ulysses_degree,
         )
         pipeline = EpeWanPipeline.from_pretrained(
             self.model_path,
             parallel_context=parallel,
             attention_mode=self.attention_mode,
+            ulysses_degree=self.ulysses_degree,
             cfg_parallel=self.cfg_parallel,
             parallel_vae=self.parallel_vae,
             vae_parallel_halo=self.vae_parallel_halo,
