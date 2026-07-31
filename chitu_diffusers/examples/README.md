@@ -16,7 +16,7 @@ bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux2_klein_cp.py \
   --output outputs/flux2_klein/fixed_cp_4gpu_512_4step.png
 ```
 
-固定 CP 仅支持 distilled checkpoint、AGKV 和 batch size 1。当前限制与验证
+固定 CP 支持 distilled checkpoint、AGKV/USP 和 batch size 1，默认 AGKV。当前限制与验证
 结果见 `chitu_diffusers/models/flux2_klein/README.md`。
 
 ## Qwen-Image
@@ -135,8 +135,9 @@ embedded runtime 默认按 active lane 做 parallel VAE。使用
 `--no-parallel-vae` 可切回 leader-only decode；`--vae-parallel-halo N` 可调整
 Flux AutoencoderKL 的 latent halo，默认值为 8。
 
-当前 FLUX.1 路径已验证 AGKV 和 parallel VAE，尚未验收 USP、true CFG、IP-Adapter、
-ControlNet、LoRA、Schnell 和 FlexCache。
+FLUX.1 的 AGKV 和 USP 使用相同动态 lane 接口，默认 AGKV；增加
+`--attention-mode usp --ulysses-degree 2` 可切换后端。true CFG、IP-Adapter、
+ControlNet、LoRA、Schnell 和 FlexCache 尚未验收。
 
 ## Z-Image
 

@@ -55,9 +55,12 @@ Flux.1 的 Diffusers-native 适配范围、代码映射和 bring-up 顺序见
 | `epac/api.py` | typed request helper 与同步 full-world Diffusers facade |
 | `epac/cost.py` | 启动实测的 DiT step、VAE/D2H terminal 和 state-transfer cost table |
 | `epac/optimization.py` | 可组合的 DiT forward wrapper，是新 FlexCache 公共入口 |
-| `parallel/` | 动态 lane group、AGKV、xDiT/yunchang Ulysses x Ring 和 tile-parallel VAE |
+| `parallel/` | 动态 lane group、并列的 AGKV/USP attention 后端和 tile-parallel VAE |
 | `models/zimage/` | Z-Image pipeline、transformer、adapter 和 API 门面 |
-| `models/flux1/` | FLUX.1-dev split-step pipeline、动态 AGKV CP、embedded executor 和 API 门面 |
+| `models/flux1/` | FLUX.1-dev split-step pipeline、动态 AGKV/USP CP、embedded executor 和 API 门面 |
+| `models/qwen_image/` | Qwen-Image split-step pipeline、CFP2、动态 AGKV/USP CP 和 API 门面 |
+| `models/wan/` | 官方 Diffusers Wan T2V、CFP2、动态 AGKV/USP CP 和并行 VAE |
+| `models/flux2_klein/` | 官方 Diffusers FLUX.2-klein 与固定 full-world AGKV/USP CP baseline |
 | `serve/` | HTTP schema、服务配置、Z-Image runtime 和 torchrun 生命周期 |
 
 公共 EPE cost model 兼容 warmup 报告中的 `image_tokens`、`width`、`batch_size`、
@@ -111,8 +114,8 @@ pipeline.serve(
 
 `serve()` 是 blocking 调用：所有 torchrun ranks 都进入该方法，rank 0 提供 HTTP，
 其他 ranks 运行 follower loop。完整命令见 `chitu_diffusers/examples/README.md`。
-安装 `usp` 可选依赖后，可使用 `attention_mode="usp", ulysses_degree=2`；cp4/cp2 lane
-分别映射为 u2r2/u2r1。
+所有模型默认使用 `attention_mode="agkv"`。安装 `usp` 可选依赖后，可切换为
+`attention_mode="usp", ulysses_degree=2`；cp4/cp2 lane 分别映射为 u2r2/u2r1。
 
 Z-Image 默认优先使用 CFP2：开启 CFG 时，偶数宽度 lane 先拆成 cond/uncond
 两条分支，每条分支再使用 `width/2` 路 CP（例如四卡为 CFP2 x CP2）。设置

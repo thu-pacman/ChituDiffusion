@@ -7,7 +7,8 @@ parallel 的包：当前实现 CP，后续 CFG parallel 也应在此扩展，并
 - `groups.py`：启动阶段创建候选 lane group，并维护当前 active lane；
 - `topology.py`：active lane 对应的 Ulysses/Ring group view；
 - `usp.py`：支持调用时注入 group 的 Ulysses x Ring attention；
-- `image_attention.py`：`sharded image + replicated joint/text` 布局的 AGKV/USP 接口。
+- `image_attention.py`：统一的 AGKV/USP 配置，以及 sharded self-attention 和
+  `sharded image + replicated joint/text` 两类模型无关接口。
 
 `groups.py` 是通用资源层；后三者是当前 context-parallel 实现。模型目录只能保留
 QKV/RoPE/布局等 glue，不应复制通信算子或创建 process group。
@@ -25,3 +26,24 @@ uv sync --extra usp
 
 CUDA 路径使用 yunchang `SeqAllToAll4D`、FlashAttention 和 xDiT-style joint ring。
 CPU 路径只用于多进程数值回归，不代表服务性能。
+
+所有模型入口默认 `attention_mode="agkv"`。选择 `attention_mode="usp"` 且未指定
+`ulysses_degree` 时默认使用 degree 2；实际 active lane 会自动降到可整除该 lane width
+的 degree，因而同一实例可以在 u2r2、u2r1 和 u1r1 之间动态切换。
+
+2026-07-28 在 4 x H20 上完成以下 USP smoke：Z-Image 512/2-step
+（`examples/zimage_epe.py`，Slurm `201838`）、FLUX.2-klein 512/1-step
+（`examples/flux2_klein_cp.py`，`201833`）、Qwen-Image 512/4-step CFP2 x CP2
+（`examples/qwen_image_epac.py`，`201839`）和 Wan2.1-T2V-1.3B
+832x480/17-frame/2-step CFP2 x CP2（`examples/wan_epac.py`，`201835`）。调用形式均为：
+
+```bash
+bash script/srun_direct.sh 1 4 <entry> \
+  --model-path <path> --attention-mode usp --ulysses-degree 2
+```
+
+四个作业均完成生成并正常退出；Qwen PNG SHA256 为
+`54c3291b13c9ddc760490eccef851c9b36feb5c7da6907da732fa313135b7291`，Wan 完成 MP4
+编码。FLUX.1 的同步 facade follower parallel-VAE 收尾问题修正后，以 512/1-step
+u2r2 作业 `201861` 完整验证。共享 pure self-attention 另以 4 卡 BF16 CUDA 数值
+smoke `201841` 验证 u2r2，最大绝对误差不超过 `0.0078125`。
