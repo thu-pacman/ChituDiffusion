@@ -290,3 +290,24 @@ class DynamicUspAttention:
             image_output = image_output[:, :, :original_heads]
             joint_output = joint_output[:, :, :original_heads]
         return joint_output.contiguous(), image_output.contiguous()
+
+    def self_attention(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        *,
+        topology: UspTopology,
+    ) -> torch.Tensor:
+        """Run USP for a sequence-sharded self-attention tensor."""
+        empty = query.new_empty(query.shape[0], 0, query.shape[2], query.shape[3])
+        _, output = self(
+            query,
+            key,
+            value,
+            empty,
+            empty,
+            empty,
+            topology=topology,
+        )
+        return output

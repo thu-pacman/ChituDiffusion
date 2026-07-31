@@ -7,7 +7,7 @@ from typing import Any
 import torch
 import torch.distributed as dist
 
-from ..parallel import EpeParallelContext
+from ..parallel import EpeParallelContext, resolve_context_parallel_config
 from .image_decoder import ExecutorBuildContext, TransferBundle
 from .scheduling import RequestProfile
 
@@ -66,9 +66,7 @@ def build_stage_parallel_context(
     os.environ["RANK"] = str(world.rank)
     os.environ["WORLD_SIZE"] = str(world.world_size)
     os.environ["LOCAL_RANK"] = str(local_rank)
-    degree = ulysses_degree
-    if degree is None:
-        degree = 2 if attention_mode == "usp" else 1
+    _, degree = resolve_context_parallel_config(attention_mode, ulysses_degree)
     parallel = EpeParallelContext.from_torchrun(
         allowed_widths=context.pool.allowed_lane_widths,
         owns_process_group=world.owns_process_group,

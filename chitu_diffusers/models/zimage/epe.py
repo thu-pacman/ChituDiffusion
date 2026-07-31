@@ -15,7 +15,7 @@ from ...epac.model_scheduling import (
     EpeRequest as _EpeRequest,
     EpeSchedulingModule,
 )
-from ...parallel import EpeParallelContext
+from ...parallel import EpeParallelContext, resolve_context_parallel_config
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +55,7 @@ class ZImageEpeModule(EpeSchedulingModule):
                 "the measured cost model",
                 cost_model,
             )
-        if attention_mode not in {"agkv", "usp"}:
-            raise ValueError("attention_mode must be one of: agkv, usp")
+        attention_mode, _ = resolve_context_parallel_config(attention_mode)
         super().__init__(
             parallel,
             policy=policy,

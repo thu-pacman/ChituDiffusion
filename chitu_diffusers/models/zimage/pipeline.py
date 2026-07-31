@@ -19,6 +19,7 @@ from ...parallel import (
     ActiveLaneTopology,
     EpeParallelContext,
     parallel_tiled_vae_decode,
+    resolve_context_parallel_config,
 )
 from .transformer import EpeZImageTransformer2DModel
 
@@ -78,11 +79,11 @@ class EpeZImagePipeline(ZImagePipeline):
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
         allowed_widths = kwargs.pop("allowed_lane_widths", None)
-        attention_mode = str(kwargs.pop("attention_mode", "agkv"))
+        attention_mode, ulysses_degree = resolve_context_parallel_config(
+            kwargs.pop("attention_mode", "agkv"),
+            kwargs.pop("ulysses_degree", None),
+        )
         cfg_parallel = bool(kwargs.pop("cfg_parallel", True))
-        ulysses_degree = kwargs.pop("ulysses_degree", None)
-        if ulysses_degree is None:
-            ulysses_degree = 2 if attention_mode == "usp" else 1
         epe_options = dict(kwargs.pop("epe_options", {}))
         epe_options.setdefault("attention_mode", attention_mode)
         epe_options.setdefault("cfg_parallel", cfg_parallel)
@@ -93,7 +94,7 @@ class EpeZImagePipeline(ZImagePipeline):
                     if allowed_widths is not None
                     else None
                 ),
-                ulysses_degree=int(ulysses_degree),
+                ulysses_degree=ulysses_degree,
             )
         epe = ZImageEpeModule(parallel, **epe_options)
 

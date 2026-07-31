@@ -180,6 +180,8 @@ class ZImageExecutorFactory:
         pipeline = EpeZImagePipeline.from_pretrained(
             self.model_path,
             parallel_context=parallel,
+            attention_mode=self.attention_mode,
+            ulysses_degree=self.ulysses_degree,
             epe_options=epe_options,
             torch_dtype=dtype,
             local_files_only=self.local_files_only,

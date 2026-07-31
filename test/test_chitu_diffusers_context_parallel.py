@@ -12,8 +12,10 @@ import torch.nn.functional as F
 from chitu_diffusers.parallel import (
     EpeParallelContext,
     ImageContextParallelAttention,
+    ImageSelfAttention,
     cfg_parallel_rank_groups,
     parallel_tiled_vae_decode,
+    resolve_context_parallel_config,
 )
 
 
@@ -45,6 +47,17 @@ def test_cfg_parallel_rank_groups_pair_matching_cp_shards() -> None:
 
     with pytest.raises(ValueError, match="even lane width"):
         cfg_parallel_rank_groups((0, 1, 2))
+
+
+def test_context_parallel_config_defaults_to_agkv() -> None:
+    assert resolve_context_parallel_config() == ("agkv", 1)
+    assert resolve_context_parallel_config("usp") == ("usp", 2)
+    assert resolve_context_parallel_config("USP", 4) == ("usp", 4)
+
+    with pytest.raises(ValueError, match="agkv, usp"):
+        resolve_context_parallel_config("unknown")
+    with pytest.raises(ValueError, match="positive"):
+        resolve_context_parallel_config("usp", 0)
 
 
 def _assert_lane_equivalence(
@@ -96,6 +109,39 @@ def _assert_lane_equivalence(
     )
 
 
+def _assert_self_attention_equivalence(
+    parallel: EpeParallelContext,
+    *,
+    lane: tuple[int, ...],
+    seed: int,
+) -> None:
+    generator = torch.Generator().manual_seed(seed)
+    batch, local_tokens, heads, head_dim = 1, 3, 3, 4
+    full_tokens = local_tokens * len(lane)
+    query = torch.randn(batch, full_tokens, heads, head_dim, generator=generator)
+    key = torch.randn(batch, full_tokens, heads, head_dim, generator=generator)
+    value = torch.randn(batch, full_tokens, heads, head_dim, generator=generator)
+    rank_in_lane = lane.index(parallel.rank)
+    start = rank_in_lane * local_tokens
+    stop = start + local_tokens
+
+    with parallel.activate(lane):
+        output = ImageSelfAttention("usp")(
+            query[:, start:stop],
+            key[:, start:stop],
+            value[:, start:stop],
+            lane_process_group=parallel.active.process_group,
+            usp_topology=parallel.active_usp,
+        )
+    reference = _reference_attention(query, key, value)
+    torch.testing.assert_close(
+        output,
+        reference[:, start:stop],
+        rtol=1e-5,
+        atol=1e-6,
+    )
+
+
 def _usp_worker(rank: int, world_size: int, port: int) -> None:
     os.environ.update(
         MASTER_ADDR="127.0.0.1",
@@ -113,12 +159,14 @@ def _usp_worker(rank: int, world_size: int, port: int) -> None:
     assert parallel.active_usp.ulysses_degree == 2
     assert parallel.active_usp.ring_degree == 2
     _assert_lane_equivalence(parallel, lane=(0, 1, 2, 3), seed=31)
+    _assert_self_attention_equivalence(parallel, lane=(0, 1, 2, 3), seed=37)
 
     lane = (0, 1) if rank < 2 else (2, 3)
     with parallel.activate(lane):
         assert parallel.active_usp.ulysses_degree == 2
         assert parallel.active_usp.ring_degree == 1
     _assert_lane_equivalence(parallel, lane=lane, seed=47)
+    _assert_self_attention_equivalence(parallel, lane=lane, seed=53)
     dist.barrier()
     parallel.close()
     dist.destroy_process_group()

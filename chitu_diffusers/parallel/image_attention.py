@@ -8,6 +8,28 @@ from .topology import UspTopology
 from .usp import DynamicUspAttention
 
 
+CONTEXT_PARALLEL_MODES = ("agkv", "usp")
+
+
+def resolve_context_parallel_config(
+    mode: str = "agkv",
+    ulysses_degree: int | None = None,
+) -> tuple[str, int]:
+    """Normalize the model-independent context-parallel backend settings."""
+    normalized_mode = str(mode).lower()
+    if normalized_mode not in CONTEXT_PARALLEL_MODES:
+        choices = ", ".join(CONTEXT_PARALLEL_MODES)
+        raise ValueError(f"context-parallel mode must be one of: {choices}")
+    degree = (
+        int(ulysses_degree)
+        if ulysses_degree is not None
+        else (2 if normalized_mode == "usp" else 1)
+    )
+    if degree < 1:
+        raise ValueError("ulysses_degree must be positive")
+    return normalized_mode, degree
+
+
 def _sdpa(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -42,9 +64,7 @@ class ImageContextParallelAttention:
     """Attention for sequence-sharded image and replicated joint tokens."""
 
     def __init__(self, mode: str = "agkv") -> None:
-        if mode not in {"agkv", "usp"}:
-            raise ValueError("context-parallel mode must be one of: agkv, usp")
-        self.mode = mode
+        self.mode, _ = resolve_context_parallel_config(mode)
         self._usp = DynamicUspAttention()
 
     def __call__(
@@ -96,4 +116,36 @@ class ImageContextParallelAttention:
         return (
             output[:, local_image_tokens:].contiguous(),
             output[:, :local_image_tokens].contiguous(),
+        )
+
+
+class ImageSelfAttention:
+    """Attention for a sequence sharded across one active EPAC lane."""
+
+    def __init__(self, mode: str = "agkv") -> None:
+        self.mode, _ = resolve_context_parallel_config(mode)
+        self._usp = DynamicUspAttention()
+
+    def __call__(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        *,
+        lane_process_group: object | None,
+        usp_topology: UspTopology | None = None,
+    ) -> torch.Tensor:
+        if self.mode == "usp":
+            if usp_topology is None:
+                raise ValueError("usp_topology is required for USP attention")
+            return self._usp.self_attention(
+                query,
+                key,
+                value,
+                topology=usp_topology,
+            )
+        return _sdpa(
+            query,
+            _all_gather_sequence(key, lane_process_group),
+            _all_gather_sequence(value, lane_process_group),
         )
