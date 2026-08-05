@@ -9,11 +9,6 @@ import torch
 
 from chitu_diffusion.models.parallel import ModelParallelCapabilities
 from chitu_diffusion.models.registry import ModelType, get_model_class
-from chitu_diffusion.runtime.cfg_execution import (
-    CfgBranchBatch,
-    CfgBranchExecutor,
-    CfgExecutionSpec,
-)
 
 logger = getLogger(__name__)
 
@@ -123,7 +118,6 @@ def set_cfg_type(backend, value: str) -> None:
 class DiffusionRuntimeAdapter:
     def __init__(self, spec: DiffusionModelSpec):
         self.spec = spec
-        self.cfg_executor = CfgBranchExecutor()
 
     def uses_external_pipeline(self) -> bool:
         return False
@@ -134,70 +128,11 @@ class DiffusionRuntimeAdapter:
     def schedule_each_stage(self) -> bool:
         return False
 
-    def supports_rank0_text_encode(self) -> bool:
-        """Whether the generator's ``rank0_gpu`` text-encode optimisation (encode
-        once on rank 0, then world-broadcast a single embedding tensor + length
-        metadata) is valid for this adapter.
-
-        Only models whose encoded prompt state is fully captured by the single
-        tensor returned from ``encode_text`` (plus the length metadata the
-        generator broadcasts) may opt in. Models that stash extra per-rank buffer
-        state during ``encode_text`` (masks, negative embeddings, ...) MUST leave
-        this ``False`` so every rank encodes identically -- otherwise the async
-        DP admission path desyncs the collective stream across ranks."""
+    def supports_n_sample(self) -> bool:
+        """Whether this adapter can generate multiple samples (n_sample>1) in a
+        single request via a batched latent. Adapters that still assume batch=1
+        return False so the runtime rejects n_sample>1 with a clear error."""
         return False
-
-    def text_encode_prepares_cfg_state(self) -> bool:
-        """Whether one encode call populates both cond and negative task state."""
-        return False
-
-    def supports_physical_cfg_batch(
-        self, task, generator, backend, spec: CfgExecutionSpec
-    ) -> bool:
-        """Whether CFP-1 may pack cond+uncond into one physical model batch."""
-        return False
-
-    def cfg_branch_batch(self, task) -> CfgBranchBatch:
-        """Return adapter branch state without changing the sample batch axis."""
-        return CfgBranchBatch(
-            cond=task.buffer.text_embeddings,
-            uncond=task.buffer.negative_embeddings,
-        )
-
-    def cfg_execution_spec(
-        self, task, generator, backend, *, guidance_enabled: bool
-    ) -> CfgExecutionSpec:
-        spec = CfgExecutionSpec.from_live_topology(
-            guidance_enabled=guidance_enabled,
-            physical_cfg_batch=False,
-        )
-        return CfgExecutionSpec(
-            guidance_enabled=spec.guidance_enabled,
-            cfp_degree=spec.cfp_degree,
-            cp_degree=spec.cp_degree,
-            physical_cfg_batch=self.supports_physical_cfg_batch(
-                task, generator, backend, spec
-            ),
-        )
-
-    def model_shape_spec(self, args: Any) -> Optional["ModelShapeSpec"]:
-        """Static architecture facts for the cost model / profiler (optional)."""
-        from chitu_diffusion.runtime.cost_model import KNOWN_SPECS
-
-        for key in (
-            str(getattr(getattr(args, "models", None), "name", "") or "").strip(),
-            str(getattr(getattr(args, "models", None), "type", "") or "").strip(),
-        ):
-            if key in KNOWN_SPECS:
-                return KNOWN_SPECS[key]
-        return None
-
-    def latent_token_count(self, width: int, height: int, args: Any) -> int:
-        """Image-token count for planner/calibrator keys (model-aware default)."""
-        from chitu_diffusion.runtime.cost_model import latent_token_count as _count
-
-        name = str(getattr(getattr(args, "models", None), "name", "") or "Z-Image")
-        return int(_count(width, height, model_name=name))
 
     def configure_external_components(self, backend, attn_backend=None, rope_impl=None) -> None:
         return None
@@ -260,52 +195,6 @@ class DiffusionRuntimeAdapter:
 
     def denoise_step(self, task, generator, backend, run_dit_forward: Callable[..., torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError
-
-    @staticmethod
-    def scheduler_step(
-        scheduler,
-        noise_pred: torch.Tensor,
-        timestep,
-        latents: torch.Tensor,
-        *,
-        step_index: Optional[int] = None,
-        **step_kwargs,
-    ) -> torch.Tensor:
-        """Run one scheduler step, optionally pinned to an explicit ``step_index``.
-
-        FlowMatch-style schedulers advance an internal ``_step_index`` on every
-        ``.step`` call. In the pool engine several lanes/tasks can share one
-        scheduler instance while sitting at different steps, so a stateful cursor
-        is wrong: passing ``step_index`` resets the cursor before stepping so each
-        call is deterministic w.r.t. the caller's step, not call order. Adapters
-        with a private per-task scheduler can omit ``step_index`` (the natural
-        sequential cursor is already correct)."""
-        if step_index is not None and hasattr(scheduler, "_step_index"):
-            scheduler._step_index = int(step_index)
-        return scheduler.step(noise_pred, timestep, latents, return_dict=False, **step_kwargs)[0]
-
-    def denoise_step_group_once(
-        self, tasks: list, generator, backend, run_dit_forward: Callable[..., torch.Tensor]
-    ) -> None:
-        """Advance every task in ``tasks`` by EXACTLY ONE denoise step.
-
-        This is the generic pool-engine contract, expressed on top of the
-        per-model one-step ``denoise_step``. Each task carries one
-        sample's latent; adapters may override this method to physically batch
-        compatible tasks, otherwise members are stepped independently and the
-        result is written back in place (the pool engine reads ``task.buffer`` after
-        the call rather than a return value). Adapters only need a correct one-step
-        ``denoise_step``; they do not need to reimplement this."""
-        completes_single = self.denoise_completes_in_single_call()
-        for task in tasks:
-            assert task.buffer.latents is not None and task.buffer.timesteps is not None
-            setattr(task.buffer, "_dit_forward_call_index", 0)
-            latents = self.denoise_step(task, generator, backend, run_dit_forward)
-            task.buffer.latents = latents
-            if completes_single:
-                task.buffer.current_step = int(task.req.params.num_inference_steps)
-            else:
-                task.buffer.current_step = int(task.buffer.current_step) + 1
 
     def decode_latents(self, task, generator, backend) -> Optional[torch.Tensor]:
         raise NotImplementedError

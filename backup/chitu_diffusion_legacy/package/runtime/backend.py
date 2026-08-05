@@ -30,9 +30,6 @@ from chitu_diffusion.core.distributed.parallel_state import (
     initialize_diffusion_parallel_groups,
     get_cp_group
 )
-from chitu_diffusion.core.distributed.lane_topology import (
-    resolve_lane_topology_config,
-)
 from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend
 
 from chitu_diffusion.flexcache.flexcache_manager import FlexCacheManager
@@ -469,19 +466,10 @@ class DiffusionBackend:
             torch.cuda.set_device(local_rank)
 
         if not torch.distributed.is_initialized():
-            # Optional short collective timeout: smoke/validation runs set
-            # CHITU_NCCL_TIMEOUT_S so a topology bug surfaces as a fast watchdog
-            # abort instead of blocking on the default 10-minute NCCL timeout.
-            init_kwargs = {}
-            timeout_s = os.environ.get("CHITU_NCCL_TIMEOUT_S", "").strip()
-            if timeout_s:
-                from datetime import timedelta
-
-                init_kwargs["timeout"] = timedelta(seconds=float(timeout_s))
             if args.infer.op_impl == "cpu":
-                torch.distributed.init_process_group("gloo", **init_kwargs)
+                torch.distributed.init_process_group("gloo")
             else:
-                torch.distributed.init_process_group("nccl", **init_kwargs)
+                torch.distributed.init_process_group("nccl")
         if DiffusionBackend.use_gloo:
             DiffusionBackend.group_gloo = torch.distributed.new_group(backend="gloo")
 
@@ -497,45 +485,26 @@ class DiffusionBackend:
         assert pipeline_parallel_size == 1, "DiffusionBackend only supports pipeline_parallel_size=1"
         assert expert_parallel_size == 1, "DiffusionBackend only supports expert_parallel_size=1"
 
+        # Diffusion Parallelism
+        # Data parallel replicas: each replica is a cfg_size*cp_size rank block
+        # that independently runs a full model on a different request/sample.
+        data_parallel_size = int(getattr(args.infer, "dp_size", 1) or 1)
+
         if DiffusionBackend.model_adapter is None:
             raise RuntimeError("Diffusion model runtime adapter is not initialized.")
         DiffusionBackend.do_cfg = DiffusionBackend.model_adapter.supports_cfg(args)
+        cfg_size = 2 if (world_size >= 2 and  DiffusionBackend.do_cfg and args.infer.diffusion.cfg_size > 1) else 1
 
         up = args.infer.diffusion.up
-        legacy_dp_size = int(getattr(args.infer, "dp_size", 1) or 1)
-        legacy_cfg_size = (
-            2
-            if (
-                world_size >= 2
-                and DiffusionBackend.do_cfg
-                and args.infer.diffusion.cfg_size > 1
-            )
-            else 1
-        )
-        topology_config = resolve_lane_topology_config(
-            args.infer.diffusion,
-            world_size=world_size,
-            legacy_dp_size=legacy_dp_size,
-            legacy_cfp_size=legacy_cfg_size,
-        )
+        context_parallel_size = args.infer.diffusion.cp_size
 
-        if topology_config.mode == "fixed":
-            assert topology_config.fixed is not None
-            fixed = topology_config.fixed
-            if fixed.cfp > 1 and not DiffusionBackend.do_cfg:
-                raise ValueError(
-                    "fixed_topology.cfp=2 requires an adapter with CFG support"
-                )
-            data_parallel_size = fixed.dp
-            cfg_size = fixed.cfp
-            context_parallel_size = fixed.cp
-        else:
-            # Elastic launch owns one world-sized base lane. Runtime activation
-            # chooses DP lanes and their CFP/CP factorization from the registry.
-            data_parallel_size = 1
-            cfg_size = 1
-            context_parallel_size = world_size
-
+        assert (
+            world_size
+            == data_parallel_size * cfg_size * context_parallel_size
+        ), (
+            f"World size not match: {world_size} != dp_size({data_parallel_size}) * "
+            f"cfg_size({cfg_size}) * cp_size({context_parallel_size})"
+        )
         DiffusionBackend.dp_size = data_parallel_size
 
         initialize_diffusion_parallel_groups(
@@ -543,8 +512,6 @@ class DiffusionBackend:
             up=up,
             cp_size=context_parallel_size,
             dp_size=data_parallel_size,
-            dynamic_sp=False,
-            topology_config=topology_config,
         )
 
     @staticmethod

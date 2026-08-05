@@ -2,14 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import copy
 import time
-import threading
 import torch
 import torch.distributed as dist
 import tqdm
 import pickle
-from dataclasses import dataclass, field, asdict, replace
+from dataclasses import dataclass, field, asdict, fields
 from enum import Enum
 from logging import getLogger
 from typing import Any, Optional, Union, Dict, List, Deque
@@ -20,6 +18,16 @@ from chitu_diffusion.runtime.backend import DiffusionBackend
 from chitu_diffusion.core.distributed.parallel_state import get_cfg_group
 from chitu_diffusion.flexcache.params import FLEXCACHE_PARAM_CLASSES, FlexCacheParams
 from chitu_diffusion.parallel.state import ParallelTaskState
+
+logger = getLogger(__name__)
+
+
+import time
+import torch
+from enum import Enum
+from logging import getLogger
+from typing import Optional, List
+from dataclasses import dataclass
 
 logger = getLogger(__name__)
 
@@ -49,14 +57,12 @@ class DiffusionUserParams:
     prompt: str = None
     negative_prompt: Optional[str] = None
     seed: Optional[int] = None
-    # 一个请求生成的样本数；TextEncode 后展开成独立 b=1 task，seed 依次递增。
+    # 一个请求生成的样本数（同 prompt/尺寸，seed 递增以获得多样性）。
+    # n_sample>1 依赖模型 adapter 的基础 batch 支持；尺寸被锁死为相同，避免 ragged 序列。
     n_sample: int = 1
     # 调度器参数
     sample_solver: str = "ddpm"
     num_inference_steps: int = None
-    # SLO 软截止时间（毫秒，相对该请求 arrival 时刻的预算）。None 表示无截止时间，
-    # slo_elastic 调度器据此计算 tardiness/slack；其它调度器忽略该字段。
-    deadline_ms: Optional[float] = None
     # 其他参数
     save_dir: Optional[str] = "./output"  # 输出保存路径
     # Acceleration compatibility field: only specify a strategy name.
@@ -276,48 +282,6 @@ class DiffusionTaskBuffer:
     image_size: Optional[tuple[int, int]] = field(default=None)
     parallel: ParallelTaskState = field(default_factory=ParallelTaskState)
 
-@dataclass
-class WorkItem:
-    """一个 (request, sample) 粒度的去噪工作单元（M2 抽象）。
-
-    一个 ``n_sample=N`` 的请求在逻辑上展开成 N 个 work-item：它们**共享**父
-    task 的 text embedding / timesteps（文本只编码一次，按引用共享），各自对应
-    一行 latent（一个 seed）。work-item 是调度器分派与回收的最小单位。
-
-    注意：物理去噪 forward 仍把同 shape/同 step 的 work-item 批在一起执行
-    （见 generator），因此数值与批量 n_sample 路径逐位一致 —— M2 只改变
-    "调度/记账的粒度"，不改变"执行的批"。跨请求的成批由 M3 在 generator 侧完成，
-    届时会消费 ``DiffusionTask.work_items()``。
-    """
-
-    task: "DiffusionTask"
-    sample_index: int
-
-    @property
-    def task_id(self) -> str:
-        return self.task.task_id
-
-    @property
-    def request_id(self):
-        if self.task.req is not None:
-            return self.task.req.request_id
-        return self.task.task_id
-
-    @property
-    def n_sample(self) -> int:
-        return self.task.n_sample()
-
-    @property
-    def current_step(self) -> int:
-        return int(self.task.buffer.current_step)
-
-    def shape_key(self) -> tuple:
-        return self.task.shape_key()
-
-    def __repr__(self) -> str:
-        return f"WorkItem(task={self.task_id}, sample={self.sample_index}/{self.n_sample})"
-
-
 class DiffusionTask:
     
     def __init__(
@@ -327,8 +291,6 @@ class DiffusionTask:
         req: Optional[DiffusionUserRequest] = None,
         buffer: Optional[DiffusionTaskBuffer] = None,
         signal_data: Optional[Dict] = None, # 系统信号携带的数据
-        sample_index: int = 0,
-        sample_count: int = 1,
 
     ):
         logger.debug(f"Create DiffusionTask {task_id}")
@@ -341,75 +303,11 @@ class DiffusionTask:
 
         self.req = req
         self.buffer = DiffusionTaskBuffer() if buffer is None else buffer
-        self.sample_index = int(sample_index)
-        self.sample_count = max(1, int(sample_count))
          # 系统信号数据
         self.signal_data = signal_data or {}
         
-        now = time.perf_counter_ns()
-        self.arrival_ts = now
-        self.admission_ts: Optional[int] = None
-        self.sched_ts: Optional[int] = None
-        self.last_scheduled_ts: Optional[int] = None
-        self.scheduler_metadata: Dict[str, Any] = {}
-
         # 错误信息
         self.error_message: Optional[str] = None
-
-    @classmethod
-    def make_sample_child(
-        cls,
-        parent: "DiffusionTask",
-        sample_index: int,
-        seed_fallback: int = 0,
-    ) -> "DiffusionTask":
-        """Create one independently schedulable ``b=1`` child after text encode."""
-        if parent.req is None or parent.req.params is None:
-            raise ValueError("Sample fan-out requires a user request.")
-
-        sample_count = max(1, int(parent.req.params.n_sample))
-        sample_index = int(sample_index)
-        if sample_index < 0 or sample_index >= sample_count:
-            raise IndexError(
-                f"sample_index={sample_index} outside n_sample={sample_count}."
-            )
-
-        params = replace(
-            parent.req.params,
-            n_sample=1,
-            seed=parent.req.params.base_seed(seed_fallback) + sample_index,
-        )
-        req = DiffusionUserRequest(
-            request_id=parent.req.request_id,
-            params=params,
-            init_image=parent.req.init_image,
-        )
-
-        # Shallow-copying the buffer gives each child independent mutable denoise
-        # state while retaining references to the read-only encode tensors and any
-        # adapter-specific encode metadata attached dynamically to the buffer.
-        buffer = copy.copy(parent.buffer)
-        buffer.seed_g = None
-        buffer.sampler = None
-        buffer.latents = None
-        buffer.timesteps = None
-        buffer.current_step = 0
-        buffer.denoised_latents = None
-        buffer.generated_image = None
-        buffer.parallel = ParallelTaskState()
-
-        child = cls(
-            task_id=f"{parent.req.request_id}#{sample_index}",
-            task_type=DiffusionTaskType.Denoise,
-            req=req,
-            buffer=buffer,
-            sample_index=sample_index,
-            sample_count=sample_count,
-        )
-        child.arrival_ts = parent.arrival_ts
-        child.admission_ts = parent.admission_ts
-        child.scheduler_metadata = dict(parent.scheduler_metadata)
-        return child
 
     @classmethod
     def create_terminate_signal(
@@ -477,46 +375,6 @@ class DiffusionTask:
             return False
         return self.status == DiffusionTaskStatus.Running
 
-    def remaining_denoise_steps(self) -> Optional[int]:
-        if self.req is None or self.req.params is None:
-            return None
-        total_steps = self.req.params.num_inference_steps
-        if total_steps is None:
-            return None
-        return max(0, int(total_steps) - int(self.buffer.current_step))
-
-    def deadline_ms(self) -> Optional[float]:
-        """请求的软截止时间（毫秒，相对 arrival）；无请求/无截止时间返回 None。
-
-        slo_elastic 调度器用它计算 tardiness；其它调度器忽略。
-        """
-        if self.req is None or self.req.params is None:
-            return None
-        return getattr(self.req.params, "deadline_ms", None)
-
-    def shape_key(self) -> tuple:
-        if self.req is None or self.req.params is None:
-            return ()
-        params = self.req.params
-        return (
-            tuple(params.size) if params.size is not None else None,
-            getattr(params, "frame_num", None),
-            self.buffer.seq_len,
-            self.buffer.image_size,
-            getattr(params, "sample_solver", None),
-            getattr(params, "num_inference_steps", None),
-        )
-
-    def n_sample(self) -> int:
-        """Number of physical work items represented by this task."""
-        if self.is_control_signal():
-            return 0
-        return max(1, int(getattr(self.req.params, "n_sample", 1) or 1))
-
-    def work_items(self) -> list["WorkItem"]:
-        """把本 task 展开成 n_sample 个 work-item（共享 buffer/embedding 引用）。"""
-        return [WorkItem(self, idx) for idx in range(self.n_sample())]
-
     def __repr__(self):
         return (
             f"DiffusionTask(id={self.task_id}, type={self.task_type}, "
@@ -535,8 +393,6 @@ class DiffusionTask:
                 'error_message': self.error_message,
                 'is_terminate_signal': self.is_terminate_signal(),
                 'signal_data': self.signal_data,
-                'sample_index': self.sample_index,
-                'sample_count': self.sample_count,
             }
             
             # 2. 自动序列化用户请求数据
@@ -554,9 +410,10 @@ class DiffusionTask:
                 buffer_dict = {}
                 tensor_fields = []
                 
-                # Include adapter-specific metadata attached dynamically after
-                # text encode, not only the declared dataclass fields.
-                for field_name, field_value in vars(self.buffer).items():
+                # 遍历buffer的所有字段
+                for field_info in fields(self.buffer):
+                    field_name = field_info.name
+                    field_value = getattr(self.buffer, field_name)
                     
                     # 区分tensor和非tensor字段
                     if isinstance(field_value, torch.Tensor):
@@ -576,7 +433,7 @@ class DiffusionTask:
                 for field_name in serializable_data['tensor_field_names']:
                     tensor_value = getattr(self.buffer, field_name)
                     if tensor_value is not None:
-                        tensor_data[field_name] = tensor_value.detach().to("cpu").clone()
+                        tensor_data[field_name] = tensor_value.detach().clone()
             
             # 5. 打包所有数据
             full_data = {
@@ -637,9 +494,7 @@ class DiffusionTask:
                 task_type=metadata['task_type'],
                 req=user_request,
                 buffer=buffer,
-                signal_data=metadata.get('signal_data', {}),
-                sample_index=metadata.get('sample_index', 0),
-                sample_count=metadata.get('sample_count', 1),
+                signal_data=metadata.get('signal_data', {})
             )
             
             task.status = metadata['status']
@@ -663,19 +518,9 @@ class DiffusionTask:
 class DiffusionTaskPool:
     pool: dict[str, DiffusionTask] = {}
     id_list: list[str] = []
-    pending_queue: deque[DiffusionTask] = deque()
+    pending_queue: deque[DiffusionTask] = Deque()
     shutdown_task: DiffusionTask | None = None
     cancel_task: DiffusionTask | None = None
-    # Guards the mutable class-level containers (pool / id_list) so a rank-0 CPU
-    # background arrival-ingress thread can ``add()`` concurrently with the lockstep
-    # engine thread reading them (planning) / the harness harvesting completions,
-    # without "dict/list changed size during iteration" races. Re-entrant so nested
-    # calls (e.g. add_all_queued -> add) are safe. See pool_runtime_optimization stage 5.
-    _lock: "threading.RLock" = threading.RLock()
-
-    @classmethod
-    def lock(cls) -> "threading.RLock":
-        return cls._lock
 
     def __bool__(self):
         return len(self.pool) > 0
@@ -685,12 +530,10 @@ class DiffusionTaskPool:
 
     @classmethod
     def reset(cls):
-        with cls._lock:
-            cls.pool = {}
-            cls.id_list = []
-            cls.pending_queue = deque()
-            cls.shutdown_task = None
-            cls.cancel_task = None
+        cls.pool = {}
+        cls.id_list = []
+        cls.shutdown_task = None
+        cls.cancel_task = None
 
     @classmethod
     def is_empty(cls):
@@ -700,10 +543,9 @@ class DiffusionTaskPool:
     def all_finished(cls) -> bool:
         if cls.shutdown_task is not None or cls.cancel_task is not None:
             return False
-        with cls._lock:
-            if len(cls.pool) == 0:
-                return True
-            return all(task.is_completed() for task in cls.pool.values())
+        if len(cls.pool) == 0:
+            return True
+        return all(task.is_completed() for task in cls.pool.values())
 
     @classmethod
     def request_shutdown(cls, reason: str = "Normal shutdown") -> DiffusionTask:
@@ -750,93 +592,34 @@ class DiffusionTaskPool:
 
     @classmethod
     def cancel_active_tasks(cls, reason: str = "Current generation cancelled"):
-        with cls._lock:
-            tasks = list(cls.pool.values())
-        for task in tasks:
+        for task in cls.pool.values():
             if not task.is_completed():
                 task.status = DiffusionTaskStatus.Failed
                 task.error_message = reason
 
     @classmethod
     def add(cls, task: DiffusionTask):
-        with cls._lock:
-            if task.task_id in cls.pool:
-                return False  # Task already exists, failed to add
-            task.admission_ts = time.perf_counter_ns()
-            cls.pool[task.task_id] = task
-            cls.id_list.append(task.task_id)
-            return True
-
-    @classmethod
-    def replace_with_children(
-        cls,
-        parent_id: str,
-        children: list[DiffusionTask],
-    ) -> None:
-        """Atomically replace an encoded parent request with its sample tasks."""
-        with cls._lock:
-            if parent_id not in cls.pool:
-                return
-            index = cls.id_list.index(parent_id)
-            parent = cls.pool.pop(parent_id)
-            cls.id_list.pop(index)
-            for offset, child in enumerate(children):
-                if child.task_id in cls.pool:
-                    raise ValueError(f"Duplicate sample task {child.task_id}.")
-                child.admission_ts = parent.admission_ts
-                cls.pool[child.task_id] = child
-                cls.id_list.insert(index + offset, child.task_id)
+        if task.task_id in cls.pool:
+            return False  # Task already exists, failed to add
+        cls.pool[task.task_id] = task
+        cls.id_list.append(task.task_id)
+        return True
 
     @classmethod
     def enqueue(cls, task: DiffusionTask):
-        with cls._lock:
-            cls.pending_queue.append(task)
+        cls.pending_queue.append(task)
 
     @classmethod
     def add_all_queued(cls):
-        with cls._lock:
-            while cls.pending_queue:
-                cls.add(cls.pending_queue.popleft())
-
-    @classmethod
-    def pending_task_ids(cls) -> list[str]:
-        with cls._lock:
-            return [
-                task_id for task_id in cls.id_list
-                if cls.pool[task_id].status == DiffusionTaskStatus.Pending
-            ]
-
-    @classmethod
-    def items_snapshot(cls) -> list[tuple[str, "DiffusionTask"]]:
-        """A point-in-time (task_id, task) list, taken under the pool lock, so callers
-        can iterate safely while a background thread may be adding new tasks."""
-        with cls._lock:
-            return list(cls.pool.items())
-
-    @classmethod
-    def work_item_count(cls) -> int:
-        """池中所有非控制 task 展开的 work-item 总数（M7 调度/利用率用）。"""
-        with cls._lock:
-            return sum(task.n_sample() for task in cls.pool.values() if not task.is_control_signal())
-
-    @classmethod
-    def pending_work_items(cls) -> list["WorkItem"]:
-        """所有 Pending task 展开的 work-item，保持 id_list 的到达顺序。"""
-        items: list[WorkItem] = []
-        with cls._lock:
-            ordered = [(tid, cls.pool[tid]) for tid in cls.id_list]
-        for task_id, task in ordered:
-            if task.status == DiffusionTaskStatus.Pending and not task.is_control_signal():
-                items.extend(task.work_items())
-        return items
+        while cls.pending_queue:
+            cls.add(cls.pending_queue.popleft())
 
     @classmethod
     def remove(cls, task_id: str):
-        with cls._lock:
-            assert task_id in cls.pool, "Task not found in pool"
-            task = cls.pool.pop(task_id)
-            if task is None:
-                raise ValueError(f"Task {task_id} not found in pool")
-            cls.id_list.remove(task_id)
+        assert task_id in cls.pool, "Task not found in pool"
+        task = cls.pool.pop(task_id)
+        if task is None:
+            raise ValueError(f"Task {task_id} not found in pool")
+        cls.id_list.remove(task_id)
         del task.buffer
         

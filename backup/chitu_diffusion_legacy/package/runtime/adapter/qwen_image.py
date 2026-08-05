@@ -10,18 +10,14 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
-from chitu_diffusion.core.distributed.parallel_state import (
-    dynamic_sp_degrees,
-    get_cp_group,
-    get_live_lane_topology,
-)
+from chitu_diffusion.core.distributed.parallel_state import get_cp_group
 from chitu_diffusion.core.logging_utils import log_result
 from chitu_diffusion.models.parallel import ModelParallelCapabilities
 from chitu_diffusion.flexcache.freecache_core import is_step_level_cache_strategy
 from chitu_diffusion.parallel.state import ContextParallelLatentState, ParallelTaskState
 from chitu_diffusion.parallel.vae import parallel_tiled_vae_decode
 from chitu_diffusion.runtime.adapter.base import DiffusionRuntimeAdapter, register_model_runtime, set_cfg_type
-from chitu_diffusion.runtime.cfg_execution import CfgBranchBatch
+from chitu_diffusion.runtime.data_parallel import dp_is_active, dp_shard_sample_seeds
 from chitu_diffusion.runtime.image_output import save_image_as_png
 from chitu_diffusion.runtime.output_layout import task_results_dir
 from chitu_diffusion.runtime.parallel_utils import SequencePadder
@@ -54,6 +50,9 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
 
     def supports_cfg(self, args: Any) -> bool:
         return float(args.models.sampler.guidance_scale[0]) > 1.0
+
+    def supports_n_sample(self) -> bool:
+        return True
 
     def _torch_dtype(self, args: Any) -> torch.dtype:
         variant = str(getattr(args, "float_16bit_variant", "bfloat16")).lower()
@@ -312,7 +311,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         logger.info("Installed Qwen-Image Chitu attention processor: %s", self._configured_attn_backend)
 
     def configure_after_backend_build(self, backend) -> None:
-        cp_size = max(dynamic_sp_degrees() or [get_cp_group().group_size])
+        cp_size = int(getattr(backend.args.infer.diffusion, "cp_size", 1))
         up = int(getattr(backend.args.infer.diffusion, "up", 1))
         if cp_size <= 1:
             return
@@ -324,12 +323,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         self._wrap_transformer_forward_with_cp(backend)
 
     def handles_context_parallel(self, args: Any) -> bool:
-        diffusion = args.infer.diffusion
-        return (
-            int(getattr(diffusion, "cp_size", 1)) > 1
-            or str(getattr(diffusion, "topology_mode", "") or "") == "elastic"
-            or bool(getattr(diffusion, "dynamic_sp", False))
-        )
+        return int(getattr(args.infer.diffusion, "cp_size", 1)) > 1
 
     def parallel_capabilities(self, args: Any) -> ModelParallelCapabilities:
         return ModelParallelCapabilities(
@@ -348,10 +342,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         return local, offset
 
     def _cp_enabled(self, backend) -> bool:
-        topology = get_live_lane_topology()
-        if topology is not None:
-            return bool(topology.active and topology.cp_degree > 1)
-        return get_cp_group().group_size > 1
+        return int(getattr(backend.args.infer.diffusion, "cp_size", 1)) > 1
 
     def _persistent_cp_latents_enabled(self, task, backend) -> bool:
         if os.getenv("CHITU_QWEN_PERSISTENT_CP_LATENTS", "1") == "0":
@@ -366,15 +357,12 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         if flex_strategy is not None:
             return False
         cp_state = getattr(getattr(task.buffer, "parallel", None), "cp_latents", None)
-        return bool(cp_state is not None and cp_state.is_local)
-
-    def text_encode_prepares_cfg_state(self) -> bool:
-        return True
+        if cp_state is not None:
+            return bool(cp_state.is_local)
+        return bool(getattr(task.buffer, "_qwen_cp_latents_local", False))
 
     def _gather_sequence(self, tensor: torch.Tensor, gather_dim: int, name: str) -> torch.Tensor:
         group = get_cp_group()
-        if group.group_size <= 1:
-            return tensor
         pieces = [torch.empty_like(tensor) for _ in range(group.group_size)]
         dist.all_gather(pieces, tensor.contiguous(), group=group.gpu_group)
         return SequencePadder.remove_sequence_padding_and_concat(pieces, gather_dim=gather_dim, name=name)
@@ -434,8 +422,15 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         max_sequence_length = int(getattr(backend.args.models.encoder, "max_sequence_length", 512))
         guidance_scale = float(backend.args.models.sampler.guidance_scale[0])
         negative_prompt = task.req.get_n_prompt() or " "
-        prompt = task.req.get_prompt()
-        set_cfg_type(backend, "pos")
+        if generator.cfg_size == 1:
+            encode_negative = task.buffer.text_embeddings is not None and guidance_scale > 1.0
+        elif generator.cfg_size == 2:
+            encode_negative = generator.cfg_dispatcher.group.rank_in_group == 1
+        else:
+            raise ValueError(f"Unsupported cfg_size={generator.cfg_size}.")
+
+        prompt = negative_prompt if encode_negative else task.req.get_prompt()
+        set_cfg_type(backend, "neg" if encode_negative else "pos")
 
         pipe.check_inputs(
             task.req.get_prompt(),
@@ -451,22 +446,29 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             num_images_per_prompt=1,
             max_sequence_length=max_sequence_length,
         )
-        task.buffer.text_embeddings = embeds
-        task.buffer.text_embeddings_mask = embeds_mask
+        if encode_negative:
+            task.buffer.negative_embeddings_mask = embeds_mask
+        else:
+            task.buffer.text_embeddings_mask = embeds_mask
 
-        if guidance_scale > 1.0:
-            negative_embeds, negative_mask = pipe.encode_prompt(
-                prompt=negative_prompt,
+        if generator.cfg_size == 2:
+            other_prompt = task.req.get_prompt() if encode_negative else negative_prompt
+            other_embeds, other_mask = pipe.encode_prompt(
+                prompt=other_prompt,
                 device=device,
                 num_images_per_prompt=1,
                 max_sequence_length=max_sequence_length,
             )
-            task.buffer.negative_embeddings = negative_embeds
-            task.buffer.negative_embeddings_mask = negative_mask
+            if encode_negative:
+                task.buffer.text_embeddings = other_embeds
+                task.buffer.text_embeddings_mask = other_mask
+            else:
+                task.buffer.negative_embeddings = other_embeds
+                task.buffer.negative_embeddings_mask = other_mask
 
         logger.info(
-            "[text_encode_step] Qwen-Image prepared cond+neg=%s embeds=%s mask=%s",
-            guidance_scale > 1.0,
+            "[text_encode_step] Qwen-Image branch=%s embeds=%s mask=%s",
+            "neg" if encode_negative else "pos",
             tuple(embeds.shape),
             None if embeds_mask is None else tuple(embeds_mask.shape),
         )
@@ -484,18 +486,32 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         num_inference_steps = int(task.req.params.num_inference_steps)
         num_channels_latents = pipe.transformer.config.in_channels // 4
 
-        seed = task.req.params.base_seed(fallback=int(backend.args.infer.seed))
-        seed_g = torch.Generator(device=device).manual_seed(seed)
-        latents = pipe.prepare_latents(
-            1,
-            num_channels_latents,
-            height,
-            width,
-            embeddings.dtype,
-            device,
-            seed_g,
-            latents=None,
-        )
+        # n_sample: one request generates n images (same prompt/size, seed +i for
+        # diversity). Build one latent row per seed so row i is bit-identical to a
+        # single-sample request with seed=base+i. Naive data parallel is applied
+        # via a model-agnostic helper that returns only this replica's seed slice
+        # (dp_size==1 -> all seeds), so the rest of prepare stays DP-unaware.
+        seeds = dp_shard_sample_seeds(task.req.params, fallback=int(backend.args.infer.seed))
+        n_sample = len(seeds)
+        latent_rows = []
+        for row_seed in seeds:
+            row_g = torch.Generator(device=device).manual_seed(int(row_seed))
+            latent_rows.append(
+                pipe.prepare_latents(
+                    1,
+                    num_channels_latents,
+                    height,
+                    width,
+                    embeddings.dtype,
+                    device,
+                    row_g,
+                    latents=None,
+                )
+            )
+        latents = torch.cat(latent_rows, dim=0) if n_sample > 1 else latent_rows[0]
+        # seed_g kept for compatibility; points at the first sample's generator.
+        seed_g = torch.Generator(device=device).manual_seed(int(seeds[0]))
+        self._expand_embeddings_for_samples(task, n_sample)
         sigmas = np.linspace(1.0, 1 / num_inference_steps, num_inference_steps)
         mu = calculate_shift(
             latents.shape[1],
@@ -537,11 +553,6 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         if (
             os.getenv("CHITU_QWEN_PERSISTENT_CP_LATENTS", "1") != "0"
             and self._cp_enabled(backend)
-            # Pool lanes can change width between rounds. Pre-sharding here uses
-            # the launch-time CP group before a lane is activated, leaving a
-            # width-1 DP lane with only one stale shard. Let the transformer
-            # wrapper split/gather against the live lane group instead.
-            and not bool(getattr(generator, "pool_engine", False))
             and getattr(getattr(getattr(backend, "parallel_plan", None), "sampler", None), "enabled", True)
             and getattr(getattr(backend, "flexcache", None), "strategy", None) is None
         ):
@@ -559,6 +570,9 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 image_seq_len=int(latents.shape[1]),
                 is_local=True,
             )
+            task.buffer._qwen_cp_full_latent_seq_len = int(latents.shape[1])
+            task.buffer._qwen_cp_image_offset = int(image_offset)
+            task.buffer._qwen_cp_latents_local = True
             task.buffer.latents = local_latents
             latents = local_latents
             cp_local = True
@@ -571,6 +585,26 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             guidance_scale,
             cp_local,
         )
+
+    @staticmethod
+    def _expand_embeddings_for_samples(task, n_sample: int) -> None:
+        """Replicate the single-prompt embeddings (and masks) to n_sample rows so
+        they line up with the batched latent. Samples share one prompt and differ
+        only by seed, so a plain batch-dim repeat is exact. On a cfg_size==2 rank
+        only one branch is populated; repeating a missing branch is a no-op.
+        """
+        if n_sample <= 1:
+            return
+        for emb_name, mask_name in (
+            ("text_embeddings", "text_embeddings_mask"),
+            ("negative_embeddings", "negative_embeddings_mask"),
+        ):
+            emb = getattr(task.buffer, emb_name, None)
+            if isinstance(emb, torch.Tensor) and emb.shape[0] == 1:
+                setattr(task.buffer, emb_name, emb.repeat(n_sample, *([1] * (emb.ndim - 1))))
+            mask = getattr(task.buffer, mask_name, None)
+            if isinstance(mask, torch.Tensor) and mask.shape[0] == 1:
+                setattr(task.buffer, mask_name, mask.repeat(n_sample, *([1] * (mask.ndim - 1))))
 
     def _img_shapes(self, task, pipe) -> list[list[tuple[int, int, int]]]:
         width, height = task.buffer.image_size or task.req.params.size
@@ -617,9 +651,13 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         attention_kwargs = dict(pipe.attention_kwargs)
         if self._persistent_cp_latents_enabled(task, backend):
             cp_state = getattr(getattr(task.buffer, "parallel", None), "cp_latents", None)
-            if cp_state is None:
-                raise RuntimeError("Local Qwen CP latents require serialized parallel state")
-            attention_kwargs["qwen_cp_info"] = cp_state.attention_kwargs()
+            if cp_state is not None:
+                attention_kwargs["qwen_cp_info"] = cp_state.attention_kwargs()
+            else:
+                attention_kwargs["qwen_cp_info"] = {
+                    "image_offset": int(task.buffer._qwen_cp_image_offset),
+                    "image_seq_len": int(task.buffer._qwen_cp_full_latent_seq_len),
+                }
             attention_kwargs["qwen_return_local"] = True
         with pipe.transformer.cache_context(cache_tag):
             output = generator._run_dit_forward(
@@ -637,43 +675,61 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         return self._normalize_latent_tokens(output, f"{cache_tag} transformer output")
 
     def _qwen_guided_noise_pred(self, task, generator, backend, guidance_scale: float) -> torch.Tensor:
-        guidance_enabled = guidance_scale > 1.0
-        spec = self.cfg_execution_spec(
-            task, generator, backend, guidance_enabled=guidance_enabled
-        )
-        branches = CfgBranchBatch(
-            cond=(
-                task.buffer.text_embeddings,
-                task.buffer.text_embeddings_mask,
-            ),
-            uncond=(
-                task.buffer.negative_embeddings,
-                task.buffer.negative_embeddings_mask,
-            )
-            if guidance_enabled
-            else None,
-        )
-
-        def forward_branch(name: str, state) -> torch.Tensor:
-            embeds, mask = state
-            set_cfg_type(backend, "pos" if name == "cond" else "neg")
-            return self._transformer_forward(
-                task, generator, backend, name, embeds, mask
-            )
-
-        def combine(noise_pred: torch.Tensor, neg_noise_pred: torch.Tensor) -> torch.Tensor:
-            combined = neg_noise_pred + guidance_scale * (
-                noise_pred - neg_noise_pred
-            )
+        if guidance_scale > 1.0:
+            if generator.cfg_size == 2:
+                if generator.cfg_dispatcher.group.rank_in_group == 0:
+                    set_cfg_type(backend, "pos")
+                    local_noise_pred = self._transformer_forward(
+                        task,
+                        generator,
+                        backend,
+                        "cond",
+                        task.buffer.text_embeddings,
+                        task.buffer.text_embeddings_mask,
+                    )
+                else:
+                    set_cfg_type(backend, "neg")
+                    local_noise_pred = self._transformer_forward(
+                        task,
+                        generator,
+                        backend,
+                        "uncond",
+                        task.buffer.negative_embeddings,
+                        task.buffer.negative_embeddings_mask,
+                    )
+                noise_pred, neg_noise_pred = generator.cfg_dispatcher.all_gather_cfg_noise_preds(local_noise_pred)
+            else:
+                set_cfg_type(backend, "pos")
+                noise_pred = self._transformer_forward(
+                    task,
+                    generator,
+                    backend,
+                    "cond",
+                    task.buffer.text_embeddings,
+                    task.buffer.text_embeddings_mask,
+                )
+                set_cfg_type(backend, "neg")
+                neg_noise_pred = self._transformer_forward(
+                    task,
+                    generator,
+                    backend,
+                    "uncond",
+                    task.buffer.negative_embeddings,
+                    task.buffer.negative_embeddings_mask,
+                )
+            combined = neg_noise_pred + guidance_scale * (noise_pred - neg_noise_pred)
             cond_norm = torch.norm(noise_pred, dim=-1, keepdim=True)
-            noise_norm = torch.norm(combined, dim=-1, keepdim=True).clamp_min(1e-12)
+            noise_norm = torch.norm(combined, dim=-1, keepdim=True)
             return combined * (cond_norm / noise_norm)
 
-        return self.cfg_executor.execute(
-            spec=spec,
-            branches=branches,
-            forward_branch=forward_branch,
-            combine=combine,
+        set_cfg_type(backend, "pos")
+        return self._transformer_forward(
+            task,
+            generator,
+            backend,
+            "cond",
+            task.buffer.text_embeddings,
+            task.buffer.text_embeddings_mask,
         )
 
     def _broadcast_checkpoint_latents(self, requests: list[torch.Tensor], device: torch.device) -> list[torch.Tensor]:
@@ -772,6 +828,12 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         guidance_scale = float(backend.args.models.sampler.guidance_scale[0])
         flex_strategy = getattr(getattr(backend, "flexcache", None), "strategy", None)
         step_cache_strategy = flex_strategy if is_step_level_cache_strategy(flex_strategy) else None
+        post_cfg_step_cache = os.getenv("CHITU_QWEN_STEP_CACHE_AFTER_CFG", "0").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         step_index = int(task.buffer.current_step)
         sigma_pre = None
         sigma_next = None
@@ -792,13 +854,18 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
                     unit="dit_forward",
                     extra={"decision": "reuse", "step": step_index, "strategy": step_cache_strategy.type},
                 )
-                # Step-cache entries are canonical post-CFG predictions on every
-                # rank, independent of the lane's current CFP factorization.
-                noise_pred = local_noise_pred
+                if post_cfg_step_cache:
+                    noise_pred = local_noise_pred
+                elif guidance_scale > 1.0 and generator.cfg_size == 2:
+                    noise_pred, neg_noise_pred = generator.cfg_dispatcher.all_gather_cfg_noise_preds(local_noise_pred)
+                    combined = neg_noise_pred + guidance_scale * (noise_pred - neg_noise_pred)
+                    cond_norm = torch.norm(noise_pred, dim=-1, keepdim=True)
+                    noise_norm = torch.norm(combined, dim=-1, keepdim=True)
+                    noise_pred = combined * (cond_norm / noise_norm)
+                else:
+                    noise_pred = local_noise_pred
                 latents_dtype = latents.dtype
-                latents = self.scheduler_step(
-                    pipe.scheduler, noise_pred, timestep, latents, step_index=step_index
-                )
+                latents = pipe.scheduler.step(noise_pred, timestep, latents, return_dict=False)[0]
                 latents = self._normalize_latent_tokens(latents, "scheduler output")
                 if latents.dtype != latents_dtype:
                     latents = latents.to(latents_dtype)
@@ -816,10 +883,101 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
                 return latents
 
         latents_pre = latents.detach()
-        noise_pred = self._qwen_guided_noise_pred(
-            task, generator, backend, guidance_scale
-        )
-        fresh_noise_pred_for_cache = noise_pred
+        if guidance_scale > 1.0:
+            if generator.cfg_size == 2:
+                if generator.cfg_dispatcher.group.rank_in_group == 0:
+                    set_cfg_type(backend, "pos")
+                    logger.debug(
+                        "[denoise_step] Qwen-Image CFG rank=%s branch=cond step=%s",
+                        torch.distributed.get_rank(),
+                        task.buffer.current_step,
+                    )
+                    local_noise_pred = self._transformer_forward(
+                        task,
+                        generator,
+                        backend,
+                        "cond",
+                        task.buffer.text_embeddings,
+                        task.buffer.text_embeddings_mask,
+                    )
+                else:
+                    set_cfg_type(backend, "neg")
+                    logger.debug(
+                        "[denoise_step] Qwen-Image CFG rank=%s branch=uncond step=%s",
+                        torch.distributed.get_rank(),
+                        task.buffer.current_step,
+                    )
+                    local_noise_pred = self._transformer_forward(
+                        task,
+                        generator,
+                        backend,
+                        "uncond",
+                        task.buffer.negative_embeddings,
+                        task.buffer.negative_embeddings_mask,
+                    )
+                logger.debug(
+                    "[denoise_step] Qwen-Image CFG rank=%s entering all_gather step=%s pred=%s",
+                    torch.distributed.get_rank(),
+                    task.buffer.current_step,
+                    tuple(local_noise_pred.shape),
+                )
+                noise_pred, neg_noise_pred = generator.cfg_dispatcher.all_gather_cfg_noise_preds(local_noise_pred)
+                logger.debug(
+                    "[denoise_step] Qwen-Image CFG rank=%s finished all_gather step=%s",
+                    torch.distributed.get_rank(),
+                    task.buffer.current_step,
+                )
+                fresh_noise_pred_for_cache = local_noise_pred
+            else:
+                set_cfg_type(backend, "pos")
+                noise_pred = self._transformer_forward(
+                    task,
+                    generator,
+                    backend,
+                    "cond",
+                    task.buffer.text_embeddings,
+                    task.buffer.text_embeddings_mask,
+                )
+                set_cfg_type(backend, "neg")
+                neg_noise_pred = self._transformer_forward(
+                    task,
+                    generator,
+                    backend,
+                    "uncond",
+                    task.buffer.negative_embeddings,
+                    task.buffer.negative_embeddings_mask,
+                )
+                fresh_noise_pred_for_cache = noise_pred
+            combined = neg_noise_pred + guidance_scale * (noise_pred - neg_noise_pred)
+            logger.debug(
+                "[denoise_step] Qwen-Image CFG rank=%s combined guidance step=%s",
+                torch.distributed.get_rank(),
+                task.buffer.current_step,
+            )
+            cond_norm = torch.norm(noise_pred, dim=-1, keepdim=True)
+            noise_norm = torch.norm(combined, dim=-1, keepdim=True)
+            noise_pred = combined * (cond_norm / noise_norm)
+            logger.debug(
+                "[denoise_step] Qwen-Image CFG rank=%s rescaled guidance step=%s",
+                torch.distributed.get_rank(),
+                task.buffer.current_step,
+            )
+        else:
+            set_cfg_type(backend, "pos")
+            noise_pred = self._transformer_forward(
+                task,
+                generator,
+                backend,
+                "cond",
+                task.buffer.text_embeddings,
+                task.buffer.text_embeddings_mask,
+            )
+            fresh_noise_pred_for_cache = noise_pred
+
+        if step_cache_strategy is not None and not (guidance_scale > 1.0 and generator.cfg_size == 2):
+            fresh_noise_pred_for_cache = noise_pred
+        elif step_cache_strategy is not None and post_cfg_step_cache:
+            fresh_noise_pred_for_cache = noise_pred
 
         latents_dtype = latents.dtype
         logger.debug(
@@ -827,9 +985,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             torch.distributed.get_rank(),
             task.buffer.current_step,
         )
-        latents = self.scheduler_step(
-            pipe.scheduler, noise_pred, timestep, latents, step_index=step_index
-        )
+        latents = pipe.scheduler.step(noise_pred, timestep, latents, return_dict=False)[0]
         latents = self._normalize_latent_tokens(latents, "scheduler output")
         logger.debug(
             "[denoise_step] Qwen-Image rank=%s finished scheduler step=%s",
@@ -890,6 +1046,7 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             cp_state = getattr(getattr(task.buffer, "parallel", None), "cp_latents", None)
             if cp_state is not None:
                 cp_state.is_local = False
+            task.buffer._qwen_cp_latents_local = False
         latents = pipe._unpack_latents(latent_tokens, height, width, pipe.vae_scale_factor)
         latents = latents.to(pipe.vae.dtype)
         latents_mean = (
@@ -908,14 +1065,19 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
         def _decode(z: torch.Tensor) -> torch.Tensor:
             return pipe.vae.decode(z, return_dict=False)[0][:, :, 0]
 
-        # The active CP group is the task's current lane, not the world.
+        if dp_is_active():
+            # Naive data parallel: this replica owns only its slice of the
+            # n_sample batch (latents are full within the replica). Decode it
+            # locally; the generator gathers the slices across the DP group.
+            return _decode(latents)
+        # latents: [B, C, 1, H_lat, W_lat] -> split on H_lat (dim 3);
+        # decoded pixels: [B, 3, H, W] -> H is dim 2; VAE upsamples by vae_scale_factor.
         return parallel_tiled_vae_decode(
             latents,
             _decode,
             latent_split_dim=3,
             pixel_split_dim=2,
             scale=int(pipe.vae_scale_factor),
-            group=get_cp_group(),
         )
 
     def save_output(self, task, output: Optional[torch.Tensor], generator, backend) -> None:
@@ -923,29 +1085,34 @@ class QwenImageRuntimeAdapter(DiffusionRuntimeAdapter):
             return
         run_output_dir = os.environ.get("CHITU_CURRENT_OUTPUT_DIR", "").strip()
         if run_output_dir:
-            task.req.params.save_dir = task_results_dir(run_output_dir, task.req.request_id)
+            task.req.params.save_dir = task_results_dir(run_output_dir, task.task_id)
         os.makedirs(task.req.params.save_dir, exist_ok=True)
 
+        seeds = task.req.params.sample_seeds(fallback=int(backend.args.infer.seed))
         prompt_slug = task.req.get_prompt()[:20].replace(" ", "_").replace(".", "")
         model_name = getattr(getattr(getattr(backend, "args", None), "models", None), "name", None)
-        save_name = f"{prompt_slug}_{task.task_id}.png"
-        save_path = os.path.join(task.req.params.save_dir, save_name)
-        save_image_as_png(output[0], save_path)
+        n_images = output.shape[0]
+        multi = n_images > 1
+        for idx in range(n_images):
+            row_seed = seeds[idx] if idx < len(seeds) else None
+            suffix = f"_s{idx}" if multi else ""
+            save_name = f"{prompt_slug}_{task.task_id}{suffix}.png"
+            save_path = os.path.join(task.req.params.save_dir, save_name)
+            save_image_as_png(output[idx], save_path)
 
-        sidecar_path = os.path.splitext(save_path)[0] + ".json"
-        metadata = {
-            "filename": os.path.basename(save_path),
-            "relative_path": os.path.join(os.path.basename(task.req.params.save_dir), os.path.basename(save_path)),
-            "prompt": task.req.get_prompt(),
-            "seed": task.req.params.base_seed(fallback=int(backend.args.infer.seed)),
-            "sample_index": task.sample_index,
-            "n_sample": task.sample_count,
-            "step": getattr(task.req.params, "num_inference_steps", None),
-            "task_id": task.task_id,
-            "request_id": task.req.request_id,
-            "model_name": model_name,
-        }
-        with open(sidecar_path, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=2)
+            sidecar_path = os.path.splitext(save_path)[0] + ".json"
+            metadata = {
+                "filename": os.path.basename(save_path),
+                "relative_path": os.path.join(os.path.basename(task.req.params.save_dir), os.path.basename(save_path)),
+                "prompt": task.req.get_prompt(),
+                "seed": row_seed,
+                "sample_index": idx,
+                "n_sample": n_images,
+                "step": getattr(task.req.params, "num_inference_steps", None),
+                "task_id": task.task_id,
+                "model_name": model_name,
+            }
+            with open(sidecar_path, "w", encoding="utf-8") as f:
+                json.dump(metadata, f, ensure_ascii=False, indent=2)
 
-        log_result(logger, task_id=task.task_id, message=f"image_saved={save_path}")
+            log_result(logger, task_id=task.task_id, message=f"image_saved={save_path}")
