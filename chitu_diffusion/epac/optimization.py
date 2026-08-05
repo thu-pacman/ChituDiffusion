@@ -1,24 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
 from .request import DiffusionRequest
 from .scheduling import StepPlan
-
-if TYPE_CHECKING:
-    from .adapters import DiffusersModelAdapter
 
 ModelCall = Callable[[], Any]
 
 
 @dataclass(frozen=True, slots=True)
 class ModelStepContext:
-    """Stable boundary shared by FlexCache-style model optimizations."""
+    """Stable, request-local boundary for FlexCache-style optimizations.
+
+    Backends should keep all mutable optimization state inside the instance
+    associated with ``request.request_id``.
+    """
 
     request: DiffusionRequest
     pipeline: Any
-    adapter: DiffusersModelAdapter
+    backend: Any
     state: Any
     model_inputs: Any
     plan: StepPlan
@@ -41,6 +42,17 @@ class DenoiseOptimization(Protocol):
     def after_step(self, context: ModelStepContext, prediction: Any) -> None: ...
 
     def on_request_end(self, request_id: str) -> None: ...
+
+
+class DenoiseOptimizationFactory(Protocol):
+    """Build an isolated optimization chain for one diffusion request."""
+
+    def build(
+        self,
+        *,
+        request: Any,
+        backend: Any,
+    ) -> Sequence[DenoiseOptimization]: ...
 
 
 class OptimizationChain:
@@ -72,3 +84,7 @@ class OptimizationChain:
     def on_request_end(self, request_id: str) -> None:
         for optimization in reversed(self._optimizations):
             optimization.on_request_end(request_id)
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self._optimizations)

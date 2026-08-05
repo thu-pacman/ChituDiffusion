@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 
-from chitu_diffusers.models.flux1 import EpeFlux1Pipeline
+from chitu_diffusion.models.flux1 import EpeFlux1Pipeline
 
 
 def parse_args() -> argparse.Namespace:

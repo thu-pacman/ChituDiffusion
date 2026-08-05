@@ -6,18 +6,23 @@ from typing import Any, Mapping
 
 import torch
 
+from ...epac.cache import CacheConfig
 from ...epac.image_decoder import ExecutorBuildContext
 from ...epac.model_executor import (
-    DiffusersImageDecoderExecutor,
+    DiffusersBackend,
     build_stage_parallel_context,
     scheduling_options_from_pool,
 )
 from .api import EPACRequest
-from .pipeline import EpeZImagePipeline, ZImageDenoiseState
+from .pipeline import EpeZImagePipeline, ZImageDenoiseState, ZImagePipelineOutput
 
 
-class ZImageImageDecoderExecutor(DiffusersImageDecoderExecutor):
+class ZImageImageDecoderExecutor(DiffusersBackend):
+    flexcache_family = "zimage"
+
     """Z-Image model operations behind the generic decoder contract."""
+
+    model_name = "zimage"
 
     def __init__(
         self,
@@ -99,6 +104,13 @@ class ZImageImageDecoderExecutor(DiffusersImageDecoderExecutor):
                 else float(request["deadline_ms"])
             ),
             priority=int(request.get("priority", 0)),
+            output_type=str(request.get("output_type", "pil")),
+            cache=(
+                request["cache"]
+                if isinstance(request.get("cache"), CacheConfig)
+                else CacheConfig.from_mapping(request.get("cache"))
+            ),
+            extra_inputs=dict(request.get("extra_inputs") or {}),
         )
 
     def serialize_request(self, request: Any) -> dict[str, Any]:
@@ -114,6 +126,9 @@ class ZImageImageDecoderExecutor(DiffusersImageDecoderExecutor):
             "guidance_scale": normalized.guidance_scale,
             "deadline_ms": normalized.deadline_ms,
             "priority": normalized.priority,
+            "output_type": normalized.output_type,
+            "cache": normalized.cache.to_dict(),
+            "extra_inputs": dict(normalized.extra_inputs),
         }
 
     def prepare_request(self, request: Any) -> ZImageDenoiseState:
@@ -124,6 +139,21 @@ class ZImageImageDecoderExecutor(DiffusersImageDecoderExecutor):
             else torch.device("cpu")
         )
         generator = torch.Generator(device=device).manual_seed(normalized.seed)
+        kwargs = dict(normalized.extra_inputs)
+        reserved = {
+            "prompt",
+            "negative_prompt",
+            "width",
+            "height",
+            "num_inference_steps",
+            "guidance_scale",
+            "generator",
+        }
+        overlap = reserved.intersection(kwargs)
+        if overlap:
+            raise ValueError(
+                "extra_inputs contains reserved fields: " + ", ".join(sorted(overlap))
+            )
         return self.pipeline.prepare_request(
             prompt=normalized.prompt,
             negative_prompt=normalized.negative_prompt,
@@ -132,6 +162,7 @@ class ZImageImageDecoderExecutor(DiffusersImageDecoderExecutor):
             num_inference_steps=normalized.num_steps,
             guidance_scale=normalized.guidance_scale,
             generator=generator,
+            **kwargs,
         )
 
     def _request_conditions(self, request: EPACRequest) -> int:
@@ -149,6 +180,9 @@ class ZImageImageDecoderExecutor(DiffusersImageDecoderExecutor):
             "parallel_vae": self.parallel_vae,
             "vae_parallel_halo": self.vae_parallel_halo,
         }
+
+    def package_generate_output(self, output: Any) -> ZImagePipelineOutput:
+        return ZImagePipelineOutput(images=output)
 
 
 @dataclass(frozen=True)

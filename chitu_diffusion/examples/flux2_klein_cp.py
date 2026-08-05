@@ -8,7 +8,7 @@ from pathlib import Path
 
 import torch
 
-from chitu_diffusers import Flux2KleinCpPipeline
+from chitu_diffusion import Flux2KleinCpPipeline
 
 
 def parse_args() -> argparse.Namespace:

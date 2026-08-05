@@ -15,7 +15,7 @@ from ..epac.image_decoder import EmbeddedRuntimeConfig, StageWorldSpec
 from .app import create_app
 from .config import load_stage_service_config
 from .embedded import EmbeddedDiffusionRuntime
-from .zimage_runtime import EpeZImageServiceRuntime
+from .zimage_runtime import EpeDiffusionServiceRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def _start_http(runtime, host: str, port: int):
 
 def run_config(config) -> None:
     logging.basicConfig(level=logging.INFO)
-    runtime = EpeZImageServiceRuntime.from_config(config)
+    runtime = EpeDiffusionServiceRuntime.from_config(config)
 
     run_runtime(runtime, config)
 
@@ -71,7 +71,7 @@ def _as_embedded_runtime(runtime, config) -> EmbeddedDiffusionRuntime:
 
 
 def run_runtime(
-    runtime: EpeZImageServiceRuntime | EmbeddedDiffusionRuntime, config
+    runtime: EpeDiffusionServiceRuntime | EmbeddedDiffusionRuntime, config
 ) -> None:
     """Run an already-loaded pipeline/runtime on every torchrun rank."""
     embedded = _as_embedded_runtime(runtime, config)
@@ -193,7 +193,7 @@ def run(config_path: str) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(
-        description="Standalone Diffusers Z-Image EPE service"
+        description="Standalone chitu_diffusion EPE service"
     )
     parser.add_argument("--stage-config", required=True)
     args = parser.parse_args()

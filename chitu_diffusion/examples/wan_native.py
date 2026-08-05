@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 from diffusers.utils import export_to_video
 
-from chitu_diffusers.models.wan.pipeline import EpeWanPipeline
+from chitu_diffusion.models.wan.pipeline import EpeWanPipeline
 
 
 def main() -> None:

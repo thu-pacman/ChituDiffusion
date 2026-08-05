@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import os
 
-from ..epac.cache import CacheConfig
-from ..models.zimage.executor import ZImageImageDecoderExecutor
-from ..models.zimage.pipeline import EpeZImagePipeline
+from ..epac.image_decoder import DiffusionBackend
 from .config import EPACServeConfig, StageServiceConfig
 from .torchrun import run_runtime
-from .zimage_runtime import EpeZImageServiceRuntime
+from .zimage_runtime import EpeDiffusionServiceRuntime
 
 
 def _physical_gpu_ids(world_size: int) -> list[int]:
@@ -21,22 +19,18 @@ def _physical_gpu_ids(world_size: int) -> list[int]:
     return list(range(world_size))
 
 
-def serve_zimage_pipeline(
-    pipeline: EpeZImagePipeline,
+def serve_diffusion_backend(
+    backend: DiffusionBackend,
     *,
     model_path: str,
-    default_cache: CacheConfig,
     config: EPACServeConfig,
+    stage_name: str = "diffusion",
 ) -> None:
-    """Configure and run an already-loaded Z-Image pipeline on torchrun ranks."""
-    cache = config.cache
-    if cache.strategy == "none" and default_cache.strategy != "none":
-        cache = default_cache
-    cache.require_available()
-
-    parallel = pipeline.parallel_context
+    """Run an already-loaded model backend with the production EPE lifecycle."""
+    config.cache.require_serve_available()
+    parallel = backend.parallel_context
     widths = tuple(parallel.allowed_widths)
-    epe = pipeline.transformer.epe
+    epe = backend.scheduling_module
     epe.policy = config.schedule_strategy
     epe.switch_allowed_until_step = config.switch_allowed_until_step
     epe.pulse_steps = config.pulse_steps
@@ -48,9 +42,9 @@ def serve_zimage_pipeline(
 
     service_config = StageServiceConfig.from_mapping(
         {
-            "name": "epac_zimage",
-            "process": "epac_zimage",
-            "factory": "zimage",
+            "name": stage_name,
+            "process": stage_name,
+            "factory": backend.model_name,
             "gpu": _physical_gpu_ids(parallel.world_size),
             "terminal": True,
             "parallelism": {
@@ -78,9 +72,9 @@ def serve_zimage_pipeline(
                 "num_steps": config.default_num_steps,
                 "default_width": config.default_width,
                 "default_height": config.default_height,
-                "attention_mode": epe.attention_mode,
+                "attention_mode": getattr(epe, "attention_mode", "agkv"),
                 "ulysses_degree": parallel.active_usp.ulysses_degree,
-                "cfg_parallel": config.cfg_parallel,
+                "cfg_parallel": bool(getattr(backend, "cfg_parallel", False)),
                 "parallel_vae": config.parallel_vae,
                 "vae_parallel_halo": config.vae_parallel_halo,
             },
@@ -94,16 +88,8 @@ def serve_zimage_pipeline(
             "postprocess_workers": config.postprocess_workers,
         }
     )
-    runtime = EpeZImageServiceRuntime(
+    runtime = EpeDiffusionServiceRuntime(
         service_config,
-        ZImageImageDecoderExecutor(
-            pipeline,
-            default_width=config.default_width,
-            default_height=config.default_height,
-            default_num_steps=config.default_num_steps,
-            cfg_parallel=config.cfg_parallel,
-            parallel_vae=config.parallel_vae,
-            vae_parallel_halo=config.vae_parallel_halo,
-        ),
+        backend,
     )
     run_runtime(runtime, service_config)

@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("outputs/chitu-diffusers/zimage_native.png"),
+        default=Path("outputs/chitu/zimage_native.png"),
     )
     args = parser.parse_args()
     if not args.model_path:

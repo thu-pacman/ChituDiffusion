@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
-import socket
 from typing import Any, Literal, Mapping
 
 import yaml
 
 from ..epac.cache import CacheConfig
+
+_LEGACY_CONFIG_FIELDS = {
+    "infer",
+    "diffusion",
+    "step_interleave",
+    "dynamic_sp",
+    "hotswitch_enabled",
+    "tp",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +51,7 @@ class EPACServeConfig:
     schedule_strategy: Literal["elastic", "static_cp", "static_dp"] = "elastic"
 
     def __post_init__(self) -> None:
+        self.cache.require_serve_available()
         if not 1024 <= self.port <= 65535:
             raise ValueError("port must be between 1024 and 65535")
         if (
@@ -83,6 +91,17 @@ def _mapping(value: Any, field_name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{field_name} must be a mapping")
     return value
+
+
+def _reject_legacy_fields(raw: Mapping[str, Any], *, prefix: str = "") -> None:
+    for key, value in raw.items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        if key in _LEGACY_CONFIG_FIELDS:
+            raise ValueError(
+                f"legacy chitu_diffusion config field is not supported: {path}"
+            )
+        if isinstance(value, Mapping):
+            _reject_legacy_fields(value, prefix=path)
 
 
 def _resolution(value: Any) -> tuple[int, int]:
@@ -216,8 +235,7 @@ class ParallelismConfig:
     def from_mapping(
         cls, raw: Mapping[str, Any], *, gpu_count: int
     ) -> "ParallelismConfig":
-        # ``tp`` is accepted only as an old Omni StageConfig compatibility alias.
-        sp = int(raw.get("sp", raw.get("tp", gpu_count)))
+        sp = int(raw.get("sp", gpu_count))
         if sp != gpu_count:
             raise ValueError(
                 f"parallelism.sp ({sp}) must equal the number of stage GPUs ({gpu_count})"
@@ -230,12 +248,13 @@ class ParallelismConfig:
 
 
 @dataclass(frozen=True)
-class ZImageFactoryConfig:
+class DiffusionFactoryConfig:
     model_path: str
     num_steps: int = 20
     sample_solver: str = "flowmatch_euler"
     default_width: int = 1024
     default_height: int = 1024
+    num_frames: int = 17
     attention_mode: str = "agkv"
     ulysses_degree: int = 1
     cfg_parallel: bool = True
@@ -243,7 +262,7 @@ class ZImageFactoryConfig:
     vae_parallel_halo: int = 8
 
     @classmethod
-    def from_mapping(cls, raw: Mapping[str, Any]) -> "ZImageFactoryConfig":
+    def from_mapping(cls, raw: Mapping[str, Any]) -> "DiffusionFactoryConfig":
         model_path = str(raw.get("model_path", "")).strip()
         if not model_path:
             raise ValueError("factory_args.model_path is required")
@@ -265,14 +284,18 @@ class ZImageFactoryConfig:
         if ulysses_degree < 1:
             raise ValueError("factory_args.ulysses_degree must be positive")
         vae_parallel_halo = int(raw.get("vae_parallel_halo", 8))
+        num_frames = int(raw.get("num_frames", 17))
         if vae_parallel_halo < 0:
             raise ValueError("factory_args.vae_parallel_halo must be non-negative")
+        if num_frames < 1 or (num_frames - 1) % 4:
+            raise ValueError("factory_args.num_frames must equal 4n+1")
         return cls(
             model_path=model_path,
             num_steps=num_steps,
             sample_solver=str(raw.get("sample_solver", "flowmatch_euler")),
             default_width=width,
             default_height=height,
+            num_frames=num_frames,
             attention_mode=attention_mode,
             ulysses_degree=ulysses_degree,
             cfg_parallel=bool(raw.get("cfg_parallel", True)),
@@ -314,7 +337,7 @@ class StageServiceConfig:
     factory: str
     gpu: tuple[int, ...]
     parallelism: ParallelismConfig
-    factory_args: ZImageFactoryConfig
+    factory_args: DiffusionFactoryConfig
     service: ServiceConfig
     terminal: bool = True
     output_root: str = "outputs/chitu-api"
@@ -327,6 +350,7 @@ class StageServiceConfig:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "StageServiceConfig":
+        _reject_legacy_fields(raw)
         gpu_raw = raw.get("gpu")
         if not isinstance(gpu_raw, (list, tuple)) or not gpu_raw:
             raise ValueError("gpu must be a non-empty list of physical GPU ids")
@@ -341,8 +365,8 @@ class StageServiceConfig:
             raise ValueError("name is required")
         process = str(raw.get("process", name)).strip()
         factory = str(raw.get("factory", "zimage")).strip()
-        if factory not in {"zimage", "chitu_diffusion.zimage"}:
-            raise ValueError(f"unsupported experimental factory: {factory}")
+        if factory not in {"zimage", "flux1", "qwen-image", "wan"}:
+            raise ValueError(f"unsupported factory: {factory}")
 
         return cls(
             name=name,
@@ -353,7 +377,7 @@ class StageServiceConfig:
                 _mapping(raw.get("parallelism", {}), "parallelism"),
                 gpu_count=len(gpu),
             ),
-            factory_args=ZImageFactoryConfig.from_mapping(
+            factory_args=DiffusionFactoryConfig.from_mapping(
                 _mapping(raw.get("factory_args", {}), "factory_args")
             ),
             service=ServiceConfig.from_mapping(
@@ -364,105 +388,6 @@ class StageServiceConfig:
             record_timeline=bool(raw.get("record_timeline", False)),
             postprocess_workers=int(raw.get("postprocess_workers", 4)),
         )
-
-    def chitu_overrides(self) -> list[str]:
-        pool = self.parallelism.chitu_pool
-        widths = ",".join(str(width) for width in pool.allowed_lane_widths)
-        legacy_policy = "slo_elastic" if pool.policy == "elastic" else pool.policy
-        return [
-            "models=Z-Image",
-            f"models.ckpt_dir={self.factory_args.model_path}",
-            "infer.diffusion.cfg_size=1",
-            f"infer.diffusion.cp_size={self.parallelism.sp}",
-            "infer.diffusion.up=1",
-            "infer.diffusion.topology_mode=elastic",
-            f"infer.diffusion.elastic_allowed_widths=[{widths}]",
-            f"infer.diffusion.scheduling_policy={legacy_policy}",
-            "infer.diffusion.dynamic_sp=true",
-            "infer.diffusion.epe.cfg_parallel_max=1",
-            f"infer.diffusion.epe.phase_max_steps={pool.pulse_steps}",
-            f"infer.diffusion.epe.balanced_k={str(pool.balanced_k).lower()}",
-            f"infer.diffusion.epe.online_calibration={str(pool.online_calibration).lower()}",
-            f"infer.diffusion.starvation_ms={pool.starvation_ms}",
-            f"infer.diffusion.switch_allowed_until_step={pool.switch_allowed_until_step}",
-            f"models.sampler.sample_steps={self.factory_args.num_steps}",
-            f"output.root_dir={self.output_root}",
-            "output.run_log=true",
-            "output.memory=false",
-            "output.timer=true",
-            "output.log_ranks=[0]",
-        ]
-
-    @classmethod
-    def from_chitu_runtime(cls, args: Any, *, world_size: int) -> "StageServiceConfig":
-        """Build the service view from overrides emitted by ``chitu run``."""
-        diffusion = args.infer.diffusion
-        widths = tuple(int(value) for value in diffusion.elastic_allowed_widths)
-        if not widths:
-            widths = tuple(
-                width for width in range(1, world_size + 1) if world_size % width == 0
-            )
-
-        visible = [
-            value.strip()
-            for value in os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",")
-            if value.strip()
-        ]
-        if len(visible) == world_size and all(value.isdigit() for value in visible):
-            gpu_ids = [int(value) for value in visible]
-        else:
-            # Under Slurm these are stage-local ids; placement remains owned by Slurm.
-            gpu_ids = list(range(world_size))
-
-        host = str(args.serve.host)
-        advertise_host = os.environ.get("CHITU_API_ADVERTISE_HOST", "").strip()
-        if not advertise_host and host in {"0.0.0.0", "::"}:
-            advertise_host = socket.gethostname()
-        mapping = {
-            "name": os.environ.get("CHITU_API_STAGE_NAME", "image_decode"),
-            "process": "chitu_image_decoder",
-            "factory": "zimage",
-            "gpu": gpu_ids,
-            "terminal": True,
-            "parallelism": {
-                "sp": world_size,
-                "chitu_pool": {
-                    "policy": (
-                        "elastic"
-                        if str(diffusion.scheduling_policy) == "slo_elastic"
-                        else str(diffusion.scheduling_policy)
-                    ),
-                    "allowed_lane_widths": list(widths),
-                    "switch_allowed_until_step": int(
-                        diffusion.switch_allowed_until_step
-                    ),
-                    "pulse_steps": int(diffusion.epe.phase_max_steps),
-                    "balanced_k": bool(diffusion.epe.balanced_k),
-                    "starvation_ms": float(diffusion.starvation_ms),
-                    "deadline_guard_ms": float(
-                        getattr(diffusion, "slo_guard_ms", 3_000.0)
-                    ),
-                    "max_inflight_requests": int(args.infer.max_reqs),
-                    "max_pending_requests": int(args.infer.max_reqs),
-                    "warmup_resolutions": [512, 1024, 2048],
-                    "warmup_steps": 5,
-                    "online_calibration": bool(diffusion.epe.online_calibration),
-                },
-            },
-            "factory_args": {
-                "model_path": str(args.models.ckpt_dir),
-                "num_steps": int(args.models.sampler.sample_steps),
-                "sample_solver": "flowmatch_euler",
-            },
-            "service": {
-                "host": host,
-                "port": int(args.serve.port),
-                "advertise_host": advertise_host or None,
-            },
-            "output_root": str(args.output.root_dir),
-        }
-        return cls.from_mapping(mapping)
-
 
 def load_stage_service_config(path: str | Path) -> StageServiceConfig:
     config_path = Path(path).expanduser().resolve()

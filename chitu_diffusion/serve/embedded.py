@@ -10,12 +10,12 @@ import torch.distributed as dist
 from ..epac.image_decoder import (
     EmbeddedRuntimeConfig,
     EmbeddedRuntimeHealth,
+    DiffusionBackendFactory,
     ExecutorBuildContext,
     ImageDecodeCompletion,
-    ImageDecoderExecutorFactory,
     StageWorldSpec,
 )
-from .zimage_runtime import EpeZImageServiceRuntime
+from .zimage_runtime import EpeDiffusionServiceRuntime
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +65,7 @@ class EmbeddedDiffusionRuntime:
             dist.all_gather_object(signatures, signature)
             if any(item != signature for item in signatures):
                 raise ValueError("StageWorldSpec differs across stage ranks")
-        self._backend = backend or EpeZImageServiceRuntime(
+        self._backend = backend or EpeDiffusionServiceRuntime(
             _BackendConfig(
                 pool=pool,
                 output_root=config.output_root,
@@ -86,7 +86,7 @@ class EmbeddedDiffusionRuntime:
         *,
         world: StageWorldSpec,
         pool: Any,
-        executor_factory: ImageDecoderExecutorFactory,
+        executor_factory: DiffusionBackendFactory,
         config: EmbeddedRuntimeConfig | None = None,
     ) -> "EmbeddedDiffusionRuntime":
         executor = executor_factory.build(ExecutorBuildContext(world=world, pool=pool))

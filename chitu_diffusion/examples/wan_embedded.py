@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 from diffusers.utils import export_to_video
 
-from chitu_diffusers import (
+from chitu_diffusion import (
     EmbeddedDiffusionRuntime,
     EmbeddedRuntimeConfig,
     HotSwitchPoolConfig,

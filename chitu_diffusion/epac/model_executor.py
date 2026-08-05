@@ -75,8 +75,10 @@ def build_stage_parallel_context(
     return parallel, local_rank
 
 
-class DiffusersImageDecoderExecutor(ABC):
-    """Reusable executor lifecycle with model-specific request and warmup hooks."""
+class DiffusersBackend(ABC):
+    """Reusable Diffusers lifecycle shared by ``generate`` and ``serve``."""
+
+    flexcache_family: str | None = None
 
     def __init__(
         self,
@@ -92,6 +94,7 @@ class DiffusersImageDecoderExecutor(ABC):
         self.default_width = int(default_width)
         self.default_height = int(default_height)
         self.default_num_steps = int(default_num_steps)
+        self.last_cache_stats: dict[str, Any] | None = None
 
     @property
     def parallel_context(self) -> EpeParallelContext:
@@ -136,6 +139,9 @@ class DiffusersImageDecoderExecutor(ABC):
         warmup_resolutions: tuple[tuple[int, int], ...],
     ) -> None:
         normalized = self.normalize_request(request)
+        cache = getattr(normalized, "cache", None)
+        if cache is not None:
+            cache.require_serve_available()
         shape = (int(normalized.height), int(normalized.width))
         if shape not in set(warmup_resolutions):
             formatted = ", ".join(
@@ -190,6 +196,79 @@ class DiffusersImageDecoderExecutor(ABC):
     def denoise_step(self, state: Any, *, lane_ranks: tuple[int, ...]) -> None:
         self.pipeline.denoise_step(state, lane_ranks=lane_ranks)
 
+    def generate(self, request: Any) -> Any:
+        """Run one request synchronously on the full stage world.
+
+        This is the degenerate single-request form of EPE: there is one full-world
+        lane, no admission queue, warmup, pulse rendezvous, or state migration.
+        Model preparation and finalization are exactly the same operations used by
+        the serving backend.
+        """
+
+        normalized = self.normalize_request(request)
+        state = self.prepare_request(normalized)
+        lane_ranks = tuple(range(self.parallel_context.world_size))
+        cache = getattr(normalized, "cache", None)
+        session = None
+        if cache is not None and cache.strategy != "none":
+            if self.flexcache_family is None:
+                raise NotImplementedError(
+                    f"{type(self).__name__} does not define a FlexCache model contract"
+                )
+            cache.require_generate_available()
+            from ..flexcache import CacheSession, FlexCacheModelSpec
+            from ..flexcache.strategies import create_cache_strategy
+
+            model_spec = FlexCacheModelSpec.discover(
+                self.pipeline.transformer,
+                family=self.flexcache_family,
+            )
+            session = CacheSession(
+                config=cache,
+                model_spec=model_spec,
+                strategy=create_cache_strategy(cache),
+                total_steps=int(normalized.num_steps),
+                pipeline=self.pipeline,
+            )
+            session.__enter__()
+        try:
+            while True:
+                before = self.profile(state)
+                if before.remaining_steps == 0:
+                    break
+                self.denoise_step(state, lane_ranks=lane_ranks)
+                after = self.profile(state)
+                if after.completed_steps <= before.completed_steps:
+                    raise RuntimeError("denoise_step did not advance the request state")
+        finally:
+            if session is not None:
+                session.__exit__(None, None, None)
+                self.last_cache_stats = session.stats.to_dict()
+            else:
+                self.last_cache_stats = None
+
+        output_type = str(getattr(normalized, "output_type", "pil"))
+        is_leader = self.parallel_context.rank == lane_ranks[0]
+        if output_type == "latent":
+            output = state.latents if is_leader else None
+        else:
+            decoded = self.finalize_gpu(
+                state,
+                lane_ranks=lane_ranks,
+                timings={},
+            )
+            if is_leader:
+                if decoded is None:
+                    raise RuntimeError("full-world leader did not receive decoded output")
+                output = self.postprocess(
+                    decoded.to(device="cpu"),
+                    output_type=output_type,
+                )
+            else:
+                output = None
+        self.pipeline.maybe_free_model_hooks()
+        return self.package_generate_output(output) if is_leader else None
+
     def synchronize_state(self, state: Any, *, step_index: int) -> None:
         self.pipeline.synchronize_state(state, step_index=step_index)
 
@@ -217,11 +296,19 @@ class DiffusersImageDecoderExecutor(ABC):
                 **self._decode_kwargs(),
             )
 
-    def postprocess(self, host_output: torch.Tensor) -> Any:
+    def postprocess(
+        self,
+        host_output: torch.Tensor,
+        *,
+        output_type: str = "pil",
+    ) -> Any:
         return self.pipeline.image_processor.postprocess(
             host_output,
-            output_type="pil",
+            output_type=output_type,
         )
+
+    @abstractmethod
+    def package_generate_output(self, output: Any) -> Any: ...
 
     def abort_request(self, request_id: str, state: Any | None) -> None:
         del request_id, state

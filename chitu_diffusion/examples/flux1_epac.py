@@ -8,7 +8,11 @@ from pathlib import Path
 
 import torch
 
-from chitu_diffusers import Flux1EPACPipeline, Flux1Request
+from chitu_diffusion import Flux1EPACPipeline, Flux1Request
+from chitu_diffusion.examples.cache_args import (
+    add_cache_arguments,
+    cache_config_from_args,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,11 +29,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--attention-mode", choices=("agkv", "usp"), default="agkv")
     parser.add_argument("--ulysses-degree", type=int)
+    add_cache_arguments(parser)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    cache = cache_config_from_args(args)
+    cache.validate_steps(args.steps)
     if not torch.cuda.is_available():
         raise RuntimeError("the Flux.1 EPAC example requires CUDA")
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -52,6 +59,7 @@ def main() -> None:
                 num_steps=args.steps,
                 guidance_scale=args.guidance_scale,
                 seed=args.seed,
+                cache=cache,
             )
         )
         generated_at = time.perf_counter()
@@ -73,6 +81,7 @@ def main() -> None:
                 "world_size": pipeline.parallel_context.world_size,
                 "load_seconds": loaded_at - started,
                 "generate_seconds": generated_at - loaded_at,
+                "cache": pipeline.last_cache_stats,
             }
             output_path.with_suffix(".json").write_text(
                 json.dumps(metadata, indent=2) + "\n",

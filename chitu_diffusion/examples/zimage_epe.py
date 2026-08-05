@@ -7,7 +7,11 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 
-from chitu_diffusers import EPACPipeline, EPACRequest
+from chitu_diffusion import EPACPipeline, EPACRequest
+from chitu_diffusion.examples.cache_args import (
+    add_cache_arguments,
+    cache_config_from_args,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,10 +48,11 @@ def parse_args() -> argparse.Namespace:
         default="bfloat16",
     )
     parser.add_argument("--local-files-only", action="store_true")
+    add_cache_arguments(parser)
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("outputs/chitu-diffusers/zimage_epe.png"),
+        default=Path("outputs/chitu/zimage_epe.png"),
     )
     args = parser.parse_args()
     if not args.model_path:
@@ -59,6 +64,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    cache = cache_config_from_args(args)
+    cache.validate_steps(args.steps)
     pipeline = EPACPipeline.from_pretrained(
         args.model_path,
         torch_dtype=getattr(torch, args.dtype),
@@ -77,12 +84,15 @@ def main() -> None:
                 num_steps=args.steps,
                 guidance_scale=args.guidance_scale,
                 seed=args.seed,
+                cache=cache,
             )
         )
         if pipeline.parallel_context.rank == 0:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             output.images[0].save(args.output)
             print(f"Saved EPAC static image to {args.output.resolve()}")
+            if pipeline.last_cache_stats is not None:
+                print(f"FlexCache stats: {pipeline.last_cache_stats}")
         if dist.is_initialized():
             dist.barrier()
     finally:

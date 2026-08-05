@@ -4,11 +4,16 @@ import argparse
 import hashlib
 import json
 import os
+import time
 from pathlib import Path
 
 import torch
 
-from chitu_diffusers import QwenImageEPACPipeline, QwenImageRequest
+from chitu_diffusion import QwenImageEPACPipeline, QwenImageRequest
+from chitu_diffusion.examples.cache_args import (
+    add_cache_arguments,
+    cache_config_from_args,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,11 +36,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cfg-parallel", action=argparse.BooleanOptionalAction, default=True
     )
+    add_cache_arguments(parser)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    cache = cache_config_from_args(args)
+    cache.validate_steps(args.steps)
     if not torch.cuda.is_available():
         raise RuntimeError("the Qwen-Image EPAC example requires CUDA")
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -49,6 +57,8 @@ def main() -> None:
         cfg_parallel=args.cfg_parallel,
     )
     try:
+        torch.cuda.synchronize()
+        started = time.perf_counter()
         result = pipeline.generate(
             QwenImageRequest(
                 prompt=args.prompt,
@@ -58,8 +68,11 @@ def main() -> None:
                 num_steps=args.steps,
                 true_cfg_scale=args.true_cfg_scale,
                 seed=args.seed,
+                cache=cache,
             )
         )
+        torch.cuda.synchronize()
+        generate_seconds = time.perf_counter() - started
         if pipeline.parallel_context.rank == 0:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             result.images[0].save(args.output)
@@ -74,7 +87,9 @@ def main() -> None:
                         "attention_mode": args.attention_mode,
                         "ulysses_degree": args.ulysses_degree,
                         "seed": args.seed,
+                        "generate_seconds": generate_seconds,
                         "sha256": digest,
+                        "cache": pipeline.last_cache_stats,
                     },
                     indent=2,
                 )

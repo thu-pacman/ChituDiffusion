@@ -6,12 +6,12 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from chitu_diffusers import EpeRequest, EpeSchedulingModule, Flux1Request
-from chitu_diffusers.epac.api import DiffusersEPACPipeline
-from chitu_diffusers.models.flux1 import EpeFlux1Pipeline
-from chitu_diffusers.models.flux1.api import Flux1EPACPipeline
-from chitu_diffusers.models.flux1.executor import Flux1ImageDecoderExecutor
-from chitu_diffusers.parallel import ImageContextParallelAttention
+from chitu_diffusion import EpeRequest, EpeSchedulingModule, Flux1Request
+from chitu_diffusion.epac.api import DiffusersEPACPipeline
+from chitu_diffusion.models.flux1 import EpeFlux1Pipeline
+from chitu_diffusion.models.flux1.api import Flux1EPACPipeline
+from chitu_diffusion.models.flux1.executor import Flux1ImageDecoderExecutor
+from chitu_diffusion.parallel import ImageContextParallelAttention
 
 
 def test_flux1_request_requires_packed_latent_compatible_resolution() -> None:

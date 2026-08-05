@@ -1,36 +1,40 @@
 """Model-independent Elastic Parallel Caching engine."""
 
-from .adapters import AdapterRegistry, DiffusersModelAdapter
-from .api import DiffusersEPACPipeline, StaticFullWorldPolicy
-from .cache import CacheConfig
-from .capabilities import PipelineCapabilities
-from .config import EngineConfig
+from .api import DiffusersEPACPipeline
+from .cache import (
+    CacheCommonConfig,
+    CacheConfig,
+    MagCacheConfig,
+    MeanCacheConfig,
+    PABConfig,
+    TaylorSeerConfig,
+    TeaCacheConfig,
+)
 from .cost import (
     CalibratedStepCostModel,
     MeasuredStepCostModel,
     MeasuredTransferCostModel,
     RuntimeCostCalibrator,
 )
-from .engine import DiffusersEngine
 from .epe import EpeSchedulingPolicy
 from .image_decoder import (
     EmbeddedRuntimeConfig,
     EmbeddedRuntimeHealth,
     ExecutorBuildContext,
+    DiffusionBackend,
+    DiffusionBackendFactory,
     ImageDecodeCompletion,
-    ImageDecoderExecutor,
-    ImageDecoderExecutorFactory,
     LaneSnapshot,
     StageWorldSpec,
     TransferBundle,
 )
 from .lane_broker import PulseLaneBroker
-from .model_executor import DiffusersImageDecoderExecutor
+from .model_executor import DiffusersBackend
 from .model_scheduling import EpePhaseAssignment, EpeRequest, EpeSchedulingModule
-from .executor import DenoiseStepExecutor
 from .optimization import (
     CachedPrediction,
     DenoiseOptimization,
+    DenoiseOptimizationFactory,
     ModelStepContext,
     OptimizationChain,
 )
@@ -65,21 +69,18 @@ from .worker_pool import (
 )
 
 __all__ = [
-    "AdapterRegistry",
     "AsyncResultChannel",
     "CachedPrediction",
+    "CacheCommonConfig",
     "CacheConfig",
     "CalibratedStepCostModel",
     "DenoiseOptimization",
-    "DenoiseStepExecutor",
-    "DiffusersEngine",
+    "DenoiseOptimizationFactory",
     "DiffusersEPACPipeline",
-    "DiffusersImageDecoderExecutor",
-    "DiffusersModelAdapter",
+    "DiffusersBackend",
     "DiffusionRequest",
     "DiffusionResult",
     "DistributedRankExchange",
-    "EngineConfig",
     "EpeSchedulingPolicy",
     "EpeSchedulingModule",
     "EpePhaseAssignment",
@@ -87,10 +88,10 @@ __all__ = [
     "EmbeddedRuntimeConfig",
     "EmbeddedRuntimeHealth",
     "ExecutorBuildContext",
+    "DiffusionBackend",
+    "DiffusionBackendFactory",
     "FullWorldLaneWorkerPool",
     "ImageDecodeCompletion",
-    "ImageDecoderExecutor",
-    "ImageDecoderExecutorFactory",
     "LaneSnapshot",
     "LaneConstraints",
     "LaneLease",
@@ -102,12 +103,14 @@ __all__ = [
     "LaneWorkResult",
     "MeasuredStepCostModel",
     "MeasuredTransferCostModel",
+    "MagCacheConfig",
+    "MeanCacheConfig",
     "ModelStepContext",
     "OptimizationChain",
-    "PipelineCapabilities",
     "PulseCoordinator",
     "PulseLaneBroker",
     "PulsePlan",
+    "PABConfig",
     "RequestMetrics",
     "RequestProfile",
     "RequestSnapshot",
@@ -122,8 +125,9 @@ __all__ = [
     "StepPlan",
     "StepOutcome",
     "StageWorldSpec",
-    "StaticFullWorldPolicy",
     "SingletonLaneWorkerPool",
     "StructuredError",
+    "TaylorSeerConfig",
+    "TeaCacheConfig",
     "TransferBundle",
 ]

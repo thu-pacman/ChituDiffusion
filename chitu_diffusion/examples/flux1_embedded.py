@@ -5,7 +5,7 @@ from pathlib import Path
 
 import torch
 
-from chitu_diffusers import (
+from chitu_diffusion import (
     EmbeddedDiffusionRuntime,
     EmbeddedRuntimeConfig,
     Flux1ExecutorFactory,

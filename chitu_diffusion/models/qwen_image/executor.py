@@ -9,19 +9,24 @@ from typing import Any, Mapping
 import torch
 import torch.distributed as dist
 
+from ...epac.cache import CacheConfig
 from ...epac.image_decoder import ExecutorBuildContext
 from ...epac.model_executor import (
-    DiffusersImageDecoderExecutor,
+    DiffusersBackend,
     build_stage_parallel_context,
     scheduling_options_from_pool,
 )
 from ...epac.model_scheduling import EpeSchedulingModule
 from ...parallel import parallel_tiled_vae_decode
 from .api import QwenImageRequest
-from .pipeline import EpeQwenImagePipeline, QwenImageDenoiseState
+from .pipeline import EpeQwenImagePipeline, QwenImageDenoiseState, QwenImagePipelineOutput
 
 
-class QwenImageDecoderExecutor(DiffusersImageDecoderExecutor):
+class QwenImageDecoderExecutor(DiffusersBackend):
+    flexcache_family = "qwen_image"
+
+    model_name = "qwen-image"
+
     def __init__(
         self,
         pipeline: EpeQwenImagePipeline,
@@ -172,10 +177,19 @@ class QwenImageDecoderExecutor(DiffusersImageDecoderExecutor):
             width=int(request.get("width") or self.default_width),
             height=int(request.get("height") or self.default_height),
             num_steps=int(request.get("num_steps") or self.default_num_steps),
-            true_cfg_scale=float(request.get("true_cfg_scale", 4.0)),
+            true_cfg_scale=float(
+                request.get("true_cfg_scale", request.get("guidance_scale", 4.0))
+            ),
             seed=int(request.get("seed", 0)),
             deadline_ms=request.get("deadline_ms"),
             priority=int(request.get("priority", 0)),
+            output_type=str(request.get("output_type", "pil")),
+            cache=(
+                request["cache"]
+                if isinstance(request.get("cache"), CacheConfig)
+                else CacheConfig.from_mapping(request.get("cache"))
+            ),
+            extra_inputs=dict(request.get("extra_inputs") or {}),
         )
 
     def serialize_request(self, request: Any) -> dict[str, Any]:
@@ -191,6 +205,9 @@ class QwenImageDecoderExecutor(DiffusersImageDecoderExecutor):
             "seed": normalized.seed,
             "deadline_ms": normalized.deadline_ms,
             "priority": normalized.priority,
+            "output_type": normalized.output_type,
+            "cache": normalized.cache.to_dict(),
+            "extra_inputs": dict(normalized.extra_inputs),
         }
 
     def _request_conditions(self, request: QwenImageRequest) -> int:
@@ -212,6 +229,22 @@ class QwenImageDecoderExecutor(DiffusersImageDecoderExecutor):
             if torch.cuda.is_available()
             else torch.device("cpu")
         )
+        kwargs = dict(normalized.extra_inputs)
+        reserved = {
+            "prompt",
+            "negative_prompt",
+            "width",
+            "height",
+            "num_inference_steps",
+            "true_cfg_scale",
+            "guidance_scale",
+            "generator",
+        }
+        overlap = reserved.intersection(kwargs)
+        if overlap:
+            raise ValueError(
+                "extra_inputs contains reserved fields: " + ", ".join(sorted(overlap))
+            )
         return self.pipeline.prepare_request(
             prompt=normalized.prompt,
             negative_prompt=normalized.negative_prompt,
@@ -221,6 +254,7 @@ class QwenImageDecoderExecutor(DiffusersImageDecoderExecutor):
             true_cfg_scale=normalized.true_cfg_scale,
             guidance_scale=None,
             generator=torch.Generator(device=device).manual_seed(normalized.seed),
+            **kwargs,
         )
 
     def _state_conditions(self, state: QwenImageDenoiseState) -> int:
@@ -231,6 +265,9 @@ class QwenImageDecoderExecutor(DiffusersImageDecoderExecutor):
             "parallel_vae": self.parallel_vae,
             "vae_parallel_halo": self.vae_parallel_halo,
         }
+
+    def package_generate_output(self, output: Any) -> QwenImagePipelineOutput:
+        return QwenImagePipelineOutput(images=output)
 
 
 @dataclass(frozen=True)

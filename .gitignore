@@ -97,6 +97,11 @@ extra-info/
 #.idea/
 #
 outputs/*
+!outputs/flexcache/
+outputs/flexcache/*
+!outputs/flexcache/*/
+outputs/flexcache/*/*
+!outputs/flexcache/*/result.md
 test/outputs/*
 dumps/*
 log/*
@@ -116,49 +121,16 @@ output/*
 srun_wan_demo.sh
 vbench_out/*
 
-# ChituBench runtime artifacts
-ChituBench/results/**/chitubench-*/
-ChituBench/results/**/visuals/
-ChituBench/results/**/plots/
-ChituBench/results/**/configs/
-ChituBench/results/hpsv3_assets/
-
-# CUDA Graph / compile showcase raw outputs (curated images live in docs bundle)
-ChituBench/results/cudagraph_showcase/
-
-# Zhihu article reproducibility bundles are published as GitHub Release assets.
-docs/zhihu_cudagraph_compile/*
-!docs/zhihu_cudagraph_compile/
-!docs/zhihu_cudagraph_compile/article.md
-experiments/fast_cp/harness/traces/
-
 # Local algorithm references
 third_party/Cubic/
-
-# Service runtime artifacts
-service_framework/runs/
 
 # Generated figures from the retired chitu_api prototype.
 experiments/chitu_api/figures/
 
-# EPAC raw plots are regenerated from ignored run outputs; keep final README figures.
-chitu_diffusers/benchmarks/figures/*
-!chitu_diffusers/benchmarks/figures/attention_rate.png
-!chitu_diffusers/benchmarks/figures/attention_timeline.png
-!chitu_diffusers/benchmarks/figures/strategy_timeline.png
-
-# CP/DP hot-switch generated experiment artifacts
-experiments/cp_dp_hot_switch/out/
-experiments/cp_dp_hot_switch/__pycache__/
-experiments/cp_dp_hot_switch/stage_profile.json
-experiments/cp_dp_hot_switch/cost_model.json
-experiments/cp_dp_hot_switch/cost_models/*.json
-experiments/cp_dp_hot_switch/calibrate_offline/
-experiments/cp_dp_hot_switch/figures/
-experiments/cp_dp_hot_switch/traces/**/*.json
-experiments/cp_dp_hot_switch/traces/**/*.txt
-experiments/cp_dp_hot_switch/traces/sd3_trace.txt
-experiments/cp_dp_hot_switch/traces/serve/sd3_trace_stride300_n60.json
+# Generated artifacts retained locally inside the legacy archive.
+backup/chitu_diffusion_legacy/experiments/cp_dp_hot_switch/cost_models/*.json
+backup/chitu_diffusion_legacy/new_backend_benchmarks/figures/*.svg
+backup/chitu_diffusion_legacy/new_backend_benchmarks/figures/*_summary.json
 
 # MkDocs
 site/

@@ -1,1 +1,1 @@
-"""Runnable examples for the chitu_diffusers prototype."""
+"""Runnable examples for the chitu_diffusion prototype."""

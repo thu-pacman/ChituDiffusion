@@ -1,6 +1,5 @@
 """FLUX.1-dev integration for the Diffusers-native EPAC runtime."""
 
-from .adapter import Flux1ModelAdapter
 from .api import Flux1EPACPipeline, Flux1Request
 from .executor import Flux1ExecutorFactory, Flux1ImageDecoderExecutor
 from .pipeline import EpeFlux1Pipeline, Flux1DenoiseState
@@ -13,6 +12,5 @@ __all__ = [
     "Flux1EPACPipeline",
     "Flux1ExecutorFactory",
     "Flux1ImageDecoderExecutor",
-    "Flux1ModelAdapter",
     "Flux1Request",
 ]

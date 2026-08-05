@@ -11,8 +11,8 @@ from ...epac.api import (
     build_diffusion_request,
     validate_image_request,
 )
+from ...epac.cache import CacheConfig
 from ...epac.request import DiffusionRequest
-from .adapter import QwenImageModelAdapter
 from .pipeline import EpeQwenImagePipeline
 
 
@@ -29,6 +29,7 @@ class QwenImageRequest:
     deadline_ms: float | None = None
     priority: int = 0
     output_type: str = "pil"
+    cache: CacheConfig = field(default_factory=CacheConfig)
     extra_inputs: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -44,6 +45,8 @@ class QwenImageRequest:
         return None
 
     def to_diffusion_request(self, *, device: torch.device) -> DiffusionRequest:
+        self.cache.require_generate_available()
+        self.cache.validate_steps(self.num_steps)
         return build_diffusion_request(
             self,
             device=device,
@@ -64,6 +67,7 @@ class QwenImageRequest:
                 "num_inference_steps",
                 "output_type",
             },
+            metadata={"cache": self.cache.to_dict()},
         )
 
 
@@ -71,5 +75,21 @@ class QwenImageEPACPipeline(DiffusersEPACPipeline):
     """Diffusers-style facade for static Qwen-Image generation."""
 
     pipeline_class = EpeQwenImagePipeline
-    adapter_class = QwenImageModelAdapter
     generation_error_prefix = "Qwen-Image EPAC"
+
+    def _create_backend(self, config: Any | None = None) -> Any:
+        from ...epac.model_scheduling import EpeSchedulingModule
+        from .executor import QwenImageDecoderExecutor
+
+        return QwenImageDecoderExecutor(
+            self._pipeline,
+            EpeSchedulingModule(
+                self.parallel_context,
+                policy=str(getattr(config, "schedule_strategy", "static_cp")),
+            ),
+            default_width=int(getattr(config, "default_width", 1024)),
+            default_height=int(getattr(config, "default_height", 1024)),
+            default_num_steps=int(getattr(config, "default_num_steps", 50)),
+            parallel_vae=bool(getattr(config, "parallel_vae", True)),
+            vae_parallel_halo=int(getattr(config, "vae_parallel_halo", 8)),
+        )

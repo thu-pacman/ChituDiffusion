@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 
-from chitu_diffusers import (
+from chitu_diffusion import (
     EmbeddedDiffusionRuntime,
     EmbeddedRuntimeConfig,
     EPACRequest,
@@ -38,7 +38,7 @@ def main() -> None:
         action=argparse.BooleanOptionalAction,
         default=True,
     )
-    parser.add_argument("--output", default="outputs/chitu-diffusers/embedded.png")
+    parser.add_argument("--output", default="outputs/chitu/embedded.png")
     args = parser.parse_args()
     if not args.model_path:
         parser.error("--model-path or ZIMAGE_MODEL_PATH is required")

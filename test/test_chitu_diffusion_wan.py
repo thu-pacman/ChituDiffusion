@@ -3,13 +3,14 @@ from __future__ import annotations
 import pytest
 import torch
 
-from chitu_diffusers import WanRequest
-from chitu_diffusers.epac.api import DiffusersEPACPipeline
-from chitu_diffusers.epac.model_scheduling import EpeSchedulingModule
-from chitu_diffusers.models.wan.api import WanEPACPipeline
-from chitu_diffusers.models.wan.executor import WanVideoDecoderExecutor
-from chitu_diffusers.models.wan.loader import convert_wan_umt5_encoder_state_dict
-from chitu_diffusers.models.wan.pipeline import combine_wan_cfg_predictions
+from chitu_diffusion import WanRequest
+from chitu_diffusion.epac.api import DiffusersEPACPipeline
+from chitu_diffusion.epac.model_scheduling import EpeSchedulingModule
+from chitu_diffusion.models.wan import executor as wan_executor
+from chitu_diffusion.models.wan.api import WanEPACPipeline
+from chitu_diffusion.models.wan.executor import WanVideoDecoderExecutor
+from chitu_diffusion.models.wan.loader import convert_wan_umt5_encoder_state_dict
+from chitu_diffusion.models.wan.pipeline import combine_wan_cfg_predictions
 
 
 def test_wan_request_validates_video_shape() -> None:
@@ -115,6 +116,26 @@ def test_wan_executor_profiles_video_tokens_and_state() -> None:
         "parallel_vae": True,
         "vae_parallel_halo": 8,
     }
+
+
+def test_wan_service_packages_mp4_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_export(video: object, path: str, *, fps: int) -> None:
+        assert video == "frames"
+        assert fps == 16
+        with open(path, "wb") as handle:
+            handle.write(b"mp4")
+
+    monkeypatch.setattr(wan_executor, "export_to_video", fake_export)
+
+    payload, decoded = WanVideoDecoderExecutor.package_postprocessed_output(
+        ["frames"]
+    )
+
+    assert payload == b"mp4"
+    assert decoded == "frames"
+    assert WanVideoDecoderExecutor.output_media_type == "video/mp4"
 
 
 def test_wan_executor_rejects_negative_parallel_vae_halo() -> None:

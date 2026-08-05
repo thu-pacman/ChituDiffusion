@@ -1,6 +1,5 @@
 """Z-Image model integration for EPAC."""
 
-from .adapter import ZImageModelAdapter
 from .api import EPACPipeline, EPACRequest
 from .epe import (
     EpeCostModel,
@@ -29,5 +28,4 @@ __all__ = [
     "ZImageExecutorFactory",
     "ZImageImageDecoderExecutor",
     "ZImageEpeModule",
-    "ZImageModelAdapter",
 ]

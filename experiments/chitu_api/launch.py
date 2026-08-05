@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from chitu_diffusers.serve import load_stage_service_config
+from chitu_diffusion.serve import load_stage_service_config
 
 
 def build_launch_command(config_path: str | Path) -> tuple[list[str], dict[str, str]]:

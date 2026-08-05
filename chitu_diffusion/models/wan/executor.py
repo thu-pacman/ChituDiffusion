@@ -4,14 +4,18 @@ import statistics
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Mapping
 
 import torch
 import torch.distributed as dist
+from diffusers.utils import export_to_video
 
+from ...epac.cache import CacheConfig
 from ...epac.image_decoder import ExecutorBuildContext
 from ...epac.model_executor import (
-    DiffusersImageDecoderExecutor,
+    DiffusersBackend,
     build_stage_parallel_context,
     scheduling_options_from_pool,
 )
@@ -19,11 +23,17 @@ from ...epac.model_scheduling import EpeSchedulingModule
 from ...epac.scheduling import RequestProfile
 from ...parallel import parallel_tiled_vae_decode
 from .api import WanRequest
-from .pipeline import EpeWanPipeline, WanDenoiseState
+from .pipeline import EpeWanPipeline, WanDenoiseState, WanPipelineOutput
 
 
-class WanVideoDecoderExecutor(DiffusersImageDecoderExecutor):
+class WanVideoDecoderExecutor(DiffusersBackend):
+    output_media_type = "video/mp4"
+
+    flexcache_family = "wan"
+
     """Independent embedded EPAC executor for Wan video requests."""
+
+    model_name = "wan"
 
     def __init__(
         self,
@@ -255,6 +265,12 @@ class WanVideoDecoderExecutor(DiffusersImageDecoderExecutor):
             deadline_ms=request.get("deadline_ms"),
             priority=int(request.get("priority", 0)),
             output_type=str(request.get("output_type", "np")),
+            cache=(
+                request["cache"]
+                if isinstance(request.get("cache"), CacheConfig)
+                else CacheConfig.from_mapping(request.get("cache"))
+            ),
+            extra_inputs=dict(request.get("extra_inputs") or {}),
         )
 
     def serialize_request(self, request: Any) -> dict[str, Any]:
@@ -272,6 +288,8 @@ class WanVideoDecoderExecutor(DiffusersImageDecoderExecutor):
             "deadline_ms": normalized.deadline_ms,
             "priority": normalized.priority,
             "output_type": normalized.output_type,
+            "cache": normalized.cache.to_dict(),
+            "extra_inputs": dict(normalized.extra_inputs),
         }
 
     def request_profile(self, request: Any, *, completed_steps: int) -> RequestProfile:
@@ -318,6 +336,22 @@ class WanVideoDecoderExecutor(DiffusersImageDecoderExecutor):
             if torch.cuda.is_available()
             else torch.device("cpu")
         )
+        kwargs = dict(normalized.extra_inputs)
+        reserved = {
+            "prompt",
+            "negative_prompt",
+            "width",
+            "height",
+            "num_frames",
+            "num_inference_steps",
+            "guidance_scale",
+            "generator",
+        }
+        overlap = reserved.intersection(kwargs)
+        if overlap:
+            raise ValueError(
+                "extra_inputs contains reserved fields: " + ", ".join(sorted(overlap))
+            )
         return self.pipeline.prepare_request(
             prompt=normalized.prompt,
             negative_prompt=normalized.negative_prompt,
@@ -327,6 +361,7 @@ class WanVideoDecoderExecutor(DiffusersImageDecoderExecutor):
             num_inference_steps=normalized.num_steps,
             guidance_scale=normalized.guidance_scale,
             generator=torch.Generator(device=device).manual_seed(normalized.seed),
+            **kwargs,
         )
 
     def _state_conditions(self, state: WanDenoiseState) -> int:
@@ -352,16 +387,27 @@ class WanVideoDecoderExecutor(DiffusersImageDecoderExecutor):
             },
         )
 
-    def postprocess(self, host_output: torch.Tensor) -> Any:
+    def postprocess(
+        self,
+        host_output: torch.Tensor,
+        *,
+        output_type: str = "np",
+    ) -> Any:
         return self.pipeline.video_processor.postprocess_video(
-            host_output, output_type="np"
+            host_output, output_type=output_type
         )
 
-    @staticmethod
-    def package_postprocessed_output(videos: Any) -> tuple[None, Any]:
-        """Keep the full first video; HTTP byte encoding is intentionally absent."""
+    def package_generate_output(self, output: Any) -> WanPipelineOutput:
+        return WanPipelineOutput(frames=output)
 
-        return None, videos[0]
+    @staticmethod
+    def package_postprocessed_output(videos: Any) -> tuple[bytes, Any]:
+        video = videos[0]
+        with TemporaryDirectory(prefix="chitu-wan-") as directory:
+            output_path = Path(directory) / "output.mp4"
+            export_to_video(video, str(output_path), fps=16)
+            output_bytes = output_path.read_bytes()
+        return output_bytes, video
 
 
 @dataclass(frozen=True)

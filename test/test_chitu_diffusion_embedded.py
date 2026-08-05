@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from chitu_diffusers import (
+from chitu_diffusion import (
     EmbeddedDiffusionRuntime,
     EmbeddedRuntimeConfig,
     ImageDecodeCompletion,

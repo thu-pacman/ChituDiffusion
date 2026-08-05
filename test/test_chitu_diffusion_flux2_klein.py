@@ -8,7 +8,7 @@ from diffusers.models.transformers.transformer_flux2 import (
     Flux2ParallelSelfAttention,
 )
 
-from chitu_diffusers.models.flux2_klein.attention import (
+from chitu_diffusion.models.flux2_klein.attention import (
     Flux2KleinCpAttnProcessor,
     Flux2KleinCpSingleAttnProcessor,
 )

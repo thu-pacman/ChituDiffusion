@@ -5,12 +5,12 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from chitu_diffusers import QwenImageRequest
-from chitu_diffusers.epac.api import DiffusersEPACPipeline
-from chitu_diffusers.epac.model_scheduling import EpeSchedulingModule
-from chitu_diffusers.models.qwen_image.api import QwenImageEPACPipeline
-from chitu_diffusers.models.qwen_image.executor import QwenImageDecoderExecutor
-from chitu_diffusers.models.qwen_image.pipeline import (
+from chitu_diffusion import QwenImageRequest
+from chitu_diffusion.epac.api import DiffusersEPACPipeline
+from chitu_diffusion.epac.model_scheduling import EpeSchedulingModule
+from chitu_diffusion.models.qwen_image.api import QwenImageEPACPipeline
+from chitu_diffusion.models.qwen_image.executor import QwenImageDecoderExecutor
+from chitu_diffusion.models.qwen_image.pipeline import (
     EpeQwenImagePipeline,
     combine_qwen_cfg_predictions,
 )
@@ -101,7 +101,7 @@ def test_qwen_image_executor_profiles_cfg_and_packed_state() -> None:
         parallel_vae=False,
         vae_parallel_halo=4,
     )
-    request = executor.normalize_request({"prompt": "test"})
+    request = executor.normalize_request({"prompt": "test", "guidance_scale": 2.5})
     profile = executor.request_profile(request, completed_steps=3)
 
     assert profile.image_tokens == 1024
@@ -114,3 +114,4 @@ def test_qwen_image_executor_profiles_cfg_and_packed_state() -> None:
         "parallel_vae": False,
         "vae_parallel_halo": 4,
     }
+    assert request.true_cfg_scale == 2.5

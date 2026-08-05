@@ -9,7 +9,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn.functional as F
 
-from chitu_diffusers.parallel import (
+from chitu_diffusion.parallel import (
     EpeParallelContext,
     ImageContextParallelAttention,
     ImageSelfAttention,

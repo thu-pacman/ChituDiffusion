@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from chitu_diffusers.serve import StageServiceConfig, create_app
-from chitu_diffusers.serve.protocol import (
+from chitu_diffusion.serve import StageServiceConfig, create_app
+from chitu_diffusion.serve.protocol import (
     AdmissionResponse,
     CancelResponse,
     HealthResponse,
@@ -30,18 +30,13 @@ def _config() -> StageServiceConfig:
     )
 
 
-def test_stage_config_builds_zimage_epe_overrides() -> None:
+def test_stage_config_is_native_to_chitu_diffusion() -> None:
     config = _config()
     assert config.parallelism.sp == 4
     assert config.parallelism.chitu_pool.policy == "elastic"
     assert config.service.endpoint == "http://127.0.0.1:18080"
-    overrides = config.chitu_overrides()
-    assert "infer.diffusion.cfg_size=1" in overrides
-    assert "infer.diffusion.epe.cfg_parallel_max=1" in overrides
-    assert "infer.diffusion.epe.balanced_k=true" in overrides
-    assert "infer.diffusion.elastic_allowed_widths=[1,2,4]" in overrides
-    assert "infer.diffusion.scheduling_policy=slo_elastic" in overrides
-    assert "infer.diffusion.starvation_ms=30000.0" in overrides
+    assert not hasattr(config, "chitu_overrides")
+    assert not hasattr(StageServiceConfig, "from_chitu_runtime")
     assert config.parallelism.chitu_pool.warmup_resolutions == (
         (512, 512),
         (1024, 1024),

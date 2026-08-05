@@ -8,7 +8,11 @@ from pathlib import Path
 import torch
 from diffusers.utils import export_to_video
 
-from chitu_diffusers import WanEPACPipeline, WanRequest
+from chitu_diffusion import WanEPACPipeline, WanRequest
+from chitu_diffusion.examples.cache_args import (
+    add_cache_arguments,
+    cache_config_from_args,
+)
 
 
 def main() -> None:
@@ -33,9 +37,12 @@ def main() -> None:
     )
     parser.add_argument("--no-parallel-vae", action="store_true")
     parser.add_argument("--vae-parallel-halo", type=int, default=8)
+    add_cache_arguments(parser)
     args = parser.parse_args()
     if args.vae_parallel_halo < 0:
         parser.error("--vae-parallel-halo must be non-negative")
+    cache = cache_config_from_args(args)
+    cache.validate_steps(args.steps)
 
     pipeline = WanEPACPipeline.from_pretrained(
         args.model_path,
@@ -61,6 +68,7 @@ def main() -> None:
                 guidance_scale=args.guidance_scale,
                 seed=args.seed,
                 output_type="np",
+                cache=cache,
             )
         )
         elapsed_s = time.perf_counter() - started
@@ -81,6 +89,7 @@ def main() -> None:
                         "vae_parallel_halo": args.vae_parallel_halo,
                         "elapsed_s": elapsed_s,
                         "seed": args.seed,
+                        "cache": pipeline.last_cache_stats,
                     },
                     indent=2,
                 )

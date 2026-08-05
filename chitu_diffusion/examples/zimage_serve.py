@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from chitu_diffusers import EPACPipeline, EPACServeConfig
+from chitu_diffusion import EPACPipeline, EPACServeConfig
 
 
 def _resolution(value: str) -> tuple[int, int]:

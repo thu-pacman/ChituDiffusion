@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
@@ -14,7 +14,6 @@ from ...epac.api import (
 )
 from ...epac.cache import CacheConfig
 from ...epac.request import DiffusionRequest
-from .adapter import ZImageModelAdapter
 from .pipeline import EpeZImagePipeline
 
 if TYPE_CHECKING:
@@ -43,7 +42,8 @@ class EPACRequest:
         validate_image_request(self)
 
     def to_diffusion_request(self, *, device: torch.device) -> DiffusionRequest:
-        self.cache.require_available()
+        self.cache.require_generate_available()
+        self.cache.validate_steps(self.num_steps)
         return build_diffusion_request(
             self,
             device=device,
@@ -61,11 +61,11 @@ class EPACRequest:
                 "num_inference_steps",
                 "output_type",
             },
-            metadata={"cache": self.cache.strategy},
+            metadata={"cache": self.cache.to_dict()},
         )
 
     def to_service_payload(self) -> dict[str, Any]:
-        self.cache.require_available()
+        self.cache.require_serve_available()
         if not self.prompt:
             raise ValueError("the HTTP service request requires a text prompt")
         return {
@@ -85,7 +85,6 @@ class EPACPipeline(DiffusersEPACPipeline):
     """Diffusers-style facade for static generation and elastic serving."""
 
     pipeline_class = EpeZImagePipeline
-    adapter_class = ZImageModelAdapter
 
     def __init__(
         self,
@@ -127,20 +126,50 @@ class EPACPipeline(DiffusersEPACPipeline):
         cache = request.cache
         if cache.strategy == "none" and self.default_cache.strategy != "none":
             cache = self.default_cache
-        cache.require_available()
+        cache.require_generate_available()
+        cache.validate_steps(request.num_steps)
+
+    def generate(self, request: EPACRequest) -> Any:
+        if (
+            request.cache.strategy == "none"
+            and self.default_cache.strategy != "none"
+        ):
+            request = replace(request, cache=self.default_cache)
+        return super().generate(request)
+
+    def _create_backend(self, config: Any | None = None) -> Any:
+        from .executor import ZImageImageDecoderExecutor
+
+        return ZImageImageDecoderExecutor(
+            self._pipeline,
+            default_width=int(getattr(config, "default_width", 1024)),
+            default_height=int(getattr(config, "default_height", 1024)),
+            default_num_steps=int(getattr(config, "default_num_steps", 50)),
+            cfg_parallel=bool(
+                getattr(
+                    config,
+                    "cfg_parallel",
+                    getattr(self._pipeline.transformer.epe, "cfg_parallel", True),
+                )
+            ),
+            parallel_vae=bool(getattr(config, "parallel_vae", True)),
+            vae_parallel_halo=int(getattr(config, "vae_parallel_halo", 8)),
+        )
 
     def serve(self, config: "EPACServeConfig | None" = None) -> None:
         """Warm up all configured lanes and run the blocking torchrun service."""
         self._ensure_open()
         from ...serve.config import EPACServeConfig
-        from ...serve.zimage import serve_zimage_pipeline
+        from ...serve.zimage import serve_diffusion_backend
 
         try:
-            serve_zimage_pipeline(
-                self._pipeline,
+            serve_config = config or EPACServeConfig()
+            serve_config.cache.require_serve_available()
+            serve_diffusion_backend(
+                self._create_backend(serve_config),
                 model_path=self.model_path,
-                default_cache=self.default_cache,
-                config=config or EPACServeConfig(),
+                config=serve_config,
+                stage_name="epac_zimage",
             )
         finally:
             self._closed = True

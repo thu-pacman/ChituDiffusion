@@ -26,7 +26,7 @@ from ..epac import (
     SchedulableRequest,
     SingletonLaneWorkerPool,
 )
-from ..epac.image_decoder import ImageDecodeCompletion, ImageDecoderExecutor
+from ..epac.image_decoder import DiffusionBackend, ImageDecodeCompletion
 from ..epac.image_decoder import LaneSnapshot
 from ..epac.request import StructuredError
 from ..models.zimage.executor import ZImageExecutorFactory
@@ -50,15 +50,16 @@ class _RequestRecord:
     first_scheduled_at: float | None = None
     completed_at: float | None = None
     error: str | None = None
-    png: bytes | None = None
+    payload: bytes | None = None
+    media_type: str = "image/png"
     output: object | None = None
     emitted: bool = False
 
 
-class EpeZImageServiceRuntime:
-    """Instance-local EPE runtime with denoise-phase DP/CP hot switching."""
+class EpeDiffusionServiceRuntime:
+    """Model-neutral EPE runtime with denoise-phase DP/CP hot switching."""
 
-    def __init__(self, config, executor: ImageDecoderExecutor) -> None:
+    def __init__(self, config, executor: DiffusionBackend) -> None:
         self.config = config
         self.pool = (
             config.pool if hasattr(config, "pool") else config.parallelism.chitu_pool
@@ -100,24 +101,49 @@ class EpeZImageServiceRuntime:
         )
 
     @classmethod
-    def from_config(cls, config: StageServiceConfig) -> "EpeZImageServiceRuntime":
+    def from_config(cls, config: StageServiceConfig) -> "EpeDiffusionServiceRuntime":
         from ..epac.image_decoder import ExecutorBuildContext, StageWorldSpec
+        from ..models.flux1.executor import Flux1ExecutorFactory
+        from ..models.qwen_image.executor import QwenImageExecutorFactory
+        from ..models.wan.executor import WanExecutorFactory
 
         world = StageWorldSpec.from_torchrun(
             config.name,
             physical_device_ids=tuple(config.gpu),
         )
-        executor = ZImageExecutorFactory(
-            model_path=config.factory_args.model_path,
-            default_width=config.factory_args.default_width,
-            default_height=config.factory_args.default_height,
-            default_num_steps=config.factory_args.num_steps,
-            attention_mode=config.factory_args.attention_mode,
-            ulysses_degree=config.factory_args.ulysses_degree,
-            cfg_parallel=config.factory_args.cfg_parallel,
-            parallel_vae=config.factory_args.parallel_vae,
-            vae_parallel_halo=config.factory_args.vae_parallel_halo,
-        ).build(ExecutorBuildContext(world=world, pool=config.parallelism.chitu_pool))
+        common = {
+            "model_path": config.factory_args.model_path,
+            "default_width": config.factory_args.default_width,
+            "default_height": config.factory_args.default_height,
+            "default_num_steps": config.factory_args.num_steps,
+            "attention_mode": config.factory_args.attention_mode,
+            "ulysses_degree": config.factory_args.ulysses_degree,
+            "parallel_vae": config.factory_args.parallel_vae,
+            "vae_parallel_halo": config.factory_args.vae_parallel_halo,
+        }
+        if config.factory == "zimage":
+            factory = ZImageExecutorFactory(
+                **common,
+                cfg_parallel=config.factory_args.cfg_parallel,
+            )
+        elif config.factory == "flux1":
+            factory = Flux1ExecutorFactory(**common)
+        elif config.factory == "qwen-image":
+            factory = QwenImageExecutorFactory(
+                **common,
+                cfg_parallel=config.factory_args.cfg_parallel,
+            )
+        elif config.factory == "wan":
+            factory = WanExecutorFactory(
+                **common,
+                default_num_frames=config.factory_args.num_frames,
+                cfg_parallel=config.factory_args.cfg_parallel,
+            )
+        else:  # StageServiceConfig validates this before construction.
+            raise ValueError(f"unsupported factory: {config.factory}")
+        executor = factory.build(
+            ExecutorBuildContext(world=world, pool=config.parallelism.chitu_pool)
+        )
         return cls(config, executor)
 
     @property
@@ -354,7 +380,12 @@ class EpeZImageServiceRuntime:
     def image(self, request_id: str) -> bytes | None:
         with self._lock:
             record = self._records.get(request_id)
-            return None if record is None else record.png
+            return None if record is None else record.payload
+
+    def media_type(self, request_id: str) -> str | None:
+        with self._lock:
+            record = self._records.get(request_id)
+            return None if record is None else record.media_type
 
     def health(self) -> HealthResponse:
         with self._lock:
@@ -1246,7 +1277,10 @@ class EpeZImageServiceRuntime:
             with self._lock:
                 record = self._records[result.request_id]
                 record.status = "completed"
-                record.png = output_bytes
+                record.payload = output_bytes
+                record.media_type = str(
+                    getattr(self.executor, "output_media_type", "image/png")
+                )
                 record.output = decoded_output
                 record.completed_at = completed_at
             self.timeline.instant(

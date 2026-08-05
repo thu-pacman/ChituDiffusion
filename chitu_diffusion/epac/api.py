@@ -6,10 +6,7 @@ from typing import Any, ClassVar, Mapping, Sequence
 
 import torch
 
-from .config import EngineConfig
-from .engine import DiffusersEngine
-from .request import DiffusionRequest, RequestStatus
-from .scheduling import SchedulableRequest, StepPlan
+from .request import DiffusionRequest
 
 
 def validate_image_request(request: Any) -> None:
@@ -65,41 +62,17 @@ def build_diffusion_request(
     )
 
 
-class StaticFullWorldPolicy:
-    """Single-request policy used by the synchronous Diffusers-style API."""
-
-    def __init__(self, ranks: tuple[int, ...]) -> None:
-        self.ranks = ranks
-
-    def plan(
-        self,
-        requests: Sequence[SchedulableRequest],
-        *,
-        pulse_steps: int,
-    ) -> Sequence[StepPlan]:
-        if len(requests) != 1:
-            raise RuntimeError("static generate supports exactly one active request")
-        request = requests[0]
-        return (
-            StepPlan(
-                request_id=request.request_id,
-                steps=min(pulse_steps, request.profile.remaining_steps),
-                lane_ranks=self.ranks,
-            ),
-        )
-
-
 class DiffusersEPACPipeline:
-    """Shared synchronous facade around a model pipeline and step adapter."""
+    """Shared facade around one model pipeline and diffusion backend."""
 
     pipeline_class: ClassVar[type]
-    adapter_class: ClassVar[type]
     generation_error_prefix: ClassVar[str] = "EPAC"
 
     def __init__(self, pipeline: Any, *, model_path: str) -> None:
         self._pipeline = pipeline
         self.model_path = str(model_path)
         self._closed = False
+        self.last_cache_stats: dict[str, Any] | None = None
 
     @classmethod
     def from_pretrained(
@@ -151,33 +124,43 @@ class DiffusersEPACPipeline:
     def _before_generate(self, request: Any) -> None:
         del request
 
+    def _create_backend(self, config: Any | None = None) -> Any:
+        del config
+        raise NotImplementedError(
+            f"{type(self).__name__} must provide a shared diffusion backend"
+        )
+
     def generate(self, request: Any) -> Any:
         self._ensure_open()
         self._before_generate(request)
-        device = (
-            torch.device("cuda", self.parallel_context.local_rank)
-            if torch.cuda.is_available()
-            else torch.device("cpu")
-        )
-        diffusion_request = request.to_diffusion_request(device=device)
-        world_ranks = tuple(range(self.parallel_context.world_size))
-        engine = DiffusersEngine.from_pipeline(
-            self._pipeline,
-            adapter=self.adapter_class(),
-            config=EngineConfig(
-                max_pending_requests=1,
-                max_inflight_requests=1,
-                pulse_steps=request.num_steps,
-            ),
-            policy=StaticFullWorldPolicy(world_ranks),
-        )
-        result = engine.generate(diffusion_request)
-        if result.status is not RequestStatus.COMPLETED:
-            detail = result.error.message if result.error is not None else result.status
+        try:
+            backend = self._create_backend()
+            output = backend.generate(request)
+            self.last_cache_stats = backend.last_cache_stats
+            return output
+        except Exception as exc:
             raise RuntimeError(
-                f"{self.generation_error_prefix} generation failed: {detail}"
+                f"{self.generation_error_prefix} generation failed: {exc}"
+            ) from exc
+
+    def serve(self, config: Any | None = None) -> None:
+        """Run the loaded backend with the production EPE service lifecycle."""
+        self._ensure_open()
+        from ..serve.config import EPACServeConfig
+        from ..serve.zimage import serve_diffusion_backend
+
+        selected = config or EPACServeConfig()
+        selected.cache.require_serve_available()
+        try:
+            serve_diffusion_backend(
+                self._create_backend(selected),
+                model_path=self.model_path,
+                config=selected,
+                stage_name=type(self).__name__.removesuffix("EPACPipeline").lower()
+                or "diffusion",
             )
-        return result.output
+        finally:
+            self._closed = True
 
     def close(self) -> None:
         if self._closed:

@@ -14,11 +14,8 @@ import torch.multiprocessing as mp
 from diffusers import FlowMatchEulerDiscreteScheduler
 from diffusers.models.transformers.transformer_z_image import ZImageTransformer2DModel
 
-from chitu_diffusers import (
+from chitu_diffusion import (
     CacheConfig,
-    DiffusersEngine,
-    DiffusionRequest,
-    EngineConfig,
     EPACPipeline,
     EPACRequest,
     EPACServeConfig,
@@ -26,14 +23,14 @@ from chitu_diffusers import (
     LaneWorkItem,
     LaneWorkResult,
     SingletonLaneWorkerPool,
-    ZImageModelAdapter,
 )
-from chitu_diffusers.models.zimage import (
+from chitu_diffusion.models.zimage import (
     EpeCostModel,
     EpeRequest,
     EpeParallelContext,
     EpeZImagePipeline,
     EpeZImageTransformer2DModel,
+    ZImageImageDecoderExecutor,
     ZImageEpeModule,
 )
 
@@ -77,12 +74,10 @@ def test_pipeline_is_diffusers_compatible() -> None:
     assert EpeZImagePipeline.__call__.__name__ == "__call__"
 
 
-def test_zimage_capabilities_do_not_advertise_reserved_flexcache() -> None:
-    capabilities = ZImageModelAdapter.capabilities
-
-    assert capabilities.epe
-    assert capabilities.context_parallel
-    assert not capabilities.flexcache
+def test_zimage_uses_the_shared_backend_contract() -> None:
+    assert callable(ZImageImageDecoderExecutor.generate)
+    with pytest.raises(NotImplementedError, match="generate-only"):
+        CacheConfig(strategy="teacache").require_serve_available()
 
 
 def _tiny_pipeline() -> EpeZImagePipeline:
@@ -129,7 +124,7 @@ def test_phased_denoise_matches_native_pipeline_call() -> None:
     pipeline.close()
 
 
-def test_chitu_diffusers_adapter_matches_native_pipeline_call() -> None:
+def test_chitu_diffusion_backend_matches_native_pipeline_call() -> None:
     torch.manual_seed(23)
     pipeline = _tiny_pipeline()
     prompt_embeds = [torch.randn((8, 8))]
@@ -143,32 +138,29 @@ def test_chitu_diffusers_adapter_matches_native_pipeline_call() -> None:
         generator=torch.Generator().manual_seed(5),
         output_type="latent",
     ).images
-    engine = DiffusersEngine.from_pipeline(
+    backend = ZImageImageDecoderExecutor(
         pipeline,
-        adapter=ZImageModelAdapter(),
-        config=EngineConfig(
-            max_pending_requests=1,
-            max_inflight_requests=1,
-            pulse_steps=1,
-        ),
+        default_width=128,
+        default_height=128,
+        default_num_steps=3,
+        cfg_parallel=False,
+        parallel_vae=False,
     )
-    result = engine.generate(
-        DiffusionRequest(
+    result = backend.generate(
+        EPACRequest(
+            prompt=None,
             request_id="zimage-parity",
-            inputs={
-                "prompt_embeds": prompt_embeds,
-                "guidance_scale": 0,
-                "height": 128,
-                "width": 128,
-                "generator": torch.Generator().manual_seed(5),
-            },
-            num_inference_steps=3,
+            guidance_scale=0,
+            height=128,
+            width=128,
+            num_steps=3,
+            seed=5,
             output_type="latent",
+            extra_inputs={"prompt_embeds": prompt_embeds},
         )
     )
 
-    assert result.error is None
-    torch.testing.assert_close(result.output.images, native, rtol=0, atol=0)
+    torch.testing.assert_close(result.images, native, rtol=0, atol=0)
     pipeline.close()
 
 
@@ -224,7 +216,7 @@ def test_epac_pipeline_serve_reuses_loaded_pipeline(monkeypatch, tmp_path) -> No
         captured["config"] = config
 
     monkeypatch.setattr(
-        "chitu_diffusers.serve.torchrun.run_runtime",
+        "chitu_diffusion.serve.torchrun.run_runtime",
         fake_run_runtime,
     )
     epac.serve(
@@ -251,11 +243,12 @@ def test_epac_pipeline_serve_reuses_loaded_pipeline(monkeypatch, tmp_path) -> No
     pipeline.close()
 
 
-def test_epac_cache_interface_fails_before_execution() -> None:
+def test_epac_cache_interface_serializes_generate_configuration() -> None:
     request = EPACRequest(prompt="test", cache=CacheConfig(strategy="meancache"))
 
-    with pytest.raises(NotImplementedError, match="reserved but not connected"):
-        request.to_diffusion_request(device=torch.device("cpu"))
+    diffusion_request = request.to_diffusion_request(device=torch.device("cpu"))
+
+    assert diffusion_request.metadata["cache"]["strategy"] == "meancache"
 
 
 def test_single_rank_warmup_initializes_measured_cost_model() -> None:
@@ -520,7 +513,7 @@ def test_online_calibration_corrects_the_matching_execution_key() -> None:
 
 
 def test_standalone_package_has_no_chitu_runtime_dependency() -> None:
-    package = Path(__file__).parents[2] / "chitu_diffusers" / "models" / "zimage"
+    package = Path(__file__).parents[2] / "chitu_diffusion" / "models" / "zimage"
     forbidden = (
         "chitu_diffusion.runtime",
         "DiffusionBackend",

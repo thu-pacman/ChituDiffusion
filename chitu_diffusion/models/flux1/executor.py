@@ -9,19 +9,24 @@ from typing import Any, Mapping
 import torch
 import torch.distributed as dist
 
+from ...epac.cache import CacheConfig
 from ...epac.image_decoder import ExecutorBuildContext
 from ...epac.model_executor import (
-    DiffusersImageDecoderExecutor,
+    DiffusersBackend,
     build_stage_parallel_context,
     scheduling_options_from_pool,
 )
 from ...epac.model_scheduling import EpeSchedulingModule
 from ...parallel import parallel_tiled_vae_decode
 from .api import Flux1Request
-from .pipeline import EpeFlux1Pipeline, Flux1DenoiseState
+from .pipeline import EpeFlux1Pipeline, Flux1DenoiseState, FluxPipelineOutput
 
 
-class Flux1ImageDecoderExecutor(DiffusersImageDecoderExecutor):
+class Flux1ImageDecoderExecutor(DiffusersBackend):
+    flexcache_family = "flux1"
+
+    model_name = "flux1"
+
     def __init__(
         self,
         pipeline: EpeFlux1Pipeline,
@@ -182,6 +187,13 @@ class Flux1ImageDecoderExecutor(DiffusersImageDecoderExecutor):
             seed=int(request.get("seed", 0)),
             deadline_ms=request.get("deadline_ms"),
             priority=int(request.get("priority", 0)),
+            output_type=str(request.get("output_type", "pil")),
+            cache=(
+                request["cache"]
+                if isinstance(request.get("cache"), CacheConfig)
+                else CacheConfig.from_mapping(request.get("cache"))
+            ),
+            extra_inputs=dict(request.get("extra_inputs") or {}),
         )
 
     def serialize_request(self, request: Any) -> dict[str, Any]:
@@ -197,6 +209,9 @@ class Flux1ImageDecoderExecutor(DiffusersImageDecoderExecutor):
             "seed": normalized.seed,
             "deadline_ms": normalized.deadline_ms,
             "priority": normalized.priority,
+            "output_type": normalized.output_type,
+            "cache": normalized.cache.to_dict(),
+            "extra_inputs": dict(normalized.extra_inputs),
         }
 
     def _request_conditions(self, request: Flux1Request) -> int:
@@ -219,6 +234,21 @@ class Flux1ImageDecoderExecutor(DiffusersImageDecoderExecutor):
             if torch.cuda.is_available()
             else torch.device("cpu")
         )
+        kwargs = dict(normalized.extra_inputs)
+        reserved = {
+            "prompt",
+            "prompt_2",
+            "width",
+            "height",
+            "num_inference_steps",
+            "guidance_scale",
+            "generator",
+        }
+        overlap = reserved.intersection(kwargs)
+        if overlap:
+            raise ValueError(
+                "extra_inputs contains reserved fields: " + ", ".join(sorted(overlap))
+            )
         return self.pipeline.prepare_request(
             prompt=normalized.prompt,
             prompt_2=normalized.prompt_2,
@@ -227,6 +257,7 @@ class Flux1ImageDecoderExecutor(DiffusersImageDecoderExecutor):
             num_inference_steps=normalized.num_steps,
             guidance_scale=normalized.guidance_scale,
             generator=torch.Generator(device=device).manual_seed(normalized.seed),
+            **kwargs,
         )
 
     def _state_conditions(self, state: Flux1DenoiseState) -> int:
@@ -238,6 +269,9 @@ class Flux1ImageDecoderExecutor(DiffusersImageDecoderExecutor):
             "parallel_vae": self.parallel_vae,
             "vae_parallel_halo": self.vae_parallel_halo,
         }
+
+    def package_generate_output(self, output: Any) -> FluxPipelineOutput:
+        return FluxPipelineOutput(images=output)
 
 
 @dataclass(frozen=True)

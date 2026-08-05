@@ -2,16 +2,18 @@
 
 from .app import create_app
 from .config import (
+    DiffusionFactoryConfig,
     EPACServeConfig,
     HotSwitchPoolConfig,
     StageServiceConfig,
     load_stage_service_config,
 )
 from .embedded import EmbeddedDiffusionRuntime
-from .zimage_runtime import EpeZImageServiceRuntime
+from .zimage_runtime import EpeDiffusionServiceRuntime
 
 __all__ = [
-    "EpeZImageServiceRuntime",
+    "EpeDiffusionServiceRuntime",
+    "DiffusionFactoryConfig",
     "EmbeddedDiffusionRuntime",
     "EPACServeConfig",
     "HotSwitchPoolConfig",

@@ -103,7 +103,7 @@ class ExecutorBuildContext:
 
 @dataclass(frozen=True, slots=True)
 class EmbeddedRuntimeConfig:
-    output_root: str = "outputs/chitu-diffusers"
+    output_root: str = "outputs/chitu"
     record_timeline: bool = False
     postprocess_workers: int = 4
 
@@ -144,12 +144,14 @@ class ImageDecodeCompletion:
 
 
 @runtime_checkable
-class ImageDecoderExecutor(Protocol):
-    """Model plugin consumed by the distributed EPAC worker runtime.
+class DiffusionBackend(Protocol):
+    """Model plugin shared by synchronous generation and the EPAC runtime.
 
     The runtime owns scheduling and transfers. The executor owns request/state
     semantics and the model-specific Diffusers operations.
     """
+
+    model_name: str
 
     @property
     def parallel_context(self) -> Any: ...
@@ -190,6 +192,8 @@ class ImageDecoderExecutor(Protocol):
 
     def prepare_request(self, request: Any) -> Any: ...
 
+    def generate(self, request: Any) -> Any: ...
+
     def profile(self, state: Any) -> RequestProfile: ...
 
     def denoise_step(
@@ -211,12 +215,19 @@ class ImageDecoderExecutor(Protocol):
         timings: dict[str, object],
     ) -> torch.Tensor | None: ...
 
-    def postprocess(self, host_output: torch.Tensor) -> Any: ...
+    def postprocess(
+        self,
+        host_output: torch.Tensor,
+        *,
+        output_type: str = "pil",
+    ) -> Any: ...
+
+    def package_generate_output(self, output: Any) -> Any: ...
 
     def abort_request(self, request_id: str, state: Any | None) -> None: ...
 
     def close(self) -> None: ...
 
 
-class ImageDecoderExecutorFactory(Protocol):
-    def build(self, context: ExecutorBuildContext) -> ImageDecoderExecutor: ...
+class DiffusionBackendFactory(Protocol):
+    def build(self, context: ExecutorBuildContext) -> DiffusionBackend: ...

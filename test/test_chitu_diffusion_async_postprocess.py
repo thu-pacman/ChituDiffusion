@@ -11,11 +11,11 @@ from types import SimpleNamespace
 import torch
 from PIL import Image
 
-from chitu_diffusers.epac.timeline import RankTimelineRecorder
-from chitu_diffusers.epac.worker_pool import AsyncResultChannel, LaneWorkResult
-from chitu_diffusers.serve.protocol import ImageGenerateRequest
-from chitu_diffusers.serve.zimage_runtime import (
-    EpeZImageServiceRuntime,
+from chitu_diffusion.epac.timeline import RankTimelineRecorder
+from chitu_diffusion.epac.worker_pool import AsyncResultChannel, LaneWorkResult
+from chitu_diffusion.serve.protocol import ImageGenerateRequest
+from chitu_diffusion.serve.zimage_runtime import (
+    EpeDiffusionServiceRuntime,
     _RequestRecord,
 )
 
@@ -43,7 +43,7 @@ class FakeEpe:
 
 def test_lane_releases_before_cpu_postprocess_completes(tmp_path) -> None:
     processor = BlockingImageProcessor()
-    runtime = object.__new__(EpeZImageServiceRuntime)
+    runtime = object.__new__(EpeDiffusionServiceRuntime)
     runtime.executor = SimpleNamespace(
         postprocess=lambda host_image: processor.postprocess(
             host_image,
@@ -100,7 +100,7 @@ def test_lane_releases_before_cpu_postprocess_completes(tmp_path) -> None:
 
     assert processor.started.wait(timeout=1.0)
     assert runtime._records["req"].status == "postprocessing"
-    assert runtime._records["req"].png is None
+    assert runtime._records["req"].payload is None
 
     # Saturating the CPU executor must only queue later outputs. In particular,
     # publishing a GPU completion must never block the scheduler thread.
@@ -132,7 +132,8 @@ def test_lane_releases_before_cpu_postprocess_completes(tmp_path) -> None:
     runtime.timeline.close()
     record = runtime._records["req"]
     assert record.status == "completed"
-    assert record.png is not None and record.png.startswith(b"\x89PNG")
+    assert record.payload is not None and record.payload.startswith(b"\x89PNG")
+    assert record.media_type == "image/png"
     stages = {
         json.loads(line)["stage"]
         for line in (tmp_path / "timeline-rank0.jsonl").read_text().splitlines()
@@ -141,7 +142,7 @@ def test_lane_releases_before_cpu_postprocess_completes(tmp_path) -> None:
 
 
 def test_idle_poll_does_not_resend_the_completed_lane_result() -> None:
-    runtime = object.__new__(EpeZImageServiceRuntime)
+    runtime = object.__new__(EpeDiffusionServiceRuntime)
     runtime.rank = 0
     runtime.timeline = SimpleNamespace(record=lambda *_args, **_kwargs: None)
     runtime._states = {"req": object()}

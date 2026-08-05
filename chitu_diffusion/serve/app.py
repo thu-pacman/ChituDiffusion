@@ -22,6 +22,8 @@ class ServiceBackend(Protocol):
 
     def image(self, request_id: str) -> bytes | None: ...
 
+    def media_type(self, request_id: str) -> str | None: ...
+
     def health(self) -> HealthResponse: ...
 
 
@@ -64,7 +66,10 @@ def create_app(backend: ServiceBackend) -> FastAPI:
             raise HTTPException(
                 status_code=500, detail="completed request has no image"
             )
-        return Response(content=image, media_type="image/png")
+        return Response(
+            content=image,
+            media_type=backend.media_type(request_id) or "application/octet-stream",
+        )
 
     @app.delete("/v1/image-decode/{request_id}", response_model=CancelResponse)
     def cancel(request_id: str) -> CancelResponse:
