@@ -15,13 +15,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python" alt="Python">
   <img src="https://img.shields.io/badge/CUDA-GPU%20required-76B900?logo=nvidia" alt="CUDA">
-  <img src="https://img.shields.io/badge/runtime-EPAC-0A7BBC" alt="EPAC">
-  <a href="chitu_diffusion/flexcache/README.md"><img src="https://img.shields.io/badge/accelerate-FlexCache-purple" alt="FlexCache"></a>
-  <img src="https://img.shields.io/badge/status-developer%20preview-yellow" alt="Status">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/paper-DiTango%20HPDC'26-blueviolet" alt="DiTango">
-  <a href="https://arxiv.org/abs/2603.00519"><img src="https://img.shields.io/badge/paper-Jano%20CVPRF'26-blueviolet" alt="Jano"></a>
-  <a href="https://dl.acm.org/doi/10.1145/3774934.3786424"><img src="https://img.shields.io/badge/paper-Difflow%20PPoPP'26-blueviolet" alt="Difflow"></a>
 </p>
 
 ChituDiffusion 是一个基于 Diffusers 生命周期的高性能上下文并行扩散推理运行时。它保留
@@ -37,25 +31,25 @@ ChituDiffusion 是一个基于 Diffusers 生命周期的高性能上下文并行
 <tr>
 <td width="50%">
 
-### 🔄 同一后端，两种生命周期
-`chitu generate` 执行单个 full-world 静态 CP 请求；`chitu serve` 复用同一 executor，
-增加常驻队列与 EPE pulse 调度。
+### 🌐 Elastic Parallel Engine
+基于启动实测代价和端到端 SLO，在 pulse 边界动态重组 CP lane，并支持 request state
+migration。`generate` 与常驻 `serve` 共享同一 executor。
 
 </td>
 <td width="50%">
 
-### 🌐 弹性并行执行
-基于启动实测代价和端到端 SLO，在 pulse 边界动态重组 CP lane，并支持 request state
-migration。
+### ⚡ FlexCache
+MagCache、MeanCache、TeaCache、TaylorSeer 和 PAB 以 request-local hook 解耦接入，并
+保证 CFP/CP rank 控制流一致。
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-### ⚡ FlexCache 缓存加速
-MagCache、MeanCache、TeaCache、TaylorSeer 和 PAB 以 request-local hook 解耦接入，并
-保证 CFP/CP rank 控制流一致。
+### 🚀 高性能上下文并行
+AGKV 与 USP attention、CFP/CP 混合布局和并行 VAE 使用动态 lane process group，
+加速图像与视频 DiT 推理。
 
 </td>
 <td width="50%">
@@ -231,14 +225,6 @@ GPU 正确性必须按模型使用相同 seed 与原生 Diffusers baseline 对�
   [`backup/chitu_diffusion_legacy/`](backup/chitu_diffusion_legacy/)，不会进入 wheel
   或默认测试。
 
-## 🏆 学术成果
-
-| 论文 | 会议/期刊 | 说明 |
-|:---|:---|:---|
-| **DiTango** | **HPDC 2026** | 通信受限场景下的 cache-accelerated parallelism |
-| [**Jano**](https://arxiv.org/abs/2603.00519) | **CVPR Findings 2026** | FlexCache-Cubic 的前身工作 |
-| [**Difflow**](https://dl.acm.org/doi/10.1145/3774934.3786424) | **PPoPP 2026** | ChituDiffusion stage-level scheduling 的起点 |
-
 ## 📄 许可证
 
 ChituDiffusion 使用 [MIT License](LICENSE)。模型权重和上游依赖仍受各自许可证与使用
@@ -263,13 +249,7 @@ ChituDiffusion 使用 [MIT License](LICENSE)。模型权重和上游依赖仍受
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python" alt="Python">
   <img src="https://img.shields.io/badge/CUDA-GPU%20required-76B900?logo=nvidia" alt="CUDA">
-  <img src="https://img.shields.io/badge/runtime-EPAC-0A7BBC" alt="EPAC">
-  <a href="chitu_diffusion/flexcache/README.md"><img src="https://img.shields.io/badge/accelerate-FlexCache-purple" alt="FlexCache"></a>
-  <img src="https://img.shields.io/badge/status-developer%20preview-yellow" alt="Status">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/paper-DiTango%20HPDC'26-blueviolet" alt="DiTango">
-  <a href="https://arxiv.org/abs/2603.00519"><img src="https://img.shields.io/badge/paper-Jano%20CVPRF'26-blueviolet" alt="Jano"></a>
-  <a href="https://dl.acm.org/doi/10.1145/3774934.3786424"><img src="https://img.shields.io/badge/paper-Difflow%20PPoPP'26-blueviolet" alt="Difflow"></a>
 </p>
 
 ChituDiffusion is a Diffusers-native runtime for high-performance,
@@ -288,25 +268,26 @@ parallelizes DiT denoising through one shared execution backend.
 <tr>
 <td width="50%">
 
-### 🔄 One Backend, Two Lifecycles
-`chitu generate` runs one full-world static-CP request. `chitu serve` keeps the
-same executor alive behind a persistent queue and the EPE pulse scheduler.
+### 🌐 Elastic Parallel Engine
+Startup measurements and end-to-end SLOs drive dynamic CP-lane layouts and
+request-state migration at pulse boundaries. `generate` and persistent `serve`
+share the same executor.
 
 </td>
 <td width="50%">
 
-### 🌐 Elastic Parallel Execution
-Startup measurements and end-to-end SLOs drive dynamic CP-lane layouts and
-request-state migration at pulse boundaries.
+### ⚡ FlexCache
+MagCache, MeanCache, TeaCache, TaylorSeer, and PAB integrate through
+request-local hooks with rank-identical CFP/CP control flow.
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-### ⚡ FlexCache Acceleration
-MagCache, MeanCache, TeaCache, TaylorSeer, and PAB integrate through
-request-local hooks with rank-identical CFP/CP control flow.
+### 🚀 High-Performance Context Parallelism
+AGKV and USP attention, mixed CFP/CP layouts, and parallel VAE use dynamic lane
+process groups to accelerate image and video DiT inference.
 
 </td>
 <td width="50%">
@@ -489,14 +470,6 @@ Contribution boundaries:
   results are frozen under
   [`backup/chitu_diffusion_legacy/`](backup/chitu_diffusion_legacy/) and are
   excluded from packages and default tests.
-
-## 🏆 Publications
-
-| Paper | Venue | Description |
-|:---|:---|:---|
-| **DiTango** | **HPDC 2026** | Cache-accelerated parallelism under communication constraints |
-| [**Jano**](https://arxiv.org/abs/2603.00519) | **CVPR Findings 2026** | Precursor to FlexCache-Cubic |
-| [**Difflow**](https://dl.acm.org/doi/10.1145/3774934.3786424) | **PPoPP 2026** | Origin of ChituDiffusion stage-level scheduling |
 
 ## 📄 License
 
