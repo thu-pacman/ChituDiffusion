@@ -41,35 +41,6 @@ def test_cpu_is_safe_fallback():
     torch.testing.assert_close(k, original_k)
 
 
-def test_flux2_processor_keeps_diffusers_fallback_semantics():
-    from diffusers.models.embeddings import apply_rotary_emb
-
-    from chitu_diffusion.models.model_flux2 import _fused_qknorm_rope_or_fallback
-
-    torch.manual_seed(1)
-    q, k = (torch.randn(1, 4, 2, 128) for _ in range(2))
-    norm_q, norm_k = torch.nn.RMSNorm(128), torch.nn.RMSNorm(128)
-    cos, sin = _rope(4, "cpu")
-
-    expected_q = apply_rotary_emb(norm_q(q), (cos, sin), sequence_dim=1)
-    expected_k = apply_rotary_emb(norm_k(k), (cos, sin), sequence_dim=1)
-    actual_q, actual_k = _fused_qknorm_rope_or_fallback(q, k, norm_q, norm_k, (cos, sin))
-    torch.testing.assert_close(actual_q, expected_q)
-    torch.testing.assert_close(actual_k, expected_k)
-
-
-def test_flux2_qknorm_rope_recipe_defaults_to_auto(monkeypatch):
-    from chitu_diffusion.models.model_flux2 import _flux2_qknorm_rope_fusion_enabled
-
-    monkeypatch.delenv("CHITU_FLUX2_FUSED_QKNORM_ROPE", raising=False)
-    assert _flux2_qknorm_rope_fusion_enabled()
-    monkeypatch.setenv("CHITU_FLUX2_FUSED_QKNORM_ROPE", "off")
-    assert not _flux2_qknorm_rope_fusion_enabled()
-    monkeypatch.setenv("CHITU_FLUX2_FUSED_QKNORM_ROPE", "invalid")
-    with pytest.raises(ValueError, match="auto, on, off"):
-        _flux2_qknorm_rope_fusion_enabled()
-
-
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_fused_matches_flux2_rope(dtype):

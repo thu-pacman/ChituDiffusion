@@ -1,8 +1,16 @@
-# SPDX-FileCopyrightText: 2025 Qingcheng.AI
-#
-# SPDX-License-Identifier: Apache-2.0
+"""Diffusers model integrations provided by chitu_diffusion."""
 
-# Chitu-Diffusion
-from chitu_diffusion.models import model_wan  # NOQA
-from chitu_diffusion.models import model_flux1  # NOQA
-from chitu_diffusion.models import model_flux2  # NOQA
+from .flux1 import Flux1EPACPipeline, Flux1Request
+from .flux2_klein import Flux2KleinCpPipeline
+from .qwen_image import QwenImageEPACPipeline, QwenImageRequest
+from .wan import WanEPACPipeline, WanRequest
+
+__all__ = [
+    "Flux1EPACPipeline",
+    "Flux1Request",
+    "Flux2KleinCpPipeline",
+    "QwenImageEPACPipeline",
+    "QwenImageRequest",
+    "WanEPACPipeline",
+    "WanRequest",
+]

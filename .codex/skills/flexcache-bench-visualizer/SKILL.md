@@ -1,6 +1,6 @@
 ---
 name: flexcache-bench-visualizer
-description: Use when Codex benchmarks or visualizes FlexCache strategies, updates ChituBench result.md, creates speed-quality trade-off plots, Pareto/frontier summaries, or visual contact sheets for cache acceleration methods such as TeaCache, MeanCache, PAB, BlockDance, Cubic, TaylorSeer, or similar.
+description: Use when Codex benchmarks or visualizes FlexCache strategies, updates a FlexCache result.md, creates speed-quality trade-off plots, Pareto/frontier summaries, or visual contact sheets for cache acceleration methods such as TeaCache, MeanCache, MagCache, PAB, or TaylorSeer.
 ---
 
 # FlexCache Bench Visualizer
@@ -29,7 +29,8 @@ If a method cannot reasonably produce three valid points, label it as under-swep
 
 ## Trade-Off Plot
 
-Make one primary data visualization in the same spirit as the existing ChituBench FlexCache plots:
+Make one primary data visualization in the same spirit as the archived
+ChituBench FlexCache plots:
 
 - Use a two-panel speed-quality plot, typically PSNR vs speedup and 1-LPIPS vs speedup.
 - Encode each method with a stable label, color, and marker across all plots and visual sheets.
@@ -71,7 +72,7 @@ The visual sheet is for checking generated images, not for explaining the whole 
 
 ## Result.md Requirements
 
-When updating `ChituBench/result.md`:
+When updating `outputs/flexcache/<run-id>/result.md`:
 
 - Add the consolidated run ID and exact command snippets used to collect/evaluate/visualize.
 - State reused runs and newly launched runs separately.

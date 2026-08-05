@@ -1,196 +1,236 @@
 # FlexCache
 
-FlexCache is ChituDiffusion's feature-cache acceleration module. It wraps the
-DiT forward path, stores selected intermediate tensors, and reuses them on later
-denoising steps according to a strategy-specific policy.
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## Status
+FlexCache is a generate-only, request-local cache layer. It discovers stable
+model, block, and leaf sites once, then installs temporary hooks for one
+`generate()` request. Model and pipeline source files do not contain
+strategy-specific branches.
 
-- `meancache`: complete step-level strategy for Flux, Qwen-Image, and Wan. It caches
-  full noise predictions and can reuse them through the MeanCache JVP /
-  average-velocity update outside the model forward.
-- `cubic`: Jano-derived region-aware / token-selective strategy. Jano has an
-  independent repository at `chen-yy20/Jano`; the ChituDiffusion integration is
-  still being updated and tested. The current Wan path defaults to a Wan1.3
-  832x480 uniform partition: latent-space `64x60` blocks, mapped to token-space
-  `32x30` blocks for Wan's `(1, 2, 2)` patch size.
-- `teacache`: complete strategy. It stores model-output residuals and reuses
-  them when accumulated timestep-embedding change stays under the configured
-  threshold.
-- `taylorseer`: model-specific TaylorSeer strategy for Flux and Wan. It caches
-  local module outputs, stores Taylor factors on full refresh steps, and
-  predicts skipped steps with the Taylor expansion.
-- `blockdance`: BlockDance-style train-free layerwise cache. It keeps early steps
-  full, then groups the active window by `group_size`; each group caches the
-  output after `boundary_block`, and reuse steps skip shallow/mid blocks while
-  recomputing deeper blocks.
-- `pab`: complete strategy. It stores attention outputs and reuses them at fixed
-  self-attention and cross-attention broadcast intervals.
+FlexCache is designed around two non-negotiable properties:
 
-DiTango depends on distributed environments and lives outside this module.
+1. A strategy is isolated from the Diffusers model implementation and from
+   other requests.
+2. Fresh/reuse decisions are orthogonal to parallel layout: CFP and CP ranks
+   must take identical control-flow paths.
 
-## Technical Sources
+Persistent EPE serving rejects every non-`none` cache strategy. This boundary
+avoids sharing mutable cache state across queued requests or dynamic lanes.
 
-FlexCache is an integration layer, not a new paper for each policy. The table
-below records the technical source each strategy follows and how it is adapted in
-this repository.
+## Supported strategies
 
-| Strategy | Technical source | Venue / status | ChituDiffusion adaptation |
+| Strategy | Reused value | Calibrated model support | Important constraint |
 | --- | --- | --- | --- |
-| `meancache` | [MeanCache: From Instantaneous to Average Velocity for Accelerating Flow Matching Inference](https://openreview.net/forum?id=GMCyL7Xs9R) | ICLR 2026 | Step-level full-noise cache with optional JVP reuse for Flux, Qwen-Image, and Wan. |
-| `teacache` | [Timestep Embedding Tells: It's Time to Cache for Video Diffusion Model](https://openaccess.thecvf.com/content/CVPR2025/html/Liu_Timestep_Embedding_Tells_Its_Time_to_Cache_for_Video_Diffusion_CVPR_2025_paper.html) | CVPR 2025 | Model-output residual cache driven by accumulated timestep-embedding change. |
-| `pab` | [Real-Time Video Generation with Pyramid Attention Broadcast](https://openreview.net/forum?id=hDBrQ4DApF) | ICLR 2025 | Attention-output broadcast at fixed self/cross-attention intervals. |
-| `cubic` | [Jano: Adaptive Diffusion Generation with Early-stage Convergence Awareness](https://arxiv.org/abs/2603.00519) | CVPR Findings 2026 | Region-aware / token-selective forward path exposed as the `cubic` FlexCache strategy. |
-| `taylorseer` | [From Reusing to Forecasting: Accelerating Diffusion Models with TaylorSeers](https://openaccess.thecvf.com/content/ICCV2025/papers/Liu_From_Reusing_to_Forecasting_Accelerating_Diffusion_Models_with_TaylorSeers_ICCV_2025_paper.pdf) | ICCV 2025 | Module-output cache plus Taylor expansion forecast for skipped denoising steps. |
-| `blockdance` | [BlockDance: Reuse Structurally Similar Spatio-Temporal Features to Accelerate Diffusion Transformers](https://openaccess.thecvf.com/content/CVPR2025/papers/Zhang_BlockDance_Reuse_Structurally_Similar_Spatio-Temporal_Features_to_Accelerate_Diffusion_Transformers_CVPR_2025_paper.pdf) | CVPR 2025 | Layerwise block reuse around a configurable boundary block and active denoising window. |
-| `ditango` | [DiTango: Cost-Effective Parallel Diffusion Generation with Selective Attention State Reuse](https://hpdc.sci.utah.edu/2026/program.html) | HPDC 2026 | Independent planner/runtime path for cache-accelerated parallel attention state reuse. |
+| MagCache | Full image-token backbone residual | FLUX.1, Qwen-Image, Wan 2.1 T2V 1.3B | Uses official 50-step profiles and a branch-shared schedule |
+| MeanCache | CFG-combined prediction at the scheduler boundary | Z-Image, Qwen-Image | Official 50-step fresh/JVP tables only |
+| TeaCache | Full block-group residual | FLUX.1, Wan T2V 1.3B/14B | Threshold is meaningful only with a matching calibrated polynomial |
+| TaylorSeer | Predicted pre-gate block submodule outputs | Z-Image, FLUX.1, Qwen-Image, Wan | Memory grows with blocks, cached sites, and Taylor order |
+| PAB | Attention outputs by attention type | Z-Image, FLUX.1, Qwen-Image, Wan | Uses the maintained simplified period rules |
 
-## Cache Methods
+Unsupported model, step-count, profile, or parameter combinations fail early.
+In particular, MagCache has no official Z-Image profile and custom ratios are
+rejected for its heterogeneous recursive backbone.
 
-All strategies use the shared `FlexCacheManager.cache` dictionary. Cache memory
-is measured directly from cached tensors by `numel * element_size`, with current
-and peak bytes recorded after store events.
+## Usage
 
-- TeaCache: caches `model_output - input`; reuse returns
-  `current_input + cached_residual`.
-- PAB: cache attention outputs directly; reuse returns the cached attention
-  output.
-- MeanCache: caches the full noise prediction at fresh steps; reuse returns a
-  predicted noise value from the cached state and scheduler sigmas.
-- Cubic: keeps per-branch per-layer self-attention K/V caches plus hidden-state
-  residual caches for frozen token reuse.
-- TaylorSeer: caches per-branch per-layer module Taylor factors. Wan caches
-  self-attention, cross-attention, and FFN outputs; Flux double blocks cache
-  image/text attention and MLP outputs; Flux single blocks cache their fused
-  local module output. Distributed ranks cache only their local tensor chunk.
-- BlockDance: caches the boundary block hidden state and reuses it as the
-  next block input, skipping shallow/mid blocks on reuse steps.
+Use FlexCache through `chitu generate`:
 
-Warmup and cooldown mean full compute is forced for the first and last denoising
-steps. Their names are intentionally shared across strategies.
-
-## Runtime Metrics
-
-FlexCache records a unified runtime compute metric and writes the per-task
-summary to `metrics/flexcache/rank*.json`. Each strategy reports
-`baseline_units` and `actual_units` while it runs, and FlexCache accumulates
-them in memory until a `task_summary` event is written at the end of the task.
-The saved ratio is `(baseline_units - actual_units) / baseline_units`.
-
-Per-event debug logging can be enabled with
-`CHITU_FLEXCACHE_COMPUTE_EVENTS=1`, but it is off by default to avoid high-rate
-JSON I/O in module-level strategies.
-
-These units are strategy-owned proxy units, not hardware FLOPs: TeaCache reports
-model-forward units, PAB reports attention-module units, BlockDance reports
-transformer-block units, TaylorSeer reports module-output units, and Cubic reports
-token-forward units. The comparison report reads these runtime summaries
-directly instead of estimating savings from strategy-specific side outputs.
-
-## Configuration
-
-`FlexCacheParams` is the base parameter class. Use a concrete subclass for new
-code so each strategy exposes only its own controls. All strategies share:
-
-- `warmup`: number of initial denoising steps forced to full compute.
-- `cooldown`: number of final denoising steps forced to full compute.
-
-Strategy-specific fields:
-
-- `MeanCacheParams`: `fresh_steps`, `use_jvp`
-- `CubicParams`: `target_speedup`, `tau_max`, optional `block_size`,
-  optional `uniform_square_min_splits`
-- `TeaCacheParams`: `teacache_thresh`, `coefficients`, `use_ref_steps`
-- `TaylorSeerParams`: `fresh_threshold`, `max_order`, `first_enhance`
-- `BlockDanceParams`: `boundary_block`, `group_size`, `start_fraction`,
-  `end_fraction`
-- `PABParams`: `skip_self_range`, `skip_cross_range`
-- `DiTangoParams`: `cache_ratio`, `anchor_interval`, `tau_max`,
-  `curvature_interval_power`, `intra_group_size_limit`, plus experimental
-  groupwise attention-state reuse controls in `params.py`
-
-Dictionary inputs must use the concrete field names of the selected strategy.
-
-## Examples
-
-TeaCache:
-
-```python
-TeaCacheParams(
-    warmup=1,
-    cooldown=1,
-    teacache_thresh=0.6,
-)
+```bash
+chitu generate \
+  --model flux1 \
+  --model-path /path/to/FLUX.1-dev \
+  --steps 50 \
+  --cache-strategy magcache \
+  --output outputs/flux1-magcache.png
 ```
 
-PAB:
+Strategy-specific arguments use their own prefix:
 
-```python
-PABParams(
-    warmup=5,
-    cooldown=5,
-    skip_self_range=2,
-    skip_cross_range=3,
-)
+```bash
+# Official MeanCache schedule.
+--cache-strategy meancache --meancache-fresh-steps 25
+
+# TeaCache with a model-calibrated threshold.
+--cache-strategy teacache --teacache-threshold 0.4
+
+# Maintained TaylorSeer speed/quality default.
+--cache-strategy taylorseer --taylorseer-fresh-threshold 3
 ```
 
-MeanCache:
+Common warmup/cooldown flags apply only to strategies that use the common
+fresh-step envelope. MagCache owns its schedule and rejects those overrides.
+Configuration is represented by immutable dataclasses in `epac/cache.py` and
+is validated before hooks are installed.
 
-```python
-MeanCacheParams(
-    warmup=0,
-    cooldown=0,
-    fresh_steps=25,
-    use_jvp=True,
-)
+## Layout
+
+```text
+flexcache/
+├── contracts.py       # CacheStrategy protocol, step context, statistics
+├── session.py         # request lifecycle and temporary hook installation
+├── spec.py            # model-family discovery and site/probe contracts
+├── tree.py            # tensor-tree clone/arithmetic/size helpers
+└── strategies/
+    ├── base.py        # no-op defaults for every hook
+    ├── factory.py     # CacheConfig -> strategy instance
+    ├── magcache.py
+    ├── magcache_profiles.py
+    ├── meancache.py
+    ├── pab.py
+    ├── taylorseer.py
+    └── teacache.py
 ```
 
-Cubic-WAN:
+All mutable tensors and counters must live on the strategy instance. A
+`CacheSession` creates request-local state and, for serial CFG, independent
+strategy instances per branch.
 
-```python
-CubicParams(
-    target_speedup=2.0,
-    warmup=7,
-    cooldown=3,
-    tau_max=8,
-)
-```
+## Request lifecycle
 
-BlockDance:
+1. `CacheConfig` is validated and `strategies/factory.py` creates a strategy.
+2. `FlexCacheModelSpec.discover()` resolves stable model, block, and leaf sites.
+3. `CacheSession` installs temporary wrappers on that pipeline/model instance.
+4. A timestep signature advances the denoise step and separates serial CFG
+   branches.
+5. Lookup hooks may bypass work; store hooks update request-local cache state
+   and statistics.
+6. Session exit restores every wrapper, including when setup or generation
+   raises.
 
-```python
-BlockDanceParams(
-    boundary_block=20,
-    group_size=2,
-    start_fraction=0.40,
-    end_fraction=0.95,
-)
-```
+Request-level algorithms such as MeanCache patch only the selected pipeline
+instance. FlexCache never patches a pipeline class or stores mutable tensors in
+global/class state.
 
-TaylorSeer:
+## Hook levels
 
-```python
-TaylorSeerParams(
-    warmup=7,
-    cooldown=3,
-    fresh_threshold=5,
-    max_order=1,
-    first_enhance=1,
-)
-```
+Choose the narrowest hook that represents the value defined by the algorithm:
 
-## Files
+- `model_lookup/store`: make one decision per transformer invocation. Use this
+  for step scheduling and whole-backbone state.
+- `block_lookup/store`: reuse or reconstruct a complete transformer block.
+- `leaf_lookup/store`: reuse attention, MLP, or projection outputs exposed as
+  `LeafSite`s.
+- request-level `denoise_step`: only for algorithms such as MeanCache that need
+  the CFG-combined prediction and scheduler state. Set `request_level = True`
+  and implement `denoise_step(...)`; `CacheSession` installs the temporary
+  denoise hook.
 
-- `flexcache_manager.py`: shared strategy interface, cache dictionary, and cache
-  memory accounting.
-- `strategy/teacache.py`: TeaCache strategy.
-- `strategy/pab.py`: PAB strategy.
-- `strategy/meancache.py`: MeanCache step-level noise-prediction cache.
-- `strategy/blockdance.py`: BlockDance-style layerwise cache adapter.
-- `strategy/cubic.py`: Cubic-WAN strategy wrapper and selective forward adapter.
-- `strategy/taylorseer.py`: TaylorSeer Flux/Wan module-cache adapter.
-- `core/anchor_cache.py`: shared anchor/cache-ratio planner and PPM policy
-  visualization helpers.
+The lookup result is `(hit, output)`. Returning `True` skips the wrapped
+module. A model-level strategy may return `False` while setting internal state
+that causes later block or leaf hooks to hit, as MagCache, TeaCache, and
+TaylorSeer do.
 
-Strategy construction happens in `chitu_diffusion/runtime/generator.py`.
-Parameter validation and normalization happen in `chitu_diffusion/runtime/task.py`.
+## Adding a strategy
+
+1. Add its immutable user parameters as a dataclass in `epac/cache.py`, include
+   it in `CacheParams`, `_PARAM_TYPES`, and `CacheStrategyName`, and validate
+   unsupported combinations early.
+2. Add `strategies/<name>.py`. Subclass `BaseCacheStrategy` and override only
+   the hooks the algorithm needs:
+
+   ```python
+   from ..contracts import CacheStepContext
+   from ..spec import LeafSite
+   from ..tree import TensorTree, tree_clone
+   from .base import BaseCacheStrategy
+
+
+   class ExampleStrategy(BaseCacheStrategy):
+       def __init__(self, params: ExampleConfig, **common: int) -> None:
+           super().__init__()
+           self.params = params
+           self.cache: dict[str, TensorTree] = {}
+
+       def begin(self, *, total_steps: int, model_spec: FlexCacheModelSpec) -> None:
+           super().begin(total_steps=total_steps, model_spec=model_spec)
+           self.cache.clear()
+
+       def leaf_lookup(
+           self,
+           context: CacheStepContext,
+           site: LeafSite,
+           args: tuple[object, ...],
+           kwargs: dict[str, object],
+       ) -> tuple[bool, TensorTree | None]:
+           value = self.cache.get(site.site_id)
+           return (True, tree_clone(value)) if value is not None else (False, None)
+   ```
+
+3. Register construction in `strategies/factory.py` and export the class from
+   `strategies/__init__.py`.
+4. Add CLI arguments in `examples/cache_args.py` only if the strategy is
+   intended for example scripts.
+5. Add focused tests in `test/test_chitu_diffusion_flexcache.py` for scheduling,
+   request isolation, cache statistics, tensor-tree outputs, and unsupported
+   configurations. Then run:
+
+   ```bash
+   python -m pytest test/test_chitu_diffusion_flexcache.py -q
+   python -m ruff check chitu_diffusion/flexcache \
+     chitu_diffusion/epac/cache.py test/test_chitu_diffusion_flexcache.py
+   ```
+
+## Parallelism requirements
+
+Cache control flow must be orthogonal to CFP and CP:
+
+- Base a fresh/reuse decision on replicated inputs such as step index,
+  timestep, or a full-sequence modulation probe.
+- Never decide independently from rank-local token shards.
+- All ranks in a lane must enter or skip collectives identically.
+- Cache post-all-gather, post-CFG values when the algorithm is defined on the
+  guided prediction.
+- Keep every request's state isolated; do not monkey-patch global model state
+  or store tensors on strategy classes.
+
+If an adaptive metric cannot be made rank-identical, synchronize the scalar
+decision explicitly or reject that parallel mode. A small divergence from a
+reference implementation is preferable to divergent collective control flow.
+
+## Model support
+
+`FlexCacheModelSpec.discover()` in `spec.py` is the only place that should know
+model-family module names. When a strategy needs a new reusable site or probe,
+extend the model spec first and keep the strategy expressed in terms of
+`BlockSite`, `LeafSite`, and `FlexCacheModelSpec` operations. Do not add
+strategy-specific conditionals to model forward methods.
+
+## Validation requirements
+
+A strategy is not complete when unit tests pass. Validate it in layers:
+
+1. **Contract tests:** schedule boundaries, hit/miss statistics, tensor-tree
+   output, request/CFG isolation, cleanup after exceptions, and rejected
+   configurations.
+2. **Reference semantics:** on the same Diffusers backend, dtype, scheduler,
+   seed, prompt, and dimensions, compare fresh/reuse steps and outputs with the
+   reference implementation.
+3. **Single-GPU performance:** report end-to-end and, where possible, DiT-only
+   latency together with cache memory.
+4. **Parallel smoke tests:** run static CP and every supported CFP layout;
+   verify that every rank makes the same decision and completes collectives.
+5. **Quality sweep:** compare each candidate acceleration point against its own
+   uncached backend baseline. Do not compare only across different attention
+   backends or dtypes.
+
+Text summaries and reproducible commands belong under
+`outputs/flexcache/<run-id>/result.md`. Generated media and raw temporary data
+should remain untracked.
+
+Current comparison reports:
+
+- [`MagCache`](../../outputs/flexcache/magcache_compare_20260805/result.md)
+- [`MeanCache`](../../outputs/flexcache/meancache_compare_20260804/result.md)
+
+## Known trade-offs
+
+- Caching changes the numerical trajectory. A speedup is not evidence of
+  acceptable quality; model/step/profile changes require re-evaluation.
+- TaylorSeer may consume gigabytes on video workloads because it stores
+  multiple tensors per submodule and derivative order.
+- TeaCache's published coefficients are tied to their probe and calibration
+  schedule. The reference coefficients are calibrated at 50 steps and can
+  degrade at shorter schedules.
+- Backend, attention kernel, and dtype differences can dominate pixel-level
+  comparisons. Always compare a cache run to the uncached baseline of the same
+  backend.

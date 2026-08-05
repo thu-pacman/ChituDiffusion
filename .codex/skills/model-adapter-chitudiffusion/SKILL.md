@@ -1,16 +1,20 @@
 ---
 name: model-adapter-chitudiffusion
-description: Adapt a new image diffusion model into the ChituDiffusion repository. Use when the user gives a model name and wants Codex to pull or inspect the upstream reference code, run the original demo, quantify non-API-wrapper code, add a runtime adapter/stage-level API integration, wire attention backends and CFG/context parallelism, adapt FlexCache strategies, benchmark with ChituBench, update result.md, clean artifacts, and split categorized commits.
+description: Adapt a new image diffusion model into the Diffusers-native ChituDiffusion runtime. Use when the user wants to inspect upstream code, run the original demo, add a model executor/pipeline integration, wire attention and CFG/context parallelism, adapt FlexCache, benchmark the result, clean artifacts, and split categorized commits.
 ---
 
 # ChituDiffusion Model Adapter
 
 ## Operating Rules
 
-- Work in the current ChituDiffusion checkout. Use `./.venv/bin/python` and the real launcher path (`./.venv/bin/chitu run` or the repo's srun wrapper) for acceptance.
+- Work in the current ChituDiffusion checkout. Use `./.venv/bin/python` and the
+  real `chitu generate`/`script/srun_direct.sh` path for acceptance.
 - Put upstream/reference code under `refs/` and model weights under `~/WORK/models` unless the user gives another location.
 - Prefer direct integration with existing runtime, adapter, scheduler, parallel, and FlexCache APIs. Do not add compatibility shims for obsolete paths unless the user asks.
-- Treat generated outputs as evidence, not code. Commit only source changes, reusable benchmark scripts, final summaries, and final plots; delete smoke/debug runs and local-only symlinks before committing.
+- Treat generated outputs as evidence, not code. Commit source changes,
+  reusable benchmark scripts, and final Markdown summaries. Keep plots/media
+  ignored unless the repository explicitly curates them; delete smoke/debug
+  runs and local-only symlinks before committing.
 - Keep user updates short while running long Slurm or benchmark jobs, and reuse completed results where possible.
 
 ## Workflow
@@ -32,28 +36,45 @@ description: Adapt a new image diffusion model into the ChituDiffusion repositor
    - Give the user a short plan and estimate of the non-wrapper code surface before large edits.
 
 3. **Runtime adapter**
-   - Add or extend a model runtime adapter under `chitu_diffusion/runtime/adapter/`.
-   - Implement stage-level methods for loading components, preparing buffers, denoising one scheduler step, decoding, and output handling.
-   - Normalize model-specific latent/token shapes at adapter boundaries. Prefer one authoritative shape variable instead of duplicate `image_size`/`img_shape` state.
-   - Register the model name and connect request parameters through `DiffusionTask`/`Generator` without hiding user-set options.
+   - Add a model package under `chitu_diffusion/models/<family>/`, following the
+     existing API/executor/pipeline/transformer split.
+   - Implement the `DiffusionBackend` executor operations for loading,
+     request preparation, one denoise step, decoding, and output handling.
+   - Normalize model-specific latent/token shapes at executor boundaries.
+     Prefer one authoritative shape variable instead of duplicate
+     `image_size`/`img_shape` state.
+   - Register a `chitu generate --model ...` module in
+     `chitu_diffusion/cli.py`. Add `serve` support only when the model satisfies
+     the persistent EPE backend contract.
 
 4. **Attention and parallelism**
-   - Wire the requested attention backends through the existing Chitu attention abstraction.
+   - Wire attention through the model package's attention processor and the
+     shared `chitu_diffusion.parallel` topology/USP utilities.
    - For joint text/image attention, verify whether text tokens need sharding. If encoder states are short, prefer keeping text replicated and sharding image tokens only.
    - Bring up CFG parallel first when CFG semantics exist. Then bring up Ulysses/context parallel. Only implement Ring/USP if it fits the model sequence semantics without a large separate attention implementation.
    - Validate 1/2/4/8 GPU cases with minimal prompts before full benchmarks.
 
 5. **FlexCache and acceleration**
-   - First adapt strategies that do not require official model-specific coefficients or hidden-state semantics, such as PAB, BlockDance, Cubic, or step-level cache strategies.
-   - For cache methods from reference code, isolate the train-free algorithm in `chitu_diffusion/flexcache/strategy/` and keep model-specific shape handling in the adapter or a small module under `flexcache/modules/`.
-   - Add params to `flexcache/params.py`, registration to `Generator._build_flexcache_strategy`, and compute metrics so ChituBench can report speedups.
+   - Start with strategies whose model contracts can be represented by the
+     existing model/block/leaf hooks.
+   - Isolate each algorithm in `chitu_diffusion/flexcache/strategies/`; add
+     reusable model sites or probes only through `flexcache/spec.py`.
+   - Add immutable parameters to `epac/cache.py`, register construction in
+     `flexcache/strategies/factory.py`, and expose example CLI arguments in
+     `examples/cache_args.py`.
+   - Keep fresh/reuse decisions rank-identical under CP and CFP. Reject a
+     parallel mode when the decision depends on unsynchronized local shards.
    - Test at least one end-to-end image before sweeping.
 
 6. **Benchmark and visualization**
-   - Use ChituBench scripts or add a thin model-specific benchmark script under `ChituBench/scripts/`.
+   - Use the model's `chitu_diffusion/examples/` entry point and keep a concise
+     reproducible `outputs/flexcache/<run-id>/result.md`. ChituBench is
+     currently archived under `backup/` and is not an active runtime entry
+     point.
    - Reuse previous runs by collecting summaries into a consolidated result directory instead of re-running model loads unnecessarily.
    - For FlexCache trade-off plots and visual sheets, use the `flexcache-bench-visualizer` skill.
-   - Update `ChituBench/result.md` with commands, notes, summary table, readout, and plot paths.
+   - Record commands, backend, parallel topology, speed, quality, and known
+     limitations in the result Markdown.
 
 7. **Cleanup and commits**
    - Run `git diff --check` and a targeted `py_compile`/`compileall` on touched Python files.

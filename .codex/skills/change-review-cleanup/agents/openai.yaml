@@ -1,0 +1,4 @@
+interface:
+  display_name: "Change Review Cleanup"
+  short_description: "Review, clean, document, and prepare commits"
+  default_prompt: "Use $change-review-cleanup to review current changes, clean unused artifacts, update docs, and prepare a commit plan."

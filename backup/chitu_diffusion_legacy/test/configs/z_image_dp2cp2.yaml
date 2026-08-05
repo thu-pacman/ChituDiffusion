@@ -1,0 +1,43 @@
+launch:
+  tag: zimage-dp2cp2
+  num_nodes: 1
+  gpus_per_node: 4
+  python_script: test/test_z_image.py
+  srun:
+    partition: debug
+    cpus_per_gpu: 24
+    job_name: chitu-zimage-dp2cp2
+
+runtime:
+  chitu_debug: true
+  cuda_launch_blocking: false
+
+model:
+  name: Z-Image
+  ckpt_dir: /home/chenyy/WORK/models/Z-Image
+
+parallel:
+  cfp: 1
+  up: 1
+
+infer:
+  attn_type: flash_attn
+  low_mem_level: 0
+
+eval:
+  eval_type: []
+  reference_path: null
+
+output:
+  root_dir: outputs/test-smoke
+  run_log: true
+  memory: true
+  timer: true
+  log_ranks: [0]
+
+# DP composed with CP: cfg=1 * cp=2 * dp=2 == world_size(4). cli derives
+# cp_size = total_gpus // cfp = 4; override back to 2 and enable dp_size=2.
+overrides:
+  - infer.diffusion.cp_size=2
+  - infer.dp_size=2
+  - models.sampler.sample_steps=4

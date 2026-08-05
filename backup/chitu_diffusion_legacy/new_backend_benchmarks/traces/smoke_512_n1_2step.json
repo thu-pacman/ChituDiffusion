@@ -1,0 +1,19 @@
+{
+  "meta": {
+    "title": "EPAC embedded runtime smoke test",
+    "num_requests": 1,
+    "num_steps": 2,
+    "duration_ms": 0.0
+  },
+  "requests": [
+    {
+      "request_id": "smoke0000",
+      "arrival_ms": 0.0,
+      "prompt": "A small red cube on a clean white table, studio light.",
+      "width": 512,
+      "height": 512,
+      "num_steps": 2,
+      "seed": 900
+    }
+  ]
+}
