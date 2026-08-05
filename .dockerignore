@@ -27,16 +27,8 @@ logs
 *.csv
 *.mp4
 experiments
+backup
 vbench_out
-service_framework/runs
-
-# ChituBench generated artifacts
-ChituBench/results/**/chitubench-*
-ChituBench/results/**/visuals
-ChituBench/results/**/plots
-ChituBench/results/**/configs
-ChituBench/results/hpsv3_assets
-ChituBench/results/cudagraph_showcase
 
 # Local references, caches, and model/checkpoint payloads
 refs
