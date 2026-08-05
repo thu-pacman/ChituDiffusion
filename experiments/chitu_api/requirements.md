@@ -70,7 +70,7 @@ class EmbeddedDiffusionRuntime:
         *,
         world: StageWorldSpec,
         pool: HotSwitchPoolConfig,
-        executor_factory: ImageDecoderExecutorFactory,
+        executor_factory: DiffusionBackendFactory,
     ) -> "EmbeddedDiffusionRuntime": ...
 
     def start(self) -> None: ...
@@ -164,11 +164,11 @@ LLaDA2-Uni 的 image decoder 不是 Chitu 当前完整 T2I pipeline：它不需�
 3. VAE：latent 转为最终图片。
 ChituDiffusion 需要允许注入 partial pipeline executor，而不是强制创建 TextEncode -> Denoise -> VAEDecode 全链路。
 
-class ImageDecoderExecutorFactory(Protocol):
-    def build(self, context: ExecutorBuildContext) -> "ImageDecoderExecutor": ...
+class DiffusionBackendFactory(Protocol):
+    def build(self, context: ExecutorBuildContext) -> "DiffusionBackend": ...
 
 
-class ImageDecoderExecutor(Protocol):
+class DiffusionBackend(Protocol):
     def prepare_request(
         self,
         request: ImageDecodeRequest,

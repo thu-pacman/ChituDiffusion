@@ -3,10 +3,10 @@
 Date: 2026-07-26
 
 This package adapts the Diffusers `QwenImagePipeline` to the shared
-`chitu_diffusers` EPAC runtime. It keeps model-specific prompt, scheduler,
+`chitu_diffusion` EPAC runtime. It keeps model-specific prompt, scheduler,
 packed-latent, CFG, transformer, and VAE behavior here; admission, measured
 scheduling, lane leases, state transfer, calibration, and worker lifecycle stay
-in `chitu_diffusers.epac`.
+in `chitu_diffusion.epac`.
 
 ## Supported Scope
 
@@ -57,4 +57,4 @@ BF16 on one H20 node.
 - Targeted Qwen/Flux regression tests pass in the designated environment.
 
 Generated images, JSON reports, and per-rank timelines are under
-`outputs/chitu-diffusers/qwen_image/` and remain untracked experiment evidence.
+`outputs/chitu/qwen_image/` and remain untracked experiment evidence.

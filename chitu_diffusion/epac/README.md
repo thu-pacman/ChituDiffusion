@@ -1,8 +1,45 @@
 # EPAC Core
 
-`chitu_diffusers.epac` contains only model-independent Elastic Parallel Caching
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+`chitu_diffusion.epac` contains only model-independent Elastic Parallel Caching
 Engine code. It must not import Z-Image, FastAPI, torchrun launchers, or the old
 ChituDiffusion backend.
+
+EPAC turns a fixed distributed stage into one or more context-parallel lanes.
+It profiles execution costs at startup, plans request placement against
+throughput and SLO objectives, and can resize lanes at pulse boundaries. Static
+generation and persistent serving use the same executor and request state
+contract.
+
+## Design principles
+
+- **Model-independent core:** model tensor conventions belong in
+  `chitu_diffusion.models`, never in the planner or worker protocol.
+- **One executor contract:** static CP, static DP, and elastic scheduling differ
+  in lane constraints, not in model execution semantics.
+- **Measured decisions:** the planner uses startup and online measurements
+  keyed by workload shape and lane width.
+- **Collective safety:** every rank in a lane receives the same lease and
+  executes identical distributed control flow.
+- **Explicit capabilities:** unsupported scheduling, transfer, or decode modes
+  fail early instead of falling back to a hidden pipeline call.
+
+## Execution model
+
+```text
+request queue
+    |
+request profile + measured cost table
+    |
+EpeSchedulingPolicy
+    |
+StepPlan(request, lane_ranks, K)
+    |
+PulseCoordinator ---- LaneLease ---- lane-local workers
+    ^                                      |
+    +------------- LaneReport -------------+
+```
 
 ## Ownership
 
@@ -25,6 +62,11 @@ ChituDiffusion backend.
 | `worker_pool.py` | Fixed-lane pools and point-to-point rank exchange transport |
 | `lane_broker.py` | Rank-local progress aggregation, pull, and pulse replanning |
 | `timeline.py` | Buffered rank-local execution events and shutdown-time trace flush |
+
+The public integration boundary is the executor lifecycle in
+`model_executor.py` and `image_decoder.py`. See
+[`../INTEGRATING_IMAGE_DECODER.md`](../INTEGRATING_IMAGE_DECODER.md) before
+adding a model adapter.
 
 ## Unified Strategies
 
@@ -110,3 +152,69 @@ startup table (including its interpolation/extrapolation), while the first
 lane-command observation enables correction for the next scheduling pulse.
 Updates inside a 5% relative-error deadband retain the current factor; factors
 from other resolutions are never used as a fallback.
+
+## Generate and serve behavior
+
+`generate` creates one full-world static-CP lane and performs no warmup or
+elastic planning. Every rank enters the executor; the leader owns the final
+Diffusers result.
+
+`serve` performs startup profiling, admits requests into request-local state,
+and repeatedly plans work at pulse boundaries. The stage leader owns ingress
+and completion publication while all ranks participate in lane execution.
+
+```bash
+# One distributed request.
+torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
+  generate --model zimage --model-path /path/to/Z-Image \
+  --output outputs/zimage.png
+
+# Persistent runtime from a native stage configuration.
+torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
+  serve --stage-config /path/to/stage.yaml
+```
+
+## Extending EPAC
+
+For a new model family:
+
+1. Implement the shared executor operations under
+   `chitu_diffusion/models/<family>/`.
+2. Declare capabilities and normalize public requests without leaking model
+   fields into EPAC scheduling types.
+3. Use lane ranks supplied by `StepPlan`; never cache a fixed CP world size in
+   the model backend.
+4. Keep scheduler, latents, timesteps, and step cursor request-local.
+5. Add CPU contract tests, then validate single-GPU and multi-rank output
+   against the native Diffusers pipeline.
+
+Changes to scheduling should extend `LaneConstraints` or the common policy.
+Do not create model-specific static-DP, static-CP, or elastic planner branches.
+
+## Validation
+
+From the repository root:
+
+```bash
+python -m pytest -q
+python -m ruff check chitu_diffusion/epac chitu_diffusion/models test
+```
+
+CPU tests cover request transitions, lane constraints, planner ordering,
+leases, reports, transfer contracts, and executor lifecycle. GPU acceptance
+must additionally verify collective order, deterministic request ownership,
+same-seed quality, lane resize, and leader-only result publication.
+
+## Current limitations
+
+- Arbitrary rank failure and distributed fatal-state recovery are not yet
+  implemented.
+- Running-request cancellation is not yet broadcast at denoise-step
+  boundaries.
+- Startup and online cost calibration model known workload keys; deployments
+  should warm the resolutions and lane widths they intend to serve.
+- FlexCache is deliberately disabled for persistent EPE serving. It is a
+  request-local optimization for static `generate`.
+
+EPAC is therefore a developer-preview runtime, not a production-GA fault
+tolerance layer.

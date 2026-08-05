@@ -2,7 +2,7 @@
 
 Date: 2026-07-27
 
-This package adapts Wan2.1 T2V to the shared `chitu_diffusers` EPAC runtime
+This package adapts Wan2.1 T2V to the shared `chitu_diffusion` EPAC runtime
 while retaining the official Diffusers execution surface. The runtime modules
 are `WanPipeline`, `WanTransformer3DModel`, `AutoencoderKLWan`,
 `FlowMatchEulerDiscreteScheduler`, `VideoProcessor`, and Transformers
@@ -77,4 +77,4 @@ Local checkpoint: `/home/chenyy/WORK/models/Wan2.1-T2V-1.3B`, Diffusers
   single-GPU 8-step result.
 
 Generated videos, warmup reports, and timelines are under
-`outputs/chitu-diffusers/wan/` and remain untracked experiment evidence.
+`outputs/chitu/wan/` and remain untracked experiment evidence.

@@ -3,7 +3,7 @@
 `experiments/chitu_api` now contains only the compatibility shell required by
 the original SGLang-Omni image-decoder experiment. The reusable runtime, EPAC
 scheduler, Z-Image adapter, parallel attention implementations, benchmark
-harness, and documentation live in `chitu_diffusers/`.
+harness, and documentation live in `chitu_diffusion/`.
 
 ## Retained files
 
@@ -41,8 +41,8 @@ The same config can be launched through the compatibility helper:
 ```
 
 Rank 0 prints `CHITU_API_READY` and serves the HTTP API. All implementation and
-benchmark commands are documented in `chitu_diffusers/README.md` and
-`chitu_diffusers/benchmarks/README.md`.
+benchmark commands are documented in `chitu_diffusion/README.md` and
+`chitu_diffusion/benchmarks/README.md`.
 
 ## Validation
 

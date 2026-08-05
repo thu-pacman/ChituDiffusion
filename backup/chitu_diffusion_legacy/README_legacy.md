@@ -85,6 +85,16 @@
 
 ## 🎯 核心特性
 
+> **新版主路径：** 新开发统一进入 `chitu_diffusion`，聚焦高性能 CP EPE DiT、
+> request-local FlexCache 和独立 ChituBench。旧 `chitu_diffusion` 的复杂配置、
+> stage/phased runtime 与 DiTango 已冻结为 backup。
+
+```bash
+chitu generate --model zimage --model-path /path/to/Z-Image
+chitu serve --stage-config /path/to/stage.yaml
+chitu benchmark --model flux1 --model-path /path/to/Flux-1
+```
+
 | 领域 | 包含内容 |
 |:---|:---|
 | **运行时** | `chitu run`、配置加载、分布式启动、任务执行、输出打包 |
@@ -432,6 +442,11 @@ A Feature-Cache-native evaluation suite that compares speed, quality, and memory
 ---
 
 ## 🎯 Core Features
+
+> **New primary path:** all new development targets `chitu_diffusion`, focused
+> on high-performance CP EPE DiT, request-local FlexCache, and standalone
+> ChituBench. The legacy `chitu_diffusion` configuration, stage/phased runtime,
+> and DiTango are frozen as backup implementations.
 
 | Area | What's Included |
 |:---|:---|

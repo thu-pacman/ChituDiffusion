@@ -8,11 +8,11 @@ backend contract and is available through `attention_mode="usp"`.
 ## First Integration Scope
 
 The first integration targets `FLUX.1-dev` text-to-image generation through the
-Diffusers-native `chitu_diffusers` stack. It supports:
+Diffusers-native `chitu_diffusion` stack. It supports:
 
 - `FluxPipeline` component loading from a local Diffusers checkpoint;
 - request-local CLIP + T5 encoding, packed latents, scheduler, and denoise state;
-- one resumable denoise step through `DiffusersModelAdapter`;
+- one resumable denoise step through the shared `DiffusersBackend`;
 - offline generation and the generic embedded EPAC runtime;
 - dynamic lane widths with AGKV or USP;
 - leader-side image postprocessing and lane-parallel tiled VAE decode.
@@ -52,13 +52,13 @@ Flux.1 should plug into these boundaries rather than add another runtime.
 | Packed latent helpers | `chitu_diffusion/modules/utils/flux` | Reuse or replace with upstream Diffusers helpers |
 | Flux block and weight layout | `chitu_diffusion/models/model_flux1.py` | Parallel-forward reference only |
 | Joint attention projections | `chitu_diffusion/modules/attention/flux_attention.py` | Projection/RoPE reference |
-| Dynamic topology and groups | `chitu_diffusers/parallel/groups.py` | Reuse directly |
-| Replicated-text, sharded-image attention | `chitu_diffusers/parallel/image_attention.py` | Reuse directly for AGKV/USP |
-| Runtime adapter contract | `chitu_diffusers/epac/adapters/base.py` | Implement `Flux1ModelAdapter` |
-| Embedded executor lifecycle | `chitu_diffusers/epac/model_executor.py` | Subclass and implement Flux hooks |
-| Measured scheduler facade | `chitu_diffusers/epac/model_scheduling.py` | Reuse directly |
-| Synchronous pipeline facade | `chitu_diffusers/epac/api.py` | Declare Flux pipeline and adapter |
-| End-to-end model pattern | `chitu_diffusers/models/zimage` | Mirror ownership and lifecycle, not tensor semantics |
+| Dynamic topology and groups | `chitu_diffusion/parallel/groups.py` | Reuse directly |
+| Replicated-text, sharded-image attention | `chitu_diffusion/parallel/image_attention.py` | Reuse directly for AGKV/USP |
+| Shared backend contract | `chitu_diffusion/epac/image_decoder.py` | Implement `Flux1ImageDecoderExecutor` |
+| Embedded executor lifecycle | `chitu_diffusion/epac/model_executor.py` | Subclass and implement Flux hooks |
+| Measured scheduler facade | `chitu_diffusion/epac/model_scheduling.py` | Reuse directly |
+| Synchronous pipeline facade | `chitu_diffusion/epac/api.py` | Declare Flux pipeline and backend |
+| End-to-end model pattern | `chitu_diffusion/models/zimage` | Mirror ownership and lifecycle, not tensor semantics |
 
 No change is required in the EPAC planner or lane broker for the first Flux.1
 integration. The generic cost model already keys on image tokens, lane width,
@@ -91,7 +91,7 @@ runtime reference keeps scheduler latents in float32.
 The implementation should add the following model-owned files:
 
 ```text
-chitu_diffusers/models/flux1/
+chitu_diffusion/models/flux1/
   __init__.py
   api.py          Flux1EPACPipeline and Flux1Request
   adapter.py      split Diffusers denoise-step adapter
@@ -172,7 +172,7 @@ The non-wrapper surface is the Flux dynamic-CP transformer, attention processor,
 request-state preparation, and Flux-specific warmup/decode behavior. Measured
 scheduling, executor lifecycle, stage-world setup, request validation/profile,
 state transfer, and synchronous API execution are shared under
-`chitu_diffusers.epac`. The scheduler and worker pool remain model-independent.
+`chitu_diffusion.epac`. The scheduler and worker pool remain model-independent.
 
 ## Bring-Up And Acceptance Order
 

@@ -1,4 +1,4 @@
-# chitu_diffusers examples
+# chitu_diffusion examples
 
 ## FLUX.2-klein
 
@@ -7,17 +7,17 @@ fixed full-world context-parallel baseline. The four-step distilled schedule is
 not wired into EPAC elastic switching.
 
 ```bash
-bash script/srun_direct.sh 1 1 chitu_diffusers/examples/flux2_klein_native.py \
+bash script/srun_direct.sh 1 1 chitu_diffusion/examples/flux2_klein_native.py \
   --model-path /path/to/flux2-klein \
   --output outputs/flux2_klein/native_512_4step.png
 
-bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux2_klein_cp.py \
+bash script/srun_direct.sh 1 4 chitu_diffusion/examples/flux2_klein_cp.py \
   --model-path /path/to/flux2-klein \
   --output outputs/flux2_klein/fixed_cp_4gpu_512_4step.png
 ```
 
 固定 CP 支持 distilled checkpoint、AGKV/USP 和 batch size 1，默认 AGKV。当前限制与验证
-结果见 `chitu_diffusers/models/flux2_klein/README.md`。
+结果见 `chitu_diffusion/models/flux2_klein/README.md`。
 
 ## Qwen-Image
 
@@ -25,24 +25,24 @@ bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux2_klein_cp.py \
 
 ```bash
 export CHITU_PROJECT_ROOT="$PWD"
-bash script/srun_direct.sh 1 1 chitu_diffusers/examples/qwen_image_native.py \
+bash script/srun_direct.sh 1 1 chitu_diffusion/examples/qwen_image_native.py \
   --model-path /path/to/Qwen-Image \
   --local-files-only --steps 50 \
-  --output outputs/chitu-diffusers/qwen_image/native_512_50.png
+  --output outputs/chitu/qwen_image/native_512_50.png
 ```
 
 四卡 EPAC 默认使用 CFP2 x CP2，并执行三次 startup warmup：
 
 ```bash
-bash script/srun_direct.sh 1 4 chitu_diffusers/examples/qwen_image_embedded.py \
+bash script/srun_direct.sh 1 4 chitu_diffusion/examples/qwen_image_embedded.py \
   --model-path /path/to/Qwen-Image \
   --resolution 512 --steps 50 --warmup-steps 3 \
   --policy elastic --record-timeline \
-  --output outputs/chitu-diffusers/qwen_image/epac_4gpu_512_50.png
+  --output outputs/chitu/qwen_image/epac_4gpu_512_50.png
 ```
 
 不启动 embedded worker 的同步 full-world API 可使用
-`chitu_diffusers/examples/qwen_image_epac.py`。
+`chitu_diffusion/examples/qwen_image_epac.py`。
 
 增加 `--secondary-steps 25` 会同时提交一个短请求，形成两个 width-2 lane，
 并在短请求完成后验证长请求扩容到 width 4 的 state migration。使用
@@ -56,35 +56,36 @@ Diffusers loop：
 
 ```bash
 export CHITU_PROJECT_ROOT="$PWD"
-bash script/srun_direct.sh 1 1 chitu_diffusers/examples/wan_native.py \
+bash script/srun_direct.sh 1 1 chitu_diffusion/examples/wan_native.py \
   --model-path /path/to/Wan2.1-T2V-1.3B \
   --steps 4 --frames 17 \
-  --output outputs/chitu-diffusers/wan/diffusers_native/wan.mp4
+  --output outputs/chitu/wan/diffusers_native/wan.mp4
 ```
 
 四卡同步 EPAC 默认采用 CFP2 x CP2：
 
 ```bash
-bash script/srun_direct.sh 1 4 chitu_diffusers/examples/wan_epac.py \
+bash script/srun_direct.sh 1 4 chitu_diffusion/examples/wan_epac.py \
   --model-path /path/to/Wan2.1-T2V-1.3B \
   --steps 4 --frames 17 \
-  --output outputs/chitu-diffusers/wan/epac/wan.mp4
+  --output outputs/chitu/wan/epac/wan.mp4
 ```
 
 embedded elastic runtime 会执行至少三次 warmup；增加短请求可覆盖 lane 重规划和
 state migration：
 
 ```bash
-bash script/srun_direct.sh 1 4 chitu_diffusers/examples/wan_embedded.py \
+bash script/srun_direct.sh 1 4 chitu_diffusion/examples/wan_embedded.py \
   --model-path /path/to/Wan2.1-T2V-1.3B \
   --steps 8 --secondary-steps 2 --frames 17 --warmup-steps 3 \
   --policy elastic --no-balanced-k --record-timeline \
-  --output outputs/chitu-diffusers/wan/embedded/wan.mp4
+  --output outputs/chitu/wan/embedded/wan.mp4
 ```
 
 视频 VAE 默认按 active lane 切分 latent width 并行 decode，使用 8 列 latent halo，
 再由 lane leader 汇总完整视频帧。`--no-parallel-vae` 可切回 leader-only 对照，
-`--vae-parallel-halo N` 可调整 overlap；尚未提供 HTTP MP4 endpoint。
+`--vae-parallel-halo N` 可调整 overlap。服务路径会将最终帧编码为 MP4，并通过统一
+结果接口返回 `video/mp4` payload。
 
 ## FLUX.1-dev
 
@@ -99,7 +100,7 @@ export FLUX1_MODEL_PATH=/home/chenyy/WORK/models/Flux-1
 原生 Diffusers 基线：
 
 ```bash
-bash script/srun_direct.sh 1 1 chitu_diffusers/examples/flux1_native.py \
+bash script/srun_direct.sh 1 1 chitu_diffusion/examples/flux1_native.py \
   --model-path "$FLUX1_MODEL_PATH" \
   --output outputs/flux1-diffusers/native.png
 ```
@@ -107,7 +108,7 @@ bash script/srun_direct.sh 1 1 chitu_diffusers/examples/flux1_native.py \
 静态 full-world AGKV lane：
 
 ```bash
-bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux1_epac.py \
+bash script/srun_direct.sh 1 4 chitu_diffusion/examples/flux1_epac.py \
   --model-path "$FLUX1_MODEL_PATH" \
   --output outputs/flux1-diffusers/cp4.png
 ```
@@ -115,7 +116,7 @@ bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux1_epac.py \
 动态 lane 切换正确性检查：
 
 ```bash
-bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux1_dynamic.py \
+bash script/srun_direct.sh 1 4 chitu_diffusion/examples/flux1_dynamic.py \
   --model-path "$FLUX1_MODEL_PATH" \
   --lane-widths 1,4,2 \
   --output outputs/flux1-diffusers/dynamic.png
@@ -124,7 +125,7 @@ bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux1_dynamic.py \
 embedded runtime：
 
 ```bash
-bash script/srun_direct.sh 1 4 chitu_diffusers/examples/flux1_embedded.py \
+bash script/srun_direct.sh 1 4 chitu_diffusion/examples/flux1_embedded.py \
   --model-path "$FLUX1_MODEL_PATH" \
   --resolution 512 \
   --steps 2 \
@@ -137,7 +138,8 @@ Flux AutoencoderKL 的 latent halo，默认值为 8。
 
 FLUX.1 的 AGKV 和 USP 使用相同动态 lane 接口，默认 AGKV；增加
 `--attention-mode usp --ulysses-degree 2` 可切换后端。true CFG、IP-Adapter、
-ControlNet、LoRA、Schnell 和 FlexCache 尚未验收。
+ControlNet、LoRA 和 Schnell 尚未验收。`generate` 已支持 MagCache、TeaCache、
+TaylorSeer 和 PAB；支持矩阵与标定限制见 `chitu_diffusion/flexcache/README.md`。
 
 ## Z-Image
 
@@ -153,7 +155,7 @@ export ZIMAGE_MODEL_PATH=/path/to/Z-Image
 
 ```bash
 ../ChituDiffusion/.venv/bin/python \
-  -m chitu_diffusers.examples.zimage_native \
+  -m chitu_diffusion.examples.zimage_native \
   --local-files-only \
   --steps 50
 ```
@@ -167,13 +169,13 @@ warmup，也不运行 elastic layout planner。
 ../ChituDiffusion/.venv/bin/torchrun \
   --standalone \
   --nproc-per-node=4 \
-  --module chitu_diffusers.examples.zimage_epe \
+  --module chitu_diffusion.examples.zimage_epe \
   --local-files-only \
   --steps 50
 ```
 
 单卡可以将 `torchrun` 替换为普通 Python。默认输出为
-`outputs/chitu-diffusers/zimage_epe.png`。
+`outputs/chitu/zimage_epe.png`。
 
 多卡 CFG 默认采用 CFP2 优先布局：二卡为 CFP2 x CP1，四卡为 CFP2 x CP2。
 传入 `--no-cfg-parallel` 可运行整 lane 纯 CP 对照。
@@ -188,7 +190,7 @@ EPAC worker：
 ../ChituDiffusion/.venv/bin/torchrun \
   --standalone \
   --nproc-per-node=4 \
-  --module chitu_diffusers.examples.zimage_embedded \
+  --module chitu_diffusion.examples.zimage_embedded \
   --model-path "$ZIMAGE_MODEL_PATH" \
   --resolution 512 \
   --steps 12
@@ -204,7 +206,7 @@ EPAC worker：
 ../ChituDiffusion/.venv/bin/torchrun \
   --standalone \
   --nproc-per-node=4 \
-  --module chitu_diffusers.examples.zimage_serve \
+  --module chitu_diffusion.examples.zimage_serve \
   --model-path "$ZIMAGE_MODEL_PATH" \
   --local-files-only \
   --attention-mode agkv \
@@ -238,5 +240,5 @@ curl -X POST http://NODE:18200/v1/image-decode \
   }'
 ```
 
-缓存字段已经在 `CacheConfig` 中保留，但当前只有 `strategy="none"` 可执行；MeanCache 和
-TeaCache 会 fail fast，不会静默降级。
+FlexCache 仅在 `generate` 路径执行；`serve` 对所有非 `none` 策略 fail fast，不会
+静默降级或在排队请求之间共享 cache state。

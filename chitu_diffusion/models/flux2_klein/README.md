@@ -34,12 +34,12 @@ four denoise steps, and seed 7:
 Run the two retained entry points with:
 
 ```bash
-python chitu_diffusers/examples/flux2_klein_native.py \
+python chitu_diffusion/examples/flux2_klein_native.py \
   --model-path /path/to/flux2-klein \
   --output outputs/flux2_klein/native_512_4step.png
 
 torchrun --standalone --nproc-per-node 4 \
-  chitu_diffusers/examples/flux2_klein_cp.py \
+  chitu_diffusion/examples/flux2_klein_cp.py \
   --model-path /path/to/flux2-klein \
   --output outputs/flux2_klein/fixed_cp_4gpu_512_4step.png
 ```
