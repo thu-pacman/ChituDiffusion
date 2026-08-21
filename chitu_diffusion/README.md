@@ -80,7 +80,7 @@ chitu serve --stage-config /path/to/stage.yaml
 ```
 
 新入口不读取旧 `chitu run` 的 OmegaConf 配置。替换前的 runtime、ChituBench、
-stage/phased runtime 和 DiTango 仅作为 backup 保留，不再承接新功能。
+stage/phased runtime 和 DiTango 已从当前仓库移除。
 
 ### FlexCache
 
