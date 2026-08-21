@@ -95,7 +95,18 @@ class Flux1CpAttnProcessor:
             joint_value,
             lane_process_group=self.parallel.active.process_group,
             usp_topology=(
-                self.parallel.active_usp if self.attention.mode == "usp" else None
+                self.parallel.active_usp_for_heads(attn.heads)
+                if self.attention.mode == "usp"
+                else None
+            ),
+            agkv_transport=(
+                getattr(
+                    getattr(self.parallel, "active_usp", None),
+                    "agkv_transport",
+                    None,
+                )
+                if self.attention.mode == "agkv"
+                else None
             ),
             joint_first=True,
         )

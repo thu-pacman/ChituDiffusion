@@ -256,7 +256,7 @@ class DiffusionFactoryConfig:
     default_height: int = 1024
     num_frames: int = 17
     attention_mode: str = "agkv"
-    ulysses_degree: int = 1
+    ulysses_degree: int | None = None
     cfg_parallel: bool = True
     parallel_vae: bool = True
     vae_parallel_halo: int = 8
@@ -270,9 +270,8 @@ class DiffusionFactoryConfig:
         width = int(raw.get("default_width", 1024))
         height = int(raw.get("default_height", 1024))
         attention_mode = str(raw.get("attention_mode", "agkv"))
-        ulysses_degree = int(
-            raw.get("ulysses_degree", 2 if attention_mode == "usp" else 1)
-        )
+        raw_degree = raw.get("ulysses_degree")
+        ulysses_degree = None if raw_degree is None else int(raw_degree)
         if num_steps < 1:
             raise ValueError("factory_args.num_steps must be >= 1")
         if width < 16 or height < 16 or width % 16 or height % 16:
@@ -281,7 +280,7 @@ class DiffusionFactoryConfig:
             )
         if attention_mode not in {"agkv", "usp"}:
             raise ValueError("factory_args.attention_mode must be one of: agkv, usp")
-        if ulysses_degree < 1:
+        if ulysses_degree is not None and ulysses_degree < 1:
             raise ValueError("factory_args.ulysses_degree must be positive")
         vae_parallel_halo = int(raw.get("vae_parallel_halo", 8))
         num_frames = int(raw.get("num_frames", 17))

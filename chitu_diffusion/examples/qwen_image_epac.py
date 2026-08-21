@@ -14,6 +14,10 @@ from chitu_diffusion.examples.cache_args import (
     add_cache_arguments,
     cache_config_from_args,
 )
+from chitu_diffusion.examples.parallel_args import (
+    add_parallel_transport_arguments,
+    static_parallel_pipeline_kwargs,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,6 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--attention-mode", choices=("agkv", "usp"), default="agkv")
     parser.add_argument("--ulysses-degree", type=int)
+    add_parallel_transport_arguments(parser)
     parser.add_argument(
         "--cfg-parallel", action=argparse.BooleanOptionalAction, default=True
     )
@@ -55,6 +60,7 @@ def main() -> None:
         attention_mode=args.attention_mode,
         ulysses_degree=args.ulysses_degree,
         cfg_parallel=args.cfg_parallel,
+        **static_parallel_pipeline_kwargs(args),
     )
     try:
         torch.cuda.synchronize()
@@ -86,6 +92,8 @@ def main() -> None:
                         "cfg_parallel": args.cfg_parallel,
                         "attention_mode": args.attention_mode,
                         "ulysses_degree": args.ulysses_degree,
+                        "ulysses_transport": args.ulysses_transport,
+                        "agkv_transport": args.agkv_transport,
                         "seed": args.seed,
                         "generate_seconds": generate_seconds,
                         "sha256": digest,

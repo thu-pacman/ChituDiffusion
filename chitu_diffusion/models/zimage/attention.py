@@ -98,7 +98,16 @@ class ZImageCpAttnProcessor:
                 key[:, image_tokens:],
                 value[:, image_tokens:],
                 lane_process_group=self.parallel.active.process_group,
-                usp_topology=(self.parallel.active_usp if self.mode == "usp" else None),
+                usp_topology=(self.parallel.active_usp_for_heads(attn.heads) if self.mode == "usp" else None),
+                agkv_transport=(
+                    getattr(
+                    getattr(self.parallel, "active_usp", None),
+                    "agkv_transport",
+                    None,
+                )
+                    if self.mode == "agkv"
+                    else None
+                ),
             )
             output = torch.cat([image_output, joint_output], dim=1)
         else:

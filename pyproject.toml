@@ -40,6 +40,11 @@ exclude = ["backup*"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
+markers = [
+    "benchmark: performance measurements excluded from routine correctness runs",
+    "distributed: requires torchrun with multiple ranks",
+    "gpu: requires CUDA devices",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
@@ -73,6 +78,7 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 sageattention = { git = "https://github.com/thu-ml/SageAttention.git" }
 spas_sage_attn = { git = "https://github.com/thu-ml/SpargeAttn.git" }
+fast-ulysses = { git = "https://github.com/triple-mu/fast-ulysses.git", rev = "6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87" }
 
 
 
@@ -80,6 +86,7 @@ spas_sage_attn = { git = "https://github.com/thu-ml/SpargeAttn.git" }
 flash_attn = ["torch==2.9.1"]
 sageattention = ["torch==2.9.1", "numpy==2.4.0", "ninja"]
 spas_sage_attn = ["torch==2.9.1"]
+fast-ulysses = ["torch==2.9.1", "cmake", "ninja"]
 
 [tool.uv.extra-build-variables]
 flash_attn     = { FLASH_ATTENTION_FORCE_BUILD = "TRUE", MAX_JOBS="8", FLASH_ATTN_CUDA_ARCHS = "90" }
@@ -112,7 +119,12 @@ eval = [
     "hpsv3==1.0.0",
 ]
 flash = ["flash_attn"]
-usp = ["flash_attn", "yunchang>=0.6.0"]
+flash3 = ["kernels==0.11.7"]
+usp = ["flash_attn"]
 flashinfer = ["flashinfer-python", "ninja"]
 sage = ["sageattention"]
 sparge = ["spas_sage_attn"]
+fast-ulysses = ["fast-ulysses"]
+qknorm = [
+    "ninja>=1.13.0",
+]

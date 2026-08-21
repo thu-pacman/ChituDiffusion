@@ -13,6 +13,10 @@ from chitu_diffusion.examples.cache_args import (
     add_cache_arguments,
     cache_config_from_args,
 )
+from chitu_diffusion.examples.parallel_args import (
+    add_parallel_transport_arguments,
+    static_parallel_pipeline_kwargs,
+)
 
 
 def main() -> None:
@@ -32,6 +36,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--attention-mode", choices=("agkv", "usp"), default="agkv")
     parser.add_argument("--ulysses-degree", type=int)
+    add_parallel_transport_arguments(parser)
     parser.add_argument(
         "--cfg-parallel", action=argparse.BooleanOptionalAction, default=True
     )
@@ -54,6 +59,7 @@ def main() -> None:
         parallel_vae=not args.no_parallel_vae,
         vae_parallel_halo=args.vae_parallel_halo,
         flow_shift=args.flow_shift,
+        **static_parallel_pipeline_kwargs(args),
     )
     started = time.perf_counter()
     try:
@@ -85,6 +91,8 @@ def main() -> None:
                         "cfg_parallel": args.cfg_parallel,
                         "attention_mode": args.attention_mode,
                         "ulysses_degree": args.ulysses_degree,
+                        "ulysses_transport": args.ulysses_transport,
+                        "agkv_transport": args.agkv_transport,
                         "parallel_vae": not args.no_parallel_vae,
                         "vae_parallel_halo": args.vae_parallel_halo,
                         "elapsed_s": elapsed_s,

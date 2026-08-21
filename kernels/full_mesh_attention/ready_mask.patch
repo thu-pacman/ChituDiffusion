@@ -1,0 +1,377 @@
+diff --git a/flash_attn/cute/flash_fwd_sm90.py b/flash_attn/cute/flash_fwd_sm90.py
+--- a/flash_attn/cute/flash_fwd_sm90.py
++++ b/flash_attn/cute/flash_fwd_sm90.py
+@@ -121,13 +121,16 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+         **kwargs,
+     ):
+         super().__init__(*args, **kwargs)
+-        self.intra_wg_overlap = intra_wg_overlap
++        self.streaming_ready_mask = streaming_kv and streaming_world_size < 0
++        self.intra_wg_overlap = intra_wg_overlap and not self.streaming_ready_mask
+         self.mma_pv_is_rs = mma_pv_is_rs
+         self.buffer_align_bytes = 1024
+         self.use_tma_KV = not paged_kv_non_tma
+         self.streaming_kv = streaming_kv
+         self.streaming_slots = streaming_slots
+-        self.streaming_world_size = streaming_world_size
++        self.streaming_world_size = (
++            1 if self.streaming_ready_mask else streaming_world_size
++        )
+         assert self.use_tma_KV or not (self.check_hdim_oob or self.check_hdim_v_oob), (
+             "Paged KV does not support irregular head dim"
+         )
+@@ -197,6 +200,7 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+         mbar_ptr_Q_struct = cute.struct.MemRange[cutlass.Int64, 1 * 2]
+         mbar_ptr_K_struct = cute.struct.MemRange[cutlass.Int64, self.num_stages * 2]
+         mbar_ptr_V_struct = cute.struct.MemRange[cutlass.Int64, self.num_stages * 2]
++        sBlockIds_struct = cute.struct.MemRange[cutlass.Int32, self.num_stages]
+ 
+         @cute.struct
+         class SharedStorageQKV:
+@@ -207,6 +211,17 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+             sQ: sQ_struct
+             sK: sK_struct
+             sP: sP_struct
++            sBlockIds: sBlockIds_struct
++
++        @cute.struct
++        class SharedStorageQKVFixed:
++            mbar_ptr_Q: mbar_ptr_Q_struct
++            mbar_ptr_K: mbar_ptr_K_struct
++            mbar_ptr_V: mbar_ptr_V_struct
++            sV: sV_struct
++            sQ: sQ_struct
++            sK: sK_struct
++            sP: sP_struct
+ 
+         @cute.struct
+         class SharedStorageSharedQV:
+@@ -216,8 +231,20 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+             sQ: sQV_struct
+             sK: sK_struct
+             sP: sP_struct
++            sBlockIds: sBlockIds_struct
++
++        @cute.struct
++        class SharedStorageSharedQVFixed:
++            mbar_ptr_Q: mbar_ptr_Q_struct
++            mbar_ptr_K: mbar_ptr_K_struct
++            mbar_ptr_V: mbar_ptr_V_struct
++            sQ: sQV_struct
++            sK: sK_struct
++            sP: sP_struct
+ 
+-        return SharedStorageQKV if const_expr(not self.Q_in_regs) else SharedStorageSharedQV
++        if const_expr(self.streaming_ready_mask):
++            return SharedStorageQKV if const_expr(not self.Q_in_regs) else SharedStorageSharedQV
++        return SharedStorageQKVFixed if const_expr(not self.Q_in_regs) else SharedStorageSharedQVFixed
+ 
+     @cute.jit
+     def __call__(
+@@ -594,6 +621,11 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+         # ///////////////////////////////////////////////////////////////////////////////
+         sQ = storage.sQ.get_tensor(sQ_layout.outer, swizzle=sQ_layout.inner)
+         sK = storage.sK.get_tensor(sK_layout.outer, swizzle=sK_layout.inner)
++        sBlockIds = (
++            storage.sBlockIds.get_tensor(cute.make_layout(self.num_stages))
++            if const_expr(self.streaming_ready_mask)
++            else None
++        )
+         if const_expr(not self.Q_in_regs):
+             sV = storage.sV.get_tensor(sV_layout.outer, swizzle=sV_layout.inner)
+         else:
+@@ -676,6 +708,7 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+                 TileSchedulerCls,
+                 kv_ready_flags,
+                 kv_epoch,
++                sBlockIds,
+             )
+ 
+         else:  # Consumer
+@@ -711,8 +744,87 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+                 blocksparse_tensors,
+                 aux_data,
+                 fastdiv_mods,
++                sBlockIds,
+             )
+ 
++    @cute.jit
++    def _next_ready_block(
++        self,
++        phase_flags: cute.Tensor,
++        epoch: Int32,
++        slot_thresh,
++        n_block_min: Int32,
++        n_block_max: Int32,
++        pending_mask: Int32,
++        active_next: Int32,
++        active_min: Int32,
++        tidx: Int32,
++    ):
++        if active_next <= active_min:
++            chosen = Int32(-1)
++            chosen_min = Int32(0)
++            chosen_max = Int32(0)
++            # Prefer a segment whose payload is already visible. Reverse
++            # probing preserves the old high-to-low traversal as a tie-break.
++            for probe in cutlass.range_constexpr(self.streaming_slots):
++                slot = self.streaming_slots - 1 - probe
++                slot_min = cutlass.max(slot_thresh[slot], n_block_min)
++                slot_max = (
++                    cutlass.min(slot_thresh[slot + 1], n_block_max)
++                    if const_expr(slot + 1 < self.streaming_slots)
++                    else n_block_max
++                )
++                observed = Int32(0)
++                if tidx % 32 == 0:
++                    observed = _ld_acquire_sys(phase_flags.iterator + slot)
++                observed = cute.arch.shuffle_sync(observed, 0)
++                ready = observed == epoch
++                if (
++                    chosen < 0
++                    and (pending_mask & (Int32(1) << slot)) != 0
++                    and slot_min < slot_max
++                    and ready
++                ):
++                    chosen = Int32(slot)
++                    chosen_min = slot_min
++                    chosen_max = slot_max
++
++            # Nothing was ready at the instant of the scan. Block on the
++            # highest pending segment, then continue without a global barrier.
++            if chosen < 0:
++                for probe in cutlass.range_constexpr(self.streaming_slots):
++                    slot = self.streaming_slots - 1 - probe
++                    slot_min = cutlass.max(slot_thresh[slot], n_block_min)
++                    slot_max = (
++                        cutlass.min(slot_thresh[slot + 1], n_block_max)
++                        if const_expr(slot + 1 < self.streaming_slots)
++                        else n_block_max
++                    )
++                    if (
++                        chosen < 0
++                        and (pending_mask & (Int32(1) << slot)) != 0
++                        and slot_min < slot_max
++                    ):
++                        if tidx % 32 == 0:
++                            _wait_eq_sys(
++                                phase_flags.iterator,
++                                Int32(0),
++                                slot,
++                                epoch,
++                            )
++                        cute.arch.sync_warp()
++                        chosen = Int32(slot)
++                        chosen_min = slot_min
++                        chosen_max = slot_max
++
++            pending_mask = pending_mask & ~(Int32(1) << chosen)
++            active_min = chosen_min
++            active_next = chosen_max
++
++        n_block = active_next - 1
++        active_next -= 1
++        return n_block, pending_mask, active_next, active_min
++
+     @cute.jit
+     def load(
+         self,
+@@ -736,6 +848,7 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+         TileSchedulerCls: Callable,
+         mKvReadyFlags: Optional[cute.Tensor],
+         mKvEpoch: Optional[cute.Tensor],
++        sBlockIds: cute.Tensor,
+     ):
+         warp_idx_in_wg = cute.arch.make_warp_uniform(cute.arch.warp_idx()) % 4
+         tidx, _, _ = cute.arch.thread_idx()
+@@ -859,6 +972,14 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+ 
+                 if const_expr(not self.use_block_sparsity):
+                     n_block_min, n_block_max = block_info.get_n_block_min_max(seqlen, m_block)
++                    ready_pending_mask = Int32(0)
++                    ready_active_next = Int32(0)
++                    ready_active_min = Int32(0)
++                    if const_expr(self.streaming_ready_mask):
++                        assert self.streaming_slots <= 31
++                        ready_pending_mask = (
++                            Int32(1) << self.streaming_slots
++                        ) - Int32(1)
+                     # if cute.arch.thread_idx()[0] == 0:
+                     #     cute.printf("m_block = %d, n_block_min: %d, n_block_max: %d", m_block, n_block_min, n_block_max)
+                     # Clamp n_block to 0 when n_block_max == 0 (can happen with causal
+@@ -870,6 +991,23 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+                         if const_expr(self.use_tma_KV)
+                         else cutlass.max(n_block_max - 1, 0)
+                     )
++                    if const_expr(self.streaming_ready_mask):
++                        (
++                            n_block,
++                            ready_pending_mask,
++                            ready_active_next,
++                            ready_active_min,
++                        ) = self._next_ready_block(
++                            phase_flags,
++                            epoch,
++                            slot_thresh,
++                            n_block_min,
++                            n_block_max,
++                            ready_pending_mask,
++                            ready_active_next,
++                            ready_active_min,
++                            tidx,
++                        )
+                     page_idx = (
+                         mPageTable[batch_idx, n_block]
+                         if const_expr(mPageTable is not None and self.use_tma_KV)
+@@ -878,7 +1016,7 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+ 
+                     # First iteration: load K on pipeline_k, Q on pipeline_q
+                     if is_kv_load_warp:
+-                        if const_expr(self.streaming_kv):
++                        if const_expr(self.streaming_kv and not self.streaming_ready_mask):
+                             slot = Int32(0)
+                             for probe in cutlass.range_constexpr(
+                                 1, self.streaming_slots
+@@ -912,6 +1050,8 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+                                                 )
+                                 last_ready_slot = slot
+                         pipeline_k.producer_acquire(kv_producer_state)
++                        if const_expr(self.streaming_ready_mask):
++                            sBlockIds[kv_producer_state.index] = n_block
+                         if const_expr(not self.use_tma_KV):
+                             paged_kv_manager.load_page_table(n_block)
+                         load_K(block=n_block, producer_state=kv_producer_state, page_idx=page_idx)
+@@ -937,7 +1077,25 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+                             )
+                             kv_producer_state.advance()
+                             for i in cutlass.range(n_block_max - 1 - n_block_min, unroll=1):
+-                                n_block = n_block_max - 1 - i - 1
++                                if const_expr(self.streaming_ready_mask):
++                                    (
++                                        n_block,
++                                        ready_pending_mask,
++                                        ready_active_next,
++                                        ready_active_min,
++                                    ) = self._next_ready_block(
++                                        phase_flags,
++                                        epoch,
++                                        slot_thresh,
++                                        n_block_min,
++                                        n_block_max,
++                                        ready_pending_mask,
++                                        ready_active_next,
++                                        ready_active_min,
++                                        tidx,
++                                    )
++                                else:
++                                    n_block = n_block_max - 1 - i - 1
+                                 page_idx = (
+                                     mPageTable[batch_idx, n_block]
+                                     if const_expr(mPageTable is not None and self.use_tma_KV)
+@@ -945,7 +1103,7 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+                                 )
+                                 if const_expr(not self.use_tma_KV):
+                                     paged_kv_manager.load_page_table(n_block)
+-                                if const_expr(self.streaming_kv):
++                                if const_expr(self.streaming_kv and not self.streaming_ready_mask):
+                                     slot = Int32(0)
+                                     for probe in cutlass.range_constexpr(
+                                         1, self.streaming_slots
+@@ -979,6 +1137,8 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+                                                                 )
+                                         last_ready_slot = slot
+                                 pipeline_k.producer_acquire(kv_producer_state)
++                                if const_expr(self.streaming_ready_mask):
++                                    sBlockIds[kv_producer_state.index] = n_block
+                                 load_K(
+                                     block=n_block,
+                                     producer_state=kv_producer_state,
+@@ -1007,7 +1167,7 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+                                 )
+                                 kv_producer_state_prev = kv_producer_state.clone()
+                                 kv_producer_state.advance()
+-                                if const_expr(self.streaming_kv):
++                                if const_expr(self.streaming_kv and not self.streaming_ready_mask):
+                                     slot = Int32(0)
+                                     for probe in cutlass.range_constexpr(
+                                         1, self.streaming_slots
+@@ -1155,6 +1315,7 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+         blocksparse_tensors: Optional[BlockSparseTensors],
+         aux_data: AuxData = AuxData(),
+         fastdiv_mods=None,
++        sBlockIds: Optional[cute.Tensor] = None,
+     ):
+         aux_tensors = aux_data.tensors
+         warp_group_idx = cute.arch.make_warp_uniform(tidx // self.num_threads_per_warp_group)
+@@ -1217,6 +1378,7 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+             smem_copy_params=smem_copy_params,
+             check_inf=True,
+             scores_scale=scores_scale,
++            sBlockIds=sBlockIds,
+         )
+ 
+         process_first_half_block = partial(
+@@ -1301,7 +1463,33 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+             # ==========================================
+             # MAINLOOP
+             # ==========================================
+-            if const_expr(not self.use_block_sparsity):
++            if const_expr(self.streaming_ready_mask):
++                # The producer records the actual global K/V block carried by
++                # each pipeline stage. This lets communication arrival order
++                # drive TMA production without changing online-softmax math.
++                self.warp_scheduler_barrier_sync()
++                kv_consumer_state = mma_one_n_block(
++                    kv_consumer_state,
++                    n_block=Int32(0),
++                    seqlen=seqlen,
++                    mma_pv_fn=partial(mma_pv_fn, zero_init=True),
++                    is_first_n_block=True,
++                    mask_fn=partial(mask_fn, mask_mod=self.mask_mod, mask_seqlen=True),
++                )
++                for _ in cutlass.range(n_block_max - n_block_min - 1, unroll=1):
++                    kv_consumer_state = mma_one_n_block(
++                        kv_consumer_state,
++                        n_block=Int32(0),
++                        seqlen=seqlen,
++                        mma_pv_fn=partial(mma_pv_fn, zero_init=False),
++                        is_first_n_block=False,
++                        mask_fn=partial(mask_fn, mask_mod=self.mask_mod, mask_seqlen=True),
++                    )
++                O_should_accumulate = True
++                pipeline_q.consumer_release_w_index(0)
++                self.warp_scheduler_barrier_arrive()
++
++            if const_expr(not self.use_block_sparsity and not self.streaming_ready_mask):
+                 # ==========================================
+                 # No block-sparsity (original path)
+                 # ==========================================
+@@ -1384,7 +1572,7 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+                 else:
+                     self.warp_scheduler_barrier_arrive()
+ 
+-            else:
++            elif const_expr(self.use_block_sparsity):
+                 # ==========================================
+                 # Block sparsity
+                 # ==========================================
+@@ -1558,8 +1746,11 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+         mask_fn: Optional[Callable] = None,
+         is_first_n_block: cutlass.Constexpr = False,
+         check_inf: cutlass.Constexpr = True,
++        sBlockIds: Optional[cute.Tensor] = None,
+     ):
+         pipeline_k.consumer_wait(smem_pipe_read, pipeline_k.consumer_try_wait(smem_pipe_read))
++        if const_expr(self.streaming_ready_mask):
++            n_block = Int32(sBlockIds[smem_pipe_read.index])
+         # S = Q @ K.T
+         acc_S = mma_qk_fn(B_idx=smem_pipe_read.index, wg_wait=-1)
+         self.warp_scheduler_barrier_arrive()
+@@ -1619,6 +1810,7 @@ class FlashAttentionForwardSm90(FlashAttentionForwardBase):
+         score_mod_fn: Optional[Callable] = None,
+         mask_fn: Optional[Callable] = None,
+         check_inf: cutlass.Constexpr = True,
++        sBlockIds: Optional[cute.Tensor] = None,
+     ):
+         smem_pipe_read_v = smem_pipe_read.clone()
+         smem_pipe_read.advance()

@@ -73,6 +73,7 @@ __pypackages__/
 .github
 .env
 .venv
+.venv-*/
 env/
 venv/
 ENV/
@@ -107,6 +108,13 @@ dumps/*
 log/*
 logs/*
 *.log
+
+# Reproducible kernel benchmark intermediates and CuTe compiler dumps.
+.cute_dump/
+kernels/.tmp-*
+kernels/results/
+*.nsys-rep
+*.sqlite
 
 # Vim
 .*.swp

@@ -16,7 +16,9 @@ from chitu_diffusion.parallel import (
     cfg_parallel_rank_groups,
     parallel_tiled_vae_decode,
     resolve_context_parallel_config,
+    select_ulysses_degree,
 )
+from chitu_diffusion.parallel.groups import ulysses_ring_rank_groups
 
 
 def _free_port() -> int:
@@ -51,7 +53,7 @@ def test_cfg_parallel_rank_groups_pair_matching_cp_shards() -> None:
 
 def test_context_parallel_config_defaults_to_agkv() -> None:
     assert resolve_context_parallel_config() == ("agkv", 1)
-    assert resolve_context_parallel_config("usp") == ("usp", 2)
+    assert resolve_context_parallel_config("usp") == ("usp", None)
     assert resolve_context_parallel_config("USP", 4) == ("usp", 4)
 
     with pytest.raises(ValueError, match="agkv, usp"):
@@ -60,14 +62,57 @@ def test_context_parallel_config_defaults_to_agkv() -> None:
         resolve_context_parallel_config("usp", 0)
 
 
+@pytest.mark.parametrize(
+    ("cp_degree", "heads", "local_width", "expected"),
+    [
+        (8, 12, 8, 4),
+        (8, 3, 8, 1),
+        (8, 40, 8, 8),
+        (16, 12, 8, 4),
+        (4, 6, 4, 2),
+    ],
+)
+def test_head_aware_ulysses_degree(
+    cp_degree: int,
+    heads: int,
+    local_width: int,
+    expected: int,
+) -> None:
+    assert (
+        select_ulysses_degree(
+            cp_degree,
+            heads,
+            max_ulysses_degree=local_width,
+        )
+        == expected
+    )
+
+
+def test_ulysses_ring_groups_follow_noncontiguous_node_placement() -> None:
+    placements = {
+        0: ("node-a", 0),
+        1: ("node-b", 0),
+        2: ("node-a", 1),
+        3: ("node-b", 1),
+        4: ("node-a", 2),
+        5: ("node-b", 2),
+        6: ("node-a", 3),
+        7: ("node-b", 3),
+    }
+    ulysses, ring = ulysses_ring_rank_groups(tuple(range(8)), placements, 2)
+    assert ulysses == ((0, 2), (4, 6), (1, 3), (5, 7))
+    assert ring == ((0, 4, 1, 5), (2, 6, 3, 7))
+
+
 def _assert_lane_equivalence(
     parallel: EpeParallelContext,
     *,
     lane: tuple[int, ...],
     seed: int,
+    heads: int = 3,
 ) -> None:
     generator = torch.Generator().manual_seed(seed)
-    batch, local_tokens, text_tokens, heads, head_dim = 1, 2, 3, 3, 4
+    batch, local_tokens, text_tokens, head_dim = 1, 2, 3, 4
     full_tokens = local_tokens * len(lane)
     image_query = torch.randn(batch, full_tokens, heads, head_dim, generator=generator)
     image_key = torch.randn(batch, full_tokens, heads, head_dim, generator=generator)
@@ -88,7 +133,7 @@ def _assert_lane_equivalence(
             text_key,
             text_value,
             lane_process_group=parallel.active.process_group,
-            usp_topology=parallel.active_usp,
+            usp_topology=parallel.active_usp_for_heads(heads),
         )
     reference = _reference_attention(
         torch.cat([image_query, text_query], dim=1),
@@ -114,9 +159,10 @@ def _assert_self_attention_equivalence(
     *,
     lane: tuple[int, ...],
     seed: int,
+    heads: int = 3,
 ) -> None:
     generator = torch.Generator().manual_seed(seed)
-    batch, local_tokens, heads, head_dim = 1, 3, 3, 4
+    batch, local_tokens, head_dim = 2, 3, 4
     full_tokens = local_tokens * len(lane)
     query = torch.randn(batch, full_tokens, heads, head_dim, generator=generator)
     key = torch.randn(batch, full_tokens, heads, head_dim, generator=generator)
@@ -131,11 +177,23 @@ def _assert_self_attention_equivalence(
             key[:, start:stop],
             value[:, start:stop],
             lane_process_group=parallel.active.process_group,
-            usp_topology=parallel.active_usp,
+            usp_topology=parallel.active_usp_for_heads(heads),
+        )
+        agkv_output = ImageSelfAttention("agkv")(
+            query[:, start:stop],
+            key[:, start:stop],
+            value[:, start:stop],
+            lane_process_group=parallel.active.process_group,
         )
     reference = _reference_attention(query, key, value)
     torch.testing.assert_close(
         output,
+        reference[:, start:stop],
+        rtol=1e-5,
+        atol=1e-6,
+    )
+    torch.testing.assert_close(
+        agkv_output,
         reference[:, start:stop],
         rtol=1e-5,
         atol=1e-6,
@@ -158,8 +216,19 @@ def _usp_worker(rank: int, world_size: int, port: int) -> None:
     )
     assert parallel.active_usp.ulysses_degree == 2
     assert parallel.active_usp.ring_degree == 2
+    assert parallel.active_usp_for_heads(3).ulysses_degree == 1
+    assert parallel.active_usp_for_heads(3).ring_degree == 4
+    assert parallel.active_usp_for_heads(6).ulysses_degree == 2
+    assert parallel.active_usp_for_heads(6).ring_degree == 2
     _assert_lane_equivalence(parallel, lane=(0, 1, 2, 3), seed=31)
     _assert_self_attention_equivalence(parallel, lane=(0, 1, 2, 3), seed=37)
+    _assert_lane_equivalence(parallel, lane=(0, 1, 2, 3), seed=41, heads=6)
+    _assert_self_attention_equivalence(
+        parallel,
+        lane=(0, 1, 2, 3),
+        seed=43,
+        heads=6,
+    )
 
     lane = (0, 1) if rank < 2 else (2, 3)
     with parallel.activate(lane):

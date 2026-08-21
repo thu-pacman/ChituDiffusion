@@ -32,7 +32,7 @@ def main() -> None:
         choices=("agkv", "usp"),
         default="agkv",
     )
-    parser.add_argument("--ulysses-degree", type=int, default=2)
+    parser.add_argument("--ulysses-degree", type=int, default=None)
     parser.add_argument(
         "--cfg-parallel",
         action=argparse.BooleanOptionalAction,

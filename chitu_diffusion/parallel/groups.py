@@ -1,15 +1,25 @@
 from __future__ import annotations
 
 import os
+import socket
+from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from threading import RLock
-from typing import Iterator
 
 import torch
 import torch.distributed as dist
 
-from .topology import UspTopology
+from .agkv_transport import (
+    AgkvTransport,
+    create_agkv_transport,
+    resolve_agkv_transport,
+)
+from .topology import UspTopology, select_ulysses_degree
+from .ulysses_transport import (
+    UlyssesTransport,
+    resolve_ulysses_transport,
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +66,46 @@ def cfg_parallel_rank_groups(
     return cp_groups, cfg_pairs
 
 
+def ulysses_ring_rank_groups(
+    lane_ranks: tuple[int, ...],
+    rank_placements: dict[int, tuple[str, int]],
+    ulysses_degree: int,
+) -> tuple[tuple[tuple[int, ...], ...], tuple[tuple[int, ...], ...]]:
+    """Build node-local U rows and orthogonal Ring columns."""
+
+    lane = tuple(int(rank) for rank in lane_ranks)
+    degree = int(ulysses_degree)
+    if degree < 1 or len(lane) % degree:
+        raise ValueError("Ulysses degree must be a positive divisor of the lane width")
+    if any(rank not in rank_placements for rank in lane):
+        raise ValueError("every lane rank must have a hostname/local-rank placement")
+    ranks_by_host: dict[str, list[int]] = {}
+    for lane_rank in lane:
+        hostname, _ = rank_placements[lane_rank]
+        ranks_by_host.setdefault(hostname, []).append(lane_rank)
+    node_rows = tuple(
+        tuple(
+            sorted(
+                node_ranks,
+                key=lambda node_rank: rank_placements[node_rank][1],
+            )
+        )
+        for _, node_ranks in sorted(ranks_by_host.items())
+    )
+    if any(len(node_ranks) % degree for node_ranks in node_rows):
+        raise ValueError("Ulysses rows cannot cross a node boundary")
+    ulysses_groups = tuple(
+        tuple(node_ranks[start : start + degree])
+        for node_ranks in node_rows
+        for start in range(0, len(node_ranks), degree)
+    )
+    ring_groups = tuple(
+        tuple(group[ulysses_index] for group in ulysses_groups)
+        for ulysses_index in range(degree)
+    )
+    return ulysses_groups, ring_groups
+
+
 class EpeParallelContext:
     """Instance-local EPAC process-group registry and active lane view.
 
@@ -72,8 +122,10 @@ class EpeParallelContext:
         local_rank: int,
         allowed_widths: tuple[int, ...],
         groups: dict[tuple[int, ...], object | None],
-        usp_topologies: dict[tuple[int, ...], UspTopology],
+        usp_topologies: dict[tuple[tuple[int, ...], int], UspTopology],
         cfg_topologies: dict[tuple[int, ...], CfgParallelTopology],
+        owned_ulysses_transports: tuple[object, ...],
+        owned_agkv_transports: tuple[AgkvTransport, ...],
         owned_groups: tuple[object, ...],
         owns_world: bool,
     ) -> None:
@@ -84,6 +136,8 @@ class EpeParallelContext:
         self._groups = groups
         self._usp_topologies = usp_topologies
         self._cfg_topologies = cfg_topologies
+        self._owned_ulysses_transports = owned_ulysses_transports
+        self._owned_agkv_transports = owned_agkv_transports
         self._owned_groups = owned_groups
         self._owns_world = owns_world
         self._worker_control_plane: object | None = None
@@ -101,8 +155,10 @@ class EpeParallelContext:
         init_process_group: bool = True,
         backend: str | None = None,
         owns_process_group: bool | None = None,
-        ulysses_degree: int = 1,
-    ) -> "EpeParallelContext":
+        ulysses_degree: int | None = None,
+        ulysses_transport: str | None = None,
+        agkv_transport: str | None = None,
+    ) -> EpeParallelContext:
         world_size = int(os.environ.get("WORLD_SIZE", "1"))
         rank = int(os.environ.get("RANK", "0"))
         local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -132,8 +188,27 @@ class EpeParallelContext:
         )
         widths = tuple(int(width) for width in widths)
         cls._validate_widths(widths, world_size)
-        if ulysses_degree < 1:
+        if ulysses_degree is not None and ulysses_degree < 1:
             raise ValueError("ulysses_degree must be positive")
+        requested_transport = resolve_ulysses_transport(ulysses_transport)
+        requested_agkv_transport = resolve_agkv_transport(agkv_transport)
+        local_placement = (socket.gethostname(), local_rank)
+        placements: list[tuple[str, int] | None] = [None] * world_size
+        if dist.is_initialized():
+            dist.all_gather_object(
+                placements,
+                local_placement,
+                group=dist.group.WORLD,
+            )
+        else:
+            placements[0] = local_placement
+        rank_placements = {
+            current_rank: placement
+            for current_rank, placement in enumerate(placements)
+            if placement is not None
+        }
+        if len(rank_placements) != world_size:
+            raise RuntimeError("failed to collect every rank's node placement")
 
         groups: dict[tuple[int, ...], object | None] = {}
         owned: list[object] = []
@@ -171,48 +246,173 @@ class EpeParallelContext:
                 owned.append(group)
             return group
 
-        usp_topologies: dict[tuple[int, ...], UspTopology] = {}
+        node_rank_groups = tuple(
+            tuple(
+                sorted(
+                    (
+                        placed_rank
+                        for placed_rank, (placed_host, _) in rank_placements.items()
+                        if placed_host == hostname
+                    ),
+                    key=lambda placed_rank: rank_placements[placed_rank][1],
+                )
+            )
+            for hostname in sorted(
+                {placement[0] for placement in rank_placements.values()}
+            )
+        )
+        for node_ranks in node_rank_groups:
+            process_group_for(node_ranks)
+        local_node_ranks = next(
+            node_ranks for node_ranks in node_rank_groups if rank in node_ranks
+        )
+        local_node_group = process_group_for(local_node_ranks)
+
+        usp_topologies: dict[tuple[tuple[int, ...], int], UspTopology] = {}
         topology_widths = tuple(
             sorted({*widths, *(width // 2 for width in widths if width % 2 == 0)})
         )
         for width in topology_widths:
-            effective_ulysses = min(int(ulysses_degree), width)
-            while width % effective_ulysses:
-                effective_ulysses -= 1
-            ring_degree = width // effective_ulysses
             for offset in range(0, world_size, width):
                 lane = tuple(range(offset, offset + width))
-                ulysses_groups = tuple(
+                node_rows = tuple(
                     tuple(
-                        lane[ring_index * effective_ulysses + ulysses_index]
-                        for ulysses_index in range(effective_ulysses)
+                        sorted(
+                            (
+                                lane_rank
+                                for lane_rank in lane
+                                if rank_placements[lane_rank][0] == hostname
+                            ),
+                            key=lambda node_rank: rank_placements[node_rank][1],
+                        )
                     )
-                    for ring_index in range(ring_degree)
-                )
-                ring_groups = tuple(
-                    tuple(
-                        lane[ring_index * effective_ulysses + ulysses_index]
-                        for ring_index in range(ring_degree)
+                    for hostname in sorted(
+                        {rank_placements[lane_rank][0] for lane_rank in lane}
                     )
-                    for ulysses_index in range(effective_ulysses)
                 )
-                for subgroup in (*ulysses_groups, *ring_groups):
-                    process_group_for(subgroup)
-                if rank not in lane:
-                    continue
-                ulysses_ranks = next(group for group in ulysses_groups if rank in group)
-                ring_ranks = next(group for group in ring_groups if rank in group)
-                usp_topologies[lane] = UspTopology(
-                    lane_ranks=lane,
-                    ulysses_ranks=ulysses_ranks,
-                    ring_ranks=ring_ranks,
-                    ulysses_rank=ulysses_ranks.index(rank),
-                    ring_rank=ring_ranks.index(rank),
-                    ulysses_degree=effective_ulysses,
-                    ring_degree=ring_degree,
-                    ulysses_process_group=process_group_for(ulysses_ranks),
-                    ring_process_group=process_group_for(ring_ranks),
+                local_width = min(len(node_ranks) for node_ranks in node_rows)
+                maximum = min(
+                    width,
+                    local_width,
+                    int(ulysses_degree) if ulysses_degree is not None else local_width,
                 )
+                candidates = tuple(
+                    degree
+                    for degree in range(1, maximum + 1)
+                    if width % degree == 0
+                    and all(len(node_ranks) % degree == 0 for node_ranks in node_rows)
+                )
+                for effective_ulysses in candidates:
+                    ulysses_groups, ring_groups = ulysses_ring_rank_groups(
+                        lane,
+                        rank_placements,
+                        effective_ulysses,
+                    )
+                    for subgroup in (*ulysses_groups, *ring_groups):
+                        process_group_for(subgroup)
+                    if rank not in lane:
+                        continue
+                    ulysses_ranks = next(
+                        group for group in ulysses_groups if rank in group
+                    )
+                    ring_ranks = next(group for group in ring_groups if rank in group)
+                    usp_topologies[(lane, effective_ulysses)] = UspTopology(
+                        lane_ranks=lane,
+                        ulysses_ranks=ulysses_ranks,
+                        ring_ranks=ring_ranks,
+                        ulysses_rank=ulysses_ranks.index(rank),
+                        ring_rank=ring_ranks.index(rank),
+                        ulysses_degree=effective_ulysses,
+                        ring_degree=width // effective_ulysses,
+                        ulysses_process_group=process_group_for(ulysses_ranks),
+                        ring_process_group=process_group_for(ring_ranks),
+                    )
+
+        device = (
+            torch.device("cuda", local_rank)
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
+        owned_ulysses_transports: list[object] = []
+        fast_node_runtime = None
+        if requested_transport in {"auto", "fast_ulysses"}:
+            from .fast_cp._runtime import probe_fast_ulysses
+
+            local_capability = probe_fast_ulysses(
+                device,
+                require_hopper=True,
+                require_subgroups=True,
+            )
+            capabilities: list[tuple[bool, str] | None] = [None] * world_size
+            dist.all_gather_object(capabilities, local_capability, group=dist.group.WORLD)
+            failures = [
+                f"rank {capability_rank}: {result[1]}"
+                for capability_rank, result in enumerate(capabilities)
+                if result is None or not result[0]
+            ]
+            if failures and requested_transport == "fast_ulysses":
+                raise RuntimeError(
+                    "fast_ulysses subgroup runtime is unavailable: "
+                    + "; ".join(failures)
+                )
+            if not failures and len(local_node_ranks) > 1:
+                from .fast_cp.ulysses import FastUlyssesNodeRuntime
+
+                fast_node_runtime = FastUlyssesNodeRuntime(local_node_group, device)
+                owned_ulysses_transports.append(fast_node_runtime)
+
+        from .nccl.ulysses import TorchUlyssesTransport
+
+        for topology_key, topology in tuple(usp_topologies.items()):
+            lane, _ = topology_key
+            fallback = TorchUlyssesTransport(topology.ulysses_process_group)
+            transport: UlyssesTransport = fallback
+            if fast_node_runtime is not None and topology.ulysses_degree > 1:
+                from .fast_cp.ulysses import FastUlyssesSubgroupTransport
+
+                local_rank_by_global = {
+                    global_rank: runtime_rank
+                    for runtime_rank, global_rank in enumerate(local_node_ranks)
+                }
+                transport = FastUlyssesSubgroupTransport(
+                    fast_node_runtime,
+                    peer_ranks=tuple(
+                        local_rank_by_global[global_rank]
+                        for global_rank in topology.ulysses_ranks
+                    ),
+                    fallback=fallback,
+                )
+            usp_topologies[topology_key] = replace(
+                topology,
+                ulysses_transport=transport,
+            )
+            if transport is not fallback:
+                owned_ulysses_transports.append(transport)
+
+        owned_agkv_transports: list[AgkvTransport] = []
+        agkv_by_lane: dict[tuple[int, ...], AgkvTransport] = {}
+        for topology_key, topology in tuple(usp_topologies.items()):
+            lane, _ = topology_key
+            transport_name = requested_agkv_transport
+            static_full_world = (
+                lane == world_ranks and set(widths) == {1, world_size}
+            )
+            if transport_name in {"auto", "fast_agkv"} and lane != world_ranks:
+                transport_name = "torch"
+            transport = agkv_by_lane.get(lane)
+            if transport is None:
+                transport = create_agkv_transport(
+                    transport_name,
+                    process_group=process_group_for(lane),
+                    device=device,
+                    static_full_world=static_full_world,
+                )
+                agkv_by_lane[lane] = transport
+                owned_agkv_transports.append(transport)
+            usp_topologies[topology_key] = replace(
+                topology,
+                agkv_transport=transport,
+            )
 
         cfg_topologies: dict[tuple[int, ...], CfgParallelTopology] = {}
         for width in widths:
@@ -249,6 +449,8 @@ class EpeParallelContext:
             groups=groups,
             usp_topologies=usp_topologies,
             cfg_topologies=cfg_topologies,
+            owned_ulysses_transports=tuple(owned_ulysses_transports),
+            owned_agkv_transports=tuple(owned_agkv_transports),
             owned_groups=tuple(owned),
             owns_world=owns_world,
         )
@@ -288,11 +490,40 @@ class EpeParallelContext:
     @property
     def active_usp(self) -> UspTopology:
         topology = self.active
-        try:
-            return self._usp_topologies[topology.ranks]
-        except KeyError as exc:
+        candidates = [
+            candidate
+            for (lane, _), candidate in self._usp_topologies.items()
+            if lane == topology.ranks
+        ]
+        if not candidates:
             raise RuntimeError(
                 f"USP topology was not initialized for lane {topology.ranks}"
+            )
+        return max(candidates, key=lambda candidate: candidate.ulysses_degree)
+
+    def active_usp_for_heads(self, heads: int) -> UspTopology:
+        """Return the largest pre-created U factor that divides ``heads``."""
+
+        topology = self.active
+        candidates = {
+            degree: candidate
+            for (lane, degree), candidate in self._usp_topologies.items()
+            if lane == topology.ranks
+        }
+        if not candidates:
+            raise RuntimeError(
+                f"USP topology was not initialized for lane {topology.ranks}"
+            )
+        degree = select_ulysses_degree(
+            topology.width,
+            heads,
+            max_ulysses_degree=max(candidates),
+        )
+        try:
+            return candidates[degree]
+        except KeyError as exc:
+            raise RuntimeError(
+                f"USP U{degree} topology was not pre-created for lane {topology.ranks}"
             ) from exc
 
     def cfg_parallel_topology(
@@ -396,6 +627,10 @@ class EpeParallelContext:
                 return
             self._closed = True
         if dist.is_initialized():
+            for transport in reversed(self._owned_agkv_transports):
+                transport.close()
+            for transport in reversed(self._owned_ulysses_transports):
+                transport.close()
             for group in reversed(self._owned_control_groups):
                 dist.destroy_process_group(group)
             for group in reversed(self._owned_groups):

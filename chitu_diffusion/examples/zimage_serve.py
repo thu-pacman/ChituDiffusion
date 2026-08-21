@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
         choices=("agkv", "usp"),
         default="agkv",
     )
-    parser.add_argument("--ulysses-degree", type=int, default=2)
+    parser.add_argument("--ulysses-degree", type=int, default=None)
     parser.add_argument(
         "--cfg-parallel",
         action=argparse.BooleanOptionalAction,

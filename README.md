@@ -49,7 +49,11 @@ MagCache、MeanCache、TeaCache、TaylorSeer 和 PAB 以 request-local hook 解�
 
 ### 🚀 高性能上下文并行
 AGKV 与 USP attention、CFP/CP 混合布局和并行 VAE 使用动态 lane process group，
-加速图像与视频 DiT 推理。
+加速图像与视频 DiT 推理；静态单节点 CP 可显式选择 capability-gated Fast Ulysses
+或 Fast AGKV transport，不满足约束的动态 lane 保持 NCCL 路径。Fused Full-Mesh
+与 Fast Ring 当前仅用于研究 benchmark；安装约束和 H20 性能矩阵见
+[`parallel/fast_cp`](chitu_diffusion/parallel/fast_cp/README.md) 与
+[`Fast CP 结果摘要`](kernels/fast_cp_results.md)。
 
 </td>
 <td width="50%">
@@ -287,7 +291,12 @@ request-local hooks with rank-identical CFP/CP control flow.
 
 ### 🚀 High-Performance Context Parallelism
 AGKV and USP attention, mixed CFP/CP layouts, and parallel VAE use dynamic lane
-process groups to accelerate image and video DiT inference.
+process groups to accelerate image and video DiT inference. Static single-node
+CP can explicitly select capability-gated Fast Ulysses or Fast AGKV transports;
+dynamic lanes retain the NCCL path when those constraints do not hold. Fused
+Full-Mesh and Fast Ring remain research benchmarks; see the
+[`parallel/fast_cp`](chitu_diffusion/parallel/fast_cp/README.md) constraints and the
+[`Fast CP results`](kernels/fast_cp_results.md).
 
 </td>
 <td width="50%">

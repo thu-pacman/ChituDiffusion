@@ -12,6 +12,10 @@ from chitu_diffusion.examples.cache_args import (
     add_cache_arguments,
     cache_config_from_args,
 )
+from chitu_diffusion.examples.parallel_args import (
+    add_parallel_transport_arguments,
+    static_parallel_pipeline_kwargs,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,7 +38,8 @@ def parse_args() -> argparse.Namespace:
         choices=("agkv", "usp"),
         default="agkv",
     )
-    parser.add_argument("--ulysses-degree", type=int, default=2)
+    parser.add_argument("--ulysses-degree", type=int, default=None)
+    add_parallel_transport_arguments(parser)
     parser.add_argument(
         "--cfg-parallel",
         action=argparse.BooleanOptionalAction,
@@ -73,6 +78,7 @@ def main() -> None:
         attention_mode=args.attention_mode,
         ulysses_degree=args.ulysses_degree,
         cfg_parallel=args.cfg_parallel,
+        **static_parallel_pipeline_kwargs(args),
     )
     try:
         output = pipeline.generate(

@@ -1,17 +1,26 @@
 # Parallel
 
-该目录维护 EPAC 中与模型无关的并行拓扑、通信和计算。它不是仅面向 context
-parallel 的包：当前实现 CP，后续 CFG parallel 也应在此扩展，并复用同一套动态 lane
-和 process-group 生命周期。
+该目录维护 EPAC 中与模型无关的并行拓扑、通信和计算。根目录提供稳定 facade、
+topology/group 生命周期、公共 transport 协议与 factory，以及模型无关 attention
+编排；`fast_cp/` 集中 Fast-CP 算法与 NVSHMEM transport，`nccl/` 集中
+`torch.distributed`/NCCL 实现。它不是仅面向 context parallel 的包：当前实现 CP，
+后续 CFG parallel 也应复用同一套动态 lane 和 process-group 生命周期。
 
 - `groups.py`：启动阶段创建候选 lane group，并维护当前 active lane；
 - `topology.py`：active lane 对应的 Ulysses/Ring group view；
-- `usp.py`：支持调用时注入 group 的 Ulysses x Ring attention；
+- `usp.py`：Ulysses×Ring 兼容 facade；实现在 `fast_cp/ulysses_ring.py`；
 - `image_attention.py`：统一的 AGKV/USP 配置，以及 sharded self-attention 和
   `sharded image + replicated joint/text` 两类模型无关接口。
+- `ulysses_transport.py`、`agkv_transport.py`：公共协议、名称解析、能力 gate 与
+  factory；
+- `nccl/`：Torch Ulysses、AGKV、Ring 和 NCCL Full-Mesh prototype；
+- `fast_cp/`：Fast Ulysses、Fast AGKV attention/transport、Fast Ring 和
+  Ulysses×Ring；硬件、selector 和安装约束见
+  [`fast_cp/README.md`](fast_cp/README.md)。
 
-`groups.py` 是通用资源层；后三者是当前 context-parallel 实现。模型目录只能保留
-QKV/RoPE/布局等 glue，不应复制通信算子或创建 process group。
+`groups.py` 是通用资源层。模型目录只能依赖根目录公共协议/facade，并保留
+QKV/RoPE/布局及 overlap glue；不应 import `fast_cp/` 或 `nccl/` concrete，不应复制
+通信算子或创建 process group。
 
 USP 的 all-to-all 与 joint-ring schedule 基于 xDiT/xFuser 和 yunchang 的
 Apache-2.0 实现。与 xFuser 原始全局 `PROCESS_GROUP` 不同，这里的 group 是每次调用显式
@@ -24,12 +33,14 @@ Apache-2.0 实现。与 xFuser 原始全局 `PROCESS_GROUP` 不同，这里的 g
 uv sync --extra usp
 ```
 
-CUDA 路径使用 yunchang `SeqAllToAll4D`、FlashAttention 和 xDiT-style joint ring。
-CPU 路径只用于多进程数值回归，不代表服务性能。
+CUDA 的 NCCL 路径使用 `torch.distributed.all_to_all_single`、FlashAttention 和
+xDiT-style joint ring；Fast 路径按 capability gate 替换其中的 Ulysses transport。
+CPU/Gloo 路径只用于多进程数值回归，不代表服务性能。
 
 所有模型入口默认 `attention_mode="agkv"`。选择 `attention_mode="usp"` 且未指定
-`ulysses_degree` 时默认使用 degree 2；实际 active lane 会自动降到可整除该 lane width
-的 degree，因而同一实例可以在 u2r2、u2r1 和 u1r1 之间动态切换。
+`ulysses_degree` 时，根据实际 attention heads、active lane 和真实节点边界选择最大
+合法 U degree；剩余 degree 交给 NCCL Ring。显式 degree 是上限，也会向下选择同时
+整除 heads 与 lane width 的 divisor。U row 不跨节点，Ring column 可以跨节点。
 
 2026-07-28 在 4 x H20 上完成以下 USP smoke：Z-Image 512/2-step
 （`examples/zimage_epe.py`，Slurm `201838`）、FLUX.2-klein 512/1-step

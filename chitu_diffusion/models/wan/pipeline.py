@@ -62,6 +62,8 @@ class EpeWanPipeline(WanPipeline):
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
         allowed_widths = kwargs.pop("allowed_lane_widths", None)
+        ulysses_transport = kwargs.pop("ulysses_transport", None)
+        agkv_transport = kwargs.pop("agkv_transport", None)
         attention_mode, ulysses_degree = resolve_context_parallel_config(
             kwargs.pop("attention_mode", "agkv"),
             kwargs.pop("ulysses_degree", None),
@@ -80,6 +82,8 @@ class EpeWanPipeline(WanPipeline):
                     else None
                 ),
                 ulysses_degree=ulysses_degree,
+                ulysses_transport=ulysses_transport,
+                agkv_transport=agkv_transport,
             )
 
         model_path = Path(pretrained_model_name_or_path)

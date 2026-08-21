@@ -14,12 +14,18 @@ class Flux2KleinCpPipeline(Flux2KleinPipeline):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
+        ulysses_transport = kwargs.pop("ulysses_transport", None)
+        agkv_transport = kwargs.pop("agkv_transport", None)
         attention_mode, ulysses_degree = resolve_context_parallel_config(
             kwargs.pop("attention_mode", "agkv"),
             kwargs.pop("ulysses_degree", None),
         )
         if parallel is None:
-            parallel = EpeParallelContext.from_torchrun(ulysses_degree=ulysses_degree)
+            parallel = EpeParallelContext.from_torchrun(
+                ulysses_degree=ulysses_degree,
+                ulysses_transport=ulysses_transport,
+                agkv_transport=agkv_transport,
+            )
         transformer = kwargs.pop("transformer", None)
         if transformer is None:
             transformer_kwargs: dict[str, Any] = {

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import torch
-import torch.distributed as dist
 import torch.nn.functional as F
 
+from .agkv_transport import AgkvTransport
+from .nccl.agkv import all_gather_sequence_pair
 from .topology import UspTopology
 from .usp import DynamicUspAttention
-
 
 CONTEXT_PARALLEL_MODES = ("agkv", "usp")
 
@@ -14,7 +14,7 @@ CONTEXT_PARALLEL_MODES = ("agkv", "usp")
 def resolve_context_parallel_config(
     mode: str = "agkv",
     ulysses_degree: int | None = None,
-) -> tuple[str, int]:
+) -> tuple[str, int | None]:
     """Normalize the model-independent context-parallel backend settings."""
     normalized_mode = str(mode).lower()
     if normalized_mode not in CONTEXT_PARALLEL_MODES:
@@ -23,9 +23,9 @@ def resolve_context_parallel_config(
     degree = (
         int(ulysses_degree)
         if ulysses_degree is not None
-        else (2 if normalized_mode == "usp" else 1)
+        else (None if normalized_mode == "usp" else 1)
     )
-    if degree < 1:
+    if degree is not None and degree < 1:
         raise ValueError("ulysses_degree must be positive")
     return normalized_mode, degree
 
@@ -48,18 +48,6 @@ def _sdpa(
     )
 
 
-def _all_gather_sequence(
-    tensor: torch.Tensor,
-    process_group: object | None,
-) -> torch.Tensor:
-    world_size = dist.get_world_size(process_group) if process_group is not None else 1
-    if world_size == 1:
-        return tensor
-    pieces = [torch.empty_like(tensor) for _ in range(world_size)]
-    dist.all_gather(pieces, tensor.contiguous(), group=process_group)
-    return torch.cat(pieces, dim=1).contiguous()
-
-
 class ImageContextParallelAttention:
     """Attention for sequence-sharded image and replicated joint tokens."""
 
@@ -78,6 +66,7 @@ class ImageContextParallelAttention:
         *,
         lane_process_group: object | None,
         usp_topology: UspTopology | None = None,
+        agkv_transport: AgkvTransport | None = None,
         joint_first: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Return ``(joint_output, local_image_output)`` in sequence-major layout."""
@@ -95,8 +84,17 @@ class ImageContextParallelAttention:
             )
 
         local_image_tokens = image_query.shape[1]
-        full_image_key = _all_gather_sequence(image_key, lane_process_group)
-        full_image_value = _all_gather_sequence(image_value, lane_process_group)
+        if agkv_transport is None:
+            full_image_key, full_image_value = all_gather_sequence_pair(
+                image_key,
+                image_value,
+                lane_process_group,
+            )
+        else:
+            full_image_key, full_image_value = agkv_transport.all_gather_kv(
+                image_key,
+                image_value,
+            )
         if joint_first:
             joint_tokens = joint_query.shape[1]
             output = _sdpa(
@@ -134,6 +132,7 @@ class ImageSelfAttention:
         *,
         lane_process_group: object | None,
         usp_topology: UspTopology | None = None,
+        agkv_transport: AgkvTransport | None = None,
     ) -> torch.Tensor:
         if self.mode == "usp":
             if usp_topology is None:
@@ -144,8 +143,41 @@ class ImageSelfAttention:
                 value,
                 topology=usp_topology,
             )
-        return _sdpa(
+        if agkv_transport is None:
+            full_key, full_value = all_gather_sequence_pair(
+                key,
+                value,
+                lane_process_group,
+            )
+        else:
+            full_key, full_value = agkv_transport.all_gather_kv(key, value)
+        return _sdpa(query, full_key, full_value)
+
+    def finish_agkv(
+        self,
+        query: torch.Tensor,
+        full_key: torch.Tensor,
+        full_value: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.mode != "agkv":
+            raise RuntimeError("finish_agkv is only valid for AGKV attention")
+        return _sdpa(query, full_key, full_value)
+
+    def finish_usp(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        *,
+        topology: UspTopology,
+        output_tag: str | None = None,
+    ) -> torch.Tensor:
+        if self.mode != "usp":
+            raise RuntimeError("finish_usp is only valid for USP attention")
+        return self._usp.finish_self_attention(
             query,
-            _all_gather_sequence(key, lane_process_group),
-            _all_gather_sequence(value, lane_process_group),
+            key,
+            value,
+            topology=topology,
+            output_tag=output_tag,
         )
