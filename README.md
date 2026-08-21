@@ -10,7 +10,7 @@
 
 ---
 
-<h3 align="center">ChituDiffusion：高性能 Diffusers 推理运行时 — 弹性并行 · 缓存加速 · 统一服务</h3>
+<h3 align="center">ChituDiffusion：支持弹性并行、高性能上下文并行、缓存加速和统一服务的 Diffusers 推理运行时</h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python" alt="Python">
@@ -31,36 +31,32 @@ ChituDiffusion 是一个基于 Diffusers 生命周期的高性能上下文并行
 <tr>
 <td width="50%">
 
-### 🌐 Elastic Parallel Engine
-基于启动实测代价和端到端 SLO，在 pulse 边界动态重组 CP lane，并支持 request state
-migration。`generate` 与常驻 `serve` 共享同一 executor。
+### 🌐 Elastic Parallel Engine（EPE）
+EPE 根据启动时测得的代价和端到端 SLO，在 pulse 边界调整 CP lane，并迁移请求状态。
+`generate` 与常驻 `serve` 使用同一套 executor。
 
 </td>
 <td width="50%">
 
 ### ⚡ FlexCache
-MagCache、MeanCache、TeaCache、TaylorSeer 和 PAB 以 request-local hook 解耦接入，并
-保证 CFP/CP rank 控制流一致。
+MagCache、MeanCache、TeaCache、TaylorSeer 和 PAB 通过 request-local hook 接入
+`generate`。所有 rank 使用相同的 fresh/reuse 判定。
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-### 🚀 高性能上下文并行
-AGKV 与 USP attention、CFP/CP 混合布局和并行 VAE 使用动态 lane process group，
-加速图像与视频 DiT 推理；静态单节点 CP 可显式选择 capability-gated Fast Ulysses
-或 Fast AGKV transport，不满足约束的动态 lane 保持 NCCL 路径。Fused Full-Mesh
-与 Fast Ring 当前仅用于研究 benchmark；安装约束和 H20 性能矩阵见
-[`parallel/fast_cp`](chitu_diffusion/parallel/fast_cp/README.md) 与
-[`Fast CP 结果摘要`](kernels/fast_cp_results.md)。
+### 🚀 高性能上下文并行（Fast CP）
+Fast AGKV 传输全局 K/V，Fast Ulysses 在序列和 heads 之间重排数据。两者使用
+NVSHMEM 和 Copy Engine 减少通信等待。Fast Ring 用于低显存实验。
 
 </td>
 <td width="50%">
 
 ### 🧩 Diffusers-native
-模型适配器保留上游 pipeline 生命周期；AGKV、USP、CFP/CP 与并行 VAE 通过共享执行协议
-组合，而不是维护第二套推理栈。
+模型适配器保留上游 pipeline 生命周期。AGKV、USP、CFP/CP 与并行 VAE 使用共享的
+request、denoise、decode 和 postprocess 协议。
 
 </td>
 </tr>
@@ -78,8 +74,7 @@ AGKV 与 USP attention、CFP/CP 混合布局和并行 VAE 使用动态 lane proc
 | **Wan 2.1 T2V** | 静态 CP / CFP+CP | ✅ | MagCache、TeaCache、TaylorSeer、PAB | MP4 视频 |
 | **FLUX.2-klein** | 静态 CP baseline | ❌ 弹性切换 | 尚未验收 | 图片 |
 
-支持范围是显式且与模型相关的。未支持的缓存/模型组合会提前报错，不会静默退化为无缓存
-执行。
+缓存支持范围与模型相关。未支持的缓存和模型组合会在执行前报错。
 
 ---
 
@@ -99,7 +94,8 @@ chitu --help
 ```
 
 运行 `uv sync` 前，请根据集群 CUDA 版本修改 `pyproject.toml` 中的 PyTorch index。
-可选 USP 后端可通过 `uv sync --extra usp` 安装。
+USP 依赖通过 `uv sync --extra usp` 安装。Fast transport 需要单独编译，步骤见
+[Fast CP 文档](chitu_diffusion/parallel/fast_cp/README.md)。
 
 ### 2. 单请求生成
 
@@ -125,11 +121,16 @@ torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
 Slurm 环境可使用仓库 wrapper：
 
 ```bash
-bash script/srun_direct.sh 1 4 chitu_diffusion/examples/wan_epac.py \
-  --model-path /path/to/Wan2.1-T2V-1.3B \
-  --steps 50 \
-  --output outputs/wan.mp4
+bash script/srun_direct.sh 1 4 chitu_diffusion/examples/zimage_epe.py \
+  --model-path /path/to/Z-Image \
+  --steps 12 \
+  --output outputs/zimage.png
 ```
+
+单机 Hopper 可以添加 `--attention-mode usp --ulysses-transport fast_ulysses`
+启用 Fast Ulysses。`--agkv-transport fast_agkv` 启用 Fast AGKV K/V transport。
+Fused Fast AGKV attention 和 Fast Ring 目前用于 benchmark。安装方法和 H20 scaling
+图见 [Fast CP 文档](chitu_diffusion/parallel/fast_cp/README.md)。
 
 所有分布式 rank 都必须进入 `generate`；只有 full-world leader 返回并保存最终输出。
 
@@ -139,8 +140,8 @@ bash script/srun_direct.sh 1 4 chitu_diffusion/examples/wan_epac.py \
 chitu serve --stage-config /path/to/stage.yaml
 ```
 
-所有 rank 都进入 `serve`；stage leader 提供 HTTP，其他 rank 运行分布式 worker loop。
-该路径会显式拒绝非 `none` 的 FlexCache 策略。
+所有 rank 都进入 `serve`。stage leader 提供 HTTP，其他 rank 运行分布式 worker
+loop。
 
 ---
 
@@ -161,21 +162,23 @@ generate：full-world 静态 CP       serve：队列 + EPE pulse
 
 | 目录 | 职责 |
 |:---|:---|
-| [`chitu_diffusion/epac/`](chitu_diffusion/epac/) | 模型无关 executor、代价模型、调度策略、pulse 协议和 worker runtime |
+| [EPE runtime](chitu_diffusion/epac/) | executor、代价模型、调度策略、pulse 协议和 worker runtime |
 | [`chitu_diffusion/models/`](chitu_diffusion/models/) | 模型家族相关 tensor glue 和 Diffusers adapter |
 | [`chitu_diffusion/parallel/`](chitu_diffusion/parallel/) | 进程组、上下文并行 attention 和并行 VAE 通信 |
-| [`chitu_diffusion/flexcache/`](chitu_diffusion/flexcache/) | 不侵入模型 forward 的 request-local 缓存策略 |
+| [`chitu_diffusion/parallel/fast_cp/`](chitu_diffusion/parallel/fast_cp/) | Fast AGKV、Fast Ulysses 和 Fast Ring |
+| [`chitu_diffusion/flexcache/`](chitu_diffusion/flexcache/) | request-local 缓存策略和模型 profile |
 | [`chitu_diffusion/serve/`](chitu_diffusion/serve/) | 配置、HTTP 和分布式服务生命周期 |
 
-实现细节见[运行时说明](chitu_diffusion/README.md)、[EPAC 设计文档
-](chitu_diffusion/epac/README.zh-CN.md)和[FlexCache 扩展指南
+实现细节见[运行时说明](chitu_diffusion/README.md)、[EPE 设计文档
+](chitu_diffusion/epac/README.zh-CN.md)、[Fast CP 文档
+](chitu_diffusion/parallel/fast_cp/README.md)和[FlexCache 文档
 ](chitu_diffusion/flexcache/README.zh-CN.md)。
 
 ---
 
 ## 🧠 FlexCache
 
-FlexCache 仅用于单请求 `generate`：
+FlexCache 用于单请求 `generate`。EPE 常驻服务暂时不接入缓存策略。
 
 ```bash
 chitu generate \
@@ -186,14 +189,14 @@ chitu generate \
   --output outputs/wan-magcache.mp4
 ```
 
-策略状态属于单个请求，串行 CFG 分支相互隔离。fresh/reuse 判定只使用各 rank 复制的
-输入或共享日程，保证 CFP/CP rank 进入相同 collective。官方 MagCache 和 MeanCache
-profile 根据模型与步数选择，超出标定范围会直接报错。
+每个请求保存自己的缓存状态。串行 CFG 分支分别保存状态。fresh/reuse 判定只使用
+各 rank 共有的输入和日程，保证所有 rank 以相同顺序进入 collective。
 
-完整支持约束、新策略接入流程和并行安全要求见
+MagCache 和 MeanCache profile 只覆盖指定模型和步数。其他配置会在执行前报错。
+支持范围和新策略接入方法见
 [FlexCache 文档](chitu_diffusion/flexcache/README.zh-CN.md)。
 
-可复现对比记录：
+可复现实验记录：
 
 - [MagCache 对比](outputs/flexcache/magcache_compare_20260805/result.md)
 - [MeanCache 对比](outputs/flexcache/meancache_compare_20260804/result.md)
@@ -213,17 +216,20 @@ GPU 正确性必须按模型使用相同 seed 与原生 Diffusers baseline 对�
 
 贡献代码时：
 
-1. 模型无关行为放在 `epac/`、`parallel/` 或 `flexcache/`。
+1. EPE 调度放在 EPE runtime，通信与 attention 后端放在 `parallel/`，缓存策略放在
+   `flexcache/`。
 2. checkpoint 相关 tensor 适配放在 `models/<family>/`。
 3. 未支持能力必须显式报错。
 4. 增加 CPU contract 测试，并记录 GPU 命令和结果。
-5. 禁止用 rank-local 缓存信号改变分布式控制流。
+5. rank-local 缓存状态不能改变分布式控制流。
 
 ## ⚠️ 当前限制
 
 - 项目尚未达到 production GA，不保证任意 rank 故障后的恢复。
-- FlexCache 仅支持 `generate`；常驻 EPE 服务会拒绝缓存策略。
-- cache profile 针对特定模型、scheduler 和步数标定；改变条件后必须重新评估速度与质量。
+- EPE 暂时不接入 FlexCache。
+- cache profile 只对指定模型、scheduler 和步数有效，配置变化后需要重新评估速度和质量。
+- Fast transport 需要 Hopper、单机 P2P 和针对目标环境编译的 NVSHMEM 扩展。
+- Fast AGKV fused attention 和 Fast Ring 仍是 benchmark 能力。
 - FLUX.2-klein 目前仅提供固定静态 CP baseline。
 - 历史 ChituBench、DiTango、分阶段 runtime、配置、测试和结果冻结在
   [`backup/chitu_diffusion_legacy/`](backup/chitu_diffusion_legacy/)，不会进入 wheel
@@ -248,7 +254,7 @@ ChituDiffusion 使用 [MIT License](LICENSE)。模型权重和上游依赖仍受
 
 ---
 
-<h3 align="center">ChituDiffusion: High-Performance Diffusers Inference — Elastic Parallelism · Cache Acceleration · Unified Serving</h3>
+<h3 align="center">ChituDiffusion: Diffusers inference with elastic parallelism, high-performance context parallelism, cache acceleration, and unified serving</h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python" alt="Python">
@@ -272,39 +278,35 @@ parallelizes DiT denoising through one shared execution backend.
 <tr>
 <td width="50%">
 
-### 🌐 Elastic Parallel Engine
-Startup measurements and end-to-end SLOs drive dynamic CP-lane layouts and
-request-state migration at pulse boundaries. `generate` and persistent `serve`
-share the same executor.
+### 🌐 Elastic Parallel Engine (EPE)
+EPE uses startup measurements and end-to-end SLOs to adjust CP lanes and
+migrate request state at pulse boundaries. `generate` and persistent `serve`
+use the same executor.
 
 </td>
 <td width="50%">
 
 ### ⚡ FlexCache
-MagCache, MeanCache, TeaCache, TaylorSeer, and PAB integrate through
-request-local hooks with rank-identical CFP/CP control flow.
+MagCache, MeanCache, TeaCache, TaylorSeer, and PAB integrate with
+single-request `generate` through request-local hooks. Every rank uses the same
+fresh/reuse decision.
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-### 🚀 High-Performance Context Parallelism
-AGKV and USP attention, mixed CFP/CP layouts, and parallel VAE use dynamic lane
-process groups to accelerate image and video DiT inference. Static single-node
-CP can explicitly select capability-gated Fast Ulysses or Fast AGKV transports;
-dynamic lanes retain the NCCL path when those constraints do not hold. Fused
-Full-Mesh and Fast Ring remain research benchmarks; see the
-[`parallel/fast_cp`](chitu_diffusion/parallel/fast_cp/README.md) constraints and the
-[`Fast CP results`](kernels/fast_cp_results.md).
+### 🚀 High-Performance Context Parallelism (Fast CP)
+Fast AGKV transfers global K/V. Fast Ulysses redistributes data between the
+sequence and head dimensions. Both use NVSHMEM and Copy Engines to reduce
+communication wait time. Fast Ring supports low-memory experiments.
 
 </td>
 <td width="50%">
 
 ### 🧩 Diffusers-Native Integration
 Model adapters preserve upstream pipeline lifecycles. AGKV, USP, CFP/CP, and
-parallel VAE compose through a shared executor instead of a second inference
-stack.
+parallel VAE use shared request, denoise, decode, and postprocess contracts.
 
 </td>
 </tr>
@@ -322,8 +324,8 @@ stack.
 | **Wan 2.1 T2V** | Static CP / CFP+CP | ✅ | MagCache, TeaCache, TaylorSeer, PAB | MP4 video |
 | **FLUX.2-klein** | Static-CP baseline | No elastic switching | Not validated | Image |
 
-Support is explicit and model-specific. Unsupported cache/model combinations
-fail early instead of silently falling back to uncached execution.
+Cache support is model-specific. Unsupported cache and model combinations fail
+before execution.
 
 ---
 
@@ -343,7 +345,9 @@ chitu --help
 ```
 
 Select the appropriate PyTorch CUDA index in `pyproject.toml` before
-`uv sync`. Install the optional USP backend with `uv sync --extra usp`.
+`uv sync`. Install USP dependencies with `uv sync --extra usp`. Fast transports
+require a separate build described in the
+[Fast CP guide](chitu_diffusion/parallel/fast_cp/README.md).
 
 ### 2. Generate One Request
 
@@ -369,11 +373,18 @@ torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
 Use the repository wrapper on Slurm:
 
 ```bash
-bash script/srun_direct.sh 1 4 chitu_diffusion/examples/wan_epac.py \
-  --model-path /path/to/Wan2.1-T2V-1.3B \
-  --steps 50 \
-  --output outputs/wan.mp4
+bash script/srun_direct.sh 1 4 chitu_diffusion/examples/zimage_epe.py \
+  --model-path /path/to/Z-Image \
+  --steps 12 \
+  --output outputs/zimage.png
 ```
+
+On a single Hopper node, add
+`--attention-mode usp --ulysses-transport fast_ulysses` to enable Fast
+Ulysses. `--agkv-transport fast_agkv` enables the Fast AGKV K/V transport.
+Fused Fast AGKV attention and Fast Ring remain benchmark paths. See the
+[Fast CP guide](chitu_diffusion/parallel/fast_cp/README.md) for build steps and
+H20 scaling figures.
 
 Every distributed rank must enter `generate`; only the full-world leader
 returns and writes the final output.
@@ -385,8 +396,7 @@ chitu serve --stage-config /path/to/stage.yaml
 ```
 
 All ranks enter `serve`. The stage leader exposes HTTP while follower ranks run
-the distributed worker loop. This path explicitly rejects non-`none`
-FlexCache strategies.
+the distributed worker loop.
 
 ---
 
@@ -407,21 +417,24 @@ generate: full-world static CP     serve: queue + EPE pulses
 
 | Directory | Responsibility |
 |:---|:---|
-| [`chitu_diffusion/epac/`](chitu_diffusion/epac/) | Model-independent executor, cost model, scheduler, pulse protocol, and workers |
+| [EPE runtime](chitu_diffusion/epac/) | Executor, cost model, scheduler, pulse protocol, and workers |
 | [`chitu_diffusion/models/`](chitu_diffusion/models/) | Model-family tensor glue and Diffusers adapters |
 | [`chitu_diffusion/parallel/`](chitu_diffusion/parallel/) | Process groups, context-parallel attention, and parallel VAE communication |
-| [`chitu_diffusion/flexcache/`](chitu_diffusion/flexcache/) | Request-local cache strategies without model-forward branches |
+| [`chitu_diffusion/parallel/fast_cp/`](chitu_diffusion/parallel/fast_cp/) | Fast AGKV, Fast Ulysses, and Fast Ring |
+| [`chitu_diffusion/flexcache/`](chitu_diffusion/flexcache/) | Request-local cache strategies and model profiles |
 | [`chitu_diffusion/serve/`](chitu_diffusion/serve/) | Configuration, HTTP, and distributed service lifecycle |
 
-See the [runtime guide](chitu_diffusion/README.md), [EPAC design
-guide](chitu_diffusion/epac/README.md), and [FlexCache extension
+See the [runtime guide](chitu_diffusion/README.md), [EPE design
+guide](chitu_diffusion/epac/README.md), [Fast CP
+guide](chitu_diffusion/parallel/fast_cp/README.md), and [FlexCache
 guide](chitu_diffusion/flexcache/README.md).
 
 ---
 
 ## 🧠 FlexCache
 
-FlexCache is available only for single-request `generate`:
+FlexCache supports single-request `generate`. Persistent EPE serving does not
+currently use cache strategies.
 
 ```bash
 chitu generate \
@@ -432,13 +445,14 @@ chitu generate \
   --output outputs/wan-magcache.mp4
 ```
 
-Mutable state is request-local and serial CFG branches are isolated.
-Fresh/reuse decisions use replicated inputs or shared schedules so CFP and CP
-ranks enter identical collectives. Official MagCache and MeanCache profiles
-fail early outside their calibrated models and step counts.
+Each request owns its cache state. Serial CFG branches keep separate state.
+Fresh/reuse decisions use inputs and schedules shared by all ranks, so every
+rank enters collectives in the same order.
 
-See the [FlexCache guide](chitu_diffusion/flexcache/README.md) for support
-constraints, parallel-safety rules, and strategy integration.
+MagCache and MeanCache profiles cover specified models and step counts. Other
+configurations fail before execution. The
+[FlexCache guide](chitu_diffusion/flexcache/README.md) documents the support
+matrix and strategy integration.
 
 Reproducible reports:
 
@@ -461,19 +475,23 @@ with the same seed. Launchers and arguments are documented in
 
 Contribution boundaries:
 
-1. Keep model-independent behavior in `epac/`, `parallel/`, or `flexcache/`.
+1. Keep EPE scheduling in the EPE runtime, communication or attention backends
+   in `parallel/`, and cache strategies in `flexcache/`.
 2. Keep checkpoint-specific tensor adaptation in `models/<family>/`.
 3. Fail explicitly for unsupported capabilities.
 4. Add CPU contract tests and record GPU commands and results.
-5. Never let rank-local cache signals change distributed control flow.
+5. Rank-local cache state must not change distributed control flow.
 
 ## ⚠️ Current Limitations
 
 - The project is not production GA and does not guarantee recovery from an
   arbitrary rank failure.
-- FlexCache is generate-only; persistent EPE serving rejects cache strategies.
-- Cache profiles are calibrated for specific models, schedulers, and step
-  counts. Changing these requires a new quality/performance evaluation.
+- EPE does not currently integrate FlexCache.
+- Cache profiles apply only to their specified models, schedulers, and step
+  counts. Configuration changes require new speed and quality measurements.
+- Fast transports require Hopper, single-node P2P, and NVSHMEM extensions
+  compiled for the target environment.
+- Fused Fast AGKV attention and Fast Ring remain benchmark capabilities.
 - FLUX.2-klein currently provides a fixed static-CP baseline only.
 - Historical ChituBench, DiTango, staged runtime, configurations, tests, and
   results are frozen under
