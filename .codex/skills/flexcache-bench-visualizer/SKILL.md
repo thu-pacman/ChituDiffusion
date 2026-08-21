@@ -72,7 +72,7 @@ The visual sheet is for checking generated images, not for explaining the whole 
 
 ## Result.md Requirements
 
-When updating `outputs/flexcache/<run-id>/result.md`:
+When updating `docs/results/flexcache/<run-id>.md`:
 
 - Add the consolidated run ID and exact command snippets used to collect/evaluate/visualize.
 - State reused runs and newly launched runs separately.

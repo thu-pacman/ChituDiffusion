@@ -68,9 +68,8 @@ description: Adapt a new image diffusion model into the Diffusers-native ChituDi
 
 6. **Benchmark and visualization**
    - Use the model's `chitu_diffusion/examples/` entry point and keep a concise
-     reproducible `outputs/flexcache/<run-id>/result.md`. ChituBench is
-     currently archived under `backup/` and is not an active runtime entry
-     point.
+     reproducible `docs/results/flexcache/<run-id>.md`. Keep generated media
+     and raw measurements under the ignored `outputs/` directory.
    - Reuse previous runs by collecting summaries into a consolidated result directory instead of re-running model loads unnecessarily.
    - For FlexCache trade-off plots and visual sheets, use the `flexcache-bench-visualizer` skill.
    - Record commands, backend, parallel topology, speed, quality, and known

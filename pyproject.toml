@@ -36,7 +36,6 @@ chitu = "chitu_diffusion.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["chitu_diffusion*"]
-exclude = ["backup*"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

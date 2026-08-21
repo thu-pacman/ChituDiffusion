@@ -214,13 +214,13 @@ A strategy is not complete when unit tests pass. Validate it in layers:
    backends or dtypes.
 
 Text summaries and reproducible commands belong under
-`outputs/flexcache/<run-id>/result.md`. Generated media and raw temporary data
-should remain untracked.
+`docs/results/flexcache/<run-id>.md`. Generated media and raw temporary data
+belong under the ignored `outputs/` directory.
 
 Current comparison reports:
 
-- [`MagCache`](../../outputs/flexcache/magcache_compare_20260805/result.md)
-- [`MeanCache`](../../outputs/flexcache/meancache_compare_20260804/result.md)
+- [`MagCache`](../../docs/results/flexcache/magcache_compare_20260805.md)
+- [`MeanCache`](../../docs/results/flexcache/meancache_compare_20260804.md)
 
 ## Known trade-offs
 

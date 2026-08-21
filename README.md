@@ -198,8 +198,8 @@ MagCache 和 MeanCache profile 只覆盖指定模型和步数。其他配置会�
 
 可复现实验记录：
 
-- [MagCache 对比](outputs/flexcache/magcache_compare_20260805/result.md)
-- [MeanCache 对比](outputs/flexcache/meancache_compare_20260804/result.md)
+- [MagCache 对比](docs/results/flexcache/magcache_compare_20260805.md)
+- [MeanCache 对比](docs/results/flexcache/meancache_compare_20260804.md)
 
 ---
 
@@ -231,9 +231,6 @@ GPU 正确性必须按模型使用相同 seed 与原生 Diffusers baseline 对�
 - Fast transport 需要 Hopper、单机 P2P 和针对目标环境编译的 NVSHMEM 扩展。
 - Fast AGKV fused attention 和 Fast Ring 仍是 benchmark 能力。
 - FLUX.2-klein 目前仅提供固定静态 CP baseline。
-- 历史 ChituBench、DiTango、分阶段 runtime、配置、测试和结果冻结在
-  [`backup/chitu_diffusion_legacy/`](backup/chitu_diffusion_legacy/)，不会进入 wheel
-  或默认测试。
 
 ## 📄 许可证
 
@@ -456,8 +453,8 @@ matrix and strategy integration.
 
 Reproducible reports:
 
-- [MagCache comparison](outputs/flexcache/magcache_compare_20260805/result.md)
-- [MeanCache comparison](outputs/flexcache/meancache_compare_20260804/result.md)
+- [MagCache comparison](docs/results/flexcache/magcache_compare_20260805.md)
+- [MeanCache comparison](docs/results/flexcache/meancache_compare_20260804.md)
 
 ---
 
@@ -493,10 +490,6 @@ Contribution boundaries:
   compiled for the target environment.
 - Fused Fast AGKV attention and Fast Ring remain benchmark capabilities.
 - FLUX.2-klein currently provides a fixed static-CP baseline only.
-- Historical ChituBench, DiTango, staged runtime, configurations, tests, and
-  results are frozen under
-  [`backup/chitu_diffusion_legacy/`](backup/chitu_diffusion_legacy/) and are
-  excluded from packages and default tests.
 
 ## 📄 License
 

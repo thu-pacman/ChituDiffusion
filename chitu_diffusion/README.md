@@ -132,7 +132,7 @@ Wan 1.3B 为 E012K4R02。Wan 官方 cond/uncond ratio 虽略有差异，但默�
 理论上限分别是 3.11x/1.35x/2.38x，实测达到约 96%/101%/95%；官方 Qwen/Wan
 README 的近似 speedup 已高于其公开 schedule 自身的理论上限，不能作为同 backend
 严格配对计时目标。完整命令、质量指标和并行 smoke 记录见
-[`outputs/flexcache/magcache_compare_20260805/result.md`](../outputs/flexcache/magcache_compare_20260805/result.md)。
+[`docs/results/flexcache/magcache_compare_20260805.md`](../docs/results/flexcache/magcache_compare_20260805.md)。
 
 TeaCache 的 `threshold` 只有配合官方标定的 rescale 多项式才有意义，而多项式与探针
 是一对：Flux.1 测第一个 block 的 `norm1` 调制输出，Wan 测未投影的时间嵌入
@@ -168,7 +168,7 @@ MeanCache 通过 request-local denoise/scheduler hook 获取 CFG 后 velocity、
 两模型均已通过单卡与 static CP2；Qwen-Image 另通过 CFP2。运行参数为
 `--cache-strategy meancache --meancache-fresh-steps 25`。B25/B17/B13
 （Z-Image）与 B25/B17/B10（Qwen-Image）的完整 speed-quality sweep 见
-[`outputs/flexcache/meancache_compare_20260804/result.md`](../outputs/flexcache/meancache_compare_20260804/result.md)。
+[`docs/results/flexcache/meancache_compare_20260804.md`](../docs/results/flexcache/meancache_compare_20260804.md)。
 
 ```python
 import torch
@@ -287,8 +287,7 @@ worker 并按 process-group ownership 关闭 executor。
 
 ```bash
 PYTHONPATH="$PWD" .venv/bin/pytest -q \
-  test/test_chitu_diffusion_*.py \
-  experiments/chitu_api/test_zimage_standalone.py
+  test/test_chitu_diffusion_*.py
 ```
 
 GPU 端到端验收不能由 CPU 单测替代；本轮替换完成后重新建立 benchmark 和结果基线。
@@ -318,6 +317,4 @@ Diffusers-native offline/embedded 适配**。它足以让另一个模型团队�
 接入并运行 Slurm/torchrun 验证，但尚不应标记为具备跨 rank 容灾保证的 production GA。
 LLaDA2 的 VQ/SigVQ、模型 state 和 decode 细节不在本仓库中，本次不做猜测性实现。
 
-现有可运行的 4-GPU 服务、Z-Image 模型实现和压测入口均已迁入 `chitu_diffusion`；
-`experiments/chitu_api` 只保留历史记录、兼容 launcher 和回归测试。新包不会 import
-该实验目录或旧 Chitu backend/runtime。
+现有可运行的 4-GPU 服务、Z-Image 模型实现和压测入口均位于 `chitu_diffusion`。
