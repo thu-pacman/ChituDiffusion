@@ -38,7 +38,7 @@ def _apply(
 
 
 def _apply_overlay_patch(checkout: Path, patch_name: str, check: bool) -> bool:
-    patch = Path(__file__).parents[1] / "kernels/full_mesh_attention" / patch_name
+    patch = Path(__file__).parent / "overlays" / "full_mesh_cute" / patch_name
     command = ["git", "apply", "--check", str(patch)]
     reverse = ["git", "apply", "--reverse", "--check", str(patch)]
     if subprocess.run(

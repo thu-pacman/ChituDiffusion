@@ -81,23 +81,22 @@ H20 的统一评测中，Fast Ring 没有在任何已测序列长度和 CP degre
 它目前用于测试 Ring 通信与 attention 重叠，以及评估低显存方案。模型 pipeline
 不会自动选择 Fast Ring。
 
-完整实验记录见
-[`kernels/cp_attention_exploration_data_zh.md`](../../../kernels/cp_attention_exploration_data_zh.md)。
-
 ## H20 单机结果
 
 下图使用同一组 1 GPU cuDNN latency 计算 speedup。CP2、CP4 和 CP8 的每个点取
 Fast AGKV、Fast Ulysses、Fast Ring 中 latency 最低的实现。
 
-![H20 单机 Fast CP scaling](../../../kernels/figures/fast-cp-h20-single-node-scaling.png)
+![H20 单机 Fast CP scaling](../../../docs/assets/fast_cp/fast-cp-h20-single-node-scaling.png)
 
 4K 序列由 Fast Ulysses 获胜。8K 序列在 CP2 和 CP4 使用 Fast AGKV，在 CP8
 使用 Fast Ulysses。16K 及以上的已测配置均由 Fast AGKV 获胜。
 
-![H20 单机 Fast CP winner 和 latency 方阵](../../../kernels/figures/fast-cp-h20-single-node-winner-matrix.png)
+![H20 单机 Fast CP winner 和 latency 方阵](../../../docs/assets/fast_cp/fast-cp-h20-single-node-winner-matrix.png)
 
 测试使用 BF16、`B=1`、`H=40`、`D=128` 和 dense non-causal attention。方阵中的
 latency 是所有 rank 中最慢 rank 的 median。
+
+运行 `python script/plot_fast_cp_scaling_matrix.py` 可以重新生成两张图。
 
 ## 运行时接口
 

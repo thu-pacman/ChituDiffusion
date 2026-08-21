@@ -109,10 +109,8 @@ log/*
 logs/*
 *.log
 
-# Reproducible kernel benchmark intermediates and CuTe compiler dumps.
+# GPU profiler and CuTe compiler outputs.
 .cute_dump/
-kernels/.tmp-*
-kernels/results/
 *.nsys-rep
 *.sqlite
 

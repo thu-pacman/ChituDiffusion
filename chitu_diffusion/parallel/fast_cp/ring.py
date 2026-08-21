@@ -5,10 +5,8 @@ transport session exposes exactly one K/V shard per phase; this compute side
 runs reviewed CuTe FlashAttention for that shard and merges the returned
 partial output/LSE into FP32 running state in HBM.
 
-This is the correctness path, not the persistent-kernel path: Q is read again
-by each phase and running O/LSE cross phase boundaries through HBM.  The CuTe
-phase-state contract for a future single-launch implementation is documented
-under ``kernels/flash_ring_attention``.
+Q is read again by each phase, and running O/LSE state crosses phase boundaries
+through HBM.
 """
 
 from __future__ import annotations

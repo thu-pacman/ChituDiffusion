@@ -90,7 +90,6 @@ def _latency_text(latency_ms: float) -> str:
 def _save(figure: plt.Figure, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, dpi=190, bbox_inches="tight", facecolor="white")
-    figure.savefig(output.with_suffix(".svg"), bbox_inches="tight", facecolor="white")
     plt.close(figure)
 
 
@@ -291,21 +290,23 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("kernels/figures"),
+        default=Path("docs/assets/fast_cp"),
     )
+    parser.add_argument("--include-multi-node", action="store_true")
     args = parser.parse_args()
-    speedup = args.output_dir / "fast-cp-speedup-vs-gpus.png"
-    matrix = args.output_dir / "fast-cp-winner-matrix.png"
     single_node_speedup = args.output_dir / "fast-cp-h20-single-node-scaling.png"
     single_node_matrix = args.output_dir / "fast-cp-h20-single-node-winner-matrix.png"
-    plot_speedup(speedup)
-    plot_winner_matrix(matrix)
     plot_speedup(single_node_speedup, gpu_counts=SINGLE_NODE_GPU_COUNTS)
     plot_winner_matrix(single_node_matrix, gpu_counts=SINGLE_NODE_GPU_COUNTS)
-    print(speedup)
-    print(matrix)
     print(single_node_speedup)
     print(single_node_matrix)
+    if args.include_multi_node:
+        speedup = args.output_dir / "fast-cp-speedup-vs-gpus.png"
+        matrix = args.output_dir / "fast-cp-winner-matrix.png"
+        plot_speedup(speedup)
+        plot_winner_matrix(matrix)
+        print(speedup)
+        print(matrix)
     return 0
 
 

@@ -240,7 +240,7 @@ def _adapt_local_world_comm(text: str) -> str:
 
 def apply_overlay(checkout: Path, *, check_only: bool) -> bool:
     project_root = Path(__file__).resolve().parents[1]
-    overlay = project_root / "kernels" / "fast_agkv"
+    overlay = project_root / "script" / "overlays" / "fast_agkv"
     csrc = checkout.resolve() / "fast_ulysses" / "csrc"
     bindings = csrc / "bindings.cpp"
     group_source = csrc / "ulysses_group.cu"

@@ -45,7 +45,7 @@ def test_streaming_overlay_upgrade_is_idempotent(tmp_path: Path) -> None:
 def test_ready_mask_patch_carries_scheduler_and_stage_metadata() -> None:
     patch = (
         Path(__file__).resolve().parents[1]
-        / "kernels/full_mesh_attention/ready_mask.patch"
+        / "script/overlays/full_mesh_cute/ready_mask.patch"
     ).read_text(encoding="utf-8")
 
     assert "self.streaming_ready_mask" in patch
@@ -55,7 +55,7 @@ def test_ready_mask_patch_carries_scheduler_and_stage_metadata() -> None:
 
     net_win_patch = (
         Path(__file__).resolve().parents[1]
-        / "kernels/full_mesh_attention/ready_mask_net_win.patch"
+        / "script/overlays/full_mesh_cute/ready_mask_net_win.patch"
     ).read_text(encoding="utf-8")
     assert "cached_ready_mask" in net_win_patch
     assert "self.intra_wg_overlap = intra_wg_overlap" in net_win_patch
