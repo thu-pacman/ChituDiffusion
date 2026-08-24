@@ -96,7 +96,7 @@ Fast AGKV、Fast Ulysses、Fast Ring 中 latency 最低的实现。
 测试使用 BF16、`B=1`、`H=40`、`D=128` 和 dense non-causal attention。方阵中的
 latency 是所有 rank 中最慢 rank 的 median。
 
-运行 `python script/plot_fast_cp_scaling_matrix.py` 可以重新生成两张图。
+运行 `python tools/plotting/fast_cp_scaling_matrix.py` 可以重新生成两张图。
 
 ## 运行时接口
 
@@ -118,13 +118,13 @@ CHITU_AGKV_TRANSPORT=fast_agkv
 `FastAgkvTransport`。Fused `FastAgkvAttention` 和 Fast Ring 需要由 benchmark
 或测试代码直接创建。
 
-## Agent 安装说明
+## 安装说明
 
 安装 Fast Ulysses 依赖并应用仓库中的 overlay：
 
 ```bash
 uv sync --extra fast-ulysses
-python script/install_fast_agkv.py refs/fast-ulysses
+python tools/install/install_fast_agkv.py refs/fast-ulysses
 ```
 
 CUDA 13 wheel 环境还需要 CCCL headers：
@@ -136,8 +136,8 @@ uv pip install --python .venv/bin/python nvidia-cuda-cccl
 Fused Fast AGKV 还需要对 FlashAttention 源码应用 CuTe overlay：
 
 ```bash
-python script/install_full_mesh_cute.py refs/kernels/flash-attention
-python script/install_fast_agkv.py refs/fast-ulysses
+python tools/install/install_full_mesh_cute.py refs/kernels/flash-attention
+python tools/install/install_fast_agkv.py refs/fast-ulysses
 ```
 
 overlay 只修改指定的源码 checkout。应用 overlay 后，根据目标机器设置 CUDA
@@ -153,16 +153,14 @@ FlashAttention。
 - `CHITU_FAST_AGKV_USE_CE=0/1` 控制 AGKV Copy Engine transport。
 - `CHITU_FAST_AGKV_ASYNC=auto/on/off` 控制 AGKV 通信与计算重叠策略。
 
-## Agent 目录说明
+## 目录说明
 
-- `agkv.py` 实现 fused Full-Mesh Fast AGKV attention。
 - `agkv_transport.py` 实现独立的 K/V gather transport。
 - `ulysses.py` 实现 Fast Ulysses transport、node runtime 和 logical subgroup。
-- `ring.py` 实现单节点 Fast Ring。
-- `ulysses_ring.py` 实现 Ulysses×Ring 编排。
 - `_runtime.py` 适配 Fast Ulysses 和 NVSHMEM 扩展。
-- `_cute.py` 加载 CuTe attention 并缓存编译后的 launcher。
-- `_ring_merge.py` 合并 Ring partial-attention 状态。
+- `experimental/agkv.py` 实现 fused Full-Mesh Fast AGKV attention。
+- `experimental/ring.py` 实现单节点 Fast Ring。
+- `experimental/_cute.py` 和 `experimental/_ring_merge.py` 支持实验 attention。
 
 公共 transport 协议和 factory 位于 `chitu_diffusion/parallel/`。NCCL 实现位于
 `chitu_diffusion/parallel/nccl/`。当前 Fast Ulysses 审查基线为 commit

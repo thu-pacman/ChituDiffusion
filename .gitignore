@@ -98,7 +98,7 @@ extra-info/
 #.idea/
 #
 outputs/
-test/outputs/*
+tests/outputs/*
 dumps/*
 log/*
 logs/*

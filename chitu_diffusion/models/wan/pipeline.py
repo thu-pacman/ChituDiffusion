@@ -56,7 +56,7 @@ def combine_wan_cfg_predictions(
 
 
 class EpeWanPipeline(WanPipeline):
-    """Official Diffusers WanPipeline split into resumable EPAC stages."""
+    """Official Diffusers WanPipeline split into resumable EPE stages."""
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
@@ -141,32 +141,32 @@ class EpeWanPipeline(WanPipeline):
                 scheduler=scheduler,
                 transformer=transformer,
             )
-        pipeline._epac_parallel_context = parallel
-        pipeline._epac_attention_mode = attention_mode
-        pipeline._epac_ulysses_degree = ulysses_degree
-        pipeline._epac_cfg_parallel = cfg_parallel
-        pipeline._epac_parallel_vae = parallel_vae
-        pipeline._epac_vae_parallel_halo = vae_parallel_halo
+        pipeline._epe_parallel_context = parallel
+        pipeline._epe_attention_mode = attention_mode
+        pipeline._epe_ulysses_degree = ulysses_degree
+        pipeline._epe_cfg_parallel = cfg_parallel
+        pipeline._epe_parallel_vae = parallel_vae
+        pipeline._epe_vae_parallel_halo = vae_parallel_halo
         return pipeline
 
     @property
     def parallel_context(self) -> EpeParallelContext:
-        parallel = getattr(self, "_epac_parallel_context", None)
+        parallel = getattr(self, "_epe_parallel_context", None)
         if parallel is None:
-            raise RuntimeError("pipeline has no EPAC parallel context")
+            raise RuntimeError("pipeline has no EPE parallel context")
         return parallel
 
     @property
     def cfg_parallel(self) -> bool:
-        return bool(getattr(self, "_epac_cfg_parallel", False))
+        return bool(getattr(self, "_epe_cfg_parallel", False))
 
     @property
     def parallel_vae(self) -> bool:
-        return bool(getattr(self, "_epac_parallel_vae", True))
+        return bool(getattr(self, "_epe_parallel_vae", True))
 
     @property
     def vae_parallel_halo(self) -> int:
-        return int(getattr(self, "_epac_vae_parallel_halo", 8))
+        return int(getattr(self, "_epe_vae_parallel_halo", 8))
 
     @torch.inference_mode()
     def prepare_request(
@@ -188,9 +188,9 @@ class EpeWanPipeline(WanPipeline):
         attention_kwargs: dict[str, Any] | None = None,
     ) -> WanDenoiseState:
         if num_videos_per_prompt != 1:
-            raise NotImplementedError("Wan EPAC supports one video per prompt")
+            raise NotImplementedError("Wan EPE supports one video per prompt")
         if attention_kwargs:
-            raise NotImplementedError("Wan EPAC does not support attention kwargs")
+            raise NotImplementedError("Wan EPE does not support attention kwargs")
         if height % 16 or width % 16:
             raise ValueError("Wan height and width must be multiples of 16")
         if num_frames < 1 or (num_frames - 1) % self.vae_scale_factor_temporal:
@@ -206,7 +206,7 @@ class EpeWanPipeline(WanPipeline):
         else:
             raise ValueError("prompt or prompt_embeds must be provided")
         if batch_size != 1:
-            raise NotImplementedError("Wan EPAC currently supports batch size one")
+            raise NotImplementedError("Wan EPE currently supports batch size one")
 
         device = self._execution_device
         prompt_embeds, negative_prompt_embeds = self.encode_prompt(
@@ -449,8 +449,8 @@ class EpeWanPipeline(WanPipeline):
                 "num_frames": num_frames,
                 "resolutions": [list(value) for value in resolutions],
                 "allowed_lane_widths": list(self.parallel_context.allowed_widths),
-                "attention_mode": self._epac_attention_mode,
-                "ulysses_degree": self._epac_ulysses_degree,
+                "attention_mode": self._epe_attention_mode,
+                "ulysses_degree": self._epe_ulysses_degree,
                 "rows": rows,
                 "total_wall_ms": (time.perf_counter() - report_started) * 1000,
             }

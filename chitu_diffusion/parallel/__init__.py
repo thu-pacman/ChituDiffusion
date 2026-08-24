@@ -7,7 +7,6 @@ from .agkv_transport import (
     create_agkv_transport,
     resolve_agkv_transport,
 )
-from .fast_cp import FastAgkvTransport, FastUlyssesTransport
 from .groups import (
     ActiveLaneTopology,
     CfgParallelTopology,
@@ -24,7 +23,7 @@ from .nccl import (
     TorchAgkvTransport,
     TorchUlyssesTransport,
 )
-from .topology import UspTopology, select_ulysses_degree
+from .topology import UlyssesTopology
 from .ulysses_transport import (
     ULYSSES_TRANSPORTS,
     AsyncTaggedUlyssesTransport,
@@ -32,7 +31,6 @@ from .ulysses_transport import (
     create_ulysses_transport,
     resolve_ulysses_transport,
 )
-from .usp import DynamicUspAttention
 from .vae import parallel_tiled_vae_decode
 
 __all__ = [
@@ -44,16 +42,13 @@ __all__ = [
     "AsyncAgkvTransport",
     "AsyncTaggedUlyssesTransport",
     "CfgParallelTopology",
-    "DynamicUspAttention",
     "EpeParallelContext",
-    "FastAgkvTransport",
-    "FastUlyssesTransport",
     "ImageContextParallelAttention",
     "ImageSelfAttention",
     "TorchAgkvTransport",
     "TorchUlyssesTransport",
     "UlyssesTransport",
-    "UspTopology",
+    "UlyssesTopology",
     "cfg_parallel_rank_groups",
     "create_agkv_transport",
     "create_ulysses_transport",
@@ -61,5 +56,4 @@ __all__ = [
     "resolve_agkv_transport",
     "resolve_context_parallel_config",
     "resolve_ulysses_transport",
-    "select_ulysses_degree",
 ]

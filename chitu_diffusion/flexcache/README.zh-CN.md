@@ -54,7 +54,7 @@ chitu generate \
 ```
 
 公共 warmup/cooldown 参数只用于采用公共 fresh-step 外壳的策略。MagCache 自己定义日程，
-因此会拒绝这些 override。配置由 `epac/cache.py` 中的 immutable dataclass 表示，并在
+因此会拒绝这些 override。配置由 `flexcache/config.py` 中的 immutable dataclass 表示，并在
 安装 hook 前完成校验。
 
 ## 目录结构
@@ -108,7 +108,7 @@ TeaCache 和 TaylorSeer 都采用这种方式。
 
 ## 接入新策略
 
-1. 在 `epac/cache.py` 中增加 immutable 参数 dataclass，并加入 `CacheParams`、
+1. 在 `flexcache/config.py` 中增加 immutable 参数 dataclass，并加入 `CacheParams`、
    `_PARAM_TYPES` 和 `CacheStrategyName`。不支持的组合应尽早校验。
 2. 新建 `strategies/<name>.py`，继承 `BaseCacheStrategy`，只覆盖算法需要的 hook：
 
@@ -125,9 +125,7 @@ TeaCache 和 TaylorSeer 都采用这种方式。
            self.params = params
            self.cache: dict[str, TensorTree] = {}
 
-       def begin(
-           self, *, total_steps: int, model_spec: FlexCacheModelSpec
-       ) -> None:
+       def begin(self, *, total_steps: int, model_spec: FlexCacheModelSpec) -> None:
            super().begin(total_steps=total_steps, model_spec=model_spec)
            self.cache.clear()
 
@@ -139,22 +137,19 @@ TeaCache 和 TaylorSeer 都采用这种方式。
            kwargs: dict[str, object],
        ) -> tuple[bool, TensorTree | None]:
            value = self.cache.get(site.site_id)
-           return (
-               (True, tree_clone(value))
-               if value is not None
-               else (False, None)
-           )
+           return (True, tree_clone(value)) if value is not None else (False, None)
    ```
 
 3. 在 `strategies/factory.py` 注册构造逻辑，并从 `strategies/__init__.py` 导出。
-4. 只有需要在示例脚本暴露时，才在 `examples/cache_args.py` 增加 CLI 参数。
-5. 在 `test/test_chitu_diffusion_flexcache.py` 增加日程、请求隔离、统计、tensor-tree
+4. 只有需要在示例脚本暴露时，才在 `chitu_diffusion/commands/cache_args.py` 增加 CLI 参数。
+5. 在 `tests/unit/flexcache/test_chitu_diffusion_flexcache.py` 增加日程、请求隔离、统计、tensor-tree
    输出与不支持配置测试。
 
 ```bash
-python -m pytest test/test_chitu_diffusion_flexcache.py -q
+python -m pytest tests/unit/flexcache/test_chitu_diffusion_flexcache.py -q
 python -m ruff check chitu_diffusion/flexcache \
-  chitu_diffusion/epac/cache.py test/test_chitu_diffusion_flexcache.py
+  chitu_diffusion/flexcache/config.py \
+  tests/unit/flexcache/test_chitu_diffusion_flexcache.py
 ```
 
 ## 并行安全要求

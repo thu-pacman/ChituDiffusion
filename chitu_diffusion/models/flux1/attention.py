@@ -31,10 +31,10 @@ class Flux1CpAttnProcessor:
         image_rotary_emb=None,
     ):
         if attention_mask is not None:
-            raise NotImplementedError("Flux.1 EPAC does not support attention masks")
+            raise NotImplementedError("Flux.1 EPE does not support attention masks")
         if getattr(attn, "fused_projections", False):
             raise NotImplementedError(
-                "Flux.1 EPAC does not support fused QKV projections"
+                "Flux.1 EPE does not support fused QKV projections"
             )
         text_tokens = self._text_tokens
         if text_tokens is None:
@@ -94,17 +94,13 @@ class Flux1CpAttnProcessor:
             joint_key,
             joint_value,
             lane_process_group=self.parallel.active.process_group,
-            usp_topology=(
-                self.parallel.active_usp_for_heads(attn.heads)
-                if self.attention.mode == "usp"
+            ulysses_topology=(
+                self.parallel.active_ulysses
+                if self.attention.mode == "ulysses"
                 else None
             ),
             agkv_transport=(
-                getattr(
-                    getattr(self.parallel, "active_usp", None),
-                    "agkv_transport",
-                    None,
-                )
+                self.parallel.active_agkv_transport
                 if self.attention.mode == "agkv"
                 else None
             ),

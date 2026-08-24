@@ -6,13 +6,13 @@ from typing import Any, Mapping
 
 import torch
 
-from ...epac.api import (
-    DiffusersEPACPipeline,
+from ...epe.api import (
+    DiffusersEPEPipeline,
     build_diffusion_request,
     validate_image_request,
 )
-from ...epac.cache import CacheConfig
-from ...epac.request import DiffusionRequest
+from ...epe.request import DiffusionRequest
+from ...flexcache.config import CacheConfig
 from .pipeline import EpeFlux1Pipeline
 
 
@@ -56,14 +56,14 @@ class Flux1Request:
         )
 
 
-class Flux1EPACPipeline(DiffusersEPACPipeline):
+class Flux1Pipeline(DiffusersEPEPipeline):
     """Diffusers-style facade for static FLUX.1-dev generation."""
 
     pipeline_class = EpeFlux1Pipeline
-    generation_error_prefix = "Flux.1 EPAC"
+    generation_error_prefix = "Flux.1 EPE"
 
     def _create_backend(self, config: Any | None = None) -> Any:
-        from ...epac.model_scheduling import EpeSchedulingModule
+        from ...epe.scheduling.planner import EpeSchedulingModule
         from .executor import Flux1ImageDecoderExecutor
 
         return Flux1ImageDecoderExecutor(

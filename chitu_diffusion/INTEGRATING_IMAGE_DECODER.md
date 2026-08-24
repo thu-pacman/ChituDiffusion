@@ -1,6 +1,6 @@
 # Image Decoder Executor 接入契约
 
-本文面向新增 image decoder 的模型开发人员。宿主和 EPAC 已负责 stage 生命周期、
+本文面向新增 image decoder 的模型开发人员。宿主和 EPE 已负责 stage 生命周期、
 请求排队、static-DP/static-CP/elastic 调度、pulse、lane 状态交换、timeline 和异步
 CPU 后处理。模型接入不应复制这些逻辑。
 
@@ -14,7 +14,7 @@ CPU 后处理。模型接入不应复制这些逻辑。
    准备、condition/state-byte 计算和模型特有 VAE 参数。
 
 不要从零实现完整 executor。模型 executor 应继承
-`epac.model_executor.DiffusersBackend`，只提供 request codec、warmup、
+`epe.executor.DiffusersBackend`，只提供 request codec、warmup、
 prompt/state 准备、condition/state-byte 计算和模型特有 decode 参数；stage world 校验、
 request profile、state transfer、单步调用、postprocess 和 close 生命周期由共享基类负责。
 factory 使用 `build_stage_parallel_context()` 和 `scheduling_options_from_pool()`。
@@ -24,8 +24,8 @@ Z-Image 与 Flux.1 的参考实现分别位于 `models/zimage/executor.py` 和
 `EmbeddedDiffusionRuntime.create(..., executor_factory=...)`，不得 import 模型私有类型。
 
 调度成本、在线校准和 planner facade 统一使用
-`epac.model_scheduling.EpeSchedulingModule`。模型只保留产生 warmup 行的逻辑。离线
-Diffusers 风格 API 继承 `epac.api.DiffusersEPACPipeline`，模型侧只声明 pipeline、
+`epe.scheduling.planner.EpeSchedulingModule`。模型只保留产生 warmup 行的逻辑。离线
+Diffusers 风格 API 继承 `epe.api.DiffusersEPEPipeline`，模型侧只声明 pipeline、
 backend 和 typed request；不要复制 full-world generate 或 EPE service 驱动。
 
 ## 生命周期

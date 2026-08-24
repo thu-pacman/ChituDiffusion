@@ -34,13 +34,14 @@ class WanCpAttnProcessor:
         self.native = WanAttnProcessor()
 
     def _can_use_fast_async(self, attn) -> bool:
-        if self.attention.mode != "usp" or getattr(attn, "fused_projections", False):
+        if self.attention.mode != "ulysses" or getattr(
+            attn, "fused_projections", False
+        ):
             return False
-        topology = self.parallel.active_usp_for_heads(attn.heads)
-        transport = topology.ulysses_transport
+        topology = self.parallel.active_ulysses
+        transport = topology.transport
         return (
-            topology.ring_degree == 1
-            and attn.heads % topology.ulysses_degree == 0
+            attn.heads % topology.degree == 0
             and isinstance(transport, AsyncTaggedUlyssesTransport)
             and transport.async_ce_enabled
         )
@@ -51,15 +52,13 @@ class WanCpAttnProcessor:
         hidden_states: torch.Tensor,
         rotary_emb: tuple[torch.Tensor, torch.Tensor] | None,
     ) -> torch.Tensor:
-        topology = self.parallel.active_usp_for_heads(attn.heads)
-        transport = topology.ulysses_transport
+        topology = self.parallel.active_ulysses
+        transport = topology.transport
         if not isinstance(transport, AsyncTaggedUlyssesTransport):
             raise TypeError("async tagged Ulysses transport is required")
         transport.reset()
 
-        query = attn.norm_q(attn.to_q(hidden_states)).unflatten(
-            2, (attn.heads, -1)
-        )
+        query = attn.norm_q(attn.to_q(hidden_states)).unflatten(2, (attn.heads, -1))
         if rotary_emb is not None:
             query = _apply_rotary(query, *rotary_emb)
         query_handle = transport.begin_all_to_all(
@@ -93,7 +92,7 @@ class WanCpAttnProcessor:
             1,
             tag="chitu_cp_2",
         )
-        return self.attention.finish_usp(
+        return self.attention.finish_ulysses(
             query,
             key,
             value,
@@ -102,16 +101,10 @@ class WanCpAttnProcessor:
         )
 
     def _can_use_fast_agkv_async(self, attn) -> bool:
-        if self.attention.mode != "agkv" or getattr(
-            attn, "fused_projections", False
-        ):
+        if self.attention.mode != "agkv" or getattr(attn, "fused_projections", False):
             return False
-        topology = getattr(self.parallel, "active_usp", None)
-        transport = getattr(topology, "agkv_transport", None)
-        return (
-            isinstance(transport, AsyncAgkvTransport)
-            and transport.async_enabled
-        )
+        transport = self.parallel.active_agkv_transport
+        return isinstance(transport, AsyncAgkvTransport) and transport.async_enabled
 
     def _fast_agkv_attention(
         self,
@@ -119,11 +112,7 @@ class WanCpAttnProcessor:
         hidden_states: torch.Tensor,
         rotary_emb: tuple[torch.Tensor, torch.Tensor] | None,
     ) -> tuple[torch.Tensor, torch.dtype]:
-        transport = getattr(
-                    getattr(self.parallel, "active_usp", None),
-                    "agkv_transport",
-                    None,
-                )
+        transport = self.parallel.active_agkv_transport
         if not isinstance(transport, AsyncAgkvTransport):
             raise TypeError("asynchronous AGKV transport is required")
 
@@ -135,9 +124,7 @@ class WanCpAttnProcessor:
         value = attn.to_v(hidden_states).unflatten(2, (attn.heads, -1))
         gather = transport.begin_all_gather_kv(key, value)
 
-        query = attn.norm_q(attn.to_q(hidden_states)).unflatten(
-            2, (attn.heads, -1)
-        )
+        query = attn.norm_q(attn.to_q(hidden_states)).unflatten(2, (attn.heads, -1))
         if rotary_emb is not None:
             query = _apply_rotary(query, *rotary_emb)
         full_key, full_value = gather.wait()
@@ -164,7 +151,7 @@ class WanCpAttnProcessor:
                 rotary_emb,
             )
         if attention_mask is not None:
-            raise NotImplementedError("Wan EPAC self-attention masks are unsupported")
+            raise NotImplementedError("Wan EPE self-attention masks are unsupported")
 
         use_fast_ulysses = self._can_use_fast_async(attn)
         use_fast_agkv = self._can_use_fast_agkv_async(attn)
@@ -196,17 +183,13 @@ class WanCpAttnProcessor:
                 key,
                 value,
                 lane_process_group=topology.process_group,
-                usp_topology=(
-                    self.parallel.active_usp_for_heads(attn.heads)
-                    if self.attention.mode == "usp"
+                ulysses_topology=(
+                    self.parallel.active_ulysses
+                    if self.attention.mode == "ulysses"
                     else None
                 ),
                 agkv_transport=(
-                    getattr(
-                        getattr(self.parallel, "active_usp", None),
-                        "agkv_transport",
-                        None,
-                    )
+                    self.parallel.active_agkv_transport
                     if self.attention.mode == "agkv"
                     else None
                 ),

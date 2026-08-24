@@ -29,7 +29,7 @@ Run ID: `meancache_compare_20260804`
 | Qwen-Image | FlexCache | 10 | 3.48s | 4.73x | 27.44 | 0.9531 | 0.0471 |
 
 Z-Image official and FlexCache images are pixel-identical at baseline and every
-sweep point. Qwen-Image's EPAC and vanilla backends have a small baseline
+sweep point. Qwen-Image's ChituDiffusion and vanilla backends have a small baseline
 numeric difference, but their cache-relative quality curves overlap.
 
 The generated speed-quality plot, contact sheet, and raw CSV/JSON rows remain
@@ -42,7 +42,7 @@ Representative FlexCache commands:
 
 ```bash
 # Z-Image; repeat with fresh steps 25, 17, and 13.
-bash script/srun_direct.sh 1 1 chitu_diffusion/examples/zimage_epe.py \
+bash tools/cluster/srun_direct.sh 1 1 -m chitu_diffusion.cli generate --model zimage \
   --model-path /path/to/Z-Image --output outputs/zimage-b25.png \
   --prompt "A red fox sitting in a snowy forest, cinematic photography" \
   --negative-prompt "" --height 512 --width 512 --steps 50 \
@@ -50,7 +50,7 @@ bash script/srun_direct.sh 1 1 chitu_diffusion/examples/zimage_epe.py \
   --meancache-fresh-steps 25
 
 # Qwen-Image; repeat with fresh steps 25, 17, and 10.
-bash script/srun_direct.sh 1 1 chitu_diffusion/examples/qwen_image_epac.py \
+bash tools/cluster/srun_direct.sh 1 1 -m chitu_diffusion.cli generate --model qwen-image \
   --model-path /path/to/Qwen-Image --output outputs/qwen-b25.png \
   --prompt "A red fox sitting in a snowy forest, cinematic photography" \
   --negative-prompt " " --height 512 --width 512 --steps 50 \
@@ -59,7 +59,7 @@ bash script/srun_direct.sh 1 1 chitu_diffusion/examples/qwen_image_epac.py \
 ```
 
 Static CP2 used
-`script/srun_direct.sh 1 2 ... --no-cfg-parallel`; Qwen CFP2 used the same
+`tools/cluster/srun_direct.sh 1 2 ... --no-cfg-parallel`; Qwen CFP2 used the same
 launcher with `--cfg-parallel`.
 
 Reference runs loaded the local checkpoint once, replaced only the pipeline

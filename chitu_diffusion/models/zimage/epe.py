@@ -9,10 +9,14 @@ from typing import Any, Iterable
 import torch
 import torch.distributed as dist
 
-from ...epac.cost import MeasuredStepCostModel, RuntimeCostCalibrator
-from ...epac.model_scheduling import (
+from ...epe.scheduling.cost import MeasuredStepCostModel, RuntimeCostCalibrator
+from ...epe.scheduling.planner import (
     EpePhaseAssignment as EpePhaseAssignment,
+)
+from ...epe.scheduling.planner import (
     EpeRequest as _EpeRequest,
+)
+from ...epe.scheduling.planner import (
     EpeSchedulingModule,
 )
 from ...parallel import EpeParallelContext, resolve_context_parallel_config
@@ -143,7 +147,9 @@ class ZImageEpeModule(EpeSchedulingModule):
                     self.parallel.cfg_parallel_topology(lane) if use_cfp else None
                 )
                 if use_cfp and cfg_topology is None:
-                    raise RuntimeError(f"CFP topology was not initialized for lane {lane}")
+                    raise RuntimeError(
+                        f"CFP topology was not initialized for lane {lane}"
+                    )
                 generator = torch.Generator(device=device).manual_seed(
                     1_000_003
                     + height * 97
@@ -194,7 +200,7 @@ class ZImageEpeModule(EpeSchedulingModule):
                         execution_lane = lane
 
                     with self.parallel.activate(execution_lane):
-                        usp_topology = self.parallel.active_usp
+                        ulysses_topology = self.parallel.active_ulysses
                         for _ in range(steps):
                             if device.type == "cuda":
                                 torch.cuda.synchronize(device)
@@ -223,8 +229,7 @@ class ZImageEpeModule(EpeSchedulingModule):
                     "lane": list(lane),
                     "cfp_degree": 2 if cfg_topology is not None else 1,
                     "cp_degree": len(execution_lane),
-                    "ulysses_degree": usp_topology.ulysses_degree,
-                    "ring_degree": usp_topology.ring_degree,
+                    "ulysses_degree": ulysses_topology.degree,
                     "samples_ms": samples_ms,
                 }
                 gathered = [local]
@@ -253,7 +258,6 @@ class ZImageEpeModule(EpeSchedulingModule):
                             "cp_degree": representative["cp_degree"],
                             "attention_mode": self.attention_mode,
                             "ulysses_degree": representative["ulysses_degree"],
-                            "ring_degree": representative["ring_degree"],
                             "latency_ms": float(statistics.median(lane_samples)),
                             "samples_ms": lane_samples,
                             "lanes": [item for item in gathered if item is not None],

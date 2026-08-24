@@ -22,10 +22,10 @@ class EpeQwenImageTransformer2DModel(QwenImageTransformer2DModel):
         attention_mode = kwargs.pop("attention_mode", "agkv")
         model = super().from_pretrained(*args, **kwargs)
         if parallel is not None:
-            model.configure_epac(parallel, attention_mode=attention_mode)
+            model.configure_epe(parallel, attention_mode=attention_mode)
         return model
 
-    def configure_epac(
+    def configure_epe(
         self,
         parallel: EpeParallelContext,
         *,
@@ -34,8 +34,8 @@ class EpeQwenImageTransformer2DModel(QwenImageTransformer2DModel):
         processor = QwenImageCpAttnProcessor(parallel, mode=attention_mode)
         for block in self.transformer_blocks:
             block.attn.set_processor(processor)
-        self.epac_parallel = parallel
-        self._epac_attn_processor = processor
+        self.epe_parallel = parallel
+        self._epe_attn_processor = processor
 
     def forward(
         self,
@@ -51,7 +51,7 @@ class EpeQwenImageTransformer2DModel(QwenImageTransformer2DModel):
         additional_t_cond=None,
         return_dict: bool = True,
     ):
-        parallel = getattr(self, "epac_parallel", None)
+        parallel = getattr(self, "epe_parallel", None)
         if parallel is None or parallel.active.width == 1:
             return super().forward(
                 hidden_states=hidden_states,
@@ -67,15 +67,15 @@ class EpeQwenImageTransformer2DModel(QwenImageTransformer2DModel):
                 return_dict=return_dict,
             )
         if self.zero_cond_t:
-            raise NotImplementedError("Qwen-Image EPAC does not support zero_cond_t")
+            raise NotImplementedError("Qwen-Image EPE does not support zero_cond_t")
         if attention_kwargs:
             raise NotImplementedError(
-                "Qwen-Image EPAC does not support attention kwargs"
+                "Qwen-Image EPE does not support attention kwargs"
             )
         if controlnet_block_samples is not None:
-            raise NotImplementedError("Qwen-Image EPAC does not support ControlNet")
+            raise NotImplementedError("Qwen-Image EPE does not support ControlNet")
         if txt_seq_lens is not None:
-            raise NotImplementedError("Qwen-Image EPAC uses encoder_hidden_states_mask")
+            raise NotImplementedError("Qwen-Image EPE uses encoder_hidden_states_mask")
         return self._cp_forward(
             hidden_states=hidden_states,
             encoder_hidden_states=encoder_hidden_states,
@@ -99,7 +99,7 @@ class EpeQwenImageTransformer2DModel(QwenImageTransformer2DModel):
         additional_t_cond,
         return_dict: bool,
     ):
-        parallel = self.epac_parallel
+        parallel = self.epe_parallel
         topology = parallel.active
         image_tokens = hidden_states.shape[1]
         if image_tokens % topology.width:
@@ -109,7 +109,7 @@ class EpeQwenImageTransformer2DModel(QwenImageTransformer2DModel):
         if encoder_hidden_states_mask is not None:
             if not bool(encoder_hidden_states_mask.to(torch.bool).all()):
                 raise NotImplementedError(
-                    "Qwen-Image EPAC currently supports batch-one all-valid text only"
+                    "Qwen-Image EPE currently supports batch-one all-valid text only"
                 )
             encoder_hidden_states_mask = None
 
@@ -139,7 +139,7 @@ class EpeQwenImageTransformer2DModel(QwenImageTransformer2DModel):
         )
         image_rotary_emb = (image_freqs[start:stop].contiguous(), text_freqs)
 
-        processor = self._epac_attn_processor
+        processor = self._epe_attn_processor
         processor.enable()
         try:
             for block in self.transformer_blocks:

@@ -1,0 +1,18 @@
+name: image
+process: image
+factory: zimage
+gpu: [0, 1, 2, 3]
+parallelism:
+  sp: 4
+  chitu_pool:
+    policy: elastic
+    allowed_lane_widths: [1, 2, 4]
+    warmup_resolutions: [512]
+    warmup_steps: 3
+factory_args:
+  model_path: /path/to/Z-Image
+  default_width: 512
+  default_height: 512
+service:
+  host: 0.0.0.0
+  port: 18200

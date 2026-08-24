@@ -49,9 +49,7 @@ def resolve_agkv_transport(value: str | None = None) -> AgkvTransportName:
     normalized = {"fast": "fast_agkv", "nccl": "torch"}.get(normalized, normalized)
     if normalized not in AGKV_TRANSPORTS:
         choices = ", ".join(AGKV_TRANSPORTS)
-        raise ValueError(
-            f"AGKV transport must be one of {choices}, got {requested!r}"
-        )
+        raise ValueError(f"AGKV transport must be one of {choices}, got {requested!r}")
     return normalized  # type: ignore[return-value]
 
 
@@ -85,7 +83,6 @@ def create_agkv_transport(
         )
     if requested == "fast_agkv":
         raise RuntimeError(
-            "Fast AGKV requires a static full-world single-node NVLink group: "
-            f"{reason}"
+            f"Fast AGKV requires a static full-world single-node NVLink group: {reason}"
         )
     return fallback

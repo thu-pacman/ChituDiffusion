@@ -8,7 +8,7 @@ description: Adapt a new image diffusion model into the Diffusers-native ChituDi
 ## Operating Rules
 
 - Work in the current ChituDiffusion checkout. Use `./.venv/bin/python` and the
-  real `chitu generate`/`script/srun_direct.sh` path for acceptance.
+  real `chitu generate`/`tools/cluster/srun_direct.sh` path for acceptance.
 - Put upstream/reference code under `refs/` and model weights under `~/WORK/models` unless the user gives another location.
 - Prefer direct integration with existing runtime, adapter, scheduler, parallel, and FlexCache APIs. Do not add compatibility shims for obsolete paths unless the user asks.
 - Treat generated outputs as evidence, not code. Commit source changes,
@@ -23,7 +23,7 @@ description: Adapt a new image diffusion model into the Diffusers-native ChituDi
    - Identify the official repo, license, model card, demo command, required weights, and expected image size/step defaults.
    - Clone or copy the upstream implementation into `refs/<model-name>/`.
    - Download weights to `~/WORK/models/<model-name>/` or verify existing weights.
-   - Run the upstream demo first in the current virtualenv. If GPU resources are needed, use `srun`/`script/srun_direct.sh`; do not fall back to CPU for diffusion demo validation.
+   - Run the upstream demo first in the current virtualenv. If GPU resources are needed, use `srun`/`tools/cluster/srun_direct.sh`; do not fall back to CPU for diffusion demo validation.
 
 2. **Gap report before heavy adaptation**
    - Read the upstream pipeline, transformer, scheduler, VAE/image processor, prompt encoder, and attention code.
@@ -49,9 +49,9 @@ description: Adapt a new image diffusion model into the Diffusers-native ChituDi
 
 4. **Attention and parallelism**
    - Wire attention through the model package's attention processor and the
-     shared `chitu_diffusion.parallel` topology/USP utilities.
+     shared `chitu_diffusion.parallel` topology/NCCL CP utilities.
    - For joint text/image attention, verify whether text tokens need sharding. If encoder states are short, prefer keeping text replicated and sharding image tokens only.
-   - Bring up CFG parallel first when CFG semantics exist. Then bring up Ulysses/context parallel. Only implement Ring/USP if it fits the model sequence semantics without a large separate attention implementation.
+   - Bring up CFG parallel first when CFG semantics exist. Then bring up NCCL context parallel. Only implement a Ring composition if it fits the model sequence semantics without a large separate attention implementation.
    - Validate 1/2/4/8 GPU cases with minimal prompts before full benchmarks.
 
 5. **FlexCache and acceleration**
@@ -59,7 +59,7 @@ description: Adapt a new image diffusion model into the Diffusers-native ChituDi
      existing model/block/leaf hooks.
    - Isolate each algorithm in `chitu_diffusion/flexcache/strategies/`; add
      reusable model sites or probes only through `flexcache/spec.py`.
-   - Add immutable parameters to `epac/cache.py`, register construction in
+   - Add immutable parameters to `flexcache/config.py`, register construction in
      `flexcache/strategies/factory.py`, and expose example CLI arguments in
      `examples/cache_args.py`.
    - Keep fresh/reuse decisions rank-identical under CP and CFP. Reject a
@@ -67,7 +67,7 @@ description: Adapt a new image diffusion model into the Diffusers-native ChituDi
    - Test at least one end-to-end image before sweeping.
 
 6. **Benchmark and visualization**
-   - Use the model's `chitu_diffusion/examples/` entry point and keep a concise
+   - Use the model's root `examples/` entry point and keep a concise
      reproducible `docs/results/flexcache/<run-id>.md`. Keep generated media
      and raw measurements under the ignored `outputs/` directory.
    - Reuse previous runs by collecting summaries into a consolidated result directory instead of re-running model loads unnecessarily.

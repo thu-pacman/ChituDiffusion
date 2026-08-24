@@ -183,7 +183,11 @@ class FlexCacheModelSpec:
         embedder = getattr(self.model, "time_text_embed", None)
         patchifier = getattr(self.model, "img_in", None)
         hidden = self._argument(args, kwargs, "hidden_states", 0)
-        if embedder is None or patchifier is None or not isinstance(hidden, torch.Tensor):
+        if (
+            embedder is None
+            or patchifier is None
+            or not isinstance(hidden, torch.Tensor)
+        ):
             return None
         hidden = patchifier(hidden)
         additional = self._argument(args, kwargs, "additional_t_cond", 10)

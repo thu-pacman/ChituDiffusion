@@ -98,15 +98,11 @@ class ZImageCpAttnProcessor:
                 key[:, image_tokens:],
                 value[:, image_tokens:],
                 lane_process_group=self.parallel.active.process_group,
-                usp_topology=(self.parallel.active_usp_for_heads(attn.heads) if self.mode == "usp" else None),
+                ulysses_topology=(
+                    self.parallel.active_ulysses if self.mode == "ulysses" else None
+                ),
                 agkv_transport=(
-                    getattr(
-                    getattr(self.parallel, "active_usp", None),
-                    "agkv_transport",
-                    None,
-                )
-                    if self.mode == "agkv"
-                    else None
+                    self.parallel.active_agkv_transport if self.mode == "agkv" else None
                 ),
             )
             output = torch.cat([image_output, joint_output], dim=1)
@@ -118,7 +114,3 @@ class ZImageCpAttnProcessor:
         if len(attn.to_out) > 1:
             output = attn.to_out[1](output)
         return output
-
-
-# Compatibility name retained for callers that explicitly imported the old processor.
-ZImageAgkvAttnProcessor = ZImageCpAttnProcessor

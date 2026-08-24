@@ -11,11 +11,11 @@ import torch
 import torch.distributed as dist
 import uvicorn
 
-from ..epac.image_decoder import EmbeddedRuntimeConfig, StageWorldSpec
+from ..epe.contracts import EmbeddedRuntimeConfig, StageWorldSpec
 from .app import create_app
 from .config import load_stage_service_config
 from .embedded import EmbeddedDiffusionRuntime
-from .zimage_runtime import EpeDiffusionServiceRuntime
+from .runtime import DiffusionServiceRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ def _start_http(runtime, host: str, port: int):
     server = uvicorn.Server(
         uvicorn.Config(create_app(runtime), host=host, port=port, log_level="info")
     )
-    thread = threading.Thread(target=server.run, name="zimage-http", daemon=True)
+    thread = threading.Thread(target=server.run, name="diffusion-http", daemon=True)
     thread.start()
     deadline = time.monotonic() + 30.0
     while not server.started and thread.is_alive() and time.monotonic() < deadline:
@@ -36,7 +36,7 @@ def _start_http(runtime, host: str, port: int):
 
 def run_config(config) -> None:
     logging.basicConfig(level=logging.INFO)
-    runtime = EpeDiffusionServiceRuntime.from_config(config)
+    runtime = DiffusionServiceRuntime.from_config(config)
 
     run_runtime(runtime, config)
 
@@ -71,7 +71,7 @@ def _as_embedded_runtime(runtime, config) -> EmbeddedDiffusionRuntime:
 
 
 def run_runtime(
-    runtime: EpeDiffusionServiceRuntime | EmbeddedDiffusionRuntime, config
+    runtime: DiffusionServiceRuntime | EmbeddedDiffusionRuntime, config
 ) -> None:
     """Run an already-loaded pipeline/runtime on every torchrun rank."""
     embedded = _as_embedded_runtime(runtime, config)

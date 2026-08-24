@@ -5,13 +5,12 @@ import importlib
 import sys
 from collections.abc import Sequence
 
-
 _GENERATE_MODULES = {
-    "zimage": "chitu_diffusion.examples.zimage_epe",
-    "flux1": "chitu_diffusion.examples.flux1_epac",
-    "flux2-klein": "chitu_diffusion.examples.flux2_klein_cp",
-    "qwen-image": "chitu_diffusion.examples.qwen_image_epac",
-    "wan": "chitu_diffusion.examples.wan_epac",
+    "zimage": "chitu_diffusion.commands.generate.zimage",
+    "flux1": "chitu_diffusion.commands.generate.flux1",
+    "flux2-klein": "chitu_diffusion.commands.generate.flux2_klein",
+    "qwen-image": "chitu_diffusion.commands.generate.qwen_image",
+    "wan": "chitu_diffusion.commands.generate.wan",
 }
 
 
@@ -41,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "serve",
-        help="Run the production EPE service from a native stage config.",
+        help="Run the persistent EPE service from a native stage config.",
         add_help=False,
     )
     return parser
@@ -54,7 +53,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if namespace.command == "generate":
         _run_module(_GENERATE_MODULES[namespace.model], remaining)
     elif namespace.command == "serve":
-        _run_module("chitu_diffusion.serve.torchrun", remaining)
+        _run_module("chitu_diffusion.commands.serve", remaining)
     else:  # pragma: no cover - argparse enforces the command choices.
         parser.error(f"unsupported command: {namespace.command}")
 

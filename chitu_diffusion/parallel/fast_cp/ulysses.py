@@ -60,7 +60,7 @@ class FastUlyssesSubgroupTransport:
         self._epoch = 0
         self._operation = 0
         subgroup = "_".join(str(rank) for rank in self._peer_ranks)
-        self._tag_prefix = f"chitu_usp_u_{subgroup}"
+        self._tag_prefix = f"chitu_ulysses_{subgroup}"
 
     @property
     def pool_bytes(self) -> int:

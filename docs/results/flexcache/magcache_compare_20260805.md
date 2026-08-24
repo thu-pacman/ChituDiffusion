@@ -51,7 +51,7 @@ fixed text encoding and VAE work dominate more of these small requests.
 
 ## Parallel smoke
 
-- Flux.1 static CP2 (`usp`, Ulysses degree 2): completed, 19/28 reuse steps.
+- Flux.1 static NCCL CP2 (Ulysses degree 2): completed, 19/28 reuse steps.
 - Qwen-Image CFP2: completed, 13/50 reuse steps on each rank-local branch.
 - Wan 1.3B static CP2 with serial CFG: completed, 29/50 reuse steps per branch.
 
@@ -64,22 +64,22 @@ Representative MagCache commands:
 
 ```bash
 # Flux.1
-bash script/srun_direct.sh 1 1 chitu_diffusion/examples/flux1_epac.py \
-  --model-path /home/chenyy/WORK/models/Flux-1 \
+bash tools/cluster/srun_direct.sh 1 1 -m chitu_diffusion.cli generate --model flux1 \
+  --model-path /path/to/FLUX.1-dev \
   --output outputs/flexcache/magcache_compare_20260805/flux1024_mag.png \
   --prompt "A photo of a black bicycle." --height 1024 --width 1024 \
   --steps 28 --guidance-scale 3.5 --seed 42 --cache-strategy magcache
 
 # Qwen-Image
-bash script/srun_direct.sh 1 1 chitu_diffusion/examples/qwen_image_epac.py \
-  --model-path /home/chenyy/WORK/models/Qwen-Image \
+bash tools/cluster/srun_direct.sh 1 1 -m chitu_diffusion.cli generate --model qwen-image \
+  --model-path /path/to/Qwen-Image \
   --output outputs/flexcache/magcache_compare_20260805/qwen1664_mag.png \
   --height 928 --width 1664 --steps 50 --true-cfg-scale 4 --seed 42 \
   --cache-strategy magcache
 
 # Wan2.1 T2V 1.3B
-bash script/srun_direct.sh 1 1 chitu_diffusion/examples/wan_epac.py \
-  --model-path /home/chenyy/WORK/models/Wan2.1-T2V-1.3B \
+bash tools/cluster/srun_direct.sh 1 1 -m chitu_diffusion.cli generate --model wan \
+  --model-path /path/to/Wan2.1-T2V-1.3B \
   --output outputs/flexcache/magcache_compare_20260805/wan81_mag.mp4 \
   --height 480 --width 832 --frames 81 --steps 50 --seed 42 \
   --cache-strategy magcache
@@ -87,7 +87,7 @@ bash script/srun_direct.sh 1 1 chitu_diffusion/examples/wan_epac.py \
 
 The baseline commands are identical except for
 `--cache-strategy none`. The CP2 runs add
-`--attention-mode usp --ulysses-degree 2`; Qwen CFP2 uses two ranks with
+`--attention-mode ulysses --ulysses-degree 2`; Qwen CFP2 uses two ranks with
 `--cfg-parallel`.
 
 ## Reference compatibility note

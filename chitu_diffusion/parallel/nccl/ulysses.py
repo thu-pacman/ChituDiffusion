@@ -56,8 +56,7 @@ def torch_all_to_all_4d(
             .contiguous()
         )
     raise ValueError(
-        "Ulysses supports only heads-to-sequence (2,1) and "
-        "sequence-to-heads (1,2)"
+        "Ulysses supports only heads-to-sequence (2,1) and sequence-to-heads (1,2)"
     )
 
 

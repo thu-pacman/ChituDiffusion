@@ -96,17 +96,13 @@ class Flux2KleinCpAttnProcessor:
             text_key,
             text_value,
             lane_process_group=self.parallel.active.process_group,
-            usp_topology=(
-                self.parallel.active_usp_for_heads(attn.heads)
-                if self.attention.mode == "usp"
+            ulysses_topology=(
+                self.parallel.active_ulysses
+                if self.attention.mode == "ulysses"
                 else None
             ),
             agkv_transport=(
-                getattr(
-                    getattr(self.parallel, "active_usp", None),
-                    "agkv_transport",
-                    None,
-                )
+                self.parallel.active_agkv_transport
                 if self.attention.mode == "agkv"
                 else None
             ),
@@ -183,17 +179,13 @@ class Flux2KleinCpSingleAttnProcessor:
             text_key,
             text_value,
             lane_process_group=self.parallel.active.process_group,
-            usp_topology=(
-                self.parallel.active_usp_for_heads(attn.heads)
-                if self.attention.mode == "usp"
+            ulysses_topology=(
+                self.parallel.active_ulysses
+                if self.attention.mode == "ulysses"
                 else None
             ),
             agkv_transport=(
-                getattr(
-                    getattr(self.parallel, "active_usp", None),
-                    "agkv_transport",
-                    None,
-                )
+                self.parallel.active_agkv_transport
                 if self.attention.mode == "agkv"
                 else None
             ),

@@ -6,9 +6,9 @@ import torch
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.transformers.transformer_z_image import ZImageTransformer2DModel
 
+from ...parallel import EpeParallelContext
 from .attention import ZImageCpAttnProcessor
 from .epe import ZImageEpeModule
-from ...parallel import EpeParallelContext
 
 
 class EpeZImageTransformer2DModel(ZImageTransformer2DModel):

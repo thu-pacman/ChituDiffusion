@@ -3,7 +3,7 @@ name = "chitu-diffusion"
 version = "0.1.0"
 description = "Diffusers-native context-parallel diffusion inference runtime"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "diffusers==0.37.0",
     "einops==0.8.1",
@@ -25,6 +25,7 @@ dependencies = [
     "transformers[torch]>=4.49.0,<4.57.0",
     "typing-extensions",
     "uvicorn[standard]",
+    "accelerate>=1.14.0",
 ]
 
 [build-system]
@@ -38,12 +39,29 @@ chitu = "chitu_diffusion.cli:main"
 include = ["chitu_diffusion*"]
 
 [tool.pytest.ini_options]
-testpaths = ["test"]
+testpaths = ["tests"]
 markers = [
     "benchmark: performance measurements excluded from routine correctness runs",
     "distributed: requires torchrun with multiple ranks",
     "gpu: requires CUDA devices",
 ]
+
+[dependency-groups]
+dev = [
+    "build",
+    "mkdocs",
+    "mkdocs-material",
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+target-version = "py312"
+extend-exclude = ["refs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
@@ -99,11 +117,6 @@ spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS=
 # no-build-isolation-package = ["sageattention", "spas_sage_attn"]
 # reinstall-package = ["spas_sage_attn"]
 override-dependencies = ["transformers>=4.49.0,<4.57.0"]
-# [dependency-groups]
-# dev = [
-#     "torch==2.9.1",
-#     "flash_attn",
-# ]
 [project.optional-dependencies]
 eval = [
     "lpips==0.1.4",
@@ -119,7 +132,6 @@ eval = [
 ]
 flash = ["flash_attn"]
 flash3 = ["kernels==0.11.7"]
-usp = ["flash_attn"]
 flashinfer = ["flashinfer-python", "ninja"]
 sage = ["sageattention"]
 sparge = ["spas_sage_attn"]

@@ -19,10 +19,10 @@ class EpeWanTransformer3DModel(WanTransformer3DModel):
         attention_mode = kwargs.pop("attention_mode", "agkv")
         model = super().from_pretrained(*args, **kwargs)
         if parallel is not None:
-            model.configure_epac(parallel, attention_mode=attention_mode)
+            model.configure_epe(parallel, attention_mode=attention_mode)
         return model
 
-    def configure_epac(
+    def configure_epe(
         self,
         parallel: EpeParallelContext,
         *,
@@ -31,8 +31,8 @@ class EpeWanTransformer3DModel(WanTransformer3DModel):
         processor = WanCpAttnProcessor(parallel, mode=attention_mode)
         for block in self.blocks:
             block.attn1.set_processor(processor)
-        self.epac_parallel = parallel
-        self._epac_attn_processor = processor
+        self.epe_parallel = parallel
+        self._epe_attn_processor = processor
 
     def forward(
         self,
@@ -43,7 +43,7 @@ class EpeWanTransformer3DModel(WanTransformer3DModel):
         return_dict: bool = True,
         attention_kwargs: dict[str, Any] | None = None,
     ):
-        parallel = getattr(self, "epac_parallel", None)
+        parallel = getattr(self, "epe_parallel", None)
         if parallel is None or parallel.active.width == 1:
             return super().forward(
                 hidden_states=hidden_states,
@@ -54,9 +54,9 @@ class EpeWanTransformer3DModel(WanTransformer3DModel):
                 attention_kwargs=attention_kwargs,
             )
         if encoder_hidden_states_image is not None:
-            raise NotImplementedError("Wan2.1 I2V is outside the initial EPAC scope")
+            raise NotImplementedError("Wan2.1 I2V is outside the initial EPE scope")
         if attention_kwargs:
-            raise NotImplementedError("Wan EPAC does not support attention kwargs")
+            raise NotImplementedError("Wan EPE does not support attention kwargs")
         return self._cp_forward(
             hidden_states=hidden_states,
             timestep=timestep,
@@ -72,7 +72,7 @@ class EpeWanTransformer3DModel(WanTransformer3DModel):
         encoder_hidden_states: torch.Tensor,
         return_dict: bool,
     ):
-        parallel = self.epac_parallel
+        parallel = self.epe_parallel
         topology = parallel.active
         batch_size, _, num_frames, height, width = hidden_states.shape
         p_t, p_h, p_w = self.config.patch_size

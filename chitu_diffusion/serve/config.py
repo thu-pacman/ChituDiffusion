@@ -6,7 +6,7 @@ from typing import Any, Literal, Mapping
 
 import yaml
 
-from ..epac.cache import CacheConfig
+from ..flexcache.config import CacheConfig
 
 _LEGACY_CONFIG_FIELDS = {
     "infer",
@@ -19,7 +19,7 @@ _LEGACY_CONFIG_FIELDS = {
 
 
 @dataclass(frozen=True, slots=True)
-class EPACServeConfig:
+class EPEServeConfig:
     host: str = "0.0.0.0"
     port: int = 18200
     advertise_host: str | None = None
@@ -278,8 +278,10 @@ class DiffusionFactoryConfig:
             raise ValueError(
                 "default image dimensions must be positive multiples of 16"
             )
-        if attention_mode not in {"agkv", "usp"}:
-            raise ValueError("factory_args.attention_mode must be one of: agkv, usp")
+        if attention_mode not in {"agkv", "ulysses"}:
+            raise ValueError(
+                "factory_args.attention_mode must be one of: agkv, ulysses"
+            )
         if ulysses_degree is not None and ulysses_degree < 1:
             raise ValueError("factory_args.ulysses_degree must be positive")
         vae_parallel_halo = int(raw.get("vae_parallel_halo", 8))
@@ -387,6 +389,7 @@ class StageServiceConfig:
             record_timeline=bool(raw.get("record_timeline", False)),
             postprocess_workers=int(raw.get("postprocess_workers", 4)),
         )
+
 
 def load_stage_service_config(path: str | Path) -> StageServiceConfig:
     config_path = Path(path).expanduser().resolve()

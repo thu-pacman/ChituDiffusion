@@ -63,8 +63,7 @@ class FastAgkvTransport:
         if value in {"0", "false", "off", "no"}:
             return False
         raise ValueError(
-            "CHITU_FAST_AGKV_ASYNC must be auto, on, or off; "
-            f"got {value!r}"
+            f"CHITU_FAST_AGKV_ASYNC must be auto, on, or off; got {value!r}"
         )
 
     def all_gather_kv(
