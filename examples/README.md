@@ -3,7 +3,7 @@
 These files demonstrate public library APIs; command-line implementation lives
 under `chitu_diffusion.commands`.
 
-- `generate_zimage_flexcache.py`: `ZImagePipeline`/`ZImageRequest` plus TeaCache
+- `generate_zimage_flexcache.py`: `ZImagePipeline`/`ZImageRequest` plus MeanCache
 - `generate_flux1.py`: `Flux1Pipeline`/`Flux1Request`
 - `generate_flux2_klein.py`: fixed-CP FLUX.2-klein pipeline
 - `generate_qwen_image.py`: `QwenImagePipeline`/`QwenImageRequest`

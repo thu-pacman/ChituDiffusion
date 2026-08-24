@@ -185,13 +185,9 @@ reference 的小幅语义差异，也优于 collective 控制流分叉。
 5. **质量 sweep：**每个加速点都与同一 backend 的无缓存 baseline 比较，不能只跨
    attention backend 或 dtype 比图。
 
-文字结果与可复现命令放在 `docs/results/flexcache/<run-id>.md`。生成媒体和临时原始
-数据放在已忽略的 `outputs/` 目录。
-
-当前对比记录：
-
-- [`MagCache`](../../docs/results/flexcache/magcache_compare_20260805.md)
-- [`MeanCache`](../../docs/results/flexcache/meancache_compare_20260804.md)
+对外结果统一整理到 [`docs/features/flexcache.md`](../../docs/features/flexcache.md)。
+生成媒体、逐次运行日志和临时原始数据放在已忽略的 `outputs/` 目录，不为单次实验创建
+独立文档页。
 
 ## 已知取舍
 

@@ -11,4 +11,4 @@ chitu generate \
 ```
 
 模型包不创建 process group，也不实现 FlexCache 策略。缓存支持范围见
-`docs/guides/flexcache.md`。
+`docs/features/flexcache.md`。

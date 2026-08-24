@@ -61,15 +61,15 @@ description: Adapt a new image diffusion model into the Diffusers-native ChituDi
      reusable model sites or probes only through `flexcache/spec.py`.
    - Add immutable parameters to `flexcache/config.py`, register construction in
      `flexcache/strategies/factory.py`, and expose example CLI arguments in
-     `examples/cache_args.py`.
+     `chitu_diffusion/commands/cache_args.py`.
    - Keep fresh/reuse decisions rank-identical under CP and CFP. Reject a
      parallel mode when the decision depends on unsynchronized local shards.
    - Test at least one end-to-end image before sweeping.
 
 6. **Benchmark and visualization**
    - Use the model's root `examples/` entry point and keep a concise
-     reproducible `docs/results/flexcache/<run-id>.md`. Keep generated media
-     and raw measurements under the ignored `outputs/` directory.
+     public summary in `docs/features/flexcache.md`. Keep generated media,
+     per-run notes, and raw measurements under the ignored `outputs/` directory.
    - Reuse previous runs by collecting summaries into a consolidated result directory instead of re-running model loads unnecessarily.
    - For FlexCache trade-off plots and visual sheets, use the `flexcache-bench-visualizer` skill.
    - Record commands, backend, parallel topology, speed, quality, and known

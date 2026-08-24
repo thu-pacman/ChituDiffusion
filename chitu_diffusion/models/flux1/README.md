@@ -17,4 +17,4 @@ chitu generate \
   --output outputs/flux1.png
 ```
 
-通用模型接入规则见 `docs/guides/model-integration.md`。
+通用模型接入规则见 `docs/features/diffusers-api.md`。

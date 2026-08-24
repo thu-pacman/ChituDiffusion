@@ -65,9 +65,6 @@ Fast Ulysses 已接入 transport factory，可以通过
 `--ulysses-transport fast_ulysses` 使用。CUDA Graph capture 和不支持的张量形状
 会改用 NCCL all-to-all。
 
-head 数不足时，剩余并行度可以组成外层 NCCL Ring。该 Ulysses×Ring 路径用于
-head 数和 CP degree 不整除的配置，其性能需要按节点拓扑单独测量。
-
 ## Fast Ring 实验
 
 Fast Ring 让 K/V 分片沿 Ring 依次传到相邻 rank。每个 rank 对当前 K/V 分片计算

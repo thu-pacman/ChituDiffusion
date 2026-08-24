@@ -13,4 +13,4 @@ chitu generate \
   --output outputs/wan.mp4
 ```
 
-缓存 profile 与模型和步数绑定。使用前查看 `docs/guides/flexcache.md`。
+缓存 profile 与模型和步数绑定。使用前查看 `docs/features/flexcache.md`。

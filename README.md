@@ -34,7 +34,7 @@ ChituDiffusion 基于 Diffusers 生命周期提供模型生成、上下文并行
 </td>
 <td width="50%" valign="top">
 
-### <a href="docs/architecture/epe.md">EPE：弹性并行服务</a>
+### <a href="docs/features/epe.md">EPE：弹性并行服务</a>
 
 根据实测代价和端到端 SLO，在 pulse 边界调整 CP lane，并通过统一 executor 处理
 队列、状态迁移和 worker 生命周期。
@@ -44,15 +44,15 @@ ChituDiffusion 基于 Diffusers 生命周期提供模型生成、上下文并行
 <tr>
 <td width="50%" valign="top">
 
-### <a href="docs/guides/flexcache.md">FlexCache：Cache 加速 API 和评测</a>
+### <a href="docs/features/flexcache.md">FlexCache：Cache 加速 API 和评测</a>
 
 提供 MagCache、MeanCache、TeaCache、TaylorSeer 与 PAB 的统一 API，可叠加单卡或
-静态 CP。查看 <a href="docs/results/index.md">速度与质量评测</a>。
+静态 CP。查看 <a href="docs/features/flexcache.md#优化结果">速度与质量评测</a>。
 
 </td>
 <td width="50%" valign="top">
 
-### <a href="docs/guides/model-integration.md">Diffusers Plug and Play</a>
+### <a href="docs/features/diffusers-api.md">Diffusers Plug and Play</a>
 
 保留 tokenizer、文本编码器、scheduler、VAE 和输出处理流程，只适配模型相关的
 DiT 执行与 tensor 布局。
@@ -108,10 +108,8 @@ chitu generate \
   --output outputs/wan-magcache.mp4
 ```
 
-缓存支持与模型、步数和 profile 绑定。不支持的组合会在运行前报错。参见
-[FlexCache 指南](docs/guides/flexcache.md)以及
-[MagCache](docs/results/flexcache/magcache_compare_20260805.md)和
-[MeanCache](docs/results/flexcache/meancache_compare_20260804.md)结果。
+缓存支持与模型、步数和 profile 绑定。不支持的组合会在运行前报错。原理、支持范围和
+测试结果见 [FlexCache 文档](docs/features/flexcache.md)。
 
 ## EPE 服务
 
@@ -120,14 +118,14 @@ chitu serve --stage-config examples/stage-zimage.yaml
 ```
 
 所有 rank 进入服务生命周期，leader 提供 HTTP，其他 rank 执行 worker loop。配置和
-限制见[服务指南](docs/guides/serving.md)与 [EPE 架构](docs/architecture/epe.md)。
+限制见[运行说明](docs/usage/running.md)与 [EPE 文档](docs/features/epe.md)。
 
 ## 文档与开发
 
 - 文档首页：[`docs/index.md`](docs/index.md)
-- 快速开始：[`docs/quickstart.md`](docs/quickstart.md)
-- 架构总览：[`docs/architecture/overview.md`](docs/architecture/overview.md)
-- 模型接入：[`docs/guides/model-integration.md`](docs/guides/model-integration.md)
+- 安装：[`docs/usage/installation.md`](docs/usage/installation.md)
+- 运行：[`docs/usage/running.md`](docs/usage/running.md)
+- 模型 API：[`docs/features/diffusers-api.md`](docs/features/diffusers-api.md)
 - 用户示例：[`examples/README.md`](examples/README.md)
 
 ```bash
@@ -181,7 +179,7 @@ single-node Hopper systems with GPU P2P and NVSHMEM.
 </td>
 <td width="50%" valign="top">
 
-### <a href="docs/architecture/epe.md">EPE: Elastic parallel serving</a>
+### <a href="docs/features/epe.md">EPE: Elastic parallel serving</a>
 
 Adjusts CP lanes at pulse boundaries using measured costs and end-to-end SLOs,
 with one executor lifecycle for queues, state migration, and workers.
@@ -191,16 +189,16 @@ with one executor lifecycle for queues, state migration, and workers.
 <tr>
 <td width="50%" valign="top">
 
-### <a href="docs/guides/flexcache.md">FlexCache: Cache APIs and evaluation</a>
+### <a href="docs/features/flexcache.md">FlexCache: Cache APIs and evaluation</a>
 
 One API for MagCache, MeanCache, TeaCache, TaylorSeer, and PAB, composable with
 single-GPU or static CP generation. See the
-<a href="docs/results/index.md">speed and quality evaluations</a>.
+<a href="docs/features/flexcache.md#优化结果">speed and quality evaluations</a>.
 
 </td>
 <td width="50%" valign="top">
 
-### <a href="docs/guides/model-integration.md">Diffusers Plug and Play</a>
+### <a href="docs/features/diffusers-api.md">Diffusers Plug and Play</a>
 
 Preserves tokenizers, text encoders, schedulers, VAEs, and output processing.
 Adapters only supply model-specific DiT execution and tensor layouts.
@@ -259,9 +257,8 @@ chitu generate \
 
 Cache support is tied to the model, step count, and profile. Unsupported
 combinations fail before execution. See the
-[FlexCache guide](docs/guides/flexcache.md), the
-[MagCache report](docs/results/flexcache/magcache_compare_20260805.md), and the
-[MeanCache report](docs/results/flexcache/meancache_compare_20260804.md).
+[FlexCache documentation](docs/features/flexcache.md) for principles, support,
+and measured results.
 
 ## EPE serving
 
@@ -270,15 +267,15 @@ chitu serve --stage-config examples/stage-zimage.yaml
 ```
 
 All ranks enter the service lifecycle. The leader hosts HTTP while the remaining
-ranks execute worker loops. See the [serving guide](docs/guides/serving.md) and
-[EPE architecture](docs/architecture/epe.md).
+ranks execute worker loops. See the [running guide](docs/usage/running.md) and
+[EPE documentation](docs/features/epe.md).
 
 ## Documentation and development
 
 - Documentation: [`docs/index.md`](docs/index.md)
-- Quickstart: [`docs/quickstart.md`](docs/quickstart.md)
-- Architecture: [`docs/architecture/overview.md`](docs/architecture/overview.md)
-- Model integration: [`docs/guides/model-integration.md`](docs/guides/model-integration.md)
+- Installation: [`docs/usage/installation.md`](docs/usage/installation.md)
+- Running: [`docs/usage/running.md`](docs/usage/running.md)
+- Model API: [`docs/features/diffusers-api.md`](docs/features/diffusers-api.md)
 - Examples: [`examples/README.md`](examples/README.md)
 
 ```bash

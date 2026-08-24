@@ -70,16 +70,18 @@ The visual sheet is for checking generated images, not for explaining the whole 
 - If a method has multiple sweep points, keep them adjacent inside the method group.
 - Include the baseline in the first position unless the user asks otherwise.
 
-## Result.md Requirements
+## Documentation Requirements
 
-When updating `docs/results/flexcache/<run-id>.md`:
+When updating the consolidated results in `docs/features/flexcache.md`:
 
-- Add the consolidated run ID and exact command snippets used to collect/evaluate/visualize.
-- State reused runs and newly launched runs separately.
-- Include a summary table with speed, speedup, and quality metrics.
-- Include only the primary speed-quality plot unless another plot is explicitly requested.
-- Include the contact sheet after the data plot.
-- Note under-swept methods and avoid strong frontier claims until each method has enough points.
+- Publish only comparable results with their hardware, model, dimensions, step
+  count, dtype, backend, and baseline.
+- Keep run IDs, exact collection commands, generated plots, contact sheets, and
+  raw rows under the ignored `outputs/` directory.
+- Summarize speed, speedup, and quality in one coherent section instead of
+  creating one documentation page per run.
+- Note under-swept methods and avoid strong claims until each method has enough
+  points.
 
 ## Acceptance Checklist
 

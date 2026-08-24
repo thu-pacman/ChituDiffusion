@@ -16,4 +16,4 @@ chitu generate \
 chitu serve --stage-config examples/stage-zimage.yaml
 ```
 
-不存在模型专用服务入口。EPE、parallel 和 FlexCache 的边界见 `docs/architecture/`。
+不存在模型专用服务入口。EPE、parallel 和 FlexCache 的边界见 `docs/features/`。

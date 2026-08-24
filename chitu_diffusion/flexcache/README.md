@@ -213,14 +213,10 @@ A strategy is not complete when unit tests pass. Validate it in layers:
    uncached backend baseline. Do not compare only across different attention
    backends or dtypes.
 
-Text summaries and reproducible commands belong under
-`docs/results/flexcache/<run-id>.md`. Generated media and raw temporary data
-belong under the ignored `outputs/` directory.
-
-Current comparison reports:
-
-- [`MagCache`](../../docs/results/flexcache/magcache_compare_20260805.md)
-- [`MeanCache`](../../docs/results/flexcache/meancache_compare_20260804.md)
+Public results are consolidated in
+[`docs/features/flexcache.md`](../../docs/features/flexcache.md). Generated
+media, per-run logs, and temporary raw data belong under the ignored
+`outputs/` directory rather than separate documentation pages.
 
 ## Known trade-offs
 

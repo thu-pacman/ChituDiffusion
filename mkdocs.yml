@@ -1,5 +1,8 @@
 site_name: ChituDiffusion
 site_description: Diffusers-native diffusion inference with EPE, context parallelism, and FlexCache
+site_url: https://thu-pacman.github.io/ChituDiffusion/
+repo_name: thu-pacman/ChituDiffusion
+repo_url: https://github.com/thu-pacman/ChituDiffusion
 docs_dir: docs
 theme:
   name: material
@@ -7,26 +10,26 @@ theme:
   features:
     - navigation.sections
     - navigation.top
+    - toc.integrate
     - content.code.copy
 nav:
-  - 首页: index.md
-  - 快速开始: quickstart.md
-  - 使用指南:
-      - 生成: guides/generation.md
-      - 服务: guides/serving.md
-      - 模型接入: guides/model-integration.md
-      - FlexCache: guides/flexcache.md
-  - 架构:
-      - 总览: architecture/overview.md
-      - EPE: architecture/epe.md
-      - 并行: architecture/parallel.md
-  - 实验结果:
-      - 索引: results/index.md
-      - MagCache: results/flexcache/magcache_compare_20260805.md
-      - MeanCache: results/flexcache/meancache_compare_20260804.md
+  - 项目概述: index.md
+  - 核心功能:
+      - Fast CP: features/fast-cp.md
+      - EPE: features/epe.md
+      - FlexCache: features/flexcache.md
+      - Diffusers API: features/diffusers-api.md
+  - 使用说明:
+      - 安装: usage/installation.md
+      - 运行: usage/running.md
 markdown_extensions:
   - admonition
   - attr_list
+  - md_in_html
   - pymdownx.highlight:
       anchor_linenums: true
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
