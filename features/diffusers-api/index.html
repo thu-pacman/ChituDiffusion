@@ -10,26 +10,28 @@
       
       
       
-        <link rel="canonical" href="https://thu-pacman.github.io/ChituDiffusion/">
+        <link rel="canonical" href="https://thu-pacman.github.io/ChituDiffusion/features/diffusers-api/">
       
       
+        <link rel="prev" href="../flexcache/">
       
-        <link rel="next" href="features/fast-cp/">
+      
+        <link rel="next" href="../../usage/installation/">
       
       
         
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>ChituDiffusion</title>
+        <title>Diffusers API - ChituDiffusion</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
       
 
@@ -48,7 +50,7 @@
       
     
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -66,7 +68,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#_1" class="md-skip">
+        <a href="#diffusers-api" class="md-skip">
           跳转至
         </a>
       
@@ -82,7 +84,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="页眉">
-    <a href="." title="ChituDiffusion" class="md-header__button md-logo" aria-label="ChituDiffusion" data-md-component="logo">
+    <a href="../.." title="ChituDiffusion" class="md-header__button md-logo" aria-label="ChituDiffusion" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -102,7 +104,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              项目概述
+              Diffusers API
             
           </span>
         </div>
@@ -194,7 +196,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--integrated" aria-label="导航栏" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="ChituDiffusion" class="md-nav__button md-logo" aria-label="ChituDiffusion" data-md-component="logo">
+    <a href="../.." title="ChituDiffusion" class="md-nav__button md-logo" aria-label="ChituDiffusion" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -221,37 +223,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    项目概述
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="." class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -267,92 +242,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#fast-cp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fast CP
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#epe" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        EPE
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#flexcache" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        FlexCache
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#diffusers-api" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Diffusers API
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        执行路径
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        支持模型
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -361,8 +250,10 @@
       
   
   
+    
   
   
+  
     
     
     
@@ -373,11 +264,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
@@ -398,7 +289,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -416,7 +307,7 @@
   
   
     <li class="md-nav__item">
-      <a href="features/fast-cp/" class="md-nav__link">
+      <a href="../fast-cp/" class="md-nav__link">
         
   
   
@@ -444,7 +335,7 @@
   
   
     <li class="md-nav__item">
-      <a href="features/epe/" class="md-nav__link">
+      <a href="../epe/" class="md-nav__link">
         
   
   
@@ -472,7 +363,7 @@
   
   
     <li class="md-nav__item">
-      <a href="features/flexcache/" class="md-nav__link">
+      <a href="../flexcache/" class="md-nav__link">
         
   
   
@@ -497,10 +388,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="features/diffusers-api/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diffusers API
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -516,6 +434,70 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        基本原理
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        适配方案
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        当前支持
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        使用示例
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -587,7 +569,7 @@
   
   
     <li class="md-nav__item">
-      <a href="usage/installation/" class="md-nav__link">
+      <a href="../../usage/installation/" class="md-nav__link">
         
   
   
@@ -615,7 +597,7 @@
   
   
     <li class="md-nav__item">
-      <a href="usage/running/" class="md-nav__link">
+      <a href="../../usage/running/" class="md-nav__link">
         
   
   
@@ -663,102 +645,105 @@
   
 
 
-<p align="center">
-  <img src="assets/chitudiffusion-brand.png" alt="ChituDiffusion" width="760">
-</p>
-
-<h3 align="center">面向 Diffusers 模型的并行推理与缓存加速运行时</h3>
-
-<h1 id="_1">项目概述</h1>
-<p>扩散模型的主要计算集中在 DiT 去噪循环。输入分辨率、视频帧数和并发请求数增加后，
-单卡延迟、显存占用和服务排队时间都会上升。ChituDiffusion 在 Diffusers pipeline
-内替换 DiT 执行路径，保留 tokenizer、文本编码器、scheduler、VAE 和输出处理。</p>
-<p>项目提供四项能力：</p>
-<div class="grid cards">
-<ul>
-<li>
-<h3 id="fast-cp"><a href="features/fast-cp/">Fast CP</a></h3>
-<p>将图像或视频 token 分到多张 GPU，使用 Fast AGKV 或 Fast Ulysses 降低通信开销。</p>
-</li>
-<li>
-<h3 id="epe"><a href="features/epe/">EPE</a></h3>
-<p>根据实测代价、请求规模和 SLO，在服务运行期间调整每个请求占用的 GPU 数量。</p>
-</li>
-<li>
-<h3 id="flexcache"><a href="features/flexcache/">FlexCache</a></h3>
-<p>用统一 API 接入五种特征复用方法，并保证静态 CP 各 rank 使用相同复用日程。</p>
-</li>
-<li>
-<h3 id="diffusers-api"><a href="features/diffusers-api/">Diffusers API</a></h3>
-<p>通过 <code>Pipeline.from_pretrained()</code> 加载 Diffusers checkpoint，用 typed Request 发起请求。</p>
-</li>
-</ul>
-</div>
-<h2 id="_2">执行路径</h2>
-<pre class="mermaid"><code>flowchart TD
-    A[Diffusers pipeline] --&gt; B[模型 Pipeline / Request / executor]
-    B --&gt; C[generate]
-    B --&gt; D[serve]
-    C --&gt; E[单卡或静态 NCCL / Fast CP]
-    C --&gt; F[可选 FlexCache]
-    D --&gt; G[EPE 队列与动态 lane]
-    D --&gt; H[状态迁移与 worker]</code></pre>
-<p>静态生成和 EPE 服务复用同一套模型 executor。FlexCache 只用于 <code>generate</code>，不保存
-跨请求状态，也不接入动态 lane。Fast CP 只用于单机静态 CP；多机和 EPE 动态 lane
-使用 NCCL。</p>
-<h2 id="_3">支持模型</h2>
+<h1 id="diffusers-api">Diffusers API</h1>
+<p>ChituDiffusion 从 Diffusers checkpoint 加载模型，并保留原 pipeline 中与分布式 DiT
+无关的组件。用户不需要转换权重格式，也不需要维护另一套 tokenizer、scheduler 或
+VAE 实现。</p>
+<h2 id="_1">基本原理</h2>
+<p>每个模型适配器包含四层：</p>
+<ol>
+<li><strong>Request</strong> 定义 prompt、尺寸、步数、seed 和模型专属参数。</li>
+<li><strong>Pipeline</strong> 加载 Diffusers 组件，并提供 <code>generate()</code> 和 <code>serve()</code> 入口。</li>
+<li><strong>Executor</strong> 把 pipeline 生命周期拆成请求准备、单步去噪、decode 和 postprocess。</li>
+<li><strong>Attention adapter</strong> 处理模型专属 QKV、RoPE 和 tensor 布局，再调用公共 CP 实现。</li>
+</ol>
+<p>静态生成与 EPE 服务共享 executor。两条路径使用相同的 scheduler、latents 和输出处理，
+区别只在于 lane 固定还是由 EPE 调度。</p>
+<h2 id="_2">适配方案</h2>
+<p>ChituDiffusion 只接管 DiT 去噪部分：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Diffusers checkpoint
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── tokenizer / text encoder   保留
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>├── scheduler                  保留
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>├── VAE / image processor      保留
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>└── transformer / attention    接入 CP、EPE 和 FlexCache
+</code></pre></div>
+<p>模型差异位于 <code>chitu_diffusion/models/&lt;family&gt;/</code>。调度、通信和缓存代码不包含模型名称
+分支。新增模型时，需要声明 Request、executor contract、attention 布局和支持能力，
+无需复制 EPE planner 或 CP transport。</p>
+<h2 id="_3">当前支持</h2>
 <table>
 <thead>
 <tr>
-<th>模型</th>
+<th>模型 API</th>
 <th>静态生成</th>
-<th>EPE 服务</th>
+<th>EPE</th>
 <th>FlexCache</th>
-<th>输出</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Z-Image</td>
-<td>单卡、NCCL CP、Fast CP</td>
+<td><code>ZImagePipeline</code> / <code>ZImageRequest</code></td>
 <td>支持</td>
-<td>MeanCache、TaylorSeer、PAB</td>
-<td>图片</td>
+<td>支持</td>
+<td>支持</td>
 </tr>
 <tr>
-<td>FLUX.1-dev</td>
-<td>单卡、NCCL CP、Fast CP</td>
+<td><code>Flux1Pipeline</code> / <code>Flux1Request</code></td>
 <td>支持</td>
-<td>MagCache、TeaCache、TaylorSeer、PAB</td>
-<td>图片</td>
+<td>支持</td>
+<td>支持</td>
 </tr>
 <tr>
-<td>Qwen-Image</td>
-<td>单卡、NCCL CP、Fast CP</td>
+<td><code>QwenImagePipeline</code> / <code>QwenImageRequest</code></td>
 <td>支持</td>
-<td>MagCache、MeanCache、TaylorSeer、PAB</td>
-<td>图片</td>
+<td>支持</td>
+<td>支持</td>
 </tr>
 <tr>
-<td>Wan 2.1 T2V</td>
-<td>单卡、NCCL CP、Fast CP</td>
+<td><code>WanPipeline</code> / <code>WanRequest</code></td>
 <td>支持</td>
-<td>MagCache、TeaCache、TaylorSeer、PAB</td>
-<td>视频</td>
+<td>支持</td>
+<td>支持</td>
 </tr>
 <tr>
-<td>FLUX.2-klein</td>
-<td>单卡、静态 CP</td>
+<td><code>Flux2KleinCpPipeline</code></td>
+<td>支持</td>
 <td>不支持</td>
 <td>不支持</td>
-<td>图片</td>
 </tr>
 </tbody>
 </table>
-<p>项目目前处于开发者预览阶段。EPE 不保证任意 rank 故障后的恢复。Fast CP 和
-FlexCache 的结果只适用于文档列出的硬件、模型、尺寸和参数。</p>
-<p>从<a href="usage/installation/">安装</a>开始，然后按<a href="usage/running/">运行说明</a>执行单卡生成、
-静态多卡生成或 EPE 服务。</p>
+<p>仓库的模型测试检查 typed Request、pipeline contract 和单 rank attention 数值一致性。
+GPU 输出质量仍应使用相同 checkpoint、dtype、scheduler、prompt 和 seed 与原生
+Diffusers pipeline 对比。</p>
+<h2 id="_4">使用示例</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chitu_diffusion</span><span class="w"> </span><span class="kn">import</span> <span class="n">ZImagePipeline</span><span class="p">,</span> <span class="n">ZImageRequest</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">pipeline</span> <span class="o">=</span> <span class="n">ZImagePipeline</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="s2">"/path/to/Z-Image"</span><span class="p">,</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">local_files_only</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">)</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>        <span class="n">ZImageRequest</span><span class="p">(</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>            <span class="n">prompt</span><span class="o">=</span><span class="s2">"a red cube on a white table"</span><span class="p">,</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>            <span class="n">width</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>            <span class="n">height</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>            <span class="n">num_steps</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>            <span class="n">seed</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>        <span class="p">)</span>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>    <span class="p">)</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>    <span class="k">if</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">parallel_context</span><span class="o">.</span><span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>        <span class="n">result</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">"zimage.png"</span><span class="p">)</span>
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="k">finally</span><span class="p">:</span>
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>    <span class="n">pipeline</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</code></pre></div>
+<p>多卡时每个 rank 执行同一段代码，只有 lane leader 返回最终 Diffusers output。完整示例
+位于仓库根目录 <code>examples/</code>。</p>
 
 
 
@@ -814,10 +799,10 @@ FlexCache 的结果只适用于文档列出的硬件、模型、尺寸和参数�
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.sections", "navigation.top", "toc.integrate", "content.code.copy"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "toc.integrate", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
     
     
-      <script src="assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
