@@ -73,6 +73,7 @@ from .models.flux1 import (
     Flux1Request,
 )
 from .models.flux2_klein import Flux2KleinCpPipeline
+from .models.minimax_h3 import MiniMaxH3DiTConfig, MiniMaxH3DiTModel
 from .models.qwen_image import (
     QwenImageDecoderExecutor,
     QwenImageEPACPipeline,
@@ -122,6 +123,8 @@ __all__ = [
     "Flux1ImageDecoderExecutor",
     "Flux1Request",
     "Flux2KleinCpPipeline",
+    "MiniMaxH3DiTConfig",
+    "MiniMaxH3DiTModel",
     "QwenImageDecoderExecutor",
     "QwenImageEPACPipeline",
     "QwenImageExecutorFactory",

@@ -258,7 +258,7 @@ class PulseLaneBroker:
                     "request_id": request_id,
                     "steps": steps,
                     "predicted_step_ms": self.coordinator.policy.predict_step_ms(
-                        request, lease.width
+                        request, lease.scheduling_width
                     ),
                     "payload": self._payload(request_id),
                 }
@@ -290,7 +290,7 @@ class PulseLaneBroker:
             "request_id": candidate.request_id,
             "steps": steps,
             "predicted_step_ms": self.coordinator.policy.predict_step_ms(
-                candidate, lease.width
+                candidate, lease.scheduling_width
             ),
             "payload": self._payload(candidate.request_id),
         }
@@ -304,7 +304,9 @@ class PulseLaneBroker:
         raise ValueError(f"epoch {epoch} has no lease for ranks {ranks}")
 
     def _steps_that_fit(self, lease: LaneLease, request: SchedulableRequest) -> int:
-        predicted = self.coordinator.policy.predict_step_ms(request, lease.width)
+        predicted = self.coordinator.policy.predict_step_ms(
+            request, lease.scheduling_width
+        )
         budget_ms = lease.deadline_ms - float(self._clock_ms()) - self.guard_ms
         if budget_ms < predicted:
             return 0
@@ -319,7 +321,7 @@ class PulseLaneBroker:
             terminal_ms = (
                 0.0
                 if terminal_predictor is None
-                else float(terminal_predictor(request, lease.width))
+                else float(terminal_predictor(request, lease.scheduling_width))
             )
             if request.profile.remaining_steps * predicted + terminal_ms > budget_ms:
                 steps = request.profile.remaining_steps - 1

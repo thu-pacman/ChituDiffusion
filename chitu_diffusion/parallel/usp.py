@@ -5,6 +5,7 @@ import torch.distributed as dist
 import torch.nn.functional as F
 
 from .topology import UspTopology
+from .attention_backend import create_varlen_attention_backend
 
 # The Ulysses layout swap and joint-ring schedule follow xDiT/xFuser's
 # Apache-2.0 implementation, adapted to take EPAC lane groups per call instead
@@ -21,11 +22,6 @@ def _all_to_all_4d(
     world_size = dist.get_world_size(group) if group is not None else 1
     if world_size == 1:
         return tensor
-    if tensor.is_cuda:
-        from yunchang.comm.all_to_all import SeqAllToAll4D
-
-        return SeqAllToAll4D.apply(group, tensor, scatter_dim, gather_dim)
-
     batch, sequence, heads, head_dim = tensor.shape
     if scatter_dim == 2 and gather_dim == 1:
         if heads % world_size:
@@ -96,15 +92,24 @@ def _local_attention(
     value: torch.Tensor,
 ) -> torch.Tensor:
     if query.is_cuda:
-        from flash_attn import flash_attn_func
-
-        return flash_attn_func(
-            query,
-            key,
-            value,
-            dropout_p=0.0,
-            causal=False,
+        if query.shape[:2] != key.shape[:2] or query.shape[:2] != value.shape[:2]:
+            raise ValueError("dense self-attention Q/K/V sequence shapes must match")
+        batch, sequence, heads, head_dim = query.shape
+        cu_seqlens = torch.arange(
+            0,
+            (batch + 1) * sequence,
+            sequence,
+            device=query.device,
+            dtype=torch.int32,
         )
+        output = create_varlen_attention_backend("auto").forward_varlen(
+            query.reshape(batch * sequence, heads, head_dim),
+            key.reshape(batch * sequence, heads, head_dim),
+            value.reshape(batch * sequence, heads, head_dim),
+            cu_seqlens=cu_seqlens,
+            max_seqlen=sequence,
+        )
+        return output.reshape(batch, sequence, heads, head_dim)
     return F.scaled_dot_product_attention(
         query.transpose(1, 2),
         key.transpose(1, 2),
@@ -149,49 +154,11 @@ def _joint_ring_attention(
             torch.cat([*value_pieces, joint_value], dim=1),
         )
 
-    from yunchang.kernels import AttnType, select_flash_attn_impl
-    from yunchang.ring.utils import RingComm, update_out_and_lse
-
-    comm = RingComm(topology.ring_process_group)
-    key = image_key.contiguous()
-    value = image_value.contiguous()
-    output = None
-    output_lse = None
-    attention = select_flash_attn_impl(AttnType.FA, stage="fwd-only")
-    for step in range(comm.world_size):
-        if step + 1 != comm.world_size:
-            next_key = comm.send_recv(key)
-            next_value = comm.send_recv(value)
-            comm.commit()
-        if step + 1 == comm.world_size:
-            block_key = torch.cat([key, joint_key], dim=1)
-            block_value = torch.cat([value, joint_value], dim=1)
-        else:
-            block_key = key
-            block_value = value
-        block_output, block_lse = attention(
-            query,
-            block_key,
-            block_value,
-            dropout_p=0.0,
-            softmax_scale=None,
-            causal=False,
-            window_size=(-1, -1),
-            softcap=0.0,
-            alibi_slopes=None,
-            return_softmax=False,
-        )
-        output, output_lse = update_out_and_lse(
-            output,
-            output_lse,
-            block_output,
-            block_lse,
-        )
-        if step + 1 != comm.world_size:
-            comm.wait()
-            key = next_key
-            value = next_value
-    return output.to(query.dtype)
+    raise RuntimeError(
+        "CUDA Ring attention is not available: the retired yunchang implementation "
+        "must be replaced by native P2P plus LSE merging. Use pure Ulysses "
+        "(ring_degree=1) for this model."
+    )
 
 
 class DynamicUspAttention:

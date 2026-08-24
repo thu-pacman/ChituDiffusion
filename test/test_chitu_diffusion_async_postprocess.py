@@ -14,7 +14,7 @@ from PIL import Image
 from chitu_diffusion.epac.timeline import RankTimelineRecorder
 from chitu_diffusion.epac.worker_pool import AsyncResultChannel, LaneWorkResult
 from chitu_diffusion.serve.protocol import ImageGenerateRequest
-from chitu_diffusion.serve.zimage_runtime import (
+from chitu_diffusion.serve.diffusion_runtime import (
     EpeDiffusionServiceRuntime,
     _RequestRecord,
 )

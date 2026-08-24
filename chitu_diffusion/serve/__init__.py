@@ -8,8 +8,8 @@ from .config import (
     StageServiceConfig,
     load_stage_service_config,
 )
+from .diffusion_runtime import EpeDiffusionServiceRuntime
 from .embedded import EmbeddedDiffusionRuntime
-from .zimage_runtime import EpeDiffusionServiceRuntime
 
 __all__ = [
     "EpeDiffusionServiceRuntime",

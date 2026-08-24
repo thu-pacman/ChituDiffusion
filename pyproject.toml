@@ -5,24 +5,26 @@ description = "Diffusers-native context-parallel diffusion inference runtime"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "diffusers==0.37.0",
-    "einops==0.8.1",
+    "accelerate==1.13.0",
+    "diffusers==0.38.0",
+    "einops==0.8.2",
     "fastapi",
     "ftfy==6.3.1",
     "imageio==2.37.2",
     "imageio-ffmpeg==0.6.0",
-    "numpy==2.4.0",
+    "numpy==2.2.6",
+    "packaging>=24",
     "pyyaml",
     "regex==2025.11.3",
-    "safetensors==0.7.0",
-    "scipy==1.16.3",
+    "safetensors==0.8.0",
+    "scipy==1.17.1",
     "sentencepiece==0.2.1",
-    "protobuf==7.34.0",
+    "protobuf>=6.33.6",
     "tiktoken>=0.7.0",
-    "torch==2.9.1",
-    "torchvision",
+    "torch==2.10.0",
+    "torchvision==0.25.0",
     "tqdm==4.67.1",
-    "transformers[torch]>=4.49.0,<4.57.0",
+    "transformers[torch]==5.12.1",
     "typing-extensions",
     "uvicorn[standard]",
 ]
@@ -77,12 +79,10 @@ spas_sage_attn = { git = "https://github.com/thu-ml/SpargeAttn.git" }
 
 
 [tool.uv.extra-build-dependencies]
-flash_attn = ["torch==2.9.1"]
-sageattention = ["torch==2.9.1", "numpy==2.4.0", "ninja"]
-spas_sage_attn = ["torch==2.9.1"]
+sageattention = ["torch==2.10.0", "numpy==2.2.6", "ninja"]
+spas_sage_attn = ["torch==2.10.0"]
 
 [tool.uv.extra-build-variables]
-flash_attn     = { FLASH_ATTENTION_FORCE_BUILD = "TRUE", MAX_JOBS="8", FLASH_ATTN_CUDA_ARCHS = "90" }
 sageattention  = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
 spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
 
@@ -92,7 +92,7 @@ spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS=
 # config-settings = { editable_mode = "compat" }
 # no-build-isolation-package = ["sageattention", "spas_sage_attn"]
 # reinstall-package = ["spas_sage_attn"]
-override-dependencies = ["transformers>=4.49.0,<4.57.0"]
+override-dependencies = ["transformers==5.12.1"]
 # [dependency-groups]
 # dev = [
 #     "torch==2.9.1",
@@ -111,8 +111,14 @@ eval = [
     "tensorboard",
     "hpsv3==1.0.0",
 ]
-flash = ["flash_attn"]
-usp = ["flash_attn", "yunchang>=0.6.0"]
+varlen = [
+    "flash-attn-4==4.0.0b25",
+    "nvidia-cutlass-dsl[cu13]==4.6.0.dev0",
+    "quack-kernels==0.5.3",
+]
 flashinfer = ["flashinfer-python", "ninja"]
 sage = ["sageattention"]
 sparge = ["spas_sage_attn"]
+
+[dependency-groups]
+dev = ["pytest>=9.1.1"]

@@ -15,7 +15,7 @@ from ..epac.image_decoder import (
     ImageDecodeCompletion,
     StageWorldSpec,
 )
-from .zimage_runtime import EpeDiffusionServiceRuntime
+from .diffusion_runtime import EpeDiffusionServiceRuntime
 
 
 @dataclass(frozen=True, slots=True)

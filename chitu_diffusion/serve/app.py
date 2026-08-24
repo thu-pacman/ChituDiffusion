@@ -54,22 +54,30 @@ def create_app(backend: ServiceBackend) -> FastAPI:
             raise HTTPException(status_code=404, detail="request not found")
         return result
 
-    @app.get("/v1/image-decode/{request_id}/image")
-    def request_image(request_id: str) -> Response:
+    def _media_response(request_id: str, *, label: str) -> Response:
         request_status = backend.status(request_id)
         if request_status is None:
             raise HTTPException(status_code=404, detail="request not found")
         if request_status.status != "completed":
-            raise HTTPException(status_code=409, detail="image is not ready")
-        image = backend.image(request_id)
-        if image is None:
+            raise HTTPException(status_code=409, detail=f"{label} is not ready")
+        get_media = getattr(backend, "media", backend.image)
+        payload = get_media(request_id)
+        if payload is None:
             raise HTTPException(
-                status_code=500, detail="completed request has no image"
+                status_code=500, detail=f"completed request has no {label}"
             )
         return Response(
-            content=image,
+            content=payload,
             media_type=backend.media_type(request_id) or "application/octet-stream",
         )
+
+    @app.get("/v1/media/{request_id}")
+    def request_media(request_id: str) -> Response:
+        return _media_response(request_id, label="media")
+
+    @app.get("/v1/image-decode/{request_id}/image")
+    def request_image(request_id: str) -> Response:
+        return _media_response(request_id, label="image")
 
     @app.delete("/v1/image-decode/{request_id}", response_model=CancelResponse)
     def cancel(request_id: str) -> CancelResponse:

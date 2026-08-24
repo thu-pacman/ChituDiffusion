@@ -8,7 +8,12 @@ import torch
 import torch.distributed as dist
 
 from ..parallel import EpeParallelContext, resolve_context_parallel_config
-from .image_decoder import ExecutorBuildContext, TransferBundle
+from .image_decoder import (
+    ExecutorBuildContext,
+    TerminalArtifact,
+    TransferBundle,
+    normalize_terminal_artifact,
+)
 from .scheduling import RequestProfile
 
 
@@ -22,6 +27,9 @@ def scheduling_options_from_pool(pool: Any) -> dict[str, Any]:
         "balanced_k": pool.balanced_k,
         "starvation_ms": pool.starvation_ms,
         "deadline_guard_ms": pool.deadline_guard_ms,
+        "min_resize_gain_ms": pool.min_resize_gain_ms,
+        "resize_hysteresis_ms": pool.resize_hysteresis_ms,
+        "resize_control_cost_ms": pool.resize_control_cost_ms,
         "max_active_requests": pool.max_inflight_requests,
         "online_calibration": pool.online_calibration,
     }
@@ -71,6 +79,7 @@ def build_stage_parallel_context(
         allowed_widths=context.pool.allowed_lane_widths,
         owns_process_group=world.owns_process_group,
         ulysses_degree=degree,
+        tensor_parallel_degree=context.tensor_parallel_degree,
     )
     return parallel, local_rank
 
@@ -260,8 +269,17 @@ class DiffusersBackend(ABC):
             if is_leader:
                 if decoded is None:
                     raise RuntimeError("full-world leader did not receive decoded output")
-                output = self.postprocess(
-                    decoded.to(device="cpu"),
+                artifact = normalize_terminal_artifact(decoded)
+                assert artifact is not None
+                host_artifact = TerminalArtifact(
+                    tensors={
+                        name: tensor.to(device="cpu")
+                        for name, tensor in artifact.tensors.items()
+                    },
+                    metadata=artifact.metadata,
+                )
+                output = self.postprocess_artifact(
+                    host_artifact,
                     output_type=output_type,
                 )
             else:
@@ -306,6 +324,24 @@ class DiffusersBackend(ABC):
             host_output,
             output_type=output_type,
         )
+
+    def postprocess_artifact(
+        self,
+        host_artifact: TerminalArtifact,
+        *,
+        output_type: str | None = None,
+    ) -> Any:
+        """Preserve the legacy single-tensor postprocess contract by default."""
+
+        if len(host_artifact.tensors) != 1:
+            raise TypeError(
+                f"{type(self).__name__} must override postprocess_artifact "
+                "to handle multiple terminal tensors"
+            )
+        tensor = next(iter(host_artifact.tensors.values()))
+        if output_type is None:
+            return self.postprocess(tensor)
+        return self.postprocess(tensor, output_type=output_type)
 
     @abstractmethod
     def package_generate_output(self, output: Any) -> Any: ...

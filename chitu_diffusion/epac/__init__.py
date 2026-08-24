@@ -57,6 +57,24 @@ from .scheduling import (
     StepPlan,
 )
 from .timeline import RankTimelineRecorder
+from .trace_simulator import (
+    EpeTraceSimulator,
+    TraceAblationMode,
+    TracePhase,
+    TraceRequest,
+    TraceRequestResult,
+    TraceSimulationResult,
+    apply_isolated_p95_deadlines,
+    compare_epe_to_static_cp,
+    generate_profile_trace,
+    generate_variable_trace,
+    measure_isolated_baseline,
+    normalize_trace_load,
+    run_slo_baseline_sweep,
+    load_trace,
+    load_warmup_models,
+    save_trace,
+)
 from .worker import LaneTask, LaneWorker, LaneWorkHooks, StepOutcome
 from .worker_pool import (
     AsyncResultChannel,
@@ -83,6 +101,8 @@ __all__ = [
     "DistributedRankExchange",
     "EpeSchedulingPolicy",
     "EpeSchedulingModule",
+    "EpeTraceSimulator",
+    "TraceAblationMode",
     "EpePhaseAssignment",
     "EpeRequest",
     "EmbeddedRuntimeConfig",
@@ -130,4 +150,18 @@ __all__ = [
     "TaylorSeerConfig",
     "TeaCacheConfig",
     "TransferBundle",
+    "TracePhase",
+    "TraceRequest",
+    "TraceRequestResult",
+    "TraceSimulationResult",
+    "apply_isolated_p95_deadlines",
+    "compare_epe_to_static_cp",
+    "generate_profile_trace",
+    "generate_variable_trace",
+    "measure_isolated_baseline",
+    "normalize_trace_load",
+    "run_slo_baseline_sweep",
+    "load_trace",
+    "load_warmup_models",
+    "save_trace",
 ]

@@ -6,7 +6,7 @@ and model implementations:
 - `protocol.py`: HTTP request and response schemas;
 - `app.py`: FastAPI routes;
 - `config.py`: stage/service configuration parsing;
-- `zimage_runtime.py`: the compatibility distributed runtime (model operations
+- `diffusion_runtime.py`: the compatibility distributed runtime (model operations
   are injected through `DiffusionBackend`);
 - `zimage.py`: conversion from public serve config to the generic runtime;
 - `torchrun.py`: process lifecycle, signal handling, and HTTP startup.
@@ -22,7 +22,5 @@ this package owns only service lifecycle and connectors.
 `EmbeddedDiffusionRuntime` is the primary runtime boundary. `torchrun.py` starts
 it and attaches FastAPI as a connector; SGLang-Omni can instead translate its
 inbox/outbox directly to `submit()` and `poll()`. The compatibility
-`EpeDiffusionServiceRuntime` consumes a model-neutral `DiffusionBackend` and no longer
-calls Z-Image pipeline methods directly. Its historical name is retained as an
-internal compatibility alias; new host integrations should use
-`EmbeddedDiffusionRuntime`.
+`EpeDiffusionServiceRuntime` consumes a model-neutral `DiffusionBackend`; new
+host integrations should use `EmbeddedDiffusionRuntime`.

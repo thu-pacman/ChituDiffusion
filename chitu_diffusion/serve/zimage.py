@@ -4,8 +4,8 @@ import os
 
 from ..epac.image_decoder import DiffusionBackend
 from .config import EPACServeConfig, StageServiceConfig
+from .diffusion_runtime import EpeDiffusionServiceRuntime
 from .torchrun import run_runtime
-from .zimage_runtime import EpeDiffusionServiceRuntime
 
 
 def _physical_gpu_ids(world_size: int) -> list[int]:

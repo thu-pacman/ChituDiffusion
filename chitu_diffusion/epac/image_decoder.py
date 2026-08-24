@@ -96,9 +96,46 @@ class TransferBundle:
 
 
 @dataclass(frozen=True, slots=True)
+class TerminalArtifact:
+    """Named tensors and metadata produced by terminal GPU work."""
+
+    tensors: Mapping[str, torch.Tensor]
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        tensors = dict(self.tensors)
+        if not tensors:
+            raise ValueError("terminal artifact must contain at least one tensor")
+        for name, tensor in tensors.items():
+            if not isinstance(name, str) or not name:
+                raise ValueError("terminal artifact tensor names must not be empty")
+            if not isinstance(tensor, torch.Tensor):
+                raise TypeError(
+                    f"terminal artifact {name!r} must be a torch.Tensor"
+                )
+        object.__setattr__(self, "tensors", tensors)
+        object.__setattr__(self, "metadata", dict(self.metadata))
+
+
+def normalize_terminal_artifact(
+    output: TerminalArtifact | torch.Tensor | None,
+) -> TerminalArtifact | None:
+    """Adapt legacy single-tensor executor output to the terminal contract."""
+
+    if output is None or isinstance(output, TerminalArtifact):
+        return output
+    if isinstance(output, torch.Tensor):
+        return TerminalArtifact(tensors={"output": output})
+    raise TypeError(
+        "terminal GPU output must be a Tensor, TerminalArtifact, or None"
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutorBuildContext:
     world: StageWorldSpec
     pool: Any
+    tensor_parallel_degree: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,7 +250,7 @@ class DiffusionBackend(Protocol):
         *,
         lane_ranks: tuple[int, ...],
         timings: dict[str, object],
-    ) -> torch.Tensor | None: ...
+    ) -> TerminalArtifact | torch.Tensor | None: ...
 
     def postprocess(
         self,

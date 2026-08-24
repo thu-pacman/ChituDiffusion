@@ -41,6 +41,12 @@ class LaneLease:
     def width(self) -> int:
         return len(self.ranks)
 
+    @property
+    def scheduling_width(self) -> int:
+        """Return CP width rather than expanded physical TP×CP rank count."""
+
+        return int(self.metadata.get("cp_width", self.width))
+
     def can_start_step(
         self,
         now_ms: float,
@@ -278,7 +284,7 @@ class PulseCoordinator:
             ),
         )
         for request in ordered:
-            step_ms = predictor.predict_step_ms(request, lease.width)
+            step_ms = predictor.predict_step_ms(request, lease.scheduling_width)
             if lease.can_start_step(
                 current_ms,
                 predicted_step_ms=step_ms,

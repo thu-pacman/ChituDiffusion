@@ -17,6 +17,7 @@ class LaneConstraints:
     strategy: ScheduleStrategy
     world_size: int
     allowed_widths: tuple[int, ...]
+    tp_degree: int = 1
     pin_running_lanes: bool = False
 
     @classmethod
@@ -26,9 +27,12 @@ class LaneConstraints:
         *,
         world_size: int,
         elastic_widths: Sequence[int],
+        tp_degree: int = 1,
     ) -> "LaneConstraints":
         if world_size <= 0:
             raise ValueError("world_size must be positive")
+        if tp_degree <= 0:
+            raise ValueError("tp_degree must be positive")
         configured = tuple(sorted({int(width) for width in elastic_widths}))
         if not configured or any(
             width <= 0 or world_size % width for width in configured
@@ -50,6 +54,7 @@ class LaneConstraints:
             strategy=strategy,
             world_size=world_size,
             allowed_widths=widths,
+            tp_degree=int(tp_degree),
             pin_running_lanes=strategy == "static_dp",
         )
 

@@ -14,8 +14,8 @@ import uvicorn
 from ..epac.image_decoder import EmbeddedRuntimeConfig, StageWorldSpec
 from .app import create_app
 from .config import load_stage_service_config
+from .diffusion_runtime import EpeDiffusionServiceRuntime
 from .embedded import EmbeddedDiffusionRuntime
-from .zimage_runtime import EpeDiffusionServiceRuntime
 
 logger = logging.getLogger(__name__)
 
