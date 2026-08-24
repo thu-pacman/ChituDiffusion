@@ -38,6 +38,32 @@ def make_executor() -> LLaDAImageDecoderExecutor:
     )
 
 
+class _PromptCacheHarness:
+    _encode_default_negative_prompt = (
+        LLaDAImageDiffusionPipeline._encode_default_negative_prompt
+    )
+    encode_prompt = LLaDAImageDiffusionPipeline.encode_prompt
+
+    def __init__(self) -> None:
+        self.text_projection = SimpleNamespace(
+            device=torch.device("cpu"),
+            dtype=torch.float32,
+        )
+        self._default_negative_prompt_cache = None
+        self.encoded_prompts: list[list[str | None]] = []
+
+    def _encode_text(
+        self, prompts: list[str | None], max_sequence_length: int
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        del max_sequence_length
+        self.encoded_prompts.append(prompts)
+        value = float(len(self.encoded_prompts))
+        return (
+            torch.full((len(prompts), 2, 3), value),
+            torch.ones(len(prompts), 2, dtype=torch.bool),
+        )
+
+
 def test_llada_image_request_preserves_official_defaults() -> None:
     request = LLaDAImageRequest(prompt="test")
 
@@ -95,6 +121,89 @@ def test_llada_image_request_builds_official_diffusers_inputs() -> None:
     assert diffusion.inputs["guidance_scale"] == 5.0
     assert diffusion.num_inference_steps == 8
     assert diffusion.inputs["generator"].initial_seed() == 7
+
+
+def test_default_negative_prompt_condition_is_cached_in_inference() -> None:
+    pipeline = _PromptCacheHarness()
+    prompt_embeds = torch.zeros(1, 2, 3)
+    prompt_mask = torch.ones(1, 2, dtype=torch.bool)
+
+    with torch.inference_mode():
+        first = pipeline.encode_prompt(
+            None,
+            None,
+            True,
+            1,
+            prompt_embeds,
+            prompt_mask,
+            None,
+            None,
+            2048,
+            torch.device("cpu"),
+        )
+        second = pipeline.encode_prompt(
+            None,
+            None,
+            True,
+            1,
+            prompt_embeds,
+            prompt_mask,
+            None,
+            None,
+            2048,
+            torch.device("cpu"),
+        )
+
+    assert pipeline.encoded_prompts == [[None]]
+    torch.testing.assert_close(first[2], second[2])
+    torch.testing.assert_close(first[3], second[3])
+    assert pipeline._default_negative_prompt_cache is not None
+    assert pipeline._default_negative_prompt_cache[1][0].device.type == "cpu"
+
+
+def test_default_negative_prompt_cache_is_bounded_and_invalidated() -> None:
+    pipeline = _PromptCacheHarness()
+    prompt_embeds = torch.zeros(1, 2, 3)
+    prompt_mask = torch.ones(1, 2, dtype=torch.bool)
+
+    with torch.inference_mode():
+        for max_sequence_length in (1024, 2048):
+            pipeline.encode_prompt(
+                None,
+                None,
+                True,
+                1,
+                prompt_embeds,
+                prompt_mask,
+                None,
+                None,
+                max_sequence_length,
+                torch.device("cpu"),
+            )
+
+    assert pipeline.encoded_prompts == [[None], [None]]
+    assert pipeline._default_negative_prompt_cache is not None
+    assert pipeline._default_negative_prompt_cache[0][0] == 2048
+
+
+def test_explicit_negative_prompt_bypasses_default_cache() -> None:
+    pipeline = _PromptCacheHarness()
+
+    with torch.inference_mode():
+        pipeline.encode_prompt(
+            None,
+            "low quality",
+            True,
+            1,
+            torch.zeros(1, 2, 3),
+            torch.ones(1, 2, dtype=torch.bool),
+            None,
+            None,
+            2048,
+            torch.device("cpu"),
+        )
+
+    assert pipeline.encoded_prompts == [["low quality"]]
 
 
 def test_llada_image_uses_shared_api_layer() -> None:

@@ -115,6 +115,9 @@ class LLaDAImageDiffusionPipeline(LLaDAImageRuntimeMixin, DiffusionPipeline):
         self.image_processor = VaeImageProcessor(
             vae_scale_factor=self.latent_scale_factor
         )
+        self._default_negative_prompt_cache: (
+            tuple[tuple[int, torch.dtype], tuple[torch.Tensor, torch.Tensor]] | None
+        ) = None
 
     @classmethod
     def from_pretrained(
@@ -288,6 +291,25 @@ class LLaDAImageDiffusionPipeline(LLaDAImageRuntimeMixin, DiffusionPipeline):
         ).hidden_states
         return prompt_embeds, attention_mask.to(prompt_embeds.device)
 
+    def _encode_default_negative_prompt(
+        self, max_sequence_length: int
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        key = (int(max_sequence_length), self.text_projection.dtype)
+        cache_entry = self._default_negative_prompt_cache
+        if cache_entry is None or cache_entry[0] != key:
+            embeds, attention_mask = self._encode_text([None], max_sequence_length)
+            cached = (embeds.detach().cpu(), attention_mask.detach().cpu())
+            self._default_negative_prompt_cache = (key, cached)
+        else:
+            cached = cache_entry[1]
+        return (
+            cached[0].to(
+                device=self.text_projection.device,
+                dtype=self.text_projection.dtype,
+            ),
+            cached[1].to(device=self.text_projection.device),
+        )
+
     def encode_prompt(
         self,
         prompt: str | list[str] | None,
@@ -314,13 +336,25 @@ class LLaDAImageDiffusionPipeline(LLaDAImageRuntimeMixin, DiffusionPipeline):
 
         batch_size = prompt_embeds.shape[0]
         if do_classifier_free_guidance and negative_prompt_embeds is None:
-            if negative_prompt is None:
-                negative_prompt = [None] * batch_size
-            elif isinstance(negative_prompt, str):
-                negative_prompt = [negative_prompt] * batch_size
-            negative_prompt_embeds, negative_prompt_attention_mask = self._encode_text(
-                negative_prompt, max_sequence_length
-            )
+            if negative_prompt is None and not torch.is_grad_enabled():
+                negative_prompt_embeds, negative_prompt_attention_mask = (
+                    self._encode_default_negative_prompt(max_sequence_length)
+                )
+                if batch_size > 1:
+                    negative_prompt_embeds = negative_prompt_embeds.expand(
+                        batch_size, -1, -1
+                    )
+                    negative_prompt_attention_mask = (
+                        negative_prompt_attention_mask.expand(batch_size, -1)
+                    )
+            else:
+                if isinstance(negative_prompt, str):
+                    negative_prompt = [negative_prompt] * batch_size
+                elif negative_prompt is None:
+                    negative_prompt = [None] * batch_size
+                negative_prompt_embeds, negative_prompt_attention_mask = (
+                    self._encode_text(negative_prompt, max_sequence_length)
+                )
         elif do_classifier_free_guidance:
             negative_prompt_embeds = negative_prompt_embeds.to(device)
             negative_prompt_attention_mask = negative_prompt_attention_mask.to(

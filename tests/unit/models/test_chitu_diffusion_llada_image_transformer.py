@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import pytest
 import torch
+from diffusers.models.normalization import RMSNorm as DiffusersRMSNorm
 
+from chitu_diffusion.models.llada_image.diffusers_components import (
+    RMSNorm as LLaDAImageRMSNorm,
+)
 from chitu_diffusion.models.llada_image.epe import LLaDAImageEpeModule
+from chitu_diffusion.models.llada_image.kernels import rms_norm_available
 from chitu_diffusion.models.llada_image.transformer import (
     EpeLLaDAImageTransformer2DModel,
 )
@@ -96,3 +102,25 @@ def test_llada_epe_warmup_uses_patchified_latent_shape() -> None:
     assert report["rows"][0]["raw_image_tokens"] == 4
     assert report["rows"][0]["image_tokens"] == 32
     assert report["rows"][0]["cp_degree"] == 1
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
+@pytest.mark.skipif(not rms_norm_available(), reason="Triton is required")
+def test_llada_rms_norm_cuda_matches_diffusers_reference() -> None:
+    torch.manual_seed(31)
+    hidden_states = torch.randn(
+        4,
+        257,
+        2560,
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+    reference = DiffusersRMSNorm(2560, eps=1e-5, elementwise_affine=False).cuda()
+    optimized = LLaDAImageRMSNorm(2560, eps=1e-5, elementwise_affine=False).cuda()
+
+    with torch.inference_mode():
+        expected = reference(hidden_states)
+        actual = optimized(hidden_states)
+
+    torch.testing.assert_close(actual, expected, rtol=0.0, atol=0.008)

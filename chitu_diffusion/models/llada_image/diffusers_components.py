@@ -23,13 +23,32 @@ from diffusers.models.attention import AttentionMixin, AttentionModuleMixin, Fee
 from diffusers.models.attention_dispatch import dispatch_attention_fn
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.modeling_utils import ModelMixin
-from diffusers.models.normalization import RMSNorm
+from diffusers.models.normalization import RMSNorm as DiffusersRMSNorm
 from diffusers.utils import BaseOutput
 from diffusers.utils.torch_utils import maybe_allow_in_graph
 from torch.nn.utils.rnn import pad_sequence
 
+from .kernels import rms_norm, rms_norm_available
+
 ADALN_EMBED_DIM = 256
 SEQUENCE_MULTIPLE = 32
+
+
+class RMSNorm(DiffusersRMSNorm):
+    """Diffusers-compatible RMSNorm with a fused CUDA inference path."""
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        if (
+            hidden_states.is_cuda
+            and not torch.is_grad_enabled()
+            and getattr(self, "weight", None) is None
+            and hidden_states.numel() > 0
+            and hidden_states.dtype in (torch.float16, torch.bfloat16, torch.float32)
+            and hidden_states.shape[-1] <= 4096
+            and rms_norm_available()
+        ):
+            return rms_norm(hidden_states, self.eps)
+        return super().forward(hidden_states)
 
 
 @dataclass
