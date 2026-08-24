@@ -81,6 +81,8 @@ class QwenImagePipeline(DiffusersEPEPipeline):
         from ...epe.scheduling.planner import EpeSchedulingModule
         from .executor import QwenImageDecoderExecutor
 
+        parallel_vae = getattr(config, "parallel_vae", None)
+
         return QwenImageDecoderExecutor(
             self._pipeline,
             EpeSchedulingModule(
@@ -90,6 +92,6 @@ class QwenImagePipeline(DiffusersEPEPipeline):
             default_width=int(getattr(config, "default_width", 1024)),
             default_height=int(getattr(config, "default_height", 1024)),
             default_num_steps=int(getattr(config, "default_num_steps", 50)),
-            parallel_vae=bool(getattr(config, "parallel_vae", True)),
+            parallel_vae=True if parallel_vae is None else bool(parallel_vae),
             vae_parallel_halo=int(getattr(config, "vae_parallel_halo", 8)),
         )

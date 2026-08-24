@@ -41,6 +41,7 @@ MODEL_PARALLEL_AXES: dict[str, frozenset[str]] = {
     "flux1": frozenset(),
     "qwen-image": frozenset({"cfg_parallel_degree"}),
     "wan": frozenset({"cfg_parallel_degree"}),
+    "llada-image": frozenset({"cfg_parallel_degree"}),
     "minimax-h3": frozenset({"tensor_parallel_degree"}),
     "hunyuan-image3": frozenset(
         {

@@ -137,6 +137,8 @@ class ZImagePipeline(DiffusersEPEPipeline):
     def _create_backend(self, config: Any | None = None) -> Any:
         from .executor import ZImageImageDecoderExecutor
 
+        parallel_vae = getattr(config, "parallel_vae", None)
+
         return ZImageImageDecoderExecutor(
             self._pipeline,
             default_width=int(getattr(config, "default_width", 1024)),
@@ -149,7 +151,7 @@ class ZImagePipeline(DiffusersEPEPipeline):
                     getattr(self._pipeline.transformer.epe, "cfg_parallel", True),
                 )
             ),
-            parallel_vae=bool(getattr(config, "parallel_vae", True)),
+            parallel_vae=True if parallel_vae is None else bool(parallel_vae),
             vae_parallel_halo=int(getattr(config, "vae_parallel_halo", 8)),
         )
 

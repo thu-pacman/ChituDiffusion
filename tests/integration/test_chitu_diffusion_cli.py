@@ -25,11 +25,16 @@ def test_cli_dispatches_generate_and_serve(monkeypatch: pytest.MonkeyPatch) -> N
 
     cli.main(["generate", "--model", "zimage", "--prompt", "test"])
     cli.main(["generate", "--model", "flux2-klein", "--steps", "4"])
+    cli.main(["generate", "--model", "llada-image", "--steps", "20"])
     cli.main(["serve", "--stage-config", "stage.yaml"])
 
     assert calls == [
         ("chitu_diffusion.commands.generate.zimage", ["--prompt", "test"]),
         ("chitu_diffusion.commands.generate.flux2_klein", ["--steps", "4"]),
+        (
+            "chitu_diffusion.commands.generate.llada_image",
+            ["--steps", "20"],
+        ),
         (
             "chitu_diffusion.commands.serve",
             ["--stage-config", "stage.yaml"],
