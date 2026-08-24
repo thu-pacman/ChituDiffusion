@@ -7,15 +7,15 @@ from typing import Any
 
 import torch.distributed as dist
 
-from ..epac.image_decoder import (
+from ..epe.contracts import (
+    DiffusionBackendFactory,
     EmbeddedRuntimeConfig,
     EmbeddedRuntimeHealth,
-    DiffusionBackendFactory,
     ExecutorBuildContext,
     ImageDecodeCompletion,
     StageWorldSpec,
 )
-from .diffusion_runtime import EpeDiffusionServiceRuntime
+from .runtime import DiffusionServiceRuntime
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +27,7 @@ class _BackendConfig:
 
 
 class EmbeddedDiffusionRuntime:
-    """Host-embedded lifecycle around the distributed EPAC worker runtime.
+    """Host-embedded lifecycle around the distributed EPE worker runtime.
 
     This class does not create an HTTP server or spawn GPU processes. Every
     stage rank constructs and starts one instance inside its existing process.
@@ -65,7 +65,7 @@ class EmbeddedDiffusionRuntime:
             dist.all_gather_object(signatures, signature)
             if any(item != signature for item in signatures):
                 raise ValueError("StageWorldSpec differs across stage ranks")
-        self._backend = backend or EpeDiffusionServiceRuntime(
+        self._backend = backend or DiffusionServiceRuntime(
             _BackendConfig(
                 pool=pool,
                 output_root=config.output_root,
@@ -159,7 +159,7 @@ class EmbeddedDiffusionRuntime:
                 self.executor.parallel_context.barrier()
             worker = threading.Thread(
                 target=self._worker_main,
-                name=f"epac-worker-rank{self.world.rank}",
+                name=f"epe-worker-rank{self.world.rank}",
                 daemon=False,
             )
             self._worker = worker

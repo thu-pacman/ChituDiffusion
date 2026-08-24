@@ -9,14 +9,14 @@ from typing import Any, Mapping
 import torch
 import torch.distributed as dist
 
-from ...epac.cache import CacheConfig
-from ...epac.image_decoder import ExecutorBuildContext
-from ...epac.model_executor import (
+from ...epe.contracts import ExecutorBuildContext
+from ...epe.executor import (
     DiffusersBackend,
     build_stage_parallel_context,
     scheduling_options_from_pool,
 )
-from ...epac.model_scheduling import EpeSchedulingModule
+from ...epe.scheduling.planner import EpeSchedulingModule
+from ...flexcache.config import CacheConfig
 from ...parallel import parallel_tiled_vae_decode
 from .api import Flux1Request
 from .pipeline import EpeFlux1Pipeline, Flux1DenoiseState, FluxPipelineOutput
@@ -103,9 +103,7 @@ class Flux1ImageDecoderExecutor(DiffusersBackend):
                         )
                         if device.type == "cuda":
                             torch.cuda.synchronize(device)
-                        vae_samples_ms.append(
-                            (time.perf_counter() - started) * 1000
-                        )
+                        vae_samples_ms.append((time.perf_counter() - started) * 1000)
                         if topology.is_leader:
                             d2h_started = time.perf_counter()
                             host = image.to("cpu")
@@ -136,8 +134,7 @@ class Flux1ImageDecoderExecutor(DiffusersBackend):
                         leader = min(members, key=lambda item: item["rank"])
                         for sample_index in range(steps):
                             vae_ms = max(
-                                item["vae_samples_ms"][sample_index]
-                                for item in members
+                                item["vae_samples_ms"][sample_index] for item in members
                             )
                             d2h_ms = leader["d2h_samples_ms"][sample_index]
                             vae_critical_samples.append(vae_ms)
@@ -151,15 +148,11 @@ class Flux1ImageDecoderExecutor(DiffusersBackend):
                             "batch_size": 1,
                             "cfg_conditions": 1,
                             "state_bytes": image_tokens * 64 * dtype.itemsize,
-                            "terminal_ms": float(
-                                statistics.median(critical_samples)
-                            ),
+                            "terminal_ms": float(statistics.median(critical_samples)),
                             "vae_latency_ms": float(
                                 statistics.median(vae_critical_samples)
                             ),
-                            "d2h_latency_ms": float(
-                                statistics.median(d2h_samples)
-                            ),
+                            "d2h_latency_ms": float(statistics.median(d2h_samples)),
                             "terminal_samples_ms": critical_samples,
                         }
                     )

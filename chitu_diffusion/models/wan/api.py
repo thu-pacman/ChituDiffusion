@@ -6,13 +6,13 @@ from typing import Any, Mapping
 
 import torch
 
-from ...epac.api import (
-    DiffusersEPACPipeline,
+from ...epe.api import (
+    DiffusersEPEPipeline,
     build_diffusion_request,
     validate_image_request,
 )
-from ...epac.cache import CacheConfig
-from ...epac.request import DiffusionRequest
+from ...epe.request import DiffusionRequest
+from ...flexcache.config import CacheConfig
 from .pipeline import EpeWanPipeline
 
 
@@ -71,14 +71,14 @@ class WanRequest:
         )
 
 
-class WanEPACPipeline(DiffusersEPACPipeline):
-    """Diffusers-style facade for Wan2.1 T2V EPAC generation."""
+class WanPipeline(DiffusersEPEPipeline):
+    """Diffusers-style facade for Wan2.1 T2V EPE generation."""
 
     pipeline_class = EpeWanPipeline
-    generation_error_prefix = "Wan EPAC"
+    generation_error_prefix = "Wan EPE"
 
     def _create_backend(self, config: Any | None = None) -> Any:
-        from ...epac.model_scheduling import EpeSchedulingModule
+        from ...epe.scheduling.planner import EpeSchedulingModule
         from .executor import WanVideoDecoderExecutor
 
         return WanVideoDecoderExecutor(

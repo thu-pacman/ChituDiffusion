@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from ...epac.cache import CacheConfig
+from ...flexcache.config import CacheConfig
 
 
 @dataclass(frozen=True, slots=True)

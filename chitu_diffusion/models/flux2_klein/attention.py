@@ -96,8 +96,15 @@ class Flux2KleinCpAttnProcessor:
             text_key,
             text_value,
             lane_process_group=self.parallel.active.process_group,
-            usp_topology=(
-                self.parallel.active_usp if self.attention.mode == "usp" else None
+            ulysses_topology=(
+                self.parallel.active_ulysses
+                if self.attention.mode == "ulysses"
+                else None
+            ),
+            agkv_transport=(
+                self.parallel.active_agkv_transport
+                if self.attention.mode == "agkv"
+                else None
             ),
             joint_first=True,
         )
@@ -172,8 +179,15 @@ class Flux2KleinCpSingleAttnProcessor:
             text_key,
             text_value,
             lane_process_group=self.parallel.active.process_group,
-            usp_topology=(
-                self.parallel.active_usp if self.attention.mode == "usp" else None
+            ulysses_topology=(
+                self.parallel.active_ulysses
+                if self.attention.mode == "ulysses"
+                else None
+            ),
+            agkv_transport=(
+                self.parallel.active_agkv_transport
+                if self.attention.mode == "agkv"
+                else None
             ),
             joint_first=True,
         )

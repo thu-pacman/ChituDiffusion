@@ -1,6 +1,7 @@
-"""Z-Image model integration for EPAC."""
+"""Z-Image model integration for EPE."""
 
-from .api import EPACPipeline, EPACRequest
+from ...parallel import ActiveLaneTopology, EpeParallelContext
+from .api import ZImagePipeline, ZImageRequest
 from .epe import (
     EpeCostModel,
     EpePhaseAssignment,
@@ -9,14 +10,13 @@ from .epe import (
     ZImageEpeModule,
 )
 from .executor import ZImageExecutorFactory, ZImageImageDecoderExecutor
-from ...parallel import ActiveLaneTopology, EpeParallelContext
 from .pipeline import EpeZImagePipeline, ZImageDenoiseState
 from .transformer import EpeZImageTransformer2DModel
 
 __all__ = [
     "ActiveLaneTopology",
-    "EPACPipeline",
-    "EPACRequest",
+    "ZImagePipeline",
+    "ZImageRequest",
     "EpeCostModel",
     "EpeParallelContext",
     "EpePhaseAssignment",

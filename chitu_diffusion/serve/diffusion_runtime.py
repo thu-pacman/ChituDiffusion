@@ -15,7 +15,7 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 
-from ..epac import (
+from ..epe import (
     AsyncResultChannel,
     DistributedRankExchange,
     FullWorldLaneWorkerPool,
@@ -27,14 +27,14 @@ from ..epac import (
     SchedulableRequest,
     SingletonLaneWorkerPool,
 )
-from ..epac.image_decoder import (
-    DiffusionBackend,
+from ..epe.contracts import (
+    DiffusionBackendProtocol as DiffusionBackend,
     ImageDecodeCompletion,
     LaneSnapshot,
     TerminalArtifact,
     normalize_terminal_artifact,
 )
-from ..epac.request import StructuredError
+from ..epe.request import StructuredError
 from ..models.zimage.executor import ZImageExecutorFactory
 from .config import StageServiceConfig
 from .protocol import (
@@ -109,7 +109,7 @@ class EpeDiffusionServiceRuntime:
 
     @classmethod
     def from_config(cls, config: StageServiceConfig) -> "EpeDiffusionServiceRuntime":
-        from ..epac.image_decoder import ExecutorBuildContext, StageWorldSpec
+        from ..epe.contracts import ExecutorBuildContext, StageWorldSpec
         from ..models.flux1.executor import Flux1ExecutorFactory
         from ..models.minimax_h3.executor import MiniMaxH3ExecutorFactory
         from ..models.qwen_image.executor import QwenImageExecutorFactory

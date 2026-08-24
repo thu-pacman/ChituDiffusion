@@ -59,7 +59,7 @@ Strategy-specific arguments use their own prefix:
 
 Common warmup/cooldown flags apply only to strategies that use the common
 fresh-step envelope. MagCache owns its schedule and rejects those overrides.
-Configuration is represented by immutable dataclasses in `epac/cache.py` and
+Configuration is represented by immutable dataclasses in `flexcache/config.py` and
 is validated before hooks are installed.
 
 ## Layout
@@ -122,7 +122,7 @@ TaylorSeer do.
 
 ## Adding a strategy
 
-1. Add its immutable user parameters as a dataclass in `epac/cache.py`, include
+1. Add its immutable user parameters as a dataclass in `flexcache/config.py`, include
    it in `CacheParams`, `_PARAM_TYPES`, and `CacheStrategyName`, and validate
    unsupported combinations early.
 2. Add `strategies/<name>.py`. Subclass `BaseCacheStrategy` and override only
@@ -158,16 +158,16 @@ TaylorSeer do.
 
 3. Register construction in `strategies/factory.py` and export the class from
    `strategies/__init__.py`.
-4. Add CLI arguments in `examples/cache_args.py` only if the strategy is
-   intended for example scripts.
-5. Add focused tests in `test/test_chitu_diffusion_flexcache.py` for scheduling,
+4. Add public CLI arguments in `chitu_diffusion/commands/cache_args.py`.
+5. Add focused tests in `tests/unit/flexcache/test_chitu_diffusion_flexcache.py` for scheduling,
    request isolation, cache statistics, tensor-tree outputs, and unsupported
    configurations. Then run:
 
    ```bash
-   python -m pytest test/test_chitu_diffusion_flexcache.py -q
+   python -m pytest tests/unit/flexcache/test_chitu_diffusion_flexcache.py -q
    python -m ruff check chitu_diffusion/flexcache \
-     chitu_diffusion/epac/cache.py test/test_chitu_diffusion_flexcache.py
+     chitu_diffusion/flexcache/config.py \
+     tests/unit/flexcache/test_chitu_diffusion_flexcache.py
    ```
 
 ## Parallelism requirements
@@ -214,13 +214,13 @@ A strategy is not complete when unit tests pass. Validate it in layers:
    backends or dtypes.
 
 Text summaries and reproducible commands belong under
-`outputs/flexcache/<run-id>/result.md`. Generated media and raw temporary data
-should remain untracked.
+`docs/results/flexcache/<run-id>.md`. Generated media and raw temporary data
+belong under the ignored `outputs/` directory.
 
 Current comparison reports:
 
-- [`MagCache`](../../outputs/flexcache/magcache_compare_20260805/result.md)
-- [`MeanCache`](../../outputs/flexcache/meancache_compare_20260804/result.md)
+- [`MagCache`](../../docs/results/flexcache/magcache_compare_20260805.md)
+- [`MeanCache`](../../docs/results/flexcache/meancache_compare_20260804.md)
 
 ## Known trade-offs
 

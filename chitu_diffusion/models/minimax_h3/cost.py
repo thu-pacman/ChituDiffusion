@@ -5,7 +5,7 @@ from typing import Any, Mapping
 
 import numpy as np
 
-from ...epac.cost import MeasuredStepCostModel
+from ...epe.scheduling.cost import MeasuredStepCostModel
 
 
 H3_COST_KIND = "minimax_h3"

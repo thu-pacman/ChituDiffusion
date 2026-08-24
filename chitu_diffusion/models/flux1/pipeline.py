@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import statistics
 import time
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -50,6 +50,8 @@ class EpeFlux1Pipeline(FluxPipeline):
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
         allowed_widths = kwargs.pop("allowed_lane_widths", None)
+        ulysses_transport = kwargs.pop("ulysses_transport", None)
+        agkv_transport = kwargs.pop("agkv_transport", None)
         attention_mode, ulysses_degree = resolve_context_parallel_config(
             kwargs.pop("attention_mode", "agkv"),
             kwargs.pop("ulysses_degree", None),
@@ -61,7 +63,9 @@ class EpeFlux1Pipeline(FluxPipeline):
                     if allowed_widths is not None
                     else None
                 ),
-                ulysses_degree=int(ulysses_degree),
+                ulysses_degree=ulysses_degree,
+                ulysses_transport=ulysses_transport,
+                agkv_transport=agkv_transport,
             )
         transformer = kwargs.pop("transformer", None)
         if transformer is None:
@@ -80,22 +84,22 @@ class EpeFlux1Pipeline(FluxPipeline):
         elif not isinstance(transformer, EpeFlux1Transformer2DModel):
             raise TypeError("transformer must be an EpeFlux1Transformer2DModel")
         else:
-            transformer.configure_epac(parallel, attention_mode=attention_mode)
+            transformer.configure_epe(parallel, attention_mode=attention_mode)
         pipeline = super().from_pretrained(
             pretrained_model_name_or_path,
             transformer=transformer,
             **kwargs,
         )
-        pipeline._epac_parallel_context = parallel
-        pipeline._epac_attention_mode = attention_mode
-        pipeline._epac_ulysses_degree = ulysses_degree
+        pipeline._epe_parallel_context = parallel
+        pipeline._epe_attention_mode = attention_mode
+        pipeline._epe_ulysses_degree = ulysses_degree
         return pipeline
 
     @property
     def parallel_context(self) -> EpeParallelContext:
-        parallel = getattr(self, "_epac_parallel_context", None)
+        parallel = getattr(self, "_epe_parallel_context", None)
         if parallel is None:
-            raise RuntimeError("pipeline has no EPAC parallel context")
+            raise RuntimeError("pipeline has no EPE parallel context")
         return parallel
 
     @property
@@ -214,8 +218,8 @@ class EpeFlux1Pipeline(FluxPipeline):
                 "steps": steps,
                 "resolutions": [list(value) for value in resolutions],
                 "allowed_lane_widths": list(self.parallel_context.allowed_widths),
-                "attention_mode": self._epac_attention_mode,
-                "ulysses_degree": self._epac_ulysses_degree,
+                "attention_mode": self._epe_attention_mode,
+                "ulysses_degree": self._epe_ulysses_degree,
                 "rows": rows,
                 "total_wall_ms": (time.perf_counter() - started) * 1000,
             }
@@ -248,14 +252,14 @@ class EpeFlux1Pipeline(FluxPipeline):
         joint_attention_kwargs: dict[str, Any] | None = None,
     ) -> Flux1DenoiseState:
         if true_cfg_scale != 1.0:
-            raise NotImplementedError("Flux.1 EPAC does not support true CFG yet")
+            raise NotImplementedError("Flux.1 EPE does not support true CFG yet")
         if joint_attention_kwargs:
             raise NotImplementedError(
-                "Flux.1 EPAC does not support IP-Adapter or joint attention kwargs yet"
+                "Flux.1 EPE does not support IP-Adapter or joint attention kwargs yet"
             )
         if num_images_per_prompt != 1:
             raise NotImplementedError(
-                "Flux.1 EPAC currently supports one image per prompt"
+                "Flux.1 EPE currently supports one image per prompt"
             )
         if height < 16 or width < 16 or height % 16 or width % 16:
             raise ValueError("Flux.1 height and width must be positive multiples of 16")
@@ -274,7 +278,7 @@ class EpeFlux1Pipeline(FluxPipeline):
         else:
             raise ValueError("prompt or prompt_embeds must be provided")
         if batch_size != 1:
-            raise NotImplementedError("Flux.1 EPAC currently supports batch size one")
+            raise NotImplementedError("Flux.1 EPE currently supports batch size one")
 
         device = self._execution_device
         prompt_embeds, pooled_prompt_embeds, text_ids = self.encode_prompt(
@@ -441,9 +445,7 @@ class EpeFlux1Pipeline(FluxPipeline):
             image = (
                 None
                 if decoded is None
-                else self.image_processor.postprocess(
-                    decoded, output_type=output_type
-                )
+                else self.image_processor.postprocess(decoded, output_type=output_type)
             )
         self.maybe_free_model_hooks()
         if not return_dict:

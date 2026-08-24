@@ -1,5 +1,12 @@
 """Model-independent parallel topology and communication primitives."""
 
+from .agkv_transport import (
+    AGKV_TRANSPORTS,
+    AgkvTransport,
+    AsyncAgkvTransport,
+    create_agkv_transport,
+    resolve_agkv_transport,
+)
 from .groups import (
     ActiveLaneTopology,
     CfgParallelTopology,
@@ -12,6 +19,12 @@ from .image_attention import (
     ImageSelfAttention,
     resolve_context_parallel_config,
 )
+from .attention_backend import (
+    Fa4VarlenBackend,
+    FlexVarlenBackend,
+    SdpaVarlenBackend,
+    create_varlen_attention_backend,
+)
 from .linear import (
     ColumnParallelLinear,
     MergedColumnParallelLinear,
@@ -23,13 +36,6 @@ from .packed_usp import (
     all_to_all_packed_qkv,
     validate_tp_ulysses_heads,
 )
-from .attention_backend import (
-    Fa4VarlenBackend,
-    FlexVarlenBackend,
-    SdpaVarlenBackend,
-    create_varlen_attention_backend,
-)
-from .topology import UspTopology
 from .tensor_parallel import (
     TensorParallelTopology,
     adopt_external_tensor_parallel_group,
@@ -41,11 +47,28 @@ from .tensor_parallel import (
 )
 from .tp_loader import load_tensor_parallel_checkpoint
 from .usp import DynamicUspAttention
+from .nccl import (
+    TorchAgkvTransport,
+    TorchUlyssesTransport,
+)
+from .topology import UlyssesTopology, UspTopology
+from .ulysses_transport import (
+    ULYSSES_TRANSPORTS,
+    AsyncTaggedUlyssesTransport,
+    UlyssesTransport,
+    create_ulysses_transport,
+    resolve_ulysses_transport,
+)
 from .vae import parallel_tiled_vae_decode
 
 __all__ = [
-    "ActiveLaneTopology",
+    "AGKV_TRANSPORTS",
     "CONTEXT_PARALLEL_MODES",
+    "ULYSSES_TRANSPORTS",
+    "ActiveLaneTopology",
+    "AgkvTransport",
+    "AsyncAgkvTransport",
+    "AsyncTaggedUlyssesTransport",
     "CfgParallelTopology",
     "ColumnParallelLinear",
     "DynamicUspAttention",
@@ -70,8 +93,17 @@ __all__ = [
     "get_tp_topology",
     "get_tp_world_size",
     "load_tensor_parallel_checkpoint",
+    "TorchAgkvTransport",
+    "TorchUlyssesTransport",
+    "UlyssesTransport",
+    "UlyssesTopology",
+    "cfg_parallel_rank_groups",
+    "create_agkv_transport",
+    "create_ulysses_transport",
     "parallel_tiled_vae_decode",
+    "resolve_agkv_transport",
     "resolve_context_parallel_config",
     "validate_tp_ulysses_heads",
     "use_tensor_parallel_topology",
+    "resolve_ulysses_transport",
 ]

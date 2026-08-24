@@ -65,12 +65,14 @@ def combine_qwen_cfg_predictions(
 
 
 class EpeQwenImagePipeline(QwenImagePipeline):
-    """QwenImagePipeline split into resumable EPAC request stages."""
+    """QwenImagePipeline split into resumable EPE request stages."""
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
         allowed_widths = kwargs.pop("allowed_lane_widths", None)
+        ulysses_transport = kwargs.pop("ulysses_transport", None)
+        agkv_transport = kwargs.pop("agkv_transport", None)
         attention_mode, ulysses_degree = resolve_context_parallel_config(
             kwargs.pop("attention_mode", "agkv"),
             kwargs.pop("ulysses_degree", None),
@@ -84,6 +86,8 @@ class EpeQwenImagePipeline(QwenImagePipeline):
                     else None
                 ),
                 ulysses_degree=ulysses_degree,
+                ulysses_transport=ulysses_transport,
+                agkv_transport=agkv_transport,
             )
         transformer = kwargs.pop("transformer", None)
         if transformer is None:
@@ -102,28 +106,28 @@ class EpeQwenImagePipeline(QwenImagePipeline):
         elif not isinstance(transformer, EpeQwenImageTransformer2DModel):
             raise TypeError("transformer must be an EpeQwenImageTransformer2DModel")
         else:
-            transformer.configure_epac(parallel, attention_mode=attention_mode)
+            transformer.configure_epe(parallel, attention_mode=attention_mode)
         pipeline = super().from_pretrained(
             pretrained_model_name_or_path,
             transformer=transformer,
             **kwargs,
         )
-        pipeline._epac_parallel_context = parallel
-        pipeline._epac_attention_mode = attention_mode
-        pipeline._epac_ulysses_degree = ulysses_degree
-        pipeline._epac_cfg_parallel = cfg_parallel
+        pipeline._epe_parallel_context = parallel
+        pipeline._epe_attention_mode = attention_mode
+        pipeline._epe_ulysses_degree = ulysses_degree
+        pipeline._epe_cfg_parallel = cfg_parallel
         return pipeline
 
     @property
     def parallel_context(self) -> EpeParallelContext:
-        parallel = getattr(self, "_epac_parallel_context", None)
+        parallel = getattr(self, "_epe_parallel_context", None)
         if parallel is None:
-            raise RuntimeError("pipeline has no EPAC parallel context")
+            raise RuntimeError("pipeline has no EPE parallel context")
         return parallel
 
     @property
     def cfg_parallel(self) -> bool:
-        return bool(getattr(self, "_epac_cfg_parallel", False))
+        return bool(getattr(self, "_epe_cfg_parallel", False))
 
     @torch.inference_mode()
     def prepare_request(
@@ -149,7 +153,7 @@ class EpeQwenImagePipeline(QwenImagePipeline):
     ) -> QwenImageDenoiseState:
         if num_images_per_prompt != 1:
             raise NotImplementedError(
-                "Qwen-Image EPAC currently supports one image per prompt"
+                "Qwen-Image EPE currently supports one image per prompt"
             )
         if height < 16 or width < 16 or height % 16 or width % 16:
             raise ValueError(
@@ -159,7 +163,7 @@ class EpeQwenImagePipeline(QwenImagePipeline):
             raise ValueError("Qwen-Image max_sequence_length cannot exceed 1024")
         if attention_kwargs:
             raise NotImplementedError(
-                "Qwen-Image EPAC does not support attention kwargs"
+                "Qwen-Image EPE does not support attention kwargs"
             )
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
@@ -171,7 +175,7 @@ class EpeQwenImagePipeline(QwenImagePipeline):
             raise ValueError("prompt or prompt_embeds must be provided")
         if batch_size != 1:
             raise NotImplementedError(
-                "Qwen-Image EPAC currently supports batch size one"
+                "Qwen-Image EPE currently supports batch size one"
             )
 
         device = self._execution_device
@@ -476,8 +480,8 @@ class EpeQwenImagePipeline(QwenImagePipeline):
                 "steps": steps,
                 "resolutions": [list(value) for value in resolutions],
                 "allowed_lane_widths": list(self.parallel_context.allowed_widths),
-                "attention_mode": self._epac_attention_mode,
-                "ulysses_degree": self._epac_ulysses_degree,
+                "attention_mode": self._epe_attention_mode,
+                "ulysses_degree": self._epe_ulysses_degree,
                 "rows": rows,
                 "total_wall_ms": (time.perf_counter() - report_started) * 1000,
             }
@@ -552,9 +556,7 @@ class EpeQwenImagePipeline(QwenImagePipeline):
             image = (
                 None
                 if decoded is None
-                else self.image_processor.postprocess(
-                    decoded, output_type=output_type
-                )
+                else self.image_processor.postprocess(decoded, output_type=output_type)
             )
         self.maybe_free_model_hooks()
         if not return_dict:

@@ -26,8 +26,6 @@ logs
 *.log
 *.csv
 *.mp4
-experiments
-backup
 vbench_out
 
 # Local references, caches, and model/checkpoint payloads

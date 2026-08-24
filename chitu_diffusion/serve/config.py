@@ -6,7 +6,7 @@ from typing import Any, Literal, Mapping
 
 import yaml
 
-from ..epac.cache import CacheConfig
+from ..flexcache.config import CacheConfig
 
 _LEGACY_CONFIG_FIELDS = {
     "infer",
@@ -19,7 +19,7 @@ _LEGACY_CONFIG_FIELDS = {
 
 
 @dataclass(frozen=True, slots=True)
-class EPACServeConfig:
+class EPEServeConfig:
     host: str = "0.0.0.0"
     port: int = 18200
     advertise_host: str | None = None
@@ -337,7 +337,7 @@ class DiffusionFactoryConfig:
     default_height: int = 1024
     num_frames: int = 17
     attention_mode: str = "agkv"
-    ulysses_degree: int = 1
+    ulysses_degree: int | None = None
     cfg_parallel: bool = True
     parallel_vae: bool = True
     vae_parallel_halo: int = 8
@@ -373,18 +373,19 @@ class DiffusionFactoryConfig:
         width = int(raw.get("default_width", 1024))
         height = int(raw.get("default_height", 1024))
         attention_mode = str(raw.get("attention_mode", "agkv"))
-        ulysses_degree = int(
-            raw.get("ulysses_degree", 2 if attention_mode == "usp" else 1)
-        )
+        raw_degree = raw.get("ulysses_degree")
+        ulysses_degree = None if raw_degree is None else int(raw_degree)
         if num_steps < 1:
             raise ValueError("factory_args.num_steps must be >= 1")
         if width < 16 or height < 16 or width % 16 or height % 16:
             raise ValueError(
                 "default image dimensions must be positive multiples of 16"
             )
-        if attention_mode not in {"agkv", "usp"}:
-            raise ValueError("factory_args.attention_mode must be one of: agkv, usp")
-        if ulysses_degree < 1:
+        if attention_mode not in {"agkv", "ulysses"}:
+            raise ValueError(
+                "factory_args.attention_mode must be one of: agkv, ulysses"
+            )
+        if ulysses_degree is not None and ulysses_degree < 1:
             raise ValueError("factory_args.ulysses_degree must be positive")
         vae_parallel_halo = int(raw.get("vae_parallel_halo", 8))
         num_frames = int(raw.get("num_frames", 17))
@@ -592,6 +593,7 @@ class StageServiceConfig:
             record_timeline=bool(raw.get("record_timeline", False)),
             postprocess_workers=int(raw.get("postprocess_workers", 4)),
         )
+
 
 def load_stage_service_config(path: str | Path) -> StageServiceConfig:
     config_path = Path(path).expanduser().resolve()

@@ -12,15 +12,15 @@ import torch
 import torch.distributed as dist
 from diffusers.utils import export_to_video
 
-from ...epac.cache import CacheConfig
-from ...epac.image_decoder import ExecutorBuildContext
-from ...epac.model_executor import (
+from ...epe.contracts import ExecutorBuildContext
+from ...epe.executor import (
     DiffusersBackend,
     build_stage_parallel_context,
     scheduling_options_from_pool,
 )
-from ...epac.model_scheduling import EpeSchedulingModule
-from ...epac.scheduling import RequestProfile
+from ...epe.scheduling.planner import EpeSchedulingModule
+from ...epe.scheduling.types import RequestProfile
+from ...flexcache.config import CacheConfig
 from ...parallel import parallel_tiled_vae_decode
 from .api import WanRequest
 from .pipeline import EpeWanPipeline, WanDenoiseState, WanPipelineOutput
@@ -31,7 +31,7 @@ class WanVideoDecoderExecutor(DiffusersBackend):
 
     flexcache_family = "wan"
 
-    """Independent embedded EPAC executor for Wan video requests."""
+    """Independent embedded EPE executor for Wan video requests."""
 
     model_name = "wan"
 

@@ -1,21 +1,23 @@
-"""HTTP and torchrun serving adapters for EPAC pipelines."""
+"""HTTP and torchrun serving adapters for EPE pipelines."""
 
 from .app import create_app
 from .config import (
     DiffusionFactoryConfig,
-    EPACServeConfig,
+    EPEServeConfig,
     HotSwitchPoolConfig,
     StageServiceConfig,
     load_stage_service_config,
 )
 from .diffusion_runtime import EpeDiffusionServiceRuntime
 from .embedded import EmbeddedDiffusionRuntime
+from .runtime import DiffusionServiceRuntime
 
 __all__ = [
+    "DiffusionServiceRuntime",
     "EpeDiffusionServiceRuntime",
     "DiffusionFactoryConfig",
     "EmbeddedDiffusionRuntime",
-    "EPACServeConfig",
+    "EPEServeConfig",
     "HotSwitchPoolConfig",
     "StageServiceConfig",
     "create_app",

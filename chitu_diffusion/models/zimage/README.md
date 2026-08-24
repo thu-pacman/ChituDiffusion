@@ -1,36 +1,19 @@
-# Z-Image Integration
+# Z-Image
 
-This directory owns all Z-Image-specific code:
+该包保存 `ZImagePipeline`、`ZImageRequest`、executor、transformer tensor 布局和
+attention glue。EPE 只通过公共 executor contract 使用该包。
 
-- the Diffusers-compatible pipeline and request-local denoise state;
-- the transformer wrapper and Diffusers attention projection/RoPE glue;
-- deterministic startup process-group creation;
-- random-tensor warmup for supported image resolutions;
-- `ZImageImageDecoderExecutor`, which adds request codec, model state, and VAE
-  hooks to the shared executor lifecycle;
-- the public `EPACPipeline.from_pretrained()` facade.
+```bash
+chitu generate \
+  --model zimage \
+  --model-path /path/to/Z-Image \
+  --output outputs/zimage.png
+```
 
-It may depend on `chitu_diffusion.epac`, but EPAC core must never import this
-package. HTTP schemas and torchrun lifecycle code belong in
-`chitu_diffusion.serve`.
+服务使用统一入口：
 
-Measured scheduling state, stage-world setup, executor state transfer, and the
-shared synchronous/service backend live in `chitu_diffusion.epac`. They must not be
-copied when another model is added.
+```bash
+chitu serve --stage-config examples/stage-zimage.yaml
+```
 
-AGKV/USP 的通信与 attention 计算位于 `chitu_diffusion.parallel`。Z-Image
-processor 只负责把 `[local_image, replicated_text]` Q/K/V 交给公共接口。设置
-`attention_mode="usp", ulysses_degree=2` 时，四卡 lane 使用 u2r2；较窄的 elastic lane
-自动退化为 u2r1 或 u1r1。
-
-CFG-enabled requests default to CFP-2 on even-width lanes. The lane is split
-into cond/uncond halves, each half retains the configured context-parallel
-attention, and shard-aligned rank pairs gather the two predictions before the
-scheduler step. `cfg_parallel=False` keeps the pure-CP comparison path.
-
-Encoder, scheduler, VAE, and image processor behavior remains inherited from
-upstream Diffusers. Only the DiT denoise loop is split into request-local steps.
-
-`ZImageExecutorFactory` is the standalone/embedded construction path. A future
-LLaDA2 executor can replace text encoding with VQ/SigVQ preparation while
-reusing the same runtime, lane broker, transfer protocol, and SLO planner.
+不存在模型专用服务入口。EPE、parallel 和 FlexCache 的边界见 `docs/architecture/`。

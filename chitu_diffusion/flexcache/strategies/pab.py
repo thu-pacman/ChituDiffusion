@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from chitu_diffusion.epac.cache import PABConfig
+from chitu_diffusion.flexcache.config import PABConfig
 
 from ..contracts import CacheStepContext
 from ..spec import FlexCacheModelSpec, LeafSite

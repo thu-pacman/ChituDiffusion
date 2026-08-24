@@ -14,13 +14,13 @@ from diffusers.pipelines.z_image.pipeline_z_image import (
     retrieve_timesteps,
 )
 
-from .epe import ZImageEpeModule
 from ...parallel import (
     ActiveLaneTopology,
     EpeParallelContext,
     parallel_tiled_vae_decode,
     resolve_context_parallel_config,
 )
+from .epe import ZImageEpeModule
 from .transformer import EpeZImageTransformer2DModel
 
 
@@ -59,9 +59,7 @@ def combine_cfg_predictions(
     for positive_value, negative_value in zip(positive, negative, strict=True):
         positive_value = positive_value.float()
         negative_value = negative_value.float()
-        prediction = positive_value + guidance_scale * (
-            positive_value - negative_value
-        )
+        prediction = positive_value + guidance_scale * (positive_value - negative_value)
         if normalize:
             original_norm = torch.linalg.vector_norm(positive_value)
             prediction_norm = torch.linalg.vector_norm(prediction)
@@ -79,6 +77,8 @@ class EpeZImagePipeline(ZImagePipeline):
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
         allowed_widths = kwargs.pop("allowed_lane_widths", None)
+        ulysses_transport = kwargs.pop("ulysses_transport", None)
+        agkv_transport = kwargs.pop("agkv_transport", None)
         attention_mode, ulysses_degree = resolve_context_parallel_config(
             kwargs.pop("attention_mode", "agkv"),
             kwargs.pop("ulysses_degree", None),
@@ -95,6 +95,8 @@ class EpeZImagePipeline(ZImagePipeline):
                     else None
                 ),
                 ulysses_degree=ulysses_degree,
+                ulysses_transport=ulysses_transport,
+                agkv_transport=agkv_transport,
             )
         epe = ZImageEpeModule(parallel, **epe_options)
 

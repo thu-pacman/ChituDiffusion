@@ -73,6 +73,7 @@ __pypackages__/
 .github
 .env
 .venv
+.venv-*/
 env/
 venv/
 ENV/
@@ -96,17 +97,17 @@ extra-info/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 #
-outputs/*
-!outputs/flexcache/
-outputs/flexcache/*
-!outputs/flexcache/*/
-outputs/flexcache/*/*
-!outputs/flexcache/*/result.md
-test/outputs/*
+outputs/
+tests/outputs/*
 dumps/*
 log/*
 logs/*
 *.log
+
+# GPU profiler and CuTe compiler outputs.
+.cute_dump/
+*.nsys-rep
+*.sqlite
 
 # Vim
 .*.swp
@@ -123,14 +124,6 @@ vbench_out/*
 
 # Local algorithm references
 third_party/Cubic/
-
-# Generated figures from the retired chitu_api prototype.
-experiments/chitu_api/figures/
-
-# Generated artifacts retained locally inside the legacy archive.
-backup/chitu_diffusion_legacy/experiments/cp_dp_hot_switch/cost_models/*.json
-backup/chitu_diffusion_legacy/new_backend_benchmarks/figures/*.svg
-backup/chitu_diffusion_legacy/new_backend_benchmarks/figures/*_summary.json
 
 # MkDocs
 site/

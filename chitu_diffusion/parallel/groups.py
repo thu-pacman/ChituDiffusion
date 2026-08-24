@@ -1,20 +1,30 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from threading import RLock
-from typing import Iterator
 
 import torch
 import torch.distributed as dist
 
-from .topology import UspTopology
+from .agkv_transport import (
+    AgkvTransport,
+    create_agkv_transport,
+    resolve_agkv_transport,
+)
 from .tensor_parallel import (
     TensorParallelTopology,
     reset_tensor_parallel_topology,
     set_tensor_parallel_topology,
+)
+from .topology import UlyssesTopology, UspTopology
+from .ulysses_transport import (
+    UlyssesTransport,
+    create_ulysses_transport,
+    resolve_ulysses_transport,
 )
 
 
@@ -63,7 +73,7 @@ def cfg_parallel_rank_groups(
 
 
 class EpeParallelContext:
-    """Instance-local EPAC process-group registry and active lane view.
+    """Instance-local EPE process-group registry and active lane view.
 
     All configured groups are created in a deterministic order during startup.
     Activating a lane only changes an instance field; it never calls new_group().
@@ -78,10 +88,14 @@ class EpeParallelContext:
         local_rank: int,
         allowed_widths: tuple[int, ...],
         groups: dict[tuple[int, ...], object | None],
+        ulysses_topologies: dict[tuple[int, ...], UlyssesTopology],
         usp_topologies: dict[tuple[int, ...], UspTopology],
+        agkv_transports: dict[tuple[int, ...], AgkvTransport],
         cfg_topologies: dict[tuple[int, ...], CfgParallelTopology],
         tensor_parallel_topology: TensorParallelTopology,
         initial_lane_ranks: tuple[int, ...],
+        owned_ulysses_transports: tuple[UlyssesTransport, ...],
+        owned_agkv_transports: tuple[AgkvTransport, ...],
         owned_groups: tuple[object, ...],
         owns_world: bool,
     ) -> None:
@@ -90,12 +104,16 @@ class EpeParallelContext:
         self.local_rank = int(local_rank)
         self.allowed_widths = allowed_widths
         self._groups = groups
+        self._ulysses_topologies = ulysses_topologies
         self._usp_topologies = usp_topologies
+        self._agkv_transports = agkv_transports
         self._cfg_topologies = cfg_topologies
         self.tensor_parallel = tensor_parallel_topology
         self.cp_world_size = self.world_size // self.tensor_parallel.degree
         self.tp_plane = self.rank // self.cp_world_size
         self.cp_rank = self.rank % self.cp_world_size
+        self._owned_ulysses_transports = owned_ulysses_transports
+        self._owned_agkv_transports = owned_agkv_transports
         self._owned_groups = owned_groups
         self._owns_world = owns_world
         self._worker_control_plane: object | None = None
@@ -116,7 +134,9 @@ class EpeParallelContext:
         owns_process_group: bool | None = None,
         ulysses_degree: int = 1,
         tensor_parallel_degree: int = 1,
-    ) -> "EpeParallelContext":
+        ulysses_transport: str | None = None,
+        agkv_transport: str | None = None,
+    ) -> EpeParallelContext:
         world_size = int(os.environ.get("WORLD_SIZE", "1"))
         rank = int(os.environ.get("RANK", "0"))
         local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -158,6 +178,12 @@ class EpeParallelContext:
         cls._validate_widths(widths, cp_world_size)
         if ulysses_degree < 1:
             raise ValueError("ulysses_degree must be positive")
+        if ulysses_degree > cp_world_size:
+            raise ValueError(
+                "ulysses_degree cannot exceed the context-parallel world size"
+            )
+        requested_transport = resolve_ulysses_transport(ulysses_transport)
+        requested_agkv_transport = resolve_agkv_transport(agkv_transport)
 
         groups: dict[tuple[int, ...], object | None] = {}
         owned: list[object] = []
@@ -201,10 +227,11 @@ class EpeParallelContext:
                 owned.append(group)
             return group
 
-        usp_topologies: dict[tuple[int, ...], UspTopology] = {}
         topology_widths = tuple(
             sorted({*widths, *(width // 2 for width in widths if width % 2 == 0)})
         )
+        topology_lanes: list[tuple[int, ...]] = []
+        usp_topologies: dict[tuple[int, ...], UspTopology] = {}
         for width in topology_widths:
             effective_ulysses = min(int(ulysses_degree), width)
             while width % effective_ulysses:
@@ -216,6 +243,7 @@ class EpeParallelContext:
                     lane = tuple(
                         range(plane_start + offset, plane_start + offset + width)
                     )
+                    topology_lanes.append(lane)
                     ulysses_groups = tuple(
                         tuple(
                             lane[ring_index * effective_ulysses + ulysses_index]
@@ -249,6 +277,49 @@ class EpeParallelContext:
                         ulysses_process_group=process_group_for(ulysses_ranks),
                         ring_process_group=process_group_for(ring_ranks),
                     )
+
+        device = (
+            torch.device("cuda", local_rank)
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
+        owned_ulysses_transports: list[UlyssesTransport] = []
+        ulysses_topologies: dict[tuple[int, ...], UlyssesTopology] = {}
+        owned_agkv_transports: list[AgkvTransport] = []
+        agkv_transports: dict[tuple[int, ...], AgkvTransport] = {}
+        for lane in topology_lanes:
+            if rank not in lane:
+                continue
+            process_group = process_group_for(lane)
+            static_full_world = lane == world_ranks
+            selected_ulysses_transport = (
+                requested_transport if static_full_world else "torch"
+            )
+            ulysses_lane_transport = create_ulysses_transport(
+                selected_ulysses_transport,
+                process_group=process_group,
+                device=device,
+                static_full_world=static_full_world,
+            )
+            owned_ulysses_transports.append(ulysses_lane_transport)
+            ulysses_topologies[lane] = UlyssesTopology(
+                lane_ranks=lane,
+                rank=lane.index(rank),
+                degree=len(lane),
+                process_group=process_group,
+                transport=ulysses_lane_transport,
+            )
+            selected_agkv_transport = (
+                requested_agkv_transport if static_full_world else "torch"
+            )
+            agkv_lane_transport = create_agkv_transport(
+                selected_agkv_transport,
+                process_group=process_group,
+                device=device,
+                static_full_world=static_full_world,
+            )
+            agkv_transports[lane] = agkv_lane_transport
+            owned_agkv_transports.append(agkv_lane_transport)
 
         cfg_topologies: dict[tuple[int, ...], CfgParallelTopology] = {}
         for width in widths:
@@ -309,10 +380,14 @@ class EpeParallelContext:
             local_rank=local_rank,
             allowed_widths=widths,
             groups=groups,
+            ulysses_topologies=ulysses_topologies,
             usp_topologies=usp_topologies,
+            agkv_transports=agkv_transports,
             cfg_topologies=cfg_topologies,
             tensor_parallel_topology=tp_topology,
             initial_lane_ranks=initial_lane_ranks,
+            owned_ulysses_transports=tuple(owned_ulysses_transports),
+            owned_agkv_transports=tuple(owned_agkv_transports),
             owned_groups=tuple(owned),
             owns_world=owns_world,
         )
@@ -350,6 +425,16 @@ class EpeParallelContext:
             return self._active
 
     @property
+    def active_ulysses(self) -> UlyssesTopology:
+        topology = self.active
+        try:
+            return self._ulysses_topologies[topology.ranks]
+        except KeyError as exc:
+            raise RuntimeError(
+                f"Ulysses topology was not initialized for lane {topology.ranks}"
+            ) from exc
+
+    @property
     def active_usp(self) -> UspTopology:
         topology = self.active
         try:
@@ -357,6 +442,16 @@ class EpeParallelContext:
         except KeyError as exc:
             raise RuntimeError(
                 f"USP topology was not initialized for lane {topology.ranks}"
+            ) from exc
+
+    @property
+    def active_agkv_transport(self) -> AgkvTransport:
+        topology = self.active
+        try:
+            return self._agkv_transports[topology.ranks]
+        except KeyError as exc:
+            raise RuntimeError(
+                f"AGKV transport was not initialized for lane {topology.ranks}"
             ) from exc
 
     def cfg_parallel_topology(
@@ -430,7 +525,7 @@ class EpeParallelContext:
         group = dist.new_group(
             ranks=list(range(self.world_size)),
             backend="gloo",
-            group_desc="epac-singleton-control",
+            group_desc="epe-singleton-control",
         )
         self._worker_control_plane = group
         self._owned_control_groups.append(group)
@@ -453,7 +548,7 @@ class EpeParallelContext:
         group = dist.new_group(
             ranks=list(range(self.world_size)),
             backend="gloo",
-            group_desc="epac-worker-results",
+            group_desc="epe-worker-results",
         )
         self._worker_result_plane = group
         self._owned_control_groups.append(group)
@@ -473,6 +568,10 @@ class EpeParallelContext:
                 return
             self._closed = True
         if dist.is_initialized():
+            for transport in reversed(self._owned_agkv_transports):
+                transport.close()
+            for transport in reversed(self._owned_ulysses_transports):
+                transport.close()
             for group in reversed(self._owned_control_groups):
                 dist.destroy_process_group(group)
             for group in reversed(self._owned_groups):

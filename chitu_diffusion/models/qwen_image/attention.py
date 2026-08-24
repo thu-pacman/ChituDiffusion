@@ -46,7 +46,7 @@ class QwenImageCpAttnProcessor:
             raise ValueError("Qwen-Image CP requires encoder_hidden_states")
         if attention_mask is not None and not bool(attention_mask.to(torch.bool).all()):
             raise NotImplementedError(
-                "Qwen-Image EPAC currently requires an all-valid text mask"
+                "Qwen-Image EPE currently requires an all-valid text mask"
             )
 
         img_query = attn.to_q(hidden_states).unflatten(-1, (attn.heads, -1))
@@ -86,8 +86,15 @@ class QwenImageCpAttnProcessor:
             txt_key.to(target_dtype).contiguous(),
             txt_value.contiguous(),
             lane_process_group=self.parallel.active.process_group,
-            usp_topology=(
-                self.parallel.active_usp if self.attention.mode == "usp" else None
+            ulysses_topology=(
+                self.parallel.active_ulysses
+                if self.attention.mode == "ulysses"
+                else None
+            ),
+            agkv_transport=(
+                self.parallel.active_agkv_transport
+                if self.attention.mode == "agkv"
+                else None
             ),
             joint_first=True,
         )

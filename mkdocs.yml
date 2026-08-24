@@ -1,0 +1,32 @@
+site_name: ChituDiffusion
+site_description: Diffusers-native diffusion inference with EPE, context parallelism, and FlexCache
+docs_dir: docs
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+nav:
+  - 首页: index.md
+  - 快速开始: quickstart.md
+  - 使用指南:
+      - 生成: guides/generation.md
+      - 服务: guides/serving.md
+      - 模型接入: guides/model-integration.md
+      - FlexCache: guides/flexcache.md
+  - 架构:
+      - 总览: architecture/overview.md
+      - EPE: architecture/epe.md
+      - 并行: architecture/parallel.md
+  - 实验结果:
+      - 索引: results/index.md
+      - MagCache: results/flexcache/magcache_compare_20260805.md
+      - MeanCache: results/flexcache/meancache_compare_20260804.md
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences

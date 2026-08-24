@@ -9,17 +9,21 @@ from typing import Any, Mapping
 import torch
 import torch.distributed as dist
 
-from ...epac.cache import CacheConfig
-from ...epac.image_decoder import ExecutorBuildContext
-from ...epac.model_executor import (
+from ...epe.contracts import ExecutorBuildContext
+from ...epe.executor import (
     DiffusersBackend,
     build_stage_parallel_context,
     scheduling_options_from_pool,
 )
-from ...epac.model_scheduling import EpeSchedulingModule
+from ...epe.scheduling.planner import EpeSchedulingModule
+from ...flexcache.config import CacheConfig
 from ...parallel import parallel_tiled_vae_decode
 from .api import QwenImageRequest
-from .pipeline import EpeQwenImagePipeline, QwenImageDenoiseState, QwenImagePipelineOutput
+from .pipeline import (
+    EpeQwenImagePipeline,
+    QwenImageDenoiseState,
+    QwenImagePipelineOutput,
+)
 
 
 class QwenImageDecoderExecutor(DiffusersBackend):

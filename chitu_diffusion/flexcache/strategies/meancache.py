@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 import torch
 
-from chitu_diffusion.epac.cache import MeanCacheConfig
+from chitu_diffusion.flexcache.config import MeanCacheConfig
 
 from ..spec import FlexCacheModelSpec
 from ..tree import tree_nbytes
@@ -378,18 +378,10 @@ class MeanCacheStrategy(BaseCacheStrategy):
     ) -> torch.Tensor:
         actual_steps = min(order, len(self.velocities))
         start = len(self.velocities) - actual_steps
-        x_start = self.latents_pre[start].to(
-            device=latent_device, dtype=torch.float32
-        )
-        x_end = self.latents_post[-1].to(
-            device=latent_device, dtype=torch.float32
-        )
-        s_start = self.sigmas_pre[start].to(
-            device=latent_device, dtype=torch.float32
-        )
-        s_end = self.sigmas_post[-1].to(
-            device=latent_device, dtype=torch.float32
-        )
+        x_start = self.latents_pre[start].to(device=latent_device, dtype=torch.float32)
+        x_end = self.latents_post[-1].to(device=latent_device, dtype=torch.float32)
+        s_start = self.sigmas_pre[start].to(device=latent_device, dtype=torch.float32)
+        s_end = self.sigmas_post[-1].to(device=latent_device, dtype=torch.float32)
         denominator = s_end - s_start
         denominator_b = self._broadcast_sigma(denominator, x_start)
         average_velocity = (x_end - x_start) / denominator_b
@@ -397,9 +389,7 @@ class MeanCacheStrategy(BaseCacheStrategy):
             device=latent_device, dtype=torch.float32
         )
         jvp = (instantaneous - average_velocity) / denominator_b
-        interval = (sigma_post - sigma_pre).to(
-            device=latent_device, dtype=latent_dtype
-        )
+        interval = (sigma_post - sigma_pre).to(device=latent_device, dtype=latent_dtype)
         return self.velocities[-1].to(
             device=latent_device, dtype=latent_dtype
         ) - jvp.to(latent_dtype) * self._broadcast_sigma(

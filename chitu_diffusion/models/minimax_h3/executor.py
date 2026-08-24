@@ -12,18 +12,18 @@ import torch
 import torch.distributed as dist
 from safetensors.torch import save
 
-from ...epac.image_decoder import (
+from ...epe.contracts import (
     ExecutorBuildContext,
     TerminalArtifact,
     TransferBundle,
 )
-from ...epac.model_executor import (
+from ...epe.executor import (
     DiffusersBackend,
     build_stage_parallel_context,
     scheduling_options_from_pool,
 )
-from ...epac.model_scheduling import EpeSchedulingModule
-from ...epac.scheduling import RequestProfile
+from ...epe.scheduling.planner import EpeSchedulingModule
+from ...epe.scheduling.types import RequestProfile
 from .api import MiniMaxH3Request
 from .conditioning import load_conditioning_package, make_synthetic_conditioning
 from .cost import H3CostFeatures, MiniMaxH3StepCostModel
@@ -114,7 +114,7 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
             request = request.model_dump()
         if not isinstance(request, Mapping):
             raise TypeError("MiniMax-H3 requests must be MiniMaxH3Request or a mapping")
-        from ...epac.cache import CacheConfig
+        from ...flexcache.config import CacheConfig
 
         def canonicalize(payload: Mapping[str, Any]) -> dict[str, Any]:
             normalized = dict(payload)

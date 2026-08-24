@@ -6,14 +6,14 @@ from typing import Any, Mapping
 
 import torch
 
-from ...epac.cache import CacheConfig
-from ...epac.image_decoder import ExecutorBuildContext
-from ...epac.model_executor import (
+from ...epe.contracts import ExecutorBuildContext
+from ...epe.executor import (
     DiffusersBackend,
     build_stage_parallel_context,
     scheduling_options_from_pool,
 )
-from .api import EPACRequest
+from ...flexcache.config import CacheConfig
+from .api import ZImageRequest
 from .pipeline import EpeZImagePipeline, ZImageDenoiseState, ZImagePipelineOutput
 
 
@@ -82,14 +82,14 @@ class ZImageImageDecoderExecutor(DiffusersBackend):
         self.scheduling_module.initialize_cost_model(report["rows"])
         return report
 
-    def normalize_request(self, request: Any) -> EPACRequest:
-        if isinstance(request, EPACRequest):
+    def normalize_request(self, request: Any) -> ZImageRequest:
+        if isinstance(request, ZImageRequest):
             return request
         if hasattr(request, "model_dump"):
             request = request.model_dump()
         if not isinstance(request, Mapping):
-            raise TypeError("Z-Image requests must be EPACRequest or a mapping")
-        return EPACRequest(
+            raise TypeError("Z-Image requests must be ZImageRequest or a mapping")
+        return ZImageRequest(
             prompt=request.get("prompt"),
             request_id=str(request.get("request_id") or uuid.uuid4().hex),
             negative_prompt=request.get("negative_prompt"),
@@ -165,10 +165,10 @@ class ZImageImageDecoderExecutor(DiffusersBackend):
             **kwargs,
         )
 
-    def _request_conditions(self, request: EPACRequest) -> int:
+    def _request_conditions(self, request: ZImageRequest) -> int:
         return 2 if request.guidance_scale > 0 else 1
 
-    def _request_state_bytes(self, request: EPACRequest, image_tokens: int) -> int:
+    def _request_state_bytes(self, request: ZImageRequest, image_tokens: int) -> int:
         del request
         return image_tokens * 64 * 4
 

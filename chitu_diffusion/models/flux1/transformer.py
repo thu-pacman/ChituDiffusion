@@ -19,10 +19,10 @@ class EpeFlux1Transformer2DModel(FluxTransformer2DModel):
         attention_mode = kwargs.pop("attention_mode", "agkv")
         model = super().from_pretrained(*args, **kwargs)
         if parallel is not None:
-            model.configure_epac(parallel, attention_mode=attention_mode)
+            model.configure_epe(parallel, attention_mode=attention_mode)
         return model
 
-    def configure_epac(
+    def configure_epe(
         self,
         parallel: EpeParallelContext,
         *,
@@ -31,8 +31,8 @@ class EpeFlux1Transformer2DModel(FluxTransformer2DModel):
         processor = Flux1CpAttnProcessor(parallel, mode=attention_mode)
         for block in [*self.transformer_blocks, *self.single_transformer_blocks]:
             block.attn.set_processor(processor)
-        self.epac_parallel = parallel
-        self._epac_attn_processor = processor
+        self.epe_parallel = parallel
+        self._epe_attn_processor = processor
 
     def forward(
         self,
@@ -49,7 +49,7 @@ class EpeFlux1Transformer2DModel(FluxTransformer2DModel):
         return_dict: bool = True,
         controlnet_blocks_repeat: bool = False,
     ):
-        parallel = getattr(self, "epac_parallel", None)
+        parallel = getattr(self, "epe_parallel", None)
         if parallel is None or parallel.active.width == 1:
             return super().forward(
                 hidden_states=hidden_states,
@@ -97,9 +97,9 @@ class EpeFlux1Transformer2DModel(FluxTransformer2DModel):
         guidance: torch.Tensor | None,
         return_dict: bool,
     ):
-        parallel = self.epac_parallel
+        parallel = self.epe_parallel
         topology = parallel.active
-        processor = self._epac_attn_processor
+        processor = self._epe_attn_processor
         if hidden_states.shape[1] % topology.width:
             raise ValueError(
                 f"image token count {hidden_states.shape[1]} is not divisible by lane width {topology.width}"

@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chitu_diffusion.epac.trace_simulator import (  # noqa: E402
+from chitu_diffusion.epe.trace_simulator import (  # noqa: E402
     compare_epe_to_static_cp,
     generate_profile_trace,
     load_trace,

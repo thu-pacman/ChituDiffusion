@@ -5,99 +5,76 @@
 </p>
 
 <p align="center">
-  <b>🇨🇳 中文</b> &nbsp;·&nbsp; <a href="#english-version">🇺🇸 English</a>
+  <b>中文</b> &nbsp;·&nbsp; <a href="#english-version">English</a>
 </p>
 
----
-
-<h3 align="center">ChituDiffusion：高性能 Diffusers 推理运行时 — 弹性并行 · 缓存加速 · 统一服务</h3>
+<h3 align="center">支持 EPE、Fast CP、NCCL CP 与 FlexCache 的 Diffusers 推理运行时</h3>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/python-3.12--3.13-blue?logo=python" alt="Python">
   <img src="https://img.shields.io/badge/CUDA-GPU%20required-76B900?logo=nvidia" alt="CUDA">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
 
-ChituDiffusion 是一个基于 Diffusers 生命周期的高性能上下文并行扩散推理运行时。它保留
-上游 Diffusers 的 tokenizer、文本编码器、scheduler、VAE 和输出处理，只通过统一执行
-后端并行化 DiT 去噪计算。
+ChituDiffusion 基于 Diffusers 生命周期提供模型生成、上下文并行、缓存加速和常驻服务。
 
-> **项目状态：开发者预览版。** 静态生成路径和 EPE 核心运行时已经可用并通过测试，
-> 但服务端尚不具备跨 rank 容错能力。生产部署前请阅读[当前限制](#当前限制)。
+> 项目处于开发者预览阶段。服务不保证任意 rank 故障后的恢复。
 
-## ✨ 为什么选择 ChituDiffusion
+## 核心能力
 
 <table>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
-### 🌐 Elastic Parallel Engine
-基于启动实测代价和端到端 SLO，在 pulse 边界动态重组 CP lane，并支持 request state
-migration。`generate` 与常驻 `serve` 共享同一 executor。
+### <a href="chitu_diffusion/parallel/fast_cp/README.md">Fast CP：高性能序列并行</a>
+
+提供 Fast AGKV 与 Fast Ulysses，并保留 NCCL fallback。面向单机 Hopper、GPU P2P
+和 NVSHMEM 环境优化通信路径。
 
 </td>
-<td width="50%">
+<td width="50%" valign="top">
 
-### ⚡ FlexCache
-MagCache、MeanCache、TeaCache、TaylorSeer 和 PAB 以 request-local hook 解耦接入，并
-保证 CFP/CP rank 控制流一致。
+### <a href="docs/architecture/epe.md">EPE：弹性并行服务</a>
+
+根据实测代价和端到端 SLO，在 pulse 边界调整 CP lane，并通过统一 executor 处理
+队列、状态迁移和 worker 生命周期。
 
 </td>
 </tr>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
-### 🚀 高性能上下文并行
-AGKV 与 USP attention、CFP/CP 混合布局和并行 VAE 使用动态 lane process group，
-加速图像与视频 DiT 推理。
+### <a href="docs/guides/flexcache.md">FlexCache：Cache 加速 API 和评测</a>
+
+提供 MagCache、MeanCache、TeaCache、TaylorSeer 与 PAB 的统一 API，可叠加单卡或
+静态 CP。查看 <a href="docs/results/index.md">速度与质量评测</a>。
 
 </td>
-<td width="50%">
+<td width="50%" valign="top">
 
-### 🧩 Diffusers-native
-模型适配器保留上游 pipeline 生命周期；AGKV、USP、CFP/CP 与并行 VAE 通过共享执行协议
-组合，而不是维护第二套推理栈。
+### <a href="docs/guides/model-integration.md">Diffusers Plug and Play</a>
+
+保留 tokenizer、文本编码器、scheduler、VAE 和输出处理流程，只适配模型相关的
+DiT 执行与 tensor 布局。
 
 </td>
 </tr>
 </table>
 
----
+## 安装
 
-## 🎬 支持的模型
-
-| 模型 | `generate` | EPE `serve` | FlexCache | 输出 |
-|:---|:---|:---|:---|:---|
-| **Z-Image** | 静态 CP / CFP+CP | ✅ | MeanCache、TaylorSeer、PAB | 图片 |
-| **FLUX.1-dev** | 静态 CP | ✅ | MagCache、TeaCache、TaylorSeer、PAB | 图片 |
-| **Qwen-Image** | 静态 CP / CFP+CP | ✅ | MagCache、MeanCache、TaylorSeer、PAB | 图片 |
-| **Wan 2.1 T2V** | 静态 CP / CFP+CP | ✅ | MagCache、TeaCache、TaylorSeer、PAB | MP4 视频 |
-| **FLUX.2-klein** | 静态 CP baseline | ❌ 弹性切换 | 尚未验收 | 图片 |
-
-支持范围是显式且与模型相关的。未支持的缓存/模型组合会提前报错，不会静默退化为无缓存
-执行。
-
----
-
-## ⚡ 快速开始
-
-### 1. 安装
-
-环境要求：Linux、NVIDIA GPU、Python 3.12+、可用的 CUDA/PyTorch 环境，以及本地或
-可访问的 Diffusers 格式模型权重。
+要求 Linux、Python 3.12 或 3.13、NVIDIA GPU 和可用的 CUDA 环境。按机器 CUDA
+版本选择 `pyproject.toml` 中的 PyTorch index，然后运行：
 
 ```bash
-git clone <repository-url>
-cd ChituDiffusion
-uv sync
+uv sync --group dev
 source .venv/bin/activate
 chitu --help
 ```
 
-运行 `uv sync` 前，请根据集群 CUDA 版本修改 `pyproject.toml` 中的 PyTorch index。
-可选 USP 后端可通过 `uv sync --extra usp` 安装。
+`pyproject.toml` 是唯一构建入口。
 
-### 2. 单请求生成
+## 生成
 
 ```bash
 chitu generate \
@@ -107,71 +84,20 @@ chitu generate \
   --output outputs/zimage.png
 ```
 
-### 3. 多卡静态 CP
+静态多卡 NCCL CP：
 
 ```bash
 torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
   generate \
   --model flux1 \
   --model-path /path/to/FLUX.1-dev \
-  --prompt "a lighthouse above a stormy sea" \
   --output outputs/flux1.png
 ```
 
-Slurm 环境可使用仓库 wrapper：
+Fast CP 需要单机 Hopper、GPU P2P、NVSHMEM 和针对目标环境编译的扩展。参数和安装
+步骤见 [Fast CP README](chitu_diffusion/parallel/fast_cp/README.md)。
 
-```bash
-bash script/srun_direct.sh 1 4 chitu_diffusion/examples/wan_epac.py \
-  --model-path /path/to/Wan2.1-T2V-1.3B \
-  --steps 50 \
-  --output outputs/wan.mp4
-```
-
-所有分布式 rank 都必须进入 `generate`；只有 full-world leader 返回并保存最终输出。
-
-### 4. 常驻服务
-
-```bash
-chitu serve --stage-config /path/to/stage.yaml
-```
-
-所有 rank 都进入 `serve`；stage leader 提供 HTTP，其他 rank 运行分布式 worker loop。
-该路径会显式拒绝非 `none` 的 FlexCache 策略。
-
----
-
-## 🏗️ 架构
-
-```text
-Diffusers pipeline 生命周期
-        |
-模型相关 DiffusionBackend / executor
-        |
-共享 request、denoise、decode、postprocess 协议
-        |
-  +-----+--------------------------------+
-  |                                      |
-generate：full-world 静态 CP       serve：队列 + EPE pulse
-                                    动态 lane + state migration
-```
-
-| 目录 | 职责 |
-|:---|:---|
-| [`chitu_diffusion/epac/`](chitu_diffusion/epac/) | 模型无关 executor、代价模型、调度策略、pulse 协议和 worker runtime |
-| [`chitu_diffusion/models/`](chitu_diffusion/models/) | 模型家族相关 tensor glue 和 Diffusers adapter |
-| [`chitu_diffusion/parallel/`](chitu_diffusion/parallel/) | 进程组、上下文并行 attention 和并行 VAE 通信 |
-| [`chitu_diffusion/flexcache/`](chitu_diffusion/flexcache/) | 不侵入模型 forward 的 request-local 缓存策略 |
-| [`chitu_diffusion/serve/`](chitu_diffusion/serve/) | 配置、HTTP 和分布式服务生命周期 |
-
-实现细节见[运行时说明](chitu_diffusion/README.md)、[EPAC 设计文档
-](chitu_diffusion/epac/README.zh-CN.md)和[FlexCache 扩展指南
-](chitu_diffusion/flexcache/README.zh-CN.md)。
-
----
-
-## 🧠 FlexCache
-
-FlexCache 仅用于单请求 `generate`：
+## FlexCache
 
 ```bash
 chitu generate \
@@ -182,53 +108,38 @@ chitu generate \
   --output outputs/wan-magcache.mp4
 ```
 
-策略状态属于单个请求，串行 CFG 分支相互隔离。fresh/reuse 判定只使用各 rank 复制的
-输入或共享日程，保证 CFP/CP rank 进入相同 collective。官方 MagCache 和 MeanCache
-profile 根据模型与步数选择，超出标定范围会直接报错。
+缓存支持与模型、步数和 profile 绑定。不支持的组合会在运行前报错。参见
+[FlexCache 指南](docs/guides/flexcache.md)以及
+[MagCache](docs/results/flexcache/magcache_compare_20260805.md)和
+[MeanCache](docs/results/flexcache/meancache_compare_20260804.md)结果。
 
-完整支持约束、新策略接入流程和并行安全要求见
-[FlexCache 文档](chitu_diffusion/flexcache/README.zh-CN.md)。
+## EPE 服务
 
-可复现对比记录：
+```bash
+chitu serve --stage-config examples/stage-zimage.yaml
+```
 
-- [MagCache 对比](outputs/flexcache/magcache_compare_20260805/result.md)
-- [MeanCache 对比](outputs/flexcache/meancache_compare_20260804/result.md)
+所有 rank 进入服务生命周期，leader 提供 HTTP，其他 rank 执行 worker loop。配置和
+限制见[服务指南](docs/guides/serving.md)与 [EPE 架构](docs/architecture/epe.md)。
 
----
+## 文档与开发
 
-## 🛠️ 开发与验证
+- 文档首页：[`docs/index.md`](docs/index.md)
+- 快速开始：[`docs/quickstart.md`](docs/quickstart.md)
+- 架构总览：[`docs/architecture/overview.md`](docs/architecture/overview.md)
+- 模型接入：[`docs/guides/model-integration.md`](docs/guides/model-integration.md)
+- 用户示例：[`examples/README.md`](examples/README.md)
 
 ```bash
 python -m pytest -q
-python -m ruff check chitu_diffusion test
+python -m ruff check chitu_diffusion tests examples
 python -m build
+mkdocs build --strict
 ```
 
-GPU 正确性必须按模型使用相同 seed 与原生 Diffusers baseline 对比。示例 launcher 和
-参数见 [`chitu_diffusion/examples/README.md`](chitu_diffusion/examples/README.md)。
+## 许可证
 
-贡献代码时：
-
-1. 模型无关行为放在 `epac/`、`parallel/` 或 `flexcache/`。
-2. checkpoint 相关 tensor 适配放在 `models/<family>/`。
-3. 未支持能力必须显式报错。
-4. 增加 CPU contract 测试，并记录 GPU 命令和结果。
-5. 禁止用 rank-local 缓存信号改变分布式控制流。
-
-## ⚠️ 当前限制
-
-- 项目尚未达到 production GA，不保证任意 rank 故障后的恢复。
-- FlexCache 仅支持 `generate`；常驻 EPE 服务会拒绝缓存策略。
-- cache profile 针对特定模型、scheduler 和步数标定；改变条件后必须重新评估速度与质量。
-- FLUX.2-klein 目前仅提供固定静态 CP baseline。
-- 历史 ChituBench、DiTango、分阶段 runtime、配置、测试和结果冻结在
-  [`backup/chitu_diffusion_legacy/`](backup/chitu_diffusion_legacy/)，不会进入 wheel
-  或默认测试。
-
-## 📄 许可证
-
-ChituDiffusion 使用 [MIT License](LICENSE)。模型权重和上游依赖仍受各自许可证与使用
-政策约束。
+[MIT License](LICENSE)
 
 ---
 
@@ -239,104 +150,79 @@ ChituDiffusion 使用 [MIT License](LICENSE)。模型权重和上游依赖仍受
 </p>
 
 <p align="center">
-  <a href="#chitudiffusion">🇨🇳 中文</a> &nbsp;·&nbsp; <b>🇺🇸 English</b>
+  <a href="#chitudiffusion">中文</a> &nbsp;·&nbsp; <b>English</b>
 </p>
 
----
-
-<h3 align="center">ChituDiffusion: High-Performance Diffusers Inference — Elastic Parallelism · Cache Acceleration · Unified Serving</h3>
+<h3 align="center">Diffusers inference with EPE, Fast CP, NCCL CP, and FlexCache</h3>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/python-3.12--3.13-blue?logo=python" alt="Python">
   <img src="https://img.shields.io/badge/CUDA-GPU%20required-76B900?logo=nvidia" alt="CUDA">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
 
-ChituDiffusion is a Diffusers-native runtime for high-performance,
-context-parallel diffusion inference. It keeps the tokenizer, text encoder,
-scheduler, VAE, and output processing in the upstream Diffusers lifecycle and
-parallelizes DiT denoising through one shared execution backend.
+ChituDiffusion provides model generation, context parallelism, cache acceleration,
+and persistent serving while preserving the Diffusers pipeline lifecycle.
 
-> **Project status: developer preview.** Static generation and the core EPE
-> runtime are usable and tested, but the service does not yet provide
-> cross-rank fault tolerance. Review [Current limitations](#current-limitations)
-> before production deployment.
+> The project is a developer preview. The service does not recover from an
+> arbitrary rank failure.
 
-## ✨ Why ChituDiffusion
+## Core capabilities
 
 <table>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
-### 🌐 Elastic Parallel Engine
-Startup measurements and end-to-end SLOs drive dynamic CP-lane layouts and
-request-state migration at pulse boundaries. `generate` and persistent `serve`
-share the same executor.
+### <a href="chitu_diffusion/parallel/fast_cp/README.md">Fast CP: High-performance sequence parallelism</a>
+
+Fast AGKV and Fast Ulysses with an NCCL fallback. The fast paths target
+single-node Hopper systems with GPU P2P and NVSHMEM.
 
 </td>
-<td width="50%">
+<td width="50%" valign="top">
 
-### ⚡ FlexCache
-MagCache, MeanCache, TeaCache, TaylorSeer, and PAB integrate through
-request-local hooks with rank-identical CFP/CP control flow.
+### <a href="docs/architecture/epe.md">EPE: Elastic parallel serving</a>
+
+Adjusts CP lanes at pulse boundaries using measured costs and end-to-end SLOs,
+with one executor lifecycle for queues, state migration, and workers.
 
 </td>
 </tr>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
-### 🚀 High-Performance Context Parallelism
-AGKV and USP attention, mixed CFP/CP layouts, and parallel VAE use dynamic lane
-process groups to accelerate image and video DiT inference.
+### <a href="docs/guides/flexcache.md">FlexCache: Cache APIs and evaluation</a>
+
+One API for MagCache, MeanCache, TeaCache, TaylorSeer, and PAB, composable with
+single-GPU or static CP generation. See the
+<a href="docs/results/index.md">speed and quality evaluations</a>.
 
 </td>
-<td width="50%">
+<td width="50%" valign="top">
 
-### 🧩 Diffusers-Native Integration
-Model adapters preserve upstream pipeline lifecycles. AGKV, USP, CFP/CP, and
-parallel VAE compose through a shared executor instead of a second inference
-stack.
+### <a href="docs/guides/model-integration.md">Diffusers Plug and Play</a>
+
+Preserves tokenizers, text encoders, schedulers, VAEs, and output processing.
+Adapters only supply model-specific DiT execution and tensor layouts.
 
 </td>
 </tr>
 </table>
 
----
+## Installation
 
-## 🎬 Supported Models
-
-| Model | `generate` | EPE `serve` | FlexCache | Output |
-|:---|:---|:---|:---|:---|
-| **Z-Image** | Static CP / CFP+CP | ✅ | MeanCache, TaylorSeer, PAB | Image |
-| **FLUX.1-dev** | Static CP | ✅ | MagCache, TeaCache, TaylorSeer, PAB | Image |
-| **Qwen-Image** | Static CP / CFP+CP | ✅ | MagCache, MeanCache, TaylorSeer, PAB | Image |
-| **Wan 2.1 T2V** | Static CP / CFP+CP | ✅ | MagCache, TeaCache, TaylorSeer, PAB | MP4 video |
-| **FLUX.2-klein** | Static-CP baseline | No elastic switching | Not validated | Image |
-
-Support is explicit and model-specific. Unsupported cache/model combinations
-fail early instead of silently falling back to uncached execution.
-
----
-
-## ⚡ Quick Start
-
-### 1. Install
-
-Requirements: Linux, NVIDIA GPUs, Python 3.12+, a working CUDA/PyTorch
-environment, and local or accessible Diffusers-format checkpoints.
+ChituDiffusion requires Linux, Python 3.12 or 3.13, an NVIDIA GPU, and a working
+CUDA environment. Select the matching PyTorch index in `pyproject.toml`, then run:
 
 ```bash
-git clone <repository-url>
-cd ChituDiffusion
-uv sync
+uv sync --group dev
 source .venv/bin/activate
 chitu --help
 ```
 
-Select the appropriate PyTorch CUDA index in `pyproject.toml` before
-`uv sync`. Install the optional USP backend with `uv sync --extra usp`.
+`pyproject.toml` is the only build entry point.
 
-### 2. Generate One Request
+## Generation
 
 ```bash
 chitu generate \
@@ -346,73 +232,21 @@ chitu generate \
   --output outputs/zimage.png
 ```
 
-### 3. Run Multi-GPU Static CP
+Static multi-GPU NCCL CP:
 
 ```bash
 torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
   generate \
   --model flux1 \
   --model-path /path/to/FLUX.1-dev \
-  --prompt "a lighthouse above a stormy sea" \
   --output outputs/flux1.png
 ```
 
-Use the repository wrapper on Slurm:
+Fast CP requires single-node Hopper GPUs, GPU P2P, NVSHMEM, and extensions built
+for the target environment. See the
+[Fast CP README](chitu_diffusion/parallel/fast_cp/README.md).
 
-```bash
-bash script/srun_direct.sh 1 4 chitu_diffusion/examples/wan_epac.py \
-  --model-path /path/to/Wan2.1-T2V-1.3B \
-  --steps 50 \
-  --output outputs/wan.mp4
-```
-
-Every distributed rank must enter `generate`; only the full-world leader
-returns and writes the final output.
-
-### 4. Start Persistent Serving
-
-```bash
-chitu serve --stage-config /path/to/stage.yaml
-```
-
-All ranks enter `serve`. The stage leader exposes HTTP while follower ranks run
-the distributed worker loop. This path explicitly rejects non-`none`
-FlexCache strategies.
-
----
-
-## 🏗️ Architecture
-
-```text
-Diffusers pipeline lifecycle
-        |
-model-specific DiffusionBackend / executor
-        |
-shared request, denoise, decode, and postprocess contract
-        |
-  +-----+--------------------------------+
-  |                                      |
-generate: full-world static CP     serve: queue + EPE pulses
-                                   dynamic lanes + state migration
-```
-
-| Directory | Responsibility |
-|:---|:---|
-| [`chitu_diffusion/epac/`](chitu_diffusion/epac/) | Model-independent executor, cost model, scheduler, pulse protocol, and workers |
-| [`chitu_diffusion/models/`](chitu_diffusion/models/) | Model-family tensor glue and Diffusers adapters |
-| [`chitu_diffusion/parallel/`](chitu_diffusion/parallel/) | Process groups, context-parallel attention, and parallel VAE communication |
-| [`chitu_diffusion/flexcache/`](chitu_diffusion/flexcache/) | Request-local cache strategies without model-forward branches |
-| [`chitu_diffusion/serve/`](chitu_diffusion/serve/) | Configuration, HTTP, and distributed service lifecycle |
-
-See the [runtime guide](chitu_diffusion/README.md), [EPAC design
-guide](chitu_diffusion/epac/README.md), and [FlexCache extension
-guide](chitu_diffusion/flexcache/README.md).
-
----
-
-## 🧠 FlexCache
-
-FlexCache is available only for single-request `generate`:
+## FlexCache
 
 ```bash
 chitu generate \
@@ -423,56 +257,37 @@ chitu generate \
   --output outputs/wan-magcache.mp4
 ```
 
-Mutable state is request-local and serial CFG branches are isolated.
-Fresh/reuse decisions use replicated inputs or shared schedules so CFP and CP
-ranks enter identical collectives. Official MagCache and MeanCache profiles
-fail early outside their calibrated models and step counts.
+Cache support is tied to the model, step count, and profile. Unsupported
+combinations fail before execution. See the
+[FlexCache guide](docs/guides/flexcache.md), the
+[MagCache report](docs/results/flexcache/magcache_compare_20260805.md), and the
+[MeanCache report](docs/results/flexcache/meancache_compare_20260804.md).
 
-See the [FlexCache guide](chitu_diffusion/flexcache/README.md) for support
-constraints, parallel-safety rules, and strategy integration.
+## EPE serving
 
-Reproducible reports:
+```bash
+chitu serve --stage-config examples/stage-zimage.yaml
+```
 
-- [MagCache comparison](outputs/flexcache/magcache_compare_20260805/result.md)
-- [MeanCache comparison](outputs/flexcache/meancache_compare_20260804/result.md)
+All ranks enter the service lifecycle. The leader hosts HTTP while the remaining
+ranks execute worker loops. See the [serving guide](docs/guides/serving.md) and
+[EPE architecture](docs/architecture/epe.md).
 
----
+## Documentation and development
 
-## 🛠️ Development and Validation
+- Documentation: [`docs/index.md`](docs/index.md)
+- Quickstart: [`docs/quickstart.md`](docs/quickstart.md)
+- Architecture: [`docs/architecture/overview.md`](docs/architecture/overview.md)
+- Model integration: [`docs/guides/model-integration.md`](docs/guides/model-integration.md)
+- Examples: [`examples/README.md`](examples/README.md)
 
 ```bash
 python -m pytest -q
-python -m ruff check chitu_diffusion test
+python -m ruff check chitu_diffusion tests examples
 python -m build
+mkdocs build --strict
 ```
 
-GPU acceptance must compare each model against its native Diffusers baseline
-with the same seed. Launchers and arguments are documented in
-[`chitu_diffusion/examples/README.md`](chitu_diffusion/examples/README.md).
+## License
 
-Contribution boundaries:
-
-1. Keep model-independent behavior in `epac/`, `parallel/`, or `flexcache/`.
-2. Keep checkpoint-specific tensor adaptation in `models/<family>/`.
-3. Fail explicitly for unsupported capabilities.
-4. Add CPU contract tests and record GPU commands and results.
-5. Never let rank-local cache signals change distributed control flow.
-
-## ⚠️ Current Limitations
-
-- The project is not production GA and does not guarantee recovery from an
-  arbitrary rank failure.
-- FlexCache is generate-only; persistent EPE serving rejects cache strategies.
-- Cache profiles are calibrated for specific models, schedulers, and step
-  counts. Changing these requires a new quality/performance evaluation.
-- FLUX.2-klein currently provides a fixed static-CP baseline only.
-- Historical ChituBench, DiTango, staged runtime, configurations, tests, and
-  results are frozen under
-  [`backup/chitu_diffusion_legacy/`](backup/chitu_diffusion_legacy/) and are
-  excluded from packages and default tests.
-
-## 📄 License
-
-ChituDiffusion is released under the [MIT License](LICENSE). Model checkpoints
-and upstream dependencies remain subject to their own licenses and acceptable
-use policies.
+[MIT License](LICENSE)

@@ -3,7 +3,7 @@ name = "chitu-diffusion"
 version = "0.1.0"
 description = "Diffusers-native context-parallel diffusion inference runtime"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "accelerate==1.13.0",
     "diffusers==0.38.0",
@@ -38,10 +38,31 @@ chitu = "chitu_diffusion.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["chitu_diffusion*"]
-exclude = ["backup*"]
 
 [tool.pytest.ini_options]
-testpaths = ["test"]
+testpaths = ["tests"]
+markers = [
+    "benchmark: performance measurements excluded from routine correctness runs",
+    "distributed: requires torchrun with multiple ranks",
+    "gpu: requires CUDA devices",
+]
+
+[dependency-groups]
+dev = [
+    "build",
+    "mkdocs",
+    "mkdocs-material",
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+target-version = "py312"
+extend-exclude = ["refs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
@@ -75,12 +96,15 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 sageattention = { git = "https://github.com/thu-ml/SageAttention.git" }
 spas_sage_attn = { git = "https://github.com/thu-ml/SpargeAttn.git" }
+fast-ulysses = { git = "https://github.com/triple-mu/fast-ulysses.git", rev = "6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87" }
 
 
 
 [tool.uv.extra-build-dependencies]
 sageattention = ["torch==2.10.0", "numpy==2.2.6", "ninja"]
 spas_sage_attn = ["torch==2.10.0"]
+flash_attn = ["torch==2.10.0"]
+fast-ulysses = ["torch==2.10.0", "cmake", "ninja"]
 
 [tool.uv.extra-build-variables]
 sageattention  = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
@@ -116,9 +140,12 @@ varlen = [
     "nvidia-cutlass-dsl[cu13]==4.6.0.dev0",
     "quack-kernels==0.5.3",
 ]
+flash = ["flash_attn"]
+flash3 = ["kernels==0.11.7"]
 flashinfer = ["flashinfer-python", "ninja"]
 sage = ["sageattention"]
 sparge = ["spas_sage_attn"]
-
-[dependency-groups]
-dev = ["pytest>=9.1.1"]
+fast-ulysses = ["fast-ulysses"]
+qknorm = [
+    "ninja>=1.13.0",
+]

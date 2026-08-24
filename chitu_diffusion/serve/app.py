@@ -28,7 +28,7 @@ class ServiceBackend(Protocol):
 
 
 def create_app(backend: ServiceBackend) -> FastAPI:
-    app = FastAPI(title="EPAC Z-Image Service", version="0.1.0")
+    app = FastAPI(title="Chitu Diffusion Service", version="0.1.0")
 
     @app.post(
         "/v1/image-decode",

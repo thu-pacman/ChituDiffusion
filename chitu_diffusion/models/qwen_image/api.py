@@ -6,13 +6,13 @@ from typing import Any, Mapping
 
 import torch
 
-from ...epac.api import (
-    DiffusersEPACPipeline,
+from ...epe.api import (
+    DiffusersEPEPipeline,
     build_diffusion_request,
     validate_image_request,
 )
-from ...epac.cache import CacheConfig
-from ...epac.request import DiffusionRequest
+from ...epe.request import DiffusionRequest
+from ...flexcache.config import CacheConfig
 from .pipeline import EpeQwenImagePipeline
 
 
@@ -71,14 +71,14 @@ class QwenImageRequest:
         )
 
 
-class QwenImageEPACPipeline(DiffusersEPACPipeline):
+class QwenImagePipeline(DiffusersEPEPipeline):
     """Diffusers-style facade for static Qwen-Image generation."""
 
     pipeline_class = EpeQwenImagePipeline
-    generation_error_prefix = "Qwen-Image EPAC"
+    generation_error_prefix = "Qwen-Image EPE"
 
     def _create_backend(self, config: Any | None = None) -> Any:
-        from ...epac.model_scheduling import EpeSchedulingModule
+        from ...epe.scheduling.planner import EpeSchedulingModule
         from .executor import QwenImageDecoderExecutor
 
         return QwenImageDecoderExecutor(
