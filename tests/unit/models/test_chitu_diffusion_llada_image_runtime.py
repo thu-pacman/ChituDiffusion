@@ -205,6 +205,19 @@ def _prepare(
     )
 
 
+def test_random_latents_remain_fp32_for_bfloat16_transformer() -> None:
+    runtime = _RuntimeHarness()
+    runtime.transformer.dtype = torch.bfloat16
+
+    latents = runtime._prepare_random_latents(
+        (1, 2, 4, 4),
+        generator=torch.Generator().manual_seed(42),
+        device=torch.device("cpu"),
+    )
+
+    assert latents.dtype == torch.float32
+
+
 @pytest.mark.parametrize(
     ("prompt", "num_images_per_prompt"),
     [(["first", "second"], 1), ("first", 2)],

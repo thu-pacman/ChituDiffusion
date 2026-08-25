@@ -236,11 +236,12 @@ class LLaDAImageDecoderExecutor(DiffusersBackend):
     def _request_state_bytes(
         self, request: LLaDAImageRequest, image_tokens: int
     ) -> int:
-        del request
-        transformer = self.pipeline.transformer
-        in_channels = int(transformer.config.in_channels)
-        element_size = next(transformer.parameters()).element_size()
-        return image_tokens * in_channels * element_size
+        del request, image_tokens
+        # TODO: Request profiles are built before the worker prepares the FP32
+        # latent state. Use the elastic scheduler's unknown-state default until
+        # the worker can report the exact prepared-state size to the planner.
+        # This intentionally omits migration cost from request-side planning.
+        return 0
 
     def _state_conditions(self, state: Any) -> int:
         return 2 if state.guidance_scale > 1.0 else 1

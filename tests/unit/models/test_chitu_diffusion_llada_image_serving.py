@@ -123,10 +123,11 @@ def test_facade_serving_uses_exact_vae_by_default(
     pipeline.serve(explicit)
 
     assert calls[0].parallel_vae is False
+    assert calls[0].default_num_steps == 50
     assert calls[1] is explicit
 
 
-def test_http_defaults_normalize_to_official_llada_values() -> None:
+def test_configured_executor_defaults_normalize_to_offline_values() -> None:
     executor = _make_executor()
 
     normalized = executor.normalize_request(ImageGenerateRequest(prompt="a red fox"))
@@ -140,6 +141,7 @@ def test_http_defaults_normalize_to_official_llada_values() -> None:
 
     assert normalized.num_inference_steps == 20
     assert normalized.guidance_scale == 4.5
+    assert executor.default_num_steps == 20
     assert explicit.num_inference_steps == 8
     assert explicit.guidance_scale == 5.0
 
@@ -151,14 +153,19 @@ def test_mapping_zero_num_steps_is_not_defaulted() -> None:
         executor.normalize_request({"prompt": "a red fox", "num_steps": 0})
 
 
-def test_facade_resolves_optional_parallel_vae_without_changing_opt_in() -> None:
+def test_facade_resolves_serving_defaults_and_parallel_vae_opt_in() -> None:
     seed_executor = _make_executor()
     seed_executor.pipeline.transformer.epe = seed_executor.scheduling_module
     facade = LLaDAImagePipeline(seed_executor.pipeline, model_path="unused")
 
     default_backend = facade._create_backend(EPEServeConfig())
     opt_in_backend = facade._create_backend(EPEServeConfig(parallel_vae=True))
+    normalized = default_backend.normalize_request(
+        ImageGenerateRequest(prompt="a red fox")
+    )
 
     assert EPEServeConfig().parallel_vae is None
+    assert default_backend.default_num_steps == 50
+    assert normalized.num_inference_steps == 50
     assert default_backend.parallel_vae is False
     assert opt_in_backend.parallel_vae is True

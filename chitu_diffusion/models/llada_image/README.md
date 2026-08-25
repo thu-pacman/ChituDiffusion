@@ -52,10 +52,17 @@ HTTP schema 不接受本地图片路径、URL、base64 图片、editing 或 vq �
 Editing/VQ 仍使用离线 API；在条件状态迁移协议完成前，不宣称支持这两种模式的
 elastic serving。
 
+未显式传入 serving 配置时，HTTP 请求的默认去噪步数为 50；离线 CLI/API 的
+默认值仍为 20。
+
+当前 LLaDA-Image 的 request-side `state_bytes` 沿用 elastic scheduler 的未知状态
+默认值 0，因此迁移成本暂不进入请求规划。worker 准备好 latent 后的精确 FP32
+状态大小和 warmup 传输测量仍会保留；待 scheduler 支持接收运行中状态 profile 后，
+再启用迁移成本估算。
+
 内置 HTTP 服务没有认证且默认监听 `0.0.0.0`，只能部署在可信内网，或置于带认证
 和请求限额的网关后方。
 ## 边界
-
 
 - 当前每个请求只支持一张输出图，batch size 必须为 1。
 - AGKV、Ulysses 和 CFP 支持 text、VQ 与 editing 离线生成。

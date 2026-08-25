@@ -229,7 +229,7 @@ def test_llada_image_executor_normalizes_alias_and_profiles_cfg() -> None:
     assert profile.attributes == {
         "batch_size": 1,
         "conditions": 1,
-        "state_bytes": 1024 * 128 * 4,
+        "state_bytes": 0,
         "generation_mode": "text",
     }
     assert executor._decode_kwargs() == {
@@ -238,7 +238,7 @@ def test_llada_image_executor_normalizes_alias_and_profiles_cfg() -> None:
     }
 
 
-def test_llada_image_edit_profile_counts_source_but_transfers_target_only() -> None:
+def test_llada_image_edit_request_profile_marks_state_size_unknown() -> None:
     executor = make_executor()
     request = LLaDAImageRequest(
         prompt="edit",
@@ -251,8 +251,30 @@ def test_llada_image_edit_profile_counts_source_but_transfers_target_only() -> N
     profile = executor.request_profile(request, completed_steps=0)
 
     assert profile.image_tokens == 2048
-    assert profile.attributes["state_bytes"] == 1024 * 128 * 4
+    assert profile.attributes["state_bytes"] == 0
     assert profile.attributes["generation_mode"] == "editing"
+
+
+def test_llada_image_prepared_state_profile_uses_exact_tensor_bytes() -> None:
+    executor = make_executor()
+    latents = torch.zeros((1, 128, 32, 32), dtype=torch.float32)
+    state = SimpleNamespace(
+        timesteps=torch.arange(4),
+        step_index=1,
+        height=512,
+        width=512,
+        image_tokens=1024,
+        latents=latents,
+        guidance_scale=4.5,
+        generation_mode="text",
+    )
+
+    profile = executor.profile(state)
+
+    assert profile.completed_steps == 1
+    assert profile.attributes["state_bytes"] == (
+        latents.numel() * latents.element_size()
+    )
 
 
 def test_llada_image_executor_rejects_reserved_extra_inputs() -> None:
