@@ -7,6 +7,7 @@ under `chitu_diffusion.commands`.
 - `generate_flux1.py`: `Flux1Pipeline`/`Flux1Request`
 - `generate_flux2_klein.py`: fixed-CP FLUX.2-klein pipeline
 - `generate_qwen_image.py`: `QwenImagePipeline`/`QwenImageRequest`
+- `generate_llada_image.py`: `LLaDAImagePipeline`/`LLaDAImageRequest`
 - `generate_wan.py`: `WanPipeline`/`WanRequest`
 - `epe_embedded.py`: embedded EPE lifecycle without HTTP
 - `epe_serve.py`: pipeline-backed EPE HTTP service
