@@ -19,7 +19,7 @@ from ...epe.scheduling.planner import (
 from ...epe.scheduling.planner import (
     EpeSchedulingModule,
 )
-from ...parallel import EpeParallelContext, resolve_context_parallel_config
+from ...parallel.cp import EpeParallelContext, resolve_context_parallel_config
 
 logger = logging.getLogger(__name__)
 

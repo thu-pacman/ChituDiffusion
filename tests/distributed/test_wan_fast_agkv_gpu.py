@@ -12,7 +12,7 @@ import torch.distributed as dist
 from diffusers.models.attention_processor import Attention
 
 from chitu_diffusion.models.wan.attention import WanCpAttnProcessor
-from chitu_diffusion.parallel import create_agkv_transport
+from chitu_diffusion.parallel.cp import create_agkv_transport
 
 
 def _measure(call, *, warmup: int = 5, iterations: int = 20):

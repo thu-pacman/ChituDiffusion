@@ -144,7 +144,7 @@ def main() -> None:
 
     from flash_attn.cute.interface import _flash_attn_fwd
 
-    from chitu_diffusion.parallel.fast_cp.experimental.agkv import (
+    from chitu_diffusion.parallel.cp.fast.experimental.agkv import (
         FastAgkvAttention,
     )
 

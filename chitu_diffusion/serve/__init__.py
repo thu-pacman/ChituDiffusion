@@ -8,11 +8,13 @@ from .config import (
     StageServiceConfig,
     load_stage_service_config,
 )
+from .diffusion_runtime import EpeDiffusionServiceRuntime
 from .embedded import EmbeddedDiffusionRuntime
 from .runtime import DiffusionServiceRuntime
 
 __all__ = [
     "DiffusionServiceRuntime",
+    "EpeDiffusionServiceRuntime",
     "DiffusionFactoryConfig",
     "EmbeddedDiffusionRuntime",
     "EPEServeConfig",

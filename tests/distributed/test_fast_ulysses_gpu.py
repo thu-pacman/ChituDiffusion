@@ -10,7 +10,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 
-from chitu_diffusion.parallel import (
+from chitu_diffusion.parallel.cp import (
     EpeParallelContext,
     ImageSelfAttention,
     create_ulysses_transport,

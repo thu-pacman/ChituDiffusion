@@ -4,7 +4,7 @@ from typing import Any
 
 from diffusers import Flux2KleinPipeline
 
-from ...parallel import EpeParallelContext, resolve_context_parallel_config
+from ...parallel.cp import EpeParallelContext, resolve_context_parallel_config
 from .transformer import Flux2KleinCpTransformer2DModel
 
 

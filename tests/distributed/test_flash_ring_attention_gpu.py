@@ -6,8 +6,8 @@ import pytest
 import torch
 import torch.distributed as dist
 
-from chitu_diffusion.parallel.fast_cp._runtime import FastUlyssesAllToAll
-from chitu_diffusion.parallel.fast_cp.experimental.ring import (
+from chitu_diffusion.parallel.cp.fast._runtime import FastUlyssesAllToAll
+from chitu_diffusion.parallel.cp.fast.experimental.ring import (
     FastRingAttention,
     FastRingKVTransport,
 )

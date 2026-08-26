@@ -12,6 +12,7 @@ from .flexcache import (
 )
 from .models.flux1 import Flux1Pipeline, Flux1Request
 from .models.flux2_klein import Flux2KleinCpPipeline
+from .models.minimax_h3 import MiniMaxH3DiTConfig, MiniMaxH3DiTModel
 from .models.qwen_image import QwenImagePipeline, QwenImageRequest
 from .models.wan import WanPipeline, WanRequest
 from .models.zimage import ZImagePipeline, ZImageRequest
@@ -26,6 +27,8 @@ __all__ = [
     "Flux1Pipeline",
     "Flux1Request",
     "Flux2KleinCpPipeline",
+    "MiniMaxH3DiTConfig",
+    "MiniMaxH3DiTModel",
     "HotSwitchPoolConfig",
     "MagCacheConfig",
     "MeanCacheConfig",

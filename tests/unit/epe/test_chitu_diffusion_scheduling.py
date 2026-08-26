@@ -24,6 +24,7 @@ from chitu_diffusion.epe import (
     SingletonLaneWorkerPool,
     StepOutcome,
 )
+from chitu_diffusion.serve.diffusion_runtime import EpeDiffusionServiceRuntime
 from chitu_diffusion.serve import HotSwitchPoolConfig
 
 
@@ -104,19 +105,22 @@ def _schedulable(
     total_steps: int = 50,
     completed_steps: int = 0,
     deadline_at: float | None = None,
+    priority: int = 0,
     admitted: bool = True,
+    current_ranks: tuple[int, ...] | None = None,
 ) -> SchedulableRequest:
     return SchedulableRequest(
         request_id=request_id,
         submitted_at=0.0,
         deadline_at=deadline_at,
-        priority=0,
+        priority=priority,
         profile=RequestProfile(
             total_steps=total_steps,
             completed_steps=completed_steps,
             image_tokens=image_tokens,
         ),
         admitted=admitted,
+        current_ranks=current_ranks,
     )
 
 
@@ -258,6 +262,217 @@ def test_epe_normalizes_throughput_across_mixed_sequence_lengths() -> None:
         "small": 2,
         "large": 2,
     }
+
+
+def test_epe_widens_only_when_remaining_compute_repays_migration() -> None:
+    costs = MeasuredStepCostModel()
+    costs.initialize(
+        [
+            {"image_tokens": 1024, "width": 1, "latency_ms": 10},
+            {"image_tokens": 1024, "width": 2, "latency_ms": 6},
+            {"image_tokens": 1024, "width": 4, "latency_ms": 4},
+        ]
+    )
+    transfers = MeasuredTransferCostModel()
+    transfers.initialize(
+        [
+            {"bytes": 100, "source": 0, "destination": 2, "latency_ms": 15},
+            {"bytes": 100, "source": 0, "destination": 3, "latency_ms": 15},
+        ]
+    )
+
+    def plan(remaining_steps: int):
+        policy = EpeSchedulingPolicy(
+            world_size=4,
+            allowed_lane_widths=(1, 2, 4),
+            cost_model=costs,
+            transfer_cost_model=transfers,
+            switch_allowed_until_step=6,
+        )
+        request = SchedulableRequest(
+            request_id="tail",
+            submitted_at=0.0,
+            deadline_at=None,
+            priority=0,
+            profile=RequestProfile(
+                total_steps=remaining_steps + 5,
+                completed_steps=5,
+                image_tokens=1024,
+                attributes={"state_bytes": 100},
+            ),
+            current_ranks=(0, 1),
+        )
+        return policy.plan_at([request], pulse_steps=2, now_ms=0.0)[0]
+
+    short = plan(10)
+    assert short.metadata["cp_width"] == 2
+
+    long = plan(50)
+    assert long.metadata["cp_width"] == 4
+    assert long.metadata["predicted_transfer_ms"] == 30
+    assert long.metadata["predicted_resize_gain_ms"] == 70
+
+
+def test_epe_keeps_lane_after_switch_cutoff() -> None:
+    policy = EpeSchedulingPolicy(
+        world_size=4,
+        allowed_lane_widths=(1, 2, 4),
+        cost_model=_measured_cost_model(),
+        switch_allowed_until_step=4,
+    )
+
+    plan = policy.plan_at(
+        [
+            _schedulable(
+                "running",
+                image_tokens=9216,
+                completed_steps=5,
+                current_ranks=(0, 1),
+            )
+        ],
+        pulse_steps=2,
+        now_ms=0.0,
+    )[0]
+
+    assert plan.lane_ranks == (0, 1)
+    assert plan.metadata["switched"] is False
+
+
+def test_epe_keeps_lane_at_switch_cutoff_boundary() -> None:
+    policy = EpeSchedulingPolicy(
+        world_size=4,
+        allowed_lane_widths=(1, 2, 4),
+        cost_model=_measured_cost_model(),
+        switch_allowed_until_step=4,
+    )
+
+    plan = policy.plan_at(
+        [
+            _schedulable(
+                "running",
+                image_tokens=9216,
+                completed_steps=4,
+                current_ranks=(0, 1),
+            )
+        ],
+        pulse_steps=2,
+        now_ms=0.0,
+    )[0]
+
+    assert plan.lane_ranks == (0, 1)
+    assert plan.metadata["switched"] is False
+
+
+def test_epe_does_not_relocate_an_existing_same_width_lane() -> None:
+    policy = EpeSchedulingPolicy(
+        world_size=4,
+        allowed_lane_widths=(2,),
+        cost_model=_measured_cost_model(),
+        switch_allowed_until_step=50,
+    )
+
+    plan = policy.plan_at(
+        [
+            _schedulable(
+                "running",
+                image_tokens=4096,
+                completed_steps=1,
+                current_ranks=(2, 3),
+            )
+        ],
+        pulse_steps=2,
+        now_ms=0.0,
+    )[0]
+
+    assert plan.lane_ranks == (2, 3)
+    assert plan.metadata["predicted_transfer_ms"] == 0
+
+
+def test_epe_resize_hysteresis_requires_net_widening_gain() -> None:
+    costs = MeasuredStepCostModel()
+    costs.initialize(
+        [
+            {"image_tokens": 1024, "width": 1, "latency_ms": 10},
+            {"image_tokens": 1024, "width": 2, "latency_ms": 6},
+            {"image_tokens": 1024, "width": 4, "latency_ms": 4},
+        ]
+    )
+    policy = EpeSchedulingPolicy(
+        world_size=4,
+        allowed_lane_widths=(1, 2, 4),
+        cost_model=costs,
+        switch_allowed_until_step=50,
+        min_resize_gain_ms=100.0,
+        resize_hysteresis_ms=1.0,
+        resize_control_cost_ms=10.0,
+    )
+
+    plan = policy.plan_at(
+        [
+            _schedulable(
+                "tail",
+                image_tokens=1024,
+                total_steps=25,
+                completed_steps=5,
+                current_ranks=(0, 1),
+            )
+        ],
+        pulse_steps=2,
+        now_ms=0.0,
+    )[0]
+
+    # Gross compute saving is 40ms and cannot repay the control cost plus
+    # configured anti-churn threshold.
+    assert plan.lane_ranks == (0, 1)
+    assert plan.metadata["switched"] is False
+
+
+def test_epe_narrowing_must_repay_control_cost() -> None:
+    costs = MeasuredStepCostModel()
+    costs.initialize(
+        [
+            {"image_tokens": 1024, "width": 2, "latency_ms": 5},
+            {"image_tokens": 1024, "width": 4, "latency_ms": 4},
+        ]
+    )
+    policy = EpeSchedulingPolicy(
+        world_size=4,
+        allowed_lane_widths=(2, 4),
+        cost_model=costs,
+        switch_allowed_until_step=50,
+        resize_control_cost_ms=1_000.0,
+    )
+
+    plans = policy.plan_at(
+        [
+            _schedulable(
+                "running",
+                image_tokens=1024,
+                total_steps=20,
+                current_ranks=(0, 1, 2, 3),
+            ),
+            _schedulable(
+                "pending",
+                image_tokens=1024,
+                total_steps=20,
+                admitted=False,
+            ),
+        ],
+        pulse_steps=2,
+        now_ms=0.0,
+    )
+
+    assert [(plan.request_id, plan.lane_ranks) for plan in plans] == [
+        ("running", (0, 1, 2, 3))
+    ]
+
+
+def test_runtime_extracts_actual_request_priority() -> None:
+    class Request:
+        priority = 7
+
+    assert EpeDiffusionServiceRuntime._request_priority(Request()) == 7
+    assert EpeDiffusionServiceRuntime._request_priority({"priority": 9}) == 9
 
 
 def test_dense_epe_layout_search_is_bounded() -> None:
@@ -471,6 +686,30 @@ def test_hot_switch_pool_parses_default_request_slo() -> None:
         )
 
 
+def test_hot_switch_pool_parses_resize_controls() -> None:
+    pool = HotSwitchPoolConfig.from_mapping(
+        {
+            "allowed_lane_widths": [1, 2, 4],
+            "min_resize_gain_ms": 25,
+            "resize_hysteresis_ms": 10,
+            "resize_control_cost_ms": 3,
+        },
+        world_size=4,
+    )
+
+    assert pool.min_resize_gain_ms == 25
+    assert pool.resize_hysteresis_ms == 10
+    assert pool.resize_control_cost_ms == 3
+    with pytest.raises(ValueError, match="resize cost"):
+        HotSwitchPoolConfig.from_mapping(
+            {
+                "allowed_lane_widths": [1, 2, 4],
+                "min_resize_gain_ms": -1,
+            },
+            world_size=4,
+        )
+
+
 @pytest.mark.parametrize(
     ("strategy", "expected_widths"),
     [
@@ -601,6 +840,40 @@ def test_lane_can_pull_slo_ordered_work_before_pulse_deadline() -> None:
             now_ms=plan.deadline_ms,
         )
         is None
+    )
+
+
+def test_tp2_cp1_lease_uses_cp_width_for_pull_cost() -> None:
+    policy = EpeSchedulingPolicy(
+        world_size=4,
+        tp_degree=2,
+        allowed_lane_widths=(1, 2, 4),
+        cost_model=_measured_cost_model(),
+        strategy="elastic",
+    )
+    coordinator = PulseCoordinator(
+        world_size=8,
+        policy=policy,
+        pulse_steps=5,
+        clock_ms=lambda: 1_000.0,
+    )
+    plan = coordinator.open(
+        [
+            _schedulable(f"running-{index}", image_tokens=1024)
+            for index in range(4)
+        ]
+    )
+    lease = next(lease for lease in plan.leases if lease.request_id == "running-0")
+
+    assert lease.width == 2
+    assert lease.scheduling_width == 1
+    assert (
+        coordinator.choose_pull_request(
+            lease,
+            [_schedulable("pending", image_tokens=1024)],
+            now_ms=plan.opened_at_ms,
+        )
+        is not None
     )
 
 

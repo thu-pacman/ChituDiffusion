@@ -294,7 +294,7 @@ def test_fast_agkv_image_attention_integration() -> None:
         )
     device = torch.device("cuda", local_rank)
 
-    from chitu_diffusion.parallel import (
+    from chitu_diffusion.parallel.cp import (
         ImageSelfAttention,
         create_agkv_transport,
     )

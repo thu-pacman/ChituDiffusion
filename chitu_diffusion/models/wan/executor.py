@@ -21,7 +21,7 @@ from ...epe.executor import (
 from ...epe.scheduling.planner import EpeSchedulingModule
 from ...epe.scheduling.types import RequestProfile
 from ...flexcache.config import CacheConfig
-from ...parallel import parallel_tiled_vae_decode
+from ...parallel.vae import parallel_tiled_vae_decode
 from .api import WanRequest
 from .pipeline import EpeWanPipeline, WanDenoiseState, WanPipelineOutput
 

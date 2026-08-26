@@ -12,7 +12,7 @@ import torch.distributed as dist
 from diffusers.models.attention_processor import Attention
 
 from chitu_diffusion.models.wan.attention import WanCpAttnProcessor
-from chitu_diffusion.parallel import UlyssesTopology, create_ulysses_transport
+from chitu_diffusion.parallel.cp import UlyssesTopology, create_ulysses_transport
 
 
 def _percentile(samples: list[float], quantile: float) -> float:

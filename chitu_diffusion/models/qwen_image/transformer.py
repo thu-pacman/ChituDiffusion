@@ -9,7 +9,7 @@ from diffusers.models.transformers.transformer_qwenimage import (
     compute_text_seq_len_from_mask,
 )
 
-from ...parallel import EpeParallelContext
+from ...parallel.cp import EpeParallelContext
 from .attention import QwenImageCpAttnProcessor
 
 

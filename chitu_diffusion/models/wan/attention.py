@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from diffusers.models.transformers.transformer_wan import WanAttnProcessor
 
-from ...parallel import (
+from ...parallel.cp import (
     AsyncAgkvTransport,
     AsyncTaggedUlyssesTransport,
     EpeParallelContext,

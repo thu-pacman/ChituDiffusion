@@ -7,6 +7,7 @@ import statistics
 import threading
 import time
 from collections import deque
+from collections.abc import Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,8 +31,11 @@ from ..epe.contracts import (
     DiffusionBackendProtocol,
     ImageDecodeCompletion,
     LaneSnapshot,
+    TerminalArtifact,
+    normalize_terminal_artifact,
 )
 from ..epe.request import StructuredError
+from ..models.zimage.executor import ZImageExecutorFactory
 from .config import StageServiceConfig
 from .protocol import (
     AdmissionResponse,
@@ -96,9 +100,10 @@ class DiffusionServiceRuntime:
         self._state = "running"
         self._fatal_error: str | None = None
         self._warmup_report: dict | None = None
+        scheduling_policy = self.epe.scheduling_policy
         self._pulse_coordinator = PulseCoordinator(
             world_size=self.world_size,
-            policy=self.epe.scheduling_policy,
+            policy=scheduling_policy,
             pulse_steps=self.pool.pulse_steps,
         )
 
@@ -106,9 +111,9 @@ class DiffusionServiceRuntime:
     def from_config(cls, config: StageServiceConfig) -> "DiffusionServiceRuntime":
         from ..epe.contracts import ExecutorBuildContext, StageWorldSpec
         from ..models.flux1.executor import Flux1ExecutorFactory
+        from ..models.minimax_h3.executor import MiniMaxH3ExecutorFactory
         from ..models.qwen_image.executor import QwenImageExecutorFactory
         from ..models.wan.executor import WanExecutorFactory
-        from ..models.zimage.executor import ZImageExecutorFactory
 
         world = StageWorldSpec.from_torchrun(
             config.name,
@@ -142,10 +147,45 @@ class DiffusionServiceRuntime:
                 default_num_frames=config.factory_args.num_frames,
                 cfg_parallel=config.factory_args.cfg_parallel,
             )
+        elif config.factory == "minimax-h3":
+            factory = MiniMaxH3ExecutorFactory(
+                model_path=config.factory_args.model_path,
+                attention_backend=config.factory_args.attention_backend,
+                attention_mode=config.factory_args.attention_mode,
+                ulysses_degree=config.factory_args.ulysses_degree,
+                flow_shift=config.factory_args.flow_shift,
+                audio_flow_shift=config.factory_args.audio_flow_shift,
+                default_width=config.factory_args.default_width,
+                default_height=config.factory_args.default_height,
+                default_latent_t=config.factory_args.latent_t,
+                default_audio_t=config.factory_args.audio_t,
+                default_audio_channels=config.factory_args.audio_channels,
+                default_text_length=config.factory_args.text_length,
+                default_num_steps=config.factory_args.num_steps,
+                text_encoder_path=config.factory_args.text_encoder_path,
+                tokenizer_path=config.factory_args.tokenizer_path,
+                processor_path=config.factory_args.processor_path,
+                video_vae_path=config.factory_args.video_vae_path,
+                audio_vae_path=config.factory_args.audio_vae_path,
+                enable_native_media=config.factory_args.enable_native_media,
+                default_duration_s=config.factory_args.default_duration_s,
+                default_fps=config.factory_args.default_fps,
+                default_output_type=config.factory_args.default_output_type,
+                ffmpeg_path=config.factory_args.ffmpeg_path,
+                parallel_vae=config.factory_args.parallel_vae,
+                vae_parallel_degree=config.factory_args.vae_parallel_degree,
+                warmup_media_profiles=config.factory_args.warmup_media_profiles,
+                warmup_burnin_steps=config.factory_args.warmup_burnin_steps,
+                cost_profile_path=config.factory_args.cost_profile_path,
+            )
         else:  # StageServiceConfig validates this before construction.
             raise ValueError(f"unsupported factory: {config.factory}")
         executor = factory.build(
-            ExecutorBuildContext(world=world, pool=config.parallelism.chitu_pool)
+            ExecutorBuildContext(
+                world=world,
+                pool=config.parallelism.chitu_pool,
+                tensor_parallel_degree=config.parallelism.tp,
+            )
         )
         return cls(config, executor)
 
@@ -189,9 +229,12 @@ class DiffusionServiceRuntime:
             return []
         if not isinstance(cost_rows, list):
             raise TypeError("warmup report rows must be a list")
-        state_sizes = sorted(
+        state_profiles = sorted(
             {
-                int(row["state_bytes"])
+                (
+                    int(row["state_bytes"]),
+                    max(1, int(row.get("state_tensor_count", 1))),
+                )
                 for row in cost_rows
                 if isinstance(row, dict) and int(row.get("state_bytes", 0)) > 0
             }
@@ -205,11 +248,24 @@ class DiffusionServiceRuntime:
         barrier_kwargs = (
             {"device_ids": [self.parallel.local_rank]} if device.type == "cuda" else {}
         )
-        for state_bytes in state_sizes:
-            payload = torch.empty(state_bytes, dtype=torch.uint8, device=device)
+        for state_bytes, tensor_count in state_profiles:
+            base_size, remainder = divmod(state_bytes, tensor_count)
+            payloads = [
+                torch.empty(
+                    base_size + (1 if index < remainder else 0),
+                    dtype=torch.uint8,
+                    device=device,
+                )
+                for index in range(tensor_count)
+            ]
             for source in range(self.world_size):
                 for destination in range(self.world_size):
                     if source == destination:
+                        continue
+                    if (
+                        source // self.parallel.cp_world_size
+                        != destination // self.parallel.cp_world_size
+                    ):
                         continue
                     samples_ms = []
                     for _ in range(steps):
@@ -218,9 +274,11 @@ class DiffusionServiceRuntime:
                             torch.cuda.synchronize(device)
                         started = time.perf_counter()
                         if self.rank == source:
-                            dist.send(payload, dst=destination)
+                            for payload in payloads:
+                                dist.send(payload, dst=destination)
                         elif self.rank == destination:
-                            dist.recv(payload, src=source)
+                            for payload in payloads:
+                                dist.recv(payload, src=source)
                         if device.type == "cuda":
                             torch.cuda.synchronize(device)
                         local_ms = (
@@ -237,16 +295,26 @@ class DiffusionServiceRuntime:
                         if self.rank == 0:
                             samples_ms.append(float(critical.item()))
                     if self.rank == 0:
+                        ordered_samples = sorted(samples_ms)
+                        p95_index = 0.95 * (len(ordered_samples) - 1)
+                        lower = int(p95_index)
+                        upper = min(lower + 1, len(ordered_samples) - 1)
+                        fraction = p95_index - lower
+                        p95_ms = ordered_samples[lower] + fraction * (
+                            ordered_samples[upper] - ordered_samples[lower]
+                        )
                         rows.append(
                             {
                                 "bytes": state_bytes,
+                                "tensor_count": tensor_count,
                                 "source": source,
                                 "destination": destination,
                                 "latency_ms": float(statistics.median(samples_ms)),
+                                "p95_latency_ms": float(p95_ms),
                                 "samples_ms": samples_ms,
                             }
                         )
-            del payload
+            del payloads
         broadcast = [rows if self.rank == 0 else None]
         dist.broadcast_object_list(broadcast, src=0)
         assert broadcast[0] is not None
@@ -295,6 +363,7 @@ class DiffusionServiceRuntime:
         return AdmissionResponse(
             request_id=request_id,
             status_url=f"/v1/image-decode/{request_id}",
+            media_url=f"/v1/media/{request_id}",
             image_url=f"/v1/image-decode/{request_id}/image",
         )
 
@@ -353,6 +422,11 @@ class DiffusionServiceRuntime:
                 queue_delay_ms=queue_delay_ms,
                 latency_ms=latency_ms,
                 error=record.error,
+                media_url=(
+                    f"/v1/media/{request_id}"
+                    if record.status == "completed"
+                    else None
+                ),
                 image_url=(
                     f"/v1/image-decode/{request_id}/image"
                     if record.status == "completed"
@@ -384,6 +458,9 @@ class DiffusionServiceRuntime:
         with self._lock:
             record = self._records.get(request_id)
             return None if record is None else record.payload
+
+    def media(self, request_id: str) -> bytes | None:
+        return self.image(request_id)
 
     def media_type(self, request_id: str) -> str | None:
         with self._lock:
@@ -443,6 +520,12 @@ class DiffusionServiceRuntime:
         if deadline_ms is not None:
             return deadline_ms
         return self.pool.default_deadline_ms
+
+    @staticmethod
+    def _request_priority(request: object) -> int:
+        if isinstance(request, Mapping):
+            return int(request.get("priority", 0))
+        return int(getattr(request, "priority", 0))
 
     @property
     def uses_singleton_worker_pool(self) -> bool:
@@ -589,7 +672,7 @@ class DiffusionServiceRuntime:
                         request_id=request_id,
                         submitted_at=record.submitted_at,
                         deadline_at=deadline_at,
-                        priority=0,
+                        priority=self._request_priority(request),
                         profile=profile,
                         current_ranks=current_ranks,
                         admitted=record.status == "running",
@@ -704,12 +787,23 @@ class DiffusionServiceRuntime:
                     "elastic pulse %d layout: %s",
                     int(response["epoch"]),
                     ", ".join(
-                        f"{item['request_id']}:cp{len(item['ranks'])}@"
+                        f"{item['request_id']}:cp"
+                        f"{len({int(rank) % self.parallel.cp_world_size for rank in item['ranks']})}@"
                         f"{item['ranks']} step={item['current_step']}+{item['steps']}"
                         for item in response["assignments"]
                     ),
                 )
+            dispatch_started_ns = time.time_ns()
             self._apply_elastic_dispatch(response)
+            self.timeline.record(
+                "elastic_dispatch",
+                start_unix_ns=dispatch_started_ns,
+                end_unix_ns=time.time_ns(),
+                metadata={
+                    "epoch": int(response["epoch"]),
+                    "assignment_count": len(response["assignments"]),
+                },
+            )
             if pending_result is not None:
                 publish_result(pending_result)
             lease = next(
@@ -746,21 +840,35 @@ class DiffusionServiceRuntime:
             request_id = assignment["request_id"]
             if request_id not in self._states:
                 request = self.executor.deserialize_request(assignment["payload"])
-                self._states[request_id] = self._prepare_request_state(
-                    request,
-                    lane_ranks=ranks,
-                    strategy="elastic",
-                )
+                allocate = getattr(self.executor, "allocate_request", None)
+                if assignment.get("old_ranks") is not None and callable(allocate):
+                    execution_ranks = self.parallel.plane_lane(ranks)
+                    with self.parallel.activate(execution_ranks):
+                        self._states[request_id] = allocate(request)
+                else:
+                    self._states[request_id] = self._prepare_request_state(
+                        request,
+                        lane_ranks=ranks,
+                        strategy="elastic",
+                    )
 
         transfers = []
         for assignment in assignments:
             old_ranks = assignment.get("old_ranks")
             if old_ranks is None:
                 continue
-            source = int(old_ranks[0])
             for destination in assignment["ranks"]:
                 destination = int(destination)
                 if destination not in old_ranks:
+                    destination_plane = (
+                        destination // self.parallel.cp_world_size
+                    )
+                    source = next(
+                        int(rank)
+                        for rank in old_ranks
+                        if int(rank) // self.parallel.cp_world_size
+                        == destination_plane
+                    )
                     transfers.append((assignment, source, destination))
         for assignment, source, destination in transfers:
             request_id = assignment["request_id"]
@@ -809,6 +917,7 @@ class DiffusionServiceRuntime:
     def _run_elastic_lease(self, dispatch: dict, lease: dict, exchange) -> dict:
         epoch = int(dispatch["epoch"])
         ranks = tuple(int(rank) for rank in lease["ranks"])
+        execution_ranks = self.parallel.plane_lane(ranks)
         request_id = lease.get("request_id")
         if request_id is None:
             return {
@@ -840,7 +949,7 @@ class DiffusionServiceRuntime:
                 request = self.executor.deserialize_request(command["payload"])
                 self._states[current_id] = self._prepare_request_state(
                     request,
-                    lane_ranks=ranks,
+                    lane_ranks=execution_ranks,
                     strategy="elastic",
                 )
             state = self._states[current_id]
@@ -857,7 +966,9 @@ class DiffusionServiceRuntime:
                 started = time.perf_counter()
                 start_step = state_profile.completed_steps
                 for _ in range(steps):
-                    self.executor.denoise_step(state, lane_ranks=ranks)
+                    self.executor.denoise_step(
+                        state, lane_ranks=execution_ranks
+                    )
                 if torch.cuda.is_available():
                     torch.cuda.synchronize(self.parallel.local_rank)
                 denoise_ended_ns = time.time_ns()
@@ -883,16 +994,17 @@ class DiffusionServiceRuntime:
                     finalized = self._decode_to_host(
                         state,
                         request_id=current_id,
-                        lane_ranks=ranks,
+                        lane_ranks=execution_ranks,
+                        result_leader_rank=ranks[0],
                     )
                     if self.rank == ranks[0]:
                         if finalized is None:
                             raise RuntimeError("lane leader did not receive VAE output")
-                        host_image, finalize_profile = finalized
+                        host_artifact, finalize_profile = finalized
                         completed_at = time.time()
                         result = LaneWorkResult(
                             request_id=current_id,
-                            output=host_image,
+                            output=host_artifact,
                             metadata={
                                 "strategy": "elastic",
                                 "lane_rank": ranks[0],
@@ -1059,7 +1171,8 @@ class DiffusionServiceRuntime:
         *,
         request_id: str,
         lane_ranks: tuple[int, ...],
-    ) -> tuple[torch.Tensor, dict[str, object]] | None:
+        result_leader_rank: int | None = None,
+    ) -> tuple[TerminalArtifact, dict[str, object]] | None:
         timings: dict[str, object] = {}
         finalize_started = time.perf_counter()
         decoded = self.executor.finalize_gpu(
@@ -1074,13 +1187,22 @@ class DiffusionServiceRuntime:
             request_id=request_id,
             lane_ranks=lane_ranks,
         )
-        if self.rank != lane_ranks[0]:
+        leader = lane_ranks[0] if result_leader_rank is None else result_leader_rank
+        if self.rank != leader:
             return None
         if decoded is None:
             raise RuntimeError("lane leader did not receive VAE output")
+        artifact = normalize_terminal_artifact(decoded)
+        assert artifact is not None
         d2h_started_ns = time.time_ns()
         d2h_started = time.perf_counter()
-        host_image = decoded.to(device="cpu")
+        host_artifact = TerminalArtifact(
+            tensors={
+                name: tensor.to(device="cpu")
+                for name, tensor in artifact.tensors.items()
+            },
+            metadata=artifact.metadata,
+        )
         d2h_ended_ns = time.time_ns()
         timings["d2h_ms"] = (time.perf_counter() - d2h_started) * 1000.0
         timings["finalize_total_ms"] = (time.perf_counter() - finalize_started) * 1000.0
@@ -1090,12 +1212,19 @@ class DiffusionServiceRuntime:
             end_unix_ns=d2h_ended_ns,
             request_id=request_id,
             lane_ranks=lane_ranks,
+            metadata={
+                "tensor_names": list(host_artifact.tensors),
+                "bytes": sum(
+                    tensor.numel() * tensor.element_size()
+                    for tensor in host_artifact.tensors.values()
+                ),
+            },
         )
-        return host_image, timings
+        return host_artifact, timings
 
     def _postprocess_to_png(
         self,
-        host_image: torch.Tensor,
+        host_artifact: TerminalArtifact,
         *,
         request_id: str,
         lane_ranks: tuple[int, ...],
@@ -1103,7 +1232,20 @@ class DiffusionServiceRuntime:
         timings: dict[str, object] = {}
         postprocess_started_ns = time.time_ns()
         postprocess_started = time.perf_counter()
-        images = self.executor.postprocess(host_image)
+        postprocess_artifact = getattr(
+            self.executor, "postprocess_artifact", None
+        )
+        if postprocess_artifact is not None:
+            images = postprocess_artifact(host_artifact)
+        else:
+            if len(host_artifact.tensors) != 1:
+                raise TypeError(
+                    "executor must implement postprocess_artifact for "
+                    "multiple terminal tensors"
+                )
+            images = self.executor.postprocess(
+                next(iter(host_artifact.tensors.values()))
+            )
         postprocess_ended_ns = time.time_ns()
         timings["postprocess_ms"] = (time.perf_counter() - postprocess_started) * 1000.0
         png_started_ns = time.time_ns()
@@ -1146,6 +1288,7 @@ class DiffusionServiceRuntime:
     def _execute_lane_work(
         self, item: LaneWorkItem, lane_ranks: tuple[int, ...]
     ) -> LaneWorkResult:
+        execution_ranks = self.parallel.plane_lane(lane_ranks)
         request = self.executor.deserialize_request(item.payload)
         strategy = str(item.metadata["strategy"])
         lane_rank = lane_ranks[0]
@@ -1153,7 +1296,7 @@ class DiffusionServiceRuntime:
         try:
             state = self._prepare_request_state(
                 request,
-                lane_ranks=lane_ranks,
+                lane_ranks=execution_ranks,
                 strategy=strategy,
             )
             state_profile = self.executor.profile(state)
@@ -1161,7 +1304,7 @@ class DiffusionServiceRuntime:
             conditions = int(state_profile.attributes["conditions"])
             predicted_step_ms = self.epe.cost_model.predict_step_ms(
                 sequence_length=state_profile.image_tokens,
-                width=len(lane_ranks),
+                width=len(execution_ranks),
                 batch_size=int(state_profile.attributes["batch_size"]),
                 conditions=conditions,
             )
@@ -1182,7 +1325,9 @@ class DiffusionServiceRuntime:
             denoise_started = time.perf_counter()
             start_step = state_profile.completed_steps
             while self.executor.profile(state).remaining_steps > 0:
-                self.executor.denoise_step(state, lane_ranks=lane_ranks)
+                self.executor.denoise_step(
+                    state, lane_ranks=execution_ranks
+                )
             if torch.cuda.is_available():
                 torch.cuda.synchronize(self.parallel.local_rank)
             denoise_ended_ns = time.time_ns()
@@ -1203,18 +1348,19 @@ class DiffusionServiceRuntime:
             finalized = self._decode_to_host(
                 state,
                 request_id=item.request_id,
-                lane_ranks=lane_ranks,
+                lane_ranks=execution_ranks,
+                result_leader_rank=lane_ranks[0],
             )
-            host_image = None
+            host_artifact = None
             finalize_profile: dict[str, object] = {}
             if self.rank == lane_rank:
                 if finalized is None:
                     raise RuntimeError("lane leader did not receive VAE output")
-                host_image, finalize_profile = finalized
+                host_artifact, finalize_profile = finalized
             completed_at = time.time()
             return LaneWorkResult(
                 request_id=item.request_id,
-                output=host_image,
+                output=host_artifact,
                 metadata={
                     **item.metadata,
                     "lane_rank": lane_rank,
@@ -1250,15 +1396,17 @@ class DiffusionServiceRuntime:
     def _submit_postprocess(self, result: LaneWorkResult) -> None:
         if self._postprocess_executor is None:
             raise RuntimeError("postprocess executor is only available on rank 0")
-        if (
-            not isinstance(result.output, torch.Tensor)
-            or result.output.device.type != "cpu"
+        artifact = normalize_terminal_artifact(result.output)
+        if artifact is None or any(
+            tensor.device.type != "cpu" for tensor in artifact.tensors.values()
         ):
-            raise TypeError("lane result must contain a decoded CPU tensor")
+            raise TypeError(
+                "lane result must contain terminal artifact CPU tensors"
+            )
         lane_ranks = tuple(int(rank) for rank in result.metadata["lane_ranks"])
         future = self._postprocess_executor.submit(
             self._postprocess_to_png,
-            result.output,
+            artifact,
             request_id=result.request_id,
             lane_ranks=lane_ranks,
         )
@@ -1281,8 +1429,15 @@ class DiffusionServiceRuntime:
                 record = self._records[result.request_id]
                 record.status = "completed"
                 record.payload = output_bytes
-                record.media_type = str(
-                    getattr(self.executor, "output_media_type", "image/png")
+                media_type_for_output = getattr(
+                    self.executor, "media_type_for_output", None
+                )
+                record.media_type = (
+                    str(media_type_for_output(output_bytes, decoded_output))
+                    if callable(media_type_for_output)
+                    else str(
+                        getattr(self.executor, "output_media_type", "image/png")
+                    )
                 )
                 record.output = decoded_output
                 record.completed_at = completed_at
@@ -1463,8 +1618,10 @@ class DiffusionServiceRuntime:
         strategy: str,
     ) -> object:
         started_ns = time.time_ns()
+        execution_ranks = self.parallel.plane_lane(lane_ranks)
         try:
-            state = self.executor.prepare_request(request)
+            with self.parallel.activate(execution_ranks):
+                state = self.executor.prepare_request(request)
             if torch.cuda.is_available():
                 torch.cuda.synchronize(self.parallel.local_rank)
             return state

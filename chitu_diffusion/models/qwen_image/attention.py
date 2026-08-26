@@ -6,7 +6,7 @@ from diffusers.models.transformers.transformer_qwenimage import (
     apply_rotary_emb_qwen,
 )
 
-from ...parallel import EpeParallelContext, ImageContextParallelAttention
+from ...parallel.cp import EpeParallelContext, ImageContextParallelAttention
 
 
 class QwenImageCpAttnProcessor:

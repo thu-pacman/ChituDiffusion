@@ -17,7 +17,7 @@ from ...epe.executor import (
 )
 from ...epe.scheduling.planner import EpeSchedulingModule
 from ...flexcache.config import CacheConfig
-from ...parallel import parallel_tiled_vae_decode
+from ...parallel.vae import parallel_tiled_vae_decode
 from .api import QwenImageRequest
 from .pipeline import (
     EpeQwenImagePipeline,

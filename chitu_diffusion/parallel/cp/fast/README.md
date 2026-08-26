@@ -18,7 +18,8 @@ Fast CP 用 symmetric buffer 保存通信结果。发送方直接写入目标 GP
 
 当前实现需要以下环境：
 
-- 单机 2、4 或 8 张 Hopper GPU，当前性能数据来自 NVIDIA H20；
+- 单机 2、4 或 8 张 Hopper 或更新架构 GPU，当前性能数据来自 NVIDIA H20
+  与 RTX PRO 5000 Blackwell；
 - GPU 之间支持 CUDA P2P，推荐使用 NVLink 或 NVSwitch；
 - CUDA、PyTorch、NCCL 和 NVSHMEM 3.7 或更高版本；
 - FP16 或 BF16 的 4D `[B, S, H, D]` 张量；
@@ -83,12 +84,12 @@ H20 的统一评测中，Fast Ring 没有在任何已测序列长度和 CP degre
 下图使用同一组 1 GPU cuDNN latency 计算 speedup。CP2、CP4 和 CP8 的每个点取
 Fast AGKV、Fast Ulysses、Fast Ring 中 latency 最低的实现。
 
-![H20 单机 Fast CP scaling](../../../docs/assets/fast_cp/fast-cp-h20-single-node-scaling.png)
+![H20 单机 Fast CP scaling](../../../../docs/assets/fast_cp/fast-cp-h20-single-node-scaling.png)
 
 4K 序列由 Fast Ulysses 获胜。8K 序列在 CP2 和 CP4 使用 Fast AGKV，在 CP8
 使用 Fast Ulysses。16K 及以上的已测配置均由 Fast AGKV 获胜。
 
-![H20 单机 Fast CP winner 和 latency 方阵](../../../docs/assets/fast_cp/fast-cp-h20-single-node-winner-matrix.png)
+![H20 单机 Fast CP winner 和 latency 方阵](../../../../docs/assets/fast_cp/fast-cp-h20-single-node-winner-matrix.png)
 
 测试使用 BF16、`B=1`、`H=40`、`D=128` 和 dense non-causal attention。方阵中的
 latency 是所有 rank 中最慢 rank 的 median。
@@ -144,11 +145,13 @@ FlashAttention。
 以下环境变量控制实验参数：
 
 - `CHITU_FAST_ULYSSES_POOL_BYTES` 设置 symmetric pool 大小，默认值为 2 GiB。
-- `CHITU_FAST_ULYSSES_ASYNC_CE=0/1` 控制 Ulysses Copy Engine 异步路径。
 - `CHITU_FAST_ULYSSES_USE_TMA=auto/0/1` 选择 TMA transport。
 - `CHITU_FAST_AGKV_POOL_BYTES` 设置 AGKV symmetric pool 大小。
 - `CHITU_FAST_AGKV_USE_CE=0/1` 控制 AGKV Copy Engine transport。
 - `CHITU_FAST_AGKV_ASYNC=auto/on/off` 控制 AGKV 通信与计算重叠策略。
+
+H3 的 CE/projection overlap 实验因性能不及同步路径已回退；当前 H3 只使用同步
+Fast Ulysses。
 
 ## 目录说明
 
@@ -159,8 +162,8 @@ FlashAttention。
 - `experimental/ring.py` 实现单节点 Fast Ring。
 - `experimental/_cute.py` 和 `experimental/_ring_merge.py` 支持实验 attention。
 
-公共 transport 协议和 factory 位于 `chitu_diffusion/parallel/`。NCCL 实现位于
-`chitu_diffusion/parallel/nccl/`。当前 Fast Ulysses 审查基线为 commit
+公共 transport 协议和 factory 位于 `chitu_diffusion/parallel/cp/`。NCCL 实现
+位于 `chitu_diffusion/parallel/cp/nccl/`。当前 Fast Ulysses 审查基线为 commit
 `6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87`。
 
 ## 致谢

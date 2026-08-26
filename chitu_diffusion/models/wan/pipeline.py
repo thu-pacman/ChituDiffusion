@@ -11,11 +11,8 @@ import torch.distributed as dist
 from diffusers import FlowMatchEulerDiscreteScheduler, WanPipeline
 from diffusers.pipelines.wan.pipeline_output import WanPipelineOutput
 
-from ...parallel import (
-    EpeParallelContext,
-    parallel_tiled_vae_decode,
-    resolve_context_parallel_config,
-)
+from ...parallel.cp import EpeParallelContext, resolve_context_parallel_config
+from ...parallel.vae import parallel_tiled_vae_decode
 from .loader import load_wan_diffusers_components
 from .transformer import EpeWanTransformer3DModel
 

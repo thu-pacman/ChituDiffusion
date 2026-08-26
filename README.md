@@ -26,10 +26,10 @@ ChituDiffusion 基于 Diffusers 生命周期提供模型生成、上下文并行
 <tr>
 <td width="50%" valign="top">
 
-### <a href="chitu_diffusion/parallel/fast_cp/README.md">Fast CP：高性能序列并行</a>
+### <a href="chitu_diffusion/parallel/cp/fast/README.md">Fast CP：高性能序列并行</a>
 
-提供 Fast AGKV 与 Fast Ulysses，并保留 NCCL fallback。面向单机 Hopper、GPU P2P
-和 NVSHMEM 环境优化通信路径。
+提供 Fast AGKV 与 Fast Ulysses，并保留 NCCL fallback。面向具备 GPU P2P、
+NVSHMEM 和目标架构扩展的兼容单机环境优化通信路径。
 
 </td>
 <td width="50%" valign="top">
@@ -59,6 +59,50 @@ DiT 执行与 tensor 布局。
 
 </td>
 </tr>
+</table>
+
+**支持模型**
+
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>生成能力</th>
+<th>并行与服务能力</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="chitu_diffusion/models/flux1/README.md">FLUX.1</a></td>
+<td>文生图</td>
+<td>静态 CP、EPE executor、FlexCache model spec</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/flux2_klein/README.md">FLUX.2-klein</a></td>
+<td>文生图</td>
+<td>固定 full-world 静态 CP</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/minimax_h3/README.md">MiniMax-H3</a></td>
+<td>T2VA、first/last-frame FL2VA 基础服务链路</td>
+<td>TP×CP DiT、EPE、Fast Ulysses/NCCL CP、独立 VAEP、音视频解码与 MP4 输出</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/qwen_image/README.md">Qwen-Image</a></td>
+<td>文生图</td>
+<td>静态 CP、EPE executor</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/wan/README.md">Wan 2.1 T2V</a></td>
+<td>文生视频</td>
+<td>静态 CP、EPE executor、FlexCache profiles</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/zimage/README.md">Z-Image</a></td>
+<td>文生图</td>
+<td>静态 CP、统一 EPE 服务入口、FlexCache integration</td>
+</tr>
+</tbody>
 </table>
 
 ## 安装
@@ -94,8 +138,8 @@ torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
   --output outputs/flux1.png
 ```
 
-Fast CP 需要单机 Hopper、GPU P2P、NVSHMEM 和针对目标环境编译的扩展。参数和安装
-步骤见 [Fast CP README](chitu_diffusion/parallel/fast_cp/README.md)。
+Fast CP 需要兼容的单机 GPU、GPU P2P、NVSHMEM 和针对目标环境编译的扩展。参数和安装
+步骤见 [Fast CP README](chitu_diffusion/parallel/cp/fast/README.md)。
 
 ## FlexCache
 
@@ -171,10 +215,11 @@ and persistent serving while preserving the Diffusers pipeline lifecycle.
 <tr>
 <td width="50%" valign="top">
 
-### <a href="chitu_diffusion/parallel/fast_cp/README.md">Fast CP: High-performance sequence parallelism</a>
+### <a href="chitu_diffusion/parallel/cp/fast/README.md">Fast CP: High-performance sequence parallelism</a>
 
 Fast AGKV and Fast Ulysses with an NCCL fallback. The fast paths target
-single-node Hopper systems with GPU P2P and NVSHMEM.
+compatible single-node systems with GPU P2P, NVSHMEM, and extensions built for
+the target architecture.
 
 </td>
 <td width="50%" valign="top">
@@ -205,6 +250,50 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 
 </td>
 </tr>
+</table>
+
+**Supported models**
+
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Generation</th>
+<th>Parallelism and serving</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="chitu_diffusion/models/flux1/README.md">FLUX.1</a></td>
+<td>Text to image</td>
+<td>Static CP, EPE executor, FlexCache model spec</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/flux2_klein/README.md">FLUX.2-klein</a></td>
+<td>Text to image</td>
+<td>Fixed full-world static CP</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/minimax_h3/README.md">MiniMax-H3</a></td>
+<td>Foundational T2VA and first/last-frame FL2VA service path</td>
+<td>TP×CP DiT, EPE, Fast Ulysses/NCCL CP, independent VAEP, audio/video decode, and MP4 output</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/qwen_image/README.md">Qwen-Image</a></td>
+<td>Text to image</td>
+<td>Static CP and EPE executor</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/wan/README.md">Wan 2.1 T2V</a></td>
+<td>Text to video</td>
+<td>Static CP, EPE executor, and FlexCache profiles</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/zimage/README.md">Z-Image</a></td>
+<td>Text to image</td>
+<td>Static CP, unified EPE serving, and FlexCache integration</td>
+</tr>
+</tbody>
 </table>
 
 ## Installation
@@ -240,9 +329,9 @@ torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
   --output outputs/flux1.png
 ```
 
-Fast CP requires single-node Hopper GPUs, GPU P2P, NVSHMEM, and extensions built
-for the target environment. See the
-[Fast CP README](chitu_diffusion/parallel/fast_cp/README.md).
+Fast CP requires compatible single-node GPUs, GPU P2P, NVSHMEM, and extensions
+built for the target environment. See the
+[Fast CP README](chitu_diffusion/parallel/cp/fast/README.md).
 
 ## FlexCache
 

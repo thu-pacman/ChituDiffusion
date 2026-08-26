@@ -7,6 +7,7 @@ and model implementations:
 - `app.py`: FastAPI routes;
 - `config.py`: stage/service configuration parsing;
 - `runtime.py`: model-independent distributed runtime;
+- `diffusion_runtime.py`: compatibility runtime for existing EPE adapters;
 - `runner.py`: conversion from public serve config to the generic runtime;
 - `torchrun.py`: process lifecycle, signal handling, and HTTP startup.
 - `embedded.py`: host-owned stage lifecycle (`start/submit/poll/cancel/stop`).
@@ -21,4 +22,5 @@ this package owns only service lifecycle and connectors.
 `DiffusionServiceRuntime` owns queueing and distributed execution.
 `EmbeddedDiffusionRuntime` provides the host-owned lifecycle; `torchrun.py`
 starts it and attaches FastAPI, while another host can call `submit()` and
-`poll()` directly.
+`poll()` directly. Existing adapters may continue to use
+`EpeDiffusionServiceRuntime` while migrating to the generic runtime.

@@ -6,9 +6,9 @@ import pytest
 import torch
 import torch.distributed as dist
 
-from chitu_diffusion.parallel import resolve_agkv_transport
-from chitu_diffusion.parallel.fast_cp import FastAgkvTransport
-from chitu_diffusion.parallel.fast_cp._runtime import FastUlyssesAllToAll
+from chitu_diffusion.parallel.cp import resolve_agkv_transport
+from chitu_diffusion.parallel.cp.fast import FastAgkvTransport
+from chitu_diffusion.parallel.cp.fast._runtime import FastUlyssesAllToAll
 
 
 def test_fast_agkv_alignment_gate_uses_complete_bshd_row(

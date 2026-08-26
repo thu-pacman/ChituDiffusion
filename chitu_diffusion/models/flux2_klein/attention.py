@@ -7,7 +7,7 @@ from diffusers.models.transformers.transformer_flux2 import (
     Flux2ParallelSelfAttnProcessor,
 )
 
-from ...parallel import EpeParallelContext, ImageContextParallelAttention
+from ...parallel.cp import EpeParallelContext, ImageContextParallelAttention
 
 
 class Flux2KleinCpAttnProcessor:

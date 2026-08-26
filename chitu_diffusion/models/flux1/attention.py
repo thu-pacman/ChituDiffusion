@@ -4,7 +4,7 @@ import torch
 from diffusers.models.embeddings import apply_rotary_emb
 from diffusers.models.transformers.transformer_flux import FluxAttnProcessor
 
-from ...parallel import EpeParallelContext, ImageContextParallelAttention
+from ...parallel.cp import EpeParallelContext, ImageContextParallelAttention
 
 
 class Flux1CpAttnProcessor:
