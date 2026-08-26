@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import pytest
 import torch
 
-from chitu_diffusion.parallel.fast_cp.experimental.agkv import (
+from chitu_diffusion.parallel.cp.fast.experimental.agkv import (
     FastAgkvAttention,
 )
 

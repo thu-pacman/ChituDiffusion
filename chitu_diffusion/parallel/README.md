@@ -1,29 +1,30 @@
 # Parallel
 
-该包只实现 Context Parallel 通信、attention 和 process-group 生命周期。
+该包按执行域分为 `cp`、`tp` 和 `vae`。模型必须从对应子包导入，不再从
+`chitu_diffusion.parallel` 根包导入符号。
 
-## NCCL CP
+## CP
 
-`nccl/` 提供 Torch/NCCL K/V gather、Ulysses all-to-all 和 Ring 组合。它是单机和
-多机静态 CP 的默认路径。
+`cp/` 负责 lane/process-group 生命周期、context-parallel attention 和 transport：
 
-## Fast CP
+- `cp/nccl/`：Torch/NCCL K/V gather 与 Ulysses all-to-all，作为默认路径。
+- `cp/fast/`：单机 NVSHMEM Fast AGKV/Fast Ulysses；Fast Ring 等代码仅供实验。
+- `cp/context.py`：创建候选 lane group 并跟踪 active lane。
+- `cp/topology.py`：Ulysses/USP topology。
+- `cp/agkv_transport.py` 与 `cp/ulysses_transport.py`：transport 协议和 factory。
 
-`fast_cp/` 提供单机 NVSHMEM transport：
+Fast CP 构建条件和 benchmark 见 [`cp/fast/README.md`](cp/fast/README.md)。
 
-- Fast AGKV：每个 rank 保留本地 Q 并接收全局 K/V。
-- Fast Ulysses：在序列和 head 维度间重排。
-- Fast Ring 与 fused Fast AGKV attention：仅供 benchmark 和实验。
+## TP
 
-构建条件、参数和 H20 图片见 [`fast_cp/README.md`](fast_cp/README.md)。
+`tp/` 负责 tensor-parallel topology、Column/Row/MergedColumn/Replicated linear
+以及按 rank 加载 checkpoint。TP 不依赖 CP 或 VAE。
 
-## 所有权
+## VAE
 
-- `groups.py` 创建候选 lane group 并跟踪 active lane。
-- `topology.py` 提供当前 lane 的 group view。
-- `image_attention.py` 编排模型无关的 sharded attention。
-- `agkv_transport.py` 与 `ulysses_transport.py` 定义公共 transport 协议和 factory。
-- `nccl/` 与 `fast_cp/` 保存具体实现。
+`vae/` 负责 decode lane 的最小 topology contract、空间 tile 规划、通信与 leader
+重组。`vae_parallel_degree` 独立于 DiT TP/CP；例如 TP4×CP2 可以使用
+VAEP8。具体 VAE 的 latent 归一化和单 tile decode 仍由模型包实现。
 
-模型包只能依赖 `chitu_diffusion.parallel` 的公共接口，不应创建 process group 或直接
-依赖具体 transport。EPE 决定 lane，parallel 层不管理请求、SLO 或 worker。
+依赖方向固定为 `cp -> tp`；`vae` 持有独立 decode group；`tp` 不反向依赖
+其他并行域。EPE 决定 lane，parallel 层不管理请求、SLO 或 worker。

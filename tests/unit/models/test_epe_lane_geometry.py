@@ -3,8 +3,8 @@ from __future__ import annotations
 from chitu_diffusion.epe.scheduling.cost import MeasuredStepCostModel
 from chitu_diffusion.epe.scheduling.policy import EpeSchedulingPolicy
 from chitu_diffusion.epe.scheduling.types import RequestProfile, SchedulableRequest
-from chitu_diffusion.parallel.groups import EpeParallelContext
-from chitu_diffusion.parallel.tensor_parallel import TensorParallelTopology
+from chitu_diffusion.parallel.cp.context import EpeParallelContext
+from chitu_diffusion.parallel.tp.topology import TensorParallelTopology
 from chitu_diffusion.serve.config import StageServiceConfig
 
 

@@ -7,12 +7,12 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from torch import nn
 
-from chitu_diffusion.parallel.linear import ColumnParallelLinear
-from chitu_diffusion.parallel.tensor_parallel import (
+from chitu_diffusion.parallel.tp.linear import ColumnParallelLinear
+from chitu_diffusion.parallel.tp.topology import (
     get_tp_group,
     get_tp_world_size,
 )
-from chitu_diffusion.parallel.topology import UspTopology
+from chitu_diffusion.parallel.cp.topology import UspTopology
 
 from .attention import MiniMaxH3Attention
 from .config import MiniMaxH3DiTConfig
@@ -325,9 +325,7 @@ class MiniMaxH3DiTModel(nn.Module):
         live = int(prompt_embeds.shape[0] if live_length is None else live_length)
         prompt = prompt_embeds[:live].to(torch.bfloat16)
         hidden, _ = self.condition_proj(prompt)
-        cu = torch.tensor(
-            [0, live, live], device=prompt.device, dtype=torch.int32
-        )
+        cu = torch.tensor([0, live], device=prompt.device, dtype=torch.int32)
         return self.token_refiner(
             hidden, cu_seqlens=cu, max_seqlen=max(live, 1)
         )

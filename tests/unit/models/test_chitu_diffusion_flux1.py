@@ -11,7 +11,7 @@ from chitu_diffusion.epe.scheduling.planner import EpeRequest, EpeSchedulingModu
 from chitu_diffusion.models.flux1 import EpeFlux1Pipeline
 from chitu_diffusion.models.flux1.api import Flux1Pipeline, Flux1Request
 from chitu_diffusion.models.flux1.executor import Flux1ImageDecoderExecutor
-from chitu_diffusion.parallel import ImageContextParallelAttention
+from chitu_diffusion.parallel.cp import ImageContextParallelAttention
 
 
 def test_flux1_request_requires_packed_latent_compatible_resolution() -> None:

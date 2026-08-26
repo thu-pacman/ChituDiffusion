@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import pytest
 import torch
 
-from chitu_diffusion.parallel.fast_cp.experimental.ring import (
+from chitu_diffusion.parallel.cp.fast.experimental.ring import (
     FastRingAttention,
     FastRingKVTransport,
     RingKVPhase,

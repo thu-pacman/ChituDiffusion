@@ -32,6 +32,7 @@ from chitu_diffusion.models.minimax_h3.fl2va_packed_sequence import (
     MINIMAX_H3_VIDEO_LAST_ID,
     build_fl2va_packed_sequence,
 )
+from chitu_diffusion.models.minimax_h3.packed_sequence import build_packed_sequence
 
 
 class _Tokenizer:
@@ -209,3 +210,36 @@ def test_prompt_only_layout_has_no_condition_rows() -> None:
     assert packed.condition_slice == slice(2, 2)
     assert packed.img_pos.equal(packed.target_img_pos)
     assert packed.update_mask.all()
+
+
+def test_aligned_packed_layouts_do_not_append_empty_padding_documents() -> None:
+    arguments = {
+        "text_length": 4,
+        "latent_t": 14,
+        "latent_h": 4,
+        "latent_w": 4,
+        "audio_t": 2,
+    }
+    latent = build_packed_sequence(**arguments)
+    fl2va = build_fl2va_packed_sequence(**arguments)
+
+    for packed in (latent, fl2va):
+        assert packed.used_length == packed.sequence_length == 64
+        assert packed.cu_seqlens.tolist() == [0, 64]
+
+
+def test_padded_packed_layouts_keep_live_and_padding_documents() -> None:
+    arguments = {
+        "text_length": 5,
+        "latent_t": 14,
+        "latent_h": 4,
+        "latent_w": 4,
+        "audio_t": 2,
+    }
+    latent = build_packed_sequence(**arguments)
+    fl2va = build_fl2va_packed_sequence(**arguments)
+
+    for packed in (latent, fl2va):
+        assert packed.used_length == 65
+        assert packed.sequence_length == 128
+        assert packed.cu_seqlens.tolist() == [0, 65, 128]

@@ -202,6 +202,10 @@ LOCAL_WORLD_REPLACEMENTS = (
         "            self.rank,\n            self.world_size,\n",
     ),
     (
+        "        cls.init_world(uid_t.tolist(), dist.get_rank(), dist.get_world_size())\n",
+        "        cls.init_world(uid_t.tolist(), self.rank, self.world_size)\n",
+    ),
+    (
         "        dist.barrier(group=dist.group.WORLD)\n",
         "        dist.barrier(group=pg)\n",
     ),
@@ -210,6 +214,22 @@ LOCAL_WORLD_REPLACEMENTS = (
         "            self.peer_runtime_ranks,\n",
     ),
 )
+OPTIONAL_LOCAL_WORLD_ANCHORS = {
+    "        registrations: list[object] = [None] * dist.get_world_size()\n",
+    "                tuple(int(r) for r in self.peer_global_ranks),\n",
+    "            group=dist.group.WORLD,\n",
+    "        if flattened != list(range(dist.get_world_size())):\n",
+    "            dist.get_rank(),\n            dist.get_world_size(),\n",
+    "        dist.barrier(group=dist.group.WORLD)\n",
+}
+LEGACY_WORLD_ONLY_GUARD = """        if self.world_size != dist.get_world_size():
+            # The uid broadcast below runs on WORLD and nvshmem_team_split_strided is a
+            # world-collective -- a subgroup-only construction would hang, so reject it up front.
+            raise NotImplementedError(
+                "process_group must span all ranks (NVSHMEM bootstrap is world-collective); "
+                f"got a subgroup of {self.world_size}/{dist.get_world_size()} ranks"
+            )
+"""
 SUBGROUP_FEATURE_MARKER = "SUPPORTS_WORLD_PARTITION_SUBGROUPS = True\n"
 
 
@@ -226,12 +246,16 @@ def _insert_once(text: str, anchor: str, insertion: str, label: str) -> str:
 def _adapt_local_world_comm(text: str) -> str:
     """Make the upstream NVSHMEM world follow the supplied process group."""
 
-    updated = text
+    updated = text.replace(LEGACY_WORLD_ONLY_GUARD, "")
     for old, new in LOCAL_WORLD_REPLACEMENTS:
         if new in updated:
             continue
         if old in updated:
             updated = updated.replace(old, new)
+        elif old in OPTIONAL_LOCAL_WORLD_ANCHORS:
+            # The pinned upstream revision predates process-registration validation.
+            # Those anchors only exist in newer, unpublished source snapshots.
+            continue
         else:
             raise RuntimeError(f"fast-ulysses local-world anchor is missing: {old!r}")
     return updated

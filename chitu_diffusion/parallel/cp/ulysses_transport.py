@@ -94,28 +94,34 @@ def _collect_fast_capability(
     device: torch.device,
     *,
     require_hopper: bool,
+    process_group: object | None,
 ) -> tuple[bool, str]:
-    from .fast_cp._runtime import probe_fast_ulysses
+    from .fast._runtime import probe_fast_ulysses
 
     local = probe_fast_ulysses(
         device,
         require_hopper=require_hopper,
         require_subgroups=False,
     )
-    if not dist.is_initialized() or dist.get_world_size() == 1:
+    if (
+        not dist.is_initialized()
+        or process_group is None
+        or dist.get_world_size(process_group) == 1
+    ):
         return local
-    gathered: list[tuple[bool, str] | None] = [None] * dist.get_world_size()
-    dist.all_gather_object(gathered, local, group=dist.group.WORLD)
+    group_ranks = dist.get_process_group_ranks(process_group)
+    gathered: list[tuple[bool, str] | None] = [None] * len(group_ranks)
+    dist.all_gather_object(gathered, local, group=process_group)
     failures = [
-        f"rank {rank}: {result[1]}"
-        for rank, result in enumerate(gathered)
+        f"rank {group_ranks[index]}: {result[1]}"
+        for index, result in enumerate(gathered)
         if result is None or not result[0]
     ]
     if failures:
         return False, "; ".join(failures)
     return True, "; ".join(
-        f"rank {rank}: {result[1]}"
-        for rank, result in enumerate(gathered)
+        f"rank {group_ranks[index]}: {result[1]}"
+        for index, result in enumerate(gathered)
         if result is not None
     )
 
@@ -139,7 +145,11 @@ def create_ulysses_transport(
                 "fast_ulysses currently requires static full-world, full-Ulysses CP"
             )
         return fallback
-    ready, reason = _collect_fast_capability(device, require_hopper=True)
+    ready, reason = _collect_fast_capability(
+        device,
+        require_hopper=True,
+        process_group=process_group,
+    )
     if not ready:
         if requested == "fast_ulysses":
             raise RuntimeError(f"fast_ulysses is unavailable: {reason}")
@@ -147,7 +157,7 @@ def create_ulysses_transport(
     if process_group is None:
         return fallback
 
-    from .fast_cp.ulysses import FastUlyssesTransport
+    from .fast.ulysses import FastUlyssesTransport
 
     return FastUlyssesTransport(
         process_group,

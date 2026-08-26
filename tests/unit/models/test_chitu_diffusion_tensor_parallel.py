@@ -16,19 +16,21 @@ from chitu_diffusion.models.minimax_h3 import (
     build_packed_sequence,
     reorder_grouped_qkv_to_qkv,
 )
-from chitu_diffusion.parallel import (
-    ColumnParallelLinear,
+from chitu_diffusion.parallel.cp import (
     EpeParallelContext,
-    MergedColumnParallelLinear,
-    RowParallelLinear,
     SdpaVarlenBackend,
     all_to_all_packed_output,
     all_to_all_packed_qkv,
 )
-from chitu_diffusion.parallel.attention_backend import (
+from chitu_diffusion.parallel.cp.attention_backend import (
     Fa4VarlenBackend,
     FlexVarlenBackend,
     _fa4_supports_compute_capability,
+)
+from chitu_diffusion.parallel.tp import (
+    ColumnParallelLinear,
+    MergedColumnParallelLinear,
+    RowParallelLinear,
 )
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 
-from chitu_diffusion.parallel import AGKV_TRANSPORTS, ULYSSES_TRANSPORTS
+from chitu_diffusion.parallel.cp import AGKV_TRANSPORTS, ULYSSES_TRANSPORTS
 
 
 def add_parallel_transport_arguments(parser: argparse.ArgumentParser) -> None:

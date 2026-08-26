@@ -151,6 +151,7 @@ class DiffusionServiceRuntime:
             factory = MiniMaxH3ExecutorFactory(
                 model_path=config.factory_args.model_path,
                 attention_backend=config.factory_args.attention_backend,
+                attention_mode=config.factory_args.attention_mode,
                 ulysses_degree=config.factory_args.ulysses_degree,
                 flow_shift=config.factory_args.flow_shift,
                 audio_flow_shift=config.factory_args.audio_flow_shift,
@@ -170,7 +171,9 @@ class DiffusionServiceRuntime:
                 default_duration_s=config.factory_args.default_duration_s,
                 default_fps=config.factory_args.default_fps,
                 default_output_type=config.factory_args.default_output_type,
-                media_owner_tp_plane=config.factory_args.media_owner_tp_plane,
+                ffmpeg_path=config.factory_args.ffmpeg_path,
+                parallel_vae=config.factory_args.parallel_vae,
+                vae_parallel_degree=config.factory_args.vae_parallel_degree,
                 warmup_media_profiles=config.factory_args.warmup_media_profiles,
                 warmup_burnin_steps=config.factory_args.warmup_burnin_steps,
                 cost_profile_path=config.factory_args.cost_profile_path,

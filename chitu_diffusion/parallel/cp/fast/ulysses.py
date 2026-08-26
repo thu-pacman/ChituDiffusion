@@ -146,7 +146,8 @@ class FastUlyssesTransport:
             return pool_bytes
         required = 4 * tensor.numel() * tensor.element_size() + (16 << 20)
         alignment = 64 << 20
-        return ((required + alignment - 1) // alignment) * alignment
+        aligned_required = ((required + alignment - 1) // alignment) * alignment
+        return max(2 << 30, aligned_required)
 
     def _ensure_backend(self, tensor: torch.Tensor) -> FastUlyssesAllToAll:
         if self._backend is None:

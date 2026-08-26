@@ -4,7 +4,7 @@ import torch
 import torch.distributed as dist
 
 from .topology import UspTopology
-from .tensor_parallel import get_tp_world_size
+from ..tp.topology import get_tp_world_size
 
 
 def validate_tp_ulysses_heads(
@@ -38,6 +38,15 @@ def all_to_all_packed_qkv(
     local_tokens, heads, head_dim = query.shape
     if heads % degree:
         raise ValueError(f"local attention heads {heads} are not divisible by {degree}")
+    transport = topology.ulysses_transport
+    if transport is not None and transport.name == "fast_ulysses":
+        transport.reset()
+        redistributed = transport.all_to_all_qkv(
+            query.unsqueeze(0),
+            key.unsqueeze(0),
+            value.unsqueeze(0),
+        )
+        return tuple(tensor.squeeze(0) for tensor in redistributed)  # type: ignore[return-value]
     local_heads = heads // degree
     packed = torch.stack((query, key, value), dim=-2)
     send = (
@@ -74,6 +83,9 @@ def all_to_all_packed_output(
         raise ValueError(
             f"global token count {global_tokens} is not divisible by {degree}"
         )
+    transport = topology.ulysses_transport
+    if transport is not None and transport.name == "fast_ulysses":
+        return transport.all_to_all(output.unsqueeze(0), 1, 2).squeeze(0)
     local_tokens = global_tokens // degree
     send = output.reshape(degree, local_tokens, local_heads, head_dim).contiguous()
     recv = torch.empty_like(send)

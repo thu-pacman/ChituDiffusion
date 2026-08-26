@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 from diffusers.models.attention_processor import Attention
 
-from ...parallel import EpeParallelContext, ImageContextParallelAttention
+from ...parallel.cp import EpeParallelContext, ImageContextParallelAttention
 
 
 class ZImageCpAttnProcessor:

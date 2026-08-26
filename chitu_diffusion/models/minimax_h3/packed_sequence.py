@@ -153,9 +153,10 @@ def build_packed_sequence(
     token_tags[text_slice] = 1
     token_tags[audio_slice] = 2
     token_tags[img_pos] = 0
-    cu_seqlens = torch.tensor(
-        [0, used, sequence_length], dtype=torch.int32
-    )
+    boundaries = [0, used]
+    if sequence_length > used:
+        boundaries.append(sequence_length)
+    cu_seqlens = torch.tensor(boundaries, dtype=torch.int32)
     return MiniMaxH3PackedSequence(
         sequence_length=sequence_length,
         used_length=used,

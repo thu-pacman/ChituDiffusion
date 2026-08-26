@@ -15,11 +15,8 @@ from diffusers.pipelines.qwenimage.pipeline_qwenimage import (
     retrieve_timesteps,
 )
 
-from ...parallel import (
-    EpeParallelContext,
-    parallel_tiled_vae_decode,
-    resolve_context_parallel_config,
-)
+from ...parallel.cp import EpeParallelContext, resolve_context_parallel_config
+from ...parallel.vae import parallel_tiled_vae_decode
 from .transformer import EpeQwenImageTransformer2DModel
 
 

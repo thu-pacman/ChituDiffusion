@@ -8,7 +8,7 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from torch import nn
 
-from .tensor_parallel import get_tp_group, get_tp_rank, get_tp_world_size
+from .topology import get_tp_group, get_tp_rank, get_tp_world_size
 
 
 def _divide(value: int, degree: int, name: str) -> int:

@@ -7,6 +7,17 @@
 namespace ulysses {
 
 SymmetricHeapPool::SymmetricHeapPool(
+    int64_t reserved_bytes, int world_size, std::vector<int> peer_global_pes):
+    SymmetricHeapPool(
+        nvshmem_align(256, static_cast<size_t>(reserved_bytes)),
+        reserved_bytes,
+        world_size,
+        std::move(peer_global_pes))
+{
+    owns_arena_ = true;
+}
+
+SymmetricHeapPool::SymmetricHeapPool(
     void* arena_base, int64_t reserved_bytes, int world_size, std::vector<int> peer_global_pes):
     arena_base_(arena_base),
     reserved_(reserved_bytes),
@@ -77,6 +88,10 @@ void SymmetricHeapPool::destroy()
     if (destroyed_)
         return;
     registry_.clear();
+    if (owns_arena_ && arena_base_ != nullptr) {
+        nvshmem_free(arena_base_);
+        arena_base_ = nullptr;
+    }
     destroyed_ = true;
 }
 

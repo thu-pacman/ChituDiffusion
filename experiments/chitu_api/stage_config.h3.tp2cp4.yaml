@@ -33,7 +33,6 @@ factory_args:
   audio_vae_path: /dockerdata/MiniMax-H3/FL2VA/audio_vae
   enable_native_media: true
   qwen_num_layers: 50
-  media_owner_tp_plane: 0
   ffmpeg_path: ffmpeg
   default_duration_s: 5.0
   default_fps: 24
@@ -51,7 +50,7 @@ factory_args:
   audio_t: 8
   audio_channels: 2
   text_length: 64
-  attention_mode: usp
+  attention_mode: ulysses
   ulysses_degree: 4
   attention_backend: auto
   flow_shift: 12.0

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import pytest
 import torch
 from types import SimpleNamespace
 
+import chitu_diffusion.models.minimax_h3.executor as h3_executor
 from chitu_diffusion.epe.scheduling.planner import EpeSchedulingModule
 from chitu_diffusion.models.minimax_h3 import (
     MiniMaxH3DiTConfig,
     MiniMaxH3DiTModel,
+    MiniMaxH3ExecutorFactory,
     MiniMaxH3LatentExecutor,
     MiniMaxH3LatentPipeline,
     make_synthetic_conditioning,
@@ -14,8 +17,8 @@ from chitu_diffusion.models.minimax_h3 import (
     pack_latent_tensors,
     unpack_latent_tensors,
 )
-from chitu_diffusion.parallel.groups import EpeParallelContext
-from chitu_diffusion.parallel.tensor_parallel import TensorParallelTopology
+from chitu_diffusion.parallel.cp.context import EpeParallelContext
+from chitu_diffusion.parallel.tp.topology import TensorParallelTopology
 from chitu_diffusion.serve.protocol import ImageGenerateRequest
 from chitu_diffusion.epe.contracts import TerminalArtifact
 
@@ -75,6 +78,58 @@ def test_h3_time_shift_schedule_matches_sglang_contract() -> None:
 
     torch.testing.assert_close(sigmas, expected)
     assert sigmas.numel() - 1 == 3
+
+
+def test_token_refiner_does_not_append_an_empty_varlen_segment() -> None:
+    class CaptureRefiner(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.cu_seqlens: torch.Tensor | None = None
+            self.max_seqlen: int | None = None
+
+        def forward(self, hidden, *, cu_seqlens, max_seqlen):
+            self.cu_seqlens = cu_seqlens
+            self.max_seqlen = max_seqlen
+            return hidden
+
+    config = _tiny_config()
+    model = MiniMaxH3DiTModel(config, attention_backend="sdpa")
+    capture = CaptureRefiner()
+    model.token_refiner = capture
+
+    prompt = torch.randn(64, config.text_dim)
+    output = model.refine_prompt_embeds(prompt)
+
+    assert output.shape == (64, config.hidden_size)
+    assert capture.cu_seqlens is not None
+    assert capture.cu_seqlens.tolist() == [0, 64]
+    assert capture.max_seqlen == 64
+
+
+def test_h3_factory_uses_supported_ulysses_context_mode(monkeypatch) -> None:
+    class ContextCaptured(Exception):
+        pass
+
+    def capture_context(context, *, attention_mode, ulysses_degree):
+        assert attention_mode == "ulysses"
+        assert ulysses_degree == 4
+        raise ContextCaptured
+
+    monkeypatch.setattr(
+        h3_executor,
+        "build_stage_parallel_context",
+        capture_context,
+    )
+
+    with pytest.raises(ContextCaptured):
+        MiniMaxH3ExecutorFactory("unused", ulysses_degree=4).build(
+            SimpleNamespace()
+        )
+
+
+def test_h3_factory_rejects_unsupported_attention_mode() -> None:
+    with pytest.raises(ValueError, match="requires attention_mode='ulysses'"):
+        MiniMaxH3ExecutorFactory("unused", attention_mode="agkv")
 
 
 def test_h3_executor_merges_http_model_inputs_and_aliases() -> None:
@@ -201,6 +256,11 @@ def test_h3_native_prompt_only_prepare_and_structured_finalize() -> None:
         def decode(self, latents):
             assert latents.ndim == 5
             return torch.zeros(1, 3, 5, 32, 32)
+
+        def decode_parallel(self, latents, *, topology, enabled=True):
+            assert topology.is_leader
+            assert enabled
+            return self.decode(latents)
 
     class AudioVAE:
         sample_rate = 240

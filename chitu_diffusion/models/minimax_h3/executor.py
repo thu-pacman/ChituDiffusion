@@ -24,6 +24,7 @@ from ...epe.executor import (
 )
 from ...epe.scheduling.planner import EpeSchedulingModule
 from ...epe.scheduling.types import RequestProfile
+from ...parallel.vae import VaeParallelGroup, create_vae_parallel_group
 from .api import MiniMaxH3Request
 from .conditioning import load_conditioning_package, make_synthetic_conditioning
 from .cost import H3CostFeatures, MiniMaxH3StepCostModel
@@ -71,9 +72,11 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
         default_duration_s: float = 5.0,
         default_fps: int = 24,
         default_output_type: str = "latent",
+        ffmpeg_path: str = "ffmpeg",
+        parallel_vae: bool = True,
+        vae_topology: VaeParallelGroup | None = None,
         warmup_media_profiles: tuple[Any, ...] = (),
         warmup_burnin_steps: int = 0,
-        media_owner_tp_plane: int = 0,
         cost_profile_path: str | None = None,
     ) -> None:
         super().__init__(
@@ -95,11 +98,17 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
         self.default_duration_s = float(default_duration_s)
         self.default_fps = int(default_fps)
         self.default_output_type = str(default_output_type)
+        self.ffmpeg_path = str(ffmpeg_path)
+        self.parallel_vae = bool(parallel_vae)
+        self.vae_topology = vae_topology or VaeParallelGroup(
+            ranks=(pipeline.parallel_context.rank,),
+            global_rank=pipeline.parallel_context.rank,
+            process_group=None,
+        )
         self.warmup_media_profiles = tuple(warmup_media_profiles)
         self.warmup_burnin_steps = int(warmup_burnin_steps)
         if self.warmup_burnin_steps < 0:
             raise ValueError("warmup_burnin_steps must be non-negative")
-        self.media_owner_tp_plane = int(media_owner_tp_plane)
         self.cost_profile_path = cost_profile_path
         self._cost_feature_cache: dict[str, H3CostFeatures] = {}
 
@@ -573,10 +582,7 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
         selected = [image for image in images if image is not None]
         if not selected:
             return None
-        topology = self.parallel_context.tensor_parallel
-        if not 0 <= self.media_owner_tp_plane < topology.degree:
-            raise ValueError("media_owner_tp_plane must be within the TP degree")
-        source_rank = topology.ranks[self.media_owner_tp_plane]
+        source_rank = self.vae_topology.ranks[0]
         if self.parallel_context.rank == source_rank:
             encode = (
                 None
@@ -606,12 +612,8 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
                 device=self.pipeline.device,
                 dtype=torch.float32,
             )
-        if topology.degree > 1:
-            dist.broadcast(
-                result,
-                src=source_rank,
-                group=topology.process_group,
-            )
+        if self.parallel_context.world_size > 1:
+            dist.broadcast(result, src=source_rank)
         if result.shape[0] != expected_rows:
             raise ValueError("encoded keyframe rows do not match FL2VA packed geometry")
         return result
@@ -770,10 +772,21 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
         timings.setdefault("vae_end_unix_ns", now)
         timings.setdefault("vae_decode_ms", 0.0)
         if state.output_type == "mp4":
-            if self.video_vae is None or self.audio_vae is None:
+            topology = self.vae_topology
+            if not topology.is_member:
                 return None
+            if self.video_vae is None:
+                raise RuntimeError("VAEP member is missing the video VAE")
             started = time.perf_counter()
-            video = self.video_vae.decode(state.video_latents.unsqueeze(0))
+            video = self.video_vae.decode_parallel(
+                state.video_latents.unsqueeze(0),
+                topology=topology,
+                enabled=self.parallel_vae,
+            )
+            if video is None:
+                return None
+            if self.audio_vae is None:
+                raise RuntimeError("VAEP leader is missing the audio VAE")
             audio = self.audio_vae.decode(
                 state.audio_latents.transpose(1, 2).contiguous()
             )
@@ -804,6 +817,10 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
             )
         return packed if self.parallel_context.rank == lane_ranks[0] else None
 
+    def close(self) -> None:
+        self.vae_topology.close()
+        super().close()
+
     def postprocess(
         self, host_output: torch.Tensor, *, output_type: str = "latent"
     ) -> dict[str, torch.Tensor]:
@@ -826,6 +843,7 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
                 host_artifact.tensors["audio"],
                 fps=float(host_artifact.metadata.get("fps", 24)),
                 sample_rate=int(host_artifact.metadata.get("sample_rate", 32000)),
+                ffmpeg_path=self.ffmpeg_path,
             )
         if len(host_artifact.tensors) != 1:
             raise TypeError("latent terminal artifact must contain one packed tensor")
@@ -1095,6 +1113,7 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
 class MiniMaxH3ExecutorFactory:
     model_path: str
     attention_backend: str = "auto"
+    attention_mode: str = "ulysses"
     ulysses_degree: int | None = None
     flow_shift: float = 12.0
     audio_flow_shift: float = 3.0
@@ -1114,21 +1133,37 @@ class MiniMaxH3ExecutorFactory:
     default_duration_s: float = 5.0
     default_fps: int = 24
     default_output_type: str = "latent"
-    media_owner_tp_plane: int = 0
+    ffmpeg_path: str = "ffmpeg"
+    parallel_vae: bool = True
+    vae_parallel_degree: int | None = None
     warmup_media_profiles: tuple[Any, ...] = ()
     warmup_burnin_steps: int = 0
     cost_profile_path: str | None = None
 
+    def __post_init__(self) -> None:
+        if self.attention_mode != "ulysses":
+            raise ValueError("MiniMax-H3 currently requires attention_mode='ulysses'")
+
     def build(self, context: ExecutorBuildContext) -> MiniMaxH3LatentExecutor:
         parallel, local_rank = build_stage_parallel_context(
             context,
-            attention_mode="usp",
+            attention_mode=self.attention_mode,
             ulysses_degree=self.ulysses_degree,
         )
         device = (
             torch.device("cuda", local_rank)
             if torch.cuda.is_available()
             else torch.device("cpu")
+        )
+        vae_degree = (
+            1
+            if not self.parallel_vae
+            else self.vae_parallel_degree or context.world.world_size
+        )
+        vae_topology = create_vae_parallel_group(
+            vae_degree,
+            world_size=context.world.world_size,
+            rank=context.world.rank,
         )
         transformer = load_minimax_h3_transformer(
             self.model_path,
@@ -1163,14 +1198,15 @@ class MiniMaxH3ExecutorFactory:
             text_encoder = load_minimax_h3_qwen3vl_encoder(
                 self.text_encoder_path or "", device=device
             )
-            cp_world_size = context.world.world_size // context.tensor_parallel_degree
-            tp_plane = context.world.rank // cp_world_size
-            if tp_plane == self.media_owner_tp_plane:
+            if vae_topology.is_member:
                 from .audio_vae import load_audio_vae
                 from .video_vae import load_video_vae
 
                 video_vae = load_video_vae(self.video_vae_path or "", device=device)
-                audio_vae = load_audio_vae(self.audio_vae_path or "", device=device)
+                if vae_topology.is_leader:
+                    audio_vae = load_audio_vae(
+                        self.audio_vae_path or "", device=device
+                    )
         pipeline = MiniMaxH3LatentPipeline(
             transformer,
             parallel,
@@ -1200,8 +1236,10 @@ class MiniMaxH3ExecutorFactory:
             default_duration_s=self.default_duration_s,
             default_fps=self.default_fps,
             default_output_type=self.default_output_type,
+            ffmpeg_path=self.ffmpeg_path,
+            parallel_vae=self.parallel_vae,
+            vae_topology=vae_topology,
             warmup_media_profiles=self.warmup_media_profiles,
             warmup_burnin_steps=self.warmup_burnin_steps,
-            media_owner_tp_plane=self.media_owner_tp_plane,
             cost_profile_path=self.cost_profile_path,
         )

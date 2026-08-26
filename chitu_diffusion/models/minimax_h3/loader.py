@@ -6,8 +6,8 @@ from typing import Any
 import torch
 from torch import nn
 
-from chitu_diffusion.parallel.linear import MergedColumnParallelLinear
-from chitu_diffusion.parallel.tp_loader import load_tensor_parallel_checkpoint
+from chitu_diffusion.parallel.tp.linear import MergedColumnParallelLinear
+from chitu_diffusion.parallel.tp.loader import load_tensor_parallel_checkpoint
 
 from .config import MiniMaxH3DiTConfig
 from .transformer import MiniMaxH3DiTModel

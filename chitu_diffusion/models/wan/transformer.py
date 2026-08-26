@@ -6,7 +6,7 @@ import torch
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.transformers.transformer_wan import WanTransformer3DModel
 
-from ...parallel import EpeParallelContext
+from ...parallel.cp import EpeParallelContext
 from .attention import WanCpAttnProcessor
 
 

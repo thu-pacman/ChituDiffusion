@@ -7,7 +7,7 @@ from typing import Any
 import torch
 import torch.distributed as dist
 
-from ..parallel import EpeParallelContext, resolve_context_parallel_config
+from ..parallel.cp import EpeParallelContext, resolve_context_parallel_config
 from .contracts import (
     ExecutorBuildContext,
     TerminalArtifact,

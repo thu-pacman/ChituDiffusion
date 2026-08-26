@@ -30,7 +30,7 @@ Fast AGKV 和 Fast Ulysses 使用 NVSHMEM transport，面向支持 P2P 的单机
 ```
 
 Fast Ring 和 fused Fast AGKV attention 是 benchmark/实验路径，模型 pipeline 不会自动
-选择它们。安装和限制见仓库内 `chitu_diffusion/parallel/fast_cp/README.md`。
+选择它们。安装和限制见仓库内 `chitu_diffusion/parallel/cp/fast/README.md`。
 
 ![H20 单机 Fast CP scaling](../assets/fast_cp/fast-cp-h20-single-node-scaling.png)
 

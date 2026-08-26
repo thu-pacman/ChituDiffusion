@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from chitu_diffusion.parallel.linear import (
+from chitu_diffusion.parallel.tp.linear import (
     MergedColumnParallelLinear,
     RowParallelLinear,
 )
@@ -238,7 +238,7 @@ class MiniMaxH3Qwen3VLEncoder(nn.Module):
         device: torch.device | str | None = None,
     ) -> None:
         super().__init__()
-        from chitu_diffusion.parallel.tensor_parallel import get_tp_world_size
+        from chitu_diffusion.parallel.tp.topology import get_tp_world_size
 
         config.validate_tensor_parallel(get_tp_world_size())
         self.config = config

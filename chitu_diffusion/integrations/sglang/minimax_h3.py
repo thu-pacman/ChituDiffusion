@@ -13,16 +13,16 @@ from chitu_diffusion.models.minimax_h3.transformer import (
     MiniMaxH3DiTModel as _ChituMiniMaxH3DiTModel,
     MiniMaxH3PackedForwardInputs,
 )
-from chitu_diffusion.parallel.linear import (
+from chitu_diffusion.parallel.tp.linear import (
     ColumnParallelLinear,
     MergedColumnParallelLinear,
     ReplicatedLinear,
     RowParallelLinear,
 )
-from chitu_diffusion.parallel.tensor_parallel import (
+from chitu_diffusion.parallel.tp.topology import (
     adopt_external_tensor_parallel_group,
 )
-from chitu_diffusion.parallel.topology import UspTopology
+from chitu_diffusion.parallel.cp.topology import UspTopology
 
 
 _FORWARD_SUPPORTED_KWARGS = frozenset(

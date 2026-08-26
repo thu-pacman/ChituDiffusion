@@ -5,7 +5,7 @@ import os
 import torch
 import torch.distributed as dist
 
-from chitu_diffusion.parallel import (
+from chitu_diffusion.parallel.cp import (
     EpeParallelContext,
     SdpaVarlenBackend,
     all_to_all_packed_output,

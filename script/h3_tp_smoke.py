@@ -9,7 +9,7 @@ import torch
 import torch.distributed as dist
 
 from chitu_diffusion.models.minimax_h3 import load_minimax_h3_transformer
-from chitu_diffusion.parallel import EpeParallelContext
+from chitu_diffusion.parallel.cp import EpeParallelContext
 
 
 def _token_grid(raw: str) -> tuple[int, ...]:
@@ -119,8 +119,11 @@ def main() -> None:
         position_ids = torch.zeros(tokens, 3, dtype=torch.float64, device="cuda")
         inverse_indices = torch.zeros(tokens, dtype=torch.long, device="cuda")
         token_tags = torch.zeros(tokens, dtype=torch.long, device="cuda")
+        boundaries = [0, used_tokens]
+        if tokens > used_tokens:
+            boundaries.append(tokens)
         cu_seqlens = torch.tensor(
-            [0, used_tokens, tokens], dtype=torch.int32, device="cuda"
+            boundaries, dtype=torch.int32, device="cuda"
         )
         max_seqlen = max(used_tokens, tokens - used_tokens)
 

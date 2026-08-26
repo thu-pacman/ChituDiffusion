@@ -1,6 +1,6 @@
 """Z-Image model integration for EPE."""
 
-from ...parallel import ActiveLaneTopology, EpeParallelContext
+from ...parallel.cp import ActiveLaneTopology, EpeParallelContext
 from .api import ZImagePipeline, ZImageRequest
 from .epe import (
     EpeCostModel,

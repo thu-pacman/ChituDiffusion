@@ -21,11 +21,11 @@ from chitu_diffusion.models.minimax_h3.qwen3vl_processor import (
     MiniMaxH3Qwen3VLProcessor,
     build_h3_presentation,
 )
-from chitu_diffusion.parallel.linear import (
+from chitu_diffusion.parallel.tp.linear import (
     MergedColumnParallelLinear,
     RowParallelLinear,
 )
-from chitu_diffusion.parallel.tensor_parallel import (
+from chitu_diffusion.parallel.tp.topology import (
     TensorParallelTopology,
     reset_tensor_parallel_topology,
     set_tensor_parallel_topology,

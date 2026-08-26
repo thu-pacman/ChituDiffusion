@@ -20,10 +20,15 @@ def _as_numpy(value: Any):
     return np.asarray(value)
 
 
-def _resolve_ffmpeg() -> str:
-    executable = shutil.which("ffmpeg")
+def _resolve_ffmpeg(configured: str | os.PathLike[str] = "ffmpeg") -> str:
+    requested = os.fspath(configured).strip()
+    if not requested:
+        raise ValueError("ffmpeg_path must not be empty")
+    executable = shutil.which(requested)
     if executable is not None:
         return executable
+    if requested != "ffmpeg":
+        raise RuntimeError(f"configured ffmpeg executable is not usable: {requested}")
     try:
         import imageio_ffmpeg
 
@@ -83,8 +88,11 @@ def export_mp4(
     fps: float = 24.0,
     sample_rate: int = 32000,
     crf: int = 18,
+    ffmpeg_path: str | os.PathLike[str] = "ffmpeg",
 ) -> bytes:
     """Encode canonical H3 tensors as H.264/yuv420p + AAC MP4 bytes."""
+    import numpy as np
+
     if not isinstance(fps, (int, float)) or isinstance(fps, bool) or fps <= 0:
         raise ValueError("fps must be positive")
     if sample_rate != 32000:
@@ -95,7 +103,17 @@ def export_mp4(
     frames = _prepare_video(video)
     samples = _prepare_audio(audio)
     frame_count, height, width, _ = frames.shape
-    ffmpeg = _resolve_ffmpeg()
+    duration_seconds = frame_count / float(fps)
+    duration = f"{duration_seconds:.12g}"
+    target_samples = round(duration_seconds * sample_rate)
+    if samples.shape[0] < target_samples:
+        samples = np.pad(
+            samples,
+            ((0, target_samples - samples.shape[0]), (0, 0)),
+        )
+    elif samples.shape[0] > target_samples:
+        samples = np.ascontiguousarray(samples[:target_samples])
+    ffmpeg = _resolve_ffmpeg(ffmpeg_path)
 
     with tempfile.TemporaryDirectory(prefix="chitu-h3-media-") as temporary:
         root = Path(temporary)
@@ -130,11 +148,8 @@ def export_mp4(
             "0:v:0",
             "-map",
             "1:a:0",
-            "-frames:v",
-            str(frame_count),
-            "-af",
-            "apad",
-            "-shortest",
+            "-t",
+            duration,
             "-c:v",
             "libx264",
             "-preset",

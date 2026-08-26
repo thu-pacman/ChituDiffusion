@@ -7,16 +7,16 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from chitu_diffusion.parallel.fast_cp._runtime import (
+from chitu_diffusion.parallel.cp.fast._runtime import (
     FastUlyssesAllToAll,
     probe_fast_ulysses,
 )
-from chitu_diffusion.parallel.fast_cp.ulysses import (
+from chitu_diffusion.parallel.cp.fast.ulysses import (
     FastUlyssesSubgroupTransport,
     FastUlyssesTransport,
 )
-from chitu_diffusion.parallel.nccl.ulysses import TorchUlyssesTransport
-from chitu_diffusion.parallel.ulysses_transport import (
+from chitu_diffusion.parallel.cp.nccl.ulysses import TorchUlyssesTransport
+from chitu_diffusion.parallel.cp.ulysses_transport import (
     create_ulysses_transport,
     resolve_ulysses_transport,
 )
@@ -256,15 +256,15 @@ def test_fast_transport_falls_back_per_unsupported_operation(monkeypatch):
     assert transport.pool_bytes == 4096
 
 
-def test_fast_transport_sizes_symmetric_pool_from_first_attention_shape(
+def test_fast_transport_keeps_documented_default_pool_after_small_warmup(
     monkeypatch,
 ):
     monkeypatch.delenv("CHITU_FAST_ULYSSES_POOL_BYTES", raising=False)
     flux = torch.empty(1, 1152, 24, 128, dtype=torch.bfloat16)
     wan = torch.empty(1, 8320, 40, 128, dtype=torch.bfloat16)
 
-    assert FastUlyssesTransport._pool_bytes_for(flux) == 64 << 20
-    assert FastUlyssesTransport._pool_bytes_for(wan) == 384 << 20
+    assert FastUlyssesTransport._pool_bytes_for(flux) == 2 << 30
+    assert FastUlyssesTransport._pool_bytes_for(wan) == 2 << 30
 
     monkeypatch.setenv("CHITU_FAST_ULYSSES_POOL_BYTES", str(768 << 20))
     assert FastUlyssesTransport._pool_bytes_for(flux) == 768 << 20

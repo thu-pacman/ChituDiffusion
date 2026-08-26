@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from chitu_diffusion.epe.scheduling.cost import MeasuredStepCostModel
-from chitu_diffusion.parallel.tensor_parallel import (
+from chitu_diffusion.parallel.tp.topology import (
     adopt_external_tensor_parallel_group,
     get_tp_topology,
     reset_tensor_parallel_topology,

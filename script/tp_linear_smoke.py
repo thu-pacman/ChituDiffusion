@@ -4,9 +4,9 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 
-from chitu_diffusion.parallel import (
+from chitu_diffusion.parallel.cp import EpeParallelContext
+from chitu_diffusion.parallel.tp import (
     ColumnParallelLinear,
-    EpeParallelContext,
     MergedColumnParallelLinear,
     RowParallelLinear,
 )

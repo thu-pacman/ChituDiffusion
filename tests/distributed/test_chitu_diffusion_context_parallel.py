@@ -9,13 +9,17 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn.functional as F
 
-from chitu_diffusion.parallel import (
+from chitu_diffusion.parallel.cp import (
     EpeParallelContext,
     ImageContextParallelAttention,
     ImageSelfAttention,
     cfg_parallel_rank_groups,
-    parallel_tiled_vae_decode,
     resolve_context_parallel_config,
+)
+from chitu_diffusion.parallel.vae import (
+    create_vae_parallel_group,
+    parallel_spatial_vae_decode,
+    parallel_tiled_vae_decode,
 )
 
 
@@ -228,6 +232,68 @@ def _vae_worker(rank: int, world_size: int, port: int) -> None:
     dist.destroy_process_group()
 
 
+def _spatial_vae_worker(rank: int, world_size: int, port: int) -> None:
+    os.environ.update(
+        MASTER_ADDR="127.0.0.1",
+        MASTER_PORT=str(port),
+        RANK=str(rank),
+        WORLD_SIZE=str(world_size),
+        LOCAL_RANK=str(rank),
+    )
+    dist.init_process_group("gloo", rank=rank, world_size=world_size)
+    parallel = EpeParallelContext.from_torchrun(
+        allowed_widths=(1, world_size),
+        owns_process_group=False,
+    )
+    latents = torch.arange(16, dtype=torch.float32).reshape(1, 1, 4, 4)
+    with parallel.activate(tuple(range(world_size))) as topology:
+        decoded = parallel_spatial_vae_decode(
+            latents,
+            lambda tile: tile.repeat_interleave(2, -2).repeat_interleave(2, -1),
+            topology=topology,
+            scale=2,
+            tile_size=4,
+            overlap_min=2,
+        )
+    if rank == 0:
+        expected = latents.repeat_interleave(2, -2).repeat_interleave(2, -1)
+        assert decoded is not None
+        torch.testing.assert_close(decoded, expected)
+    else:
+        assert decoded is None
+    dist.barrier()
+    parallel.close()
+    dist.destroy_process_group()
+
+
+def _independent_vaep_worker(rank: int, world_size: int, port: int) -> None:
+    os.environ.update(
+        MASTER_ADDR="127.0.0.1",
+        MASTER_PORT=str(port),
+        RANK=str(rank),
+        WORLD_SIZE=str(world_size),
+        LOCAL_RANK=str(rank),
+    )
+    dist.init_process_group("gloo", rank=rank, world_size=world_size)
+    topology = create_vae_parallel_group(2)
+    assert topology.ranks == (0, 1)
+    assert topology.is_member == (rank < 2)
+    if topology.is_member:
+        latents = torch.arange(16, dtype=torch.float32).reshape(1, 1, 4, 4)
+        decoded = parallel_spatial_vae_decode(
+            latents,
+            lambda tile: tile.repeat_interleave(2, -2).repeat_interleave(2, -1),
+            topology=topology,
+            scale=2,
+            tile_size=4,
+            overlap_min=2,
+        )
+        assert (decoded is not None) == topology.is_leader
+    dist.barrier()
+    topology.close()
+    dist.destroy_process_group()
+
+
 @pytest.mark.skipif(not dist.is_available(), reason="torch.distributed unavailable")
 def test_static_ulysses_lanes_match_full_attention() -> None:
     mp.spawn(_ulysses_worker, args=(4, _free_port()), nprocs=4, join=True)
@@ -236,3 +302,24 @@ def test_static_ulysses_lanes_match_full_attention() -> None:
 @pytest.mark.skipif(not dist.is_available(), reason="torch.distributed unavailable")
 def test_dynamic_lane_parallel_vae_gathers_only_on_leader() -> None:
     mp.spawn(_vae_worker, args=(2, _free_port()), nprocs=2, join=True)
+
+
+@pytest.mark.parametrize("world_size", (2, 4))
+@pytest.mark.skipif(not dist.is_available(), reason="torch.distributed unavailable")
+def test_spatial_vae_tiles_are_gathered_only_on_leader(world_size: int) -> None:
+    mp.spawn(
+        _spatial_vae_worker,
+        args=(world_size, _free_port()),
+        nprocs=world_size,
+        join=True,
+    )
+
+
+@pytest.mark.skipif(not dist.is_available(), reason="torch.distributed unavailable")
+def test_vaep_degree_is_independent_from_stage_world_size() -> None:
+    mp.spawn(
+        _independent_vaep_worker,
+        args=(4, _free_port()),
+        nprocs=4,
+        join=True,
+    )

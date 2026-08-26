@@ -14,12 +14,12 @@ from diffusers.pipelines.z_image.pipeline_z_image import (
     retrieve_timesteps,
 )
 
-from ...parallel import (
+from ...parallel.cp import (
     ActiveLaneTopology,
     EpeParallelContext,
-    parallel_tiled_vae_decode,
     resolve_context_parallel_config,
 )
+from ...parallel.vae import parallel_tiled_vae_decode
 from .epe import ZImageEpeModule
 from .transformer import EpeZImageTransformer2DModel
 

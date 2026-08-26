@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from chitu_diffusion.parallel.fast_cp.experimental._ring_merge import (
+from chitu_diffusion.parallel.cp.fast.experimental._ring_merge import (
     fused_merge_flash_partials,
     fused_merge_supported,
 )

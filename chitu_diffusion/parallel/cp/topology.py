@@ -31,3 +31,4 @@ class UspTopology:
     ring_degree: int
     ulysses_process_group: object | None
     ring_process_group: object | None
+    ulysses_transport: UlyssesTransport | None = None

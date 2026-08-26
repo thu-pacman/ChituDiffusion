@@ -11,6 +11,7 @@ namespace ulysses {
 
 class SymmetricHeapPool {
 public:
+    SymmetricHeapPool(int64_t reserved_bytes, int world_size, std::vector<int> peer_global_pes);
     SymmetricHeapPool(void* arena_base, int64_t reserved_bytes, int world_size, std::vector<int> peer_global_pes);
 
     struct Buffer {
@@ -34,6 +35,7 @@ private:
     int                   world_size_;
     std::vector<int>      peer_global_pes_;
     std::map<Key, Buffer> registry_;
+    bool                  owns_arena_ = false;
     bool                  destroyed_ = false;
 };
 

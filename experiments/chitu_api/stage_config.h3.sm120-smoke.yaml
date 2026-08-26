@@ -30,7 +30,6 @@ factory_args:
   audio_vae_path: /dockerdata/MiniMax-H3/FL2VA/audio_vae
   enable_native_media: false
   qwen_num_layers: 50
-  media_owner_tp_plane: 0
   ffmpeg_path: ffmpeg
   default_duration_s: 5.0
   default_fps: 24
@@ -43,7 +42,7 @@ factory_args:
   audio_t: 8
   audio_channels: 2
   text_length: 64
-  attention_mode: usp
+  attention_mode: ulysses
   ulysses_degree: 2
   # FA4 b25 fails on the Qwen varlen shape on SM120. SDPA avoids the
   # owner-rank-only Flex compilation that can exceed the NCCL timeout.

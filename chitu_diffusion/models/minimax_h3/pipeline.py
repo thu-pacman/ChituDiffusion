@@ -6,7 +6,7 @@ from typing import Any
 import torch
 import torch.distributed as dist
 
-from ...parallel import ActiveLaneTopology, EpeParallelContext
+from ...parallel.cp import ActiveLaneTopology, EpeParallelContext
 from .conditioning import MiniMaxH3Conditioning
 from .fl2va_packed_sequence import FL2VAPackedSequence
 from .packed_sequence import MiniMaxH3PackedSequence, build_packed_sequence

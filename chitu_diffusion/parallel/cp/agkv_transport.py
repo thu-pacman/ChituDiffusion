@@ -60,7 +60,7 @@ def create_agkv_transport(
     device: torch.device,
     static_full_world: bool,
 ) -> AgkvTransport:
-    from .fast_cp._runtime import probe_fast_ulysses
+    from .fast._runtime import probe_fast_ulysses
     from .nccl.agkv import TorchAgkvTransport
 
     requested = resolve_agkv_transport(value)
@@ -74,7 +74,7 @@ def create_agkv_transport(
         require_fast_agkv=True,
     )
     if available and static_full_world and process_group is not None:
-        from .fast_cp.agkv_transport import FastAgkvTransport
+        from .fast.agkv_transport import FastAgkvTransport
 
         return FastAgkvTransport(
             process_group,

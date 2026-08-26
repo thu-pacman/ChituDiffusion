@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from threading import RLock
 
@@ -15,7 +15,7 @@ from .agkv_transport import (
     create_agkv_transport,
     resolve_agkv_transport,
 )
-from .tensor_parallel import (
+from ..tp.topology import (
     TensorParallelTopology,
     reset_tensor_parallel_topology,
     set_tensor_parallel_topology,
@@ -291,7 +291,11 @@ class EpeParallelContext:
             if rank not in lane:
                 continue
             process_group = process_group_for(lane)
-            static_full_world = lane == world_ranks
+            plane_start = (lane[0] // cp_world_size) * cp_world_size
+            full_tp_plane = lane == tuple(
+                range(plane_start, plane_start + cp_world_size)
+            )
+            static_full_world = lane == world_ranks or full_tp_plane
             selected_ulysses_transport = (
                 requested_transport if static_full_world else "torch"
             )
@@ -320,6 +324,11 @@ class EpeParallelContext:
             )
             agkv_transports[lane] = agkv_lane_transport
             owned_agkv_transports.append(agkv_lane_transport)
+            if lane in usp_topologies:
+                usp_topologies[lane] = replace(
+                    usp_topologies[lane],
+                    ulysses_transport=ulysses_lane_transport,
+                )
 
         cfg_topologies: dict[tuple[int, ...], CfgParallelTopology] = {}
         for width in widths:

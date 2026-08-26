@@ -12,6 +12,11 @@ from typing import Any, Sequence
 import torch
 from torch import nn
 
+from chitu_diffusion.parallel.vae import (
+    VaeParallelTopology,
+    parallel_spatial_vae_decode,
+)
+
 
 VIDEO_LATENT_CHANNELS = 24
 
@@ -201,8 +206,7 @@ class MiniMaxH3VideoVAE(nn.Module):
         std = self.latents_std.to(device=device).view(1, -1, 1, 1, 1)
         return ((latent - mean) / std).contiguous()
 
-    @torch.no_grad()
-    def decode(self, latents: torch.Tensor) -> torch.Tensor:
+    def _prepare_decode_latents(self, latents: torch.Tensor) -> torch.Tensor:
         if not isinstance(latents, torch.Tensor) or latents.ndim != 5:
             raise ValueError("video latents must be a tensor shaped [1, 24, T, H, W]")
         if tuple(latents.shape[:2]) != (1, VIDEO_LATENT_CHANNELS):
@@ -215,12 +219,20 @@ class MiniMaxH3VideoVAE(nn.Module):
         normalized = latents.to(device=device, dtype=torch.float32)
         mean = self.latents_mean.to(device=device).view(1, -1, 1, 1, 1)
         std = self.latents_std.to(device=device).view(1, -1, 1, 1, 1)
-        decode_latents = normalized * std + mean
+        return (normalized * std + mean).contiguous()
+
+    def _decode_raw(
+        self,
+        decode_latents: torch.Tensor,
+        *,
+        spatial_tiling: bool,
+    ) -> torch.Tensor:
+        device = self._device()
         backend = getattr(self.model, "model", self.model)
         previous_tiling = getattr(backend, "decoder_tiling", None)
-        short_clip = latents.shape[2] < 7
+        short_clip = decode_latents.shape[2] < 7
         if self.require_tiled_decoder:
-            backend.decoder_tiling = not short_clip
+            backend.decoder_tiling = spatial_tiling and not short_clip
         use_autocast = device.type == "cuda"
         if use_autocast:
             self._prepare_cuda_autocast()
@@ -241,10 +253,15 @@ class MiniMaxH3VideoVAE(nn.Module):
                         decoded = trim_output(decoded, 5)
                 else:
                     decoded = self.model.decode_base(decode_latents)
-                decoded = self.model.processor.revert_tensor(decoded)
         finally:
             if previous_tiling is not None:
                 backend.decoder_tiling = previous_tiling
+        if not isinstance(decoded, torch.Tensor):
+            raise TypeError("video VAE decode pipeline must return a tensor")
+        return decoded
+
+    def _finish_decode(self, decoded: torch.Tensor) -> torch.Tensor:
+        decoded = self.model.processor.revert_tensor(decoded)
         if not isinstance(decoded, torch.Tensor):
             raise TypeError("video VAE decode pipeline must return a tensor")
         if decoded.ndim == 4:
@@ -257,6 +274,37 @@ class MiniMaxH3VideoVAE(nn.Module):
                 f"{tuple(decoded.shape)}"
             )
         return decoded.float().clamp_(0, 1).contiguous()
+
+    @torch.no_grad()
+    def decode(self, latents: torch.Tensor) -> torch.Tensor:
+        decode_latents = self._prepare_decode_latents(latents)
+        return self._finish_decode(
+            self._decode_raw(decode_latents, spatial_tiling=True)
+        )
+
+    @torch.no_grad()
+    def decode_parallel(
+        self,
+        latents: torch.Tensor,
+        *,
+        topology: VaeParallelTopology,
+        enabled: bool = True,
+    ) -> torch.Tensor | None:
+        """Decode H3 release tiles across a lane and return only on its leader."""
+
+        if not enabled or latents.shape[2] < 7:
+            return self.decode(latents) if topology.is_leader else None
+        decode_latents = self._prepare_decode_latents(latents)
+        backend = getattr(self.model, "model", self.model)
+        decoded = parallel_spatial_vae_decode(
+            decode_latents,
+            lambda tile: self._decode_raw(tile, spatial_tiling=False),
+            topology=topology,
+            scale=int(getattr(backend, "vae_ratio", 16)),
+            tile_size=int(getattr(backend, "decoder_tile_size", 256)),
+            overlap_min=int(getattr(backend, "decoder_tile_overlap_min", 64)),
+        )
+        return None if decoded is None else self._finish_decode(decoded)
 
 
 def load_video_vae(

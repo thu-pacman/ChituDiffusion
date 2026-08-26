@@ -12,11 +12,8 @@ from diffusers import FluxPipeline
 from diffusers.pipelines.flux.pipeline_flux import calculate_shift, retrieve_timesteps
 from diffusers.pipelines.flux.pipeline_output import FluxPipelineOutput
 
-from ...parallel import (
-    EpeParallelContext,
-    parallel_tiled_vae_decode,
-    resolve_context_parallel_config,
-)
+from ...parallel.cp import EpeParallelContext, resolve_context_parallel_config
+from ...parallel.vae import parallel_tiled_vae_decode
 from .transformer import EpeFlux1Transformer2DModel
 
 

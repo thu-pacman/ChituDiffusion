@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from chitu_diffusion.parallel.fast_cp._runtime import (
+from chitu_diffusion.parallel.cp.fast._runtime import (
     RingCETransportState,
     ring_ce_slot,
     ring_ce_ticket,

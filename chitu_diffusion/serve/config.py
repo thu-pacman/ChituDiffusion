@@ -340,6 +340,7 @@ class DiffusionFactoryConfig:
     ulysses_degree: int | None = None
     cfg_parallel: bool = True
     parallel_vae: bool = True
+    vae_parallel_degree: int | None = None
     vae_parallel_halo: int = 8
     attention_backend: str = "auto"
     flow_shift: float = 12.0
@@ -359,7 +360,6 @@ class DiffusionFactoryConfig:
     default_fps: int = 24
     default_output_type: str = "latent"
     ffmpeg_path: str = "ffmpeg"
-    media_owner_tp_plane: int = 0
     warmup_media_profiles: tuple[MediaWarmupProfile, ...] = ()
     warmup_burnin_steps: int = 0
     cost_profile_path: str | None = None
@@ -387,6 +387,12 @@ class DiffusionFactoryConfig:
             )
         if ulysses_degree is not None and ulysses_degree < 1:
             raise ValueError("factory_args.ulysses_degree must be positive")
+        raw_vae_degree = raw.get("vae_parallel_degree")
+        vae_parallel_degree = (
+            None if raw_vae_degree is None else int(raw_vae_degree)
+        )
+        if vae_parallel_degree is not None and vae_parallel_degree < 1:
+            raise ValueError("factory_args.vae_parallel_degree must be positive")
         vae_parallel_halo = int(raw.get("vae_parallel_halo", 8))
         num_frames = int(raw.get("num_frames", 17))
         attention_backend = str(raw.get("attention_backend", "auto"))
@@ -399,8 +405,8 @@ class DiffusionFactoryConfig:
         default_duration_s = float(raw.get("default_duration_s", 5.0))
         default_fps = int(raw.get("default_fps", 24))
         default_output_type = str(raw.get("default_output_type", "latent"))
+        ffmpeg_path = str(raw.get("ffmpeg_path", "ffmpeg")).strip()
         qwen_num_layers = int(raw.get("qwen_num_layers", 50))
-        media_owner_tp_plane = int(raw.get("media_owner_tp_plane", 0))
         enable_native_media = bool(raw.get("enable_native_media", False))
         warmup_media_profiles = tuple(
             MediaWarmupProfile.from_mapping(
@@ -427,10 +433,10 @@ class DiffusionFactoryConfig:
             raise ValueError("default duration and fps must be positive")
         if default_output_type not in {"mp4", "latent"}:
             raise ValueError("default_output_type must be mp4 or latent")
+        if not ffmpeg_path:
+            raise ValueError("factory_args.ffmpeg_path must not be empty")
         if not 1 <= qwen_num_layers <= 64:
             raise ValueError("qwen_num_layers must be in [1, 64]")
-        if media_owner_tp_plane < 0:
-            raise ValueError("media_owner_tp_plane must be non-negative")
         if enable_native_media:
             missing = [
                 name
@@ -453,6 +459,7 @@ class DiffusionFactoryConfig:
             ulysses_degree=ulysses_degree,
             cfg_parallel=bool(raw.get("cfg_parallel", True)),
             parallel_vae=bool(raw.get("parallel_vae", True)),
+            vae_parallel_degree=vae_parallel_degree,
             vae_parallel_halo=vae_parallel_halo,
             attention_backend=attention_backend,
             flow_shift=flow_shift,
@@ -491,8 +498,7 @@ class DiffusionFactoryConfig:
             default_duration_s=default_duration_s,
             default_fps=default_fps,
             default_output_type=default_output_type,
-            ffmpeg_path=str(raw.get("ffmpeg_path", "ffmpeg")),
-            media_owner_tp_plane=media_owner_tp_plane,
+            ffmpeg_path=ffmpeg_path,
             warmup_media_profiles=warmup_media_profiles,
             warmup_burnin_steps=warmup_burnin_steps,
             cost_profile_path=(
