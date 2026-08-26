@@ -37,10 +37,10 @@ checkpoints
 ckpts
 quant_cache
 key_exps
-third_party/Cubic
-third_party/sage_attn
-third_party/sparge_attn
-third_party/vbench
+offline
+experiments
+third_party
+install.md
 
 # Editor/OS files
 .DS_Store

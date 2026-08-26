@@ -60,7 +60,7 @@ export CHITU_FAST_ULYSSES_ASYNC_CE=0
   --standalone --nproc-per-node=8 \
   -m chitu_diffusion.commands.serve \
   --stage-config \
-  experiments/chitu_api/stage_config.h3.tp4cp2.fast-ulysses.sm120.yaml
+  examples/stage-minimax-h3.yaml
 ```
 
 ## Native request
@@ -100,8 +100,3 @@ metadata is validated when present.
 The H3 schedule matches the SGLang contract: video and audio use independent
 shifted sigma schedules (defaults 12 and 3), the DiT receives `1 - sigma`, and
 the eta-zero Euler update uses `(sigma_current - sigma_next) * velocity`.
-
-Performance methodology and results:
-
-- [`experiments/vae_parallel_pro5000/README.md`](../../../experiments/vae_parallel_pro5000/README.md)
-- [`experiments/fast_cp_pro5000/README.md`](../../../experiments/fast_cp_pro5000/README.md)

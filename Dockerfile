@@ -35,7 +35,7 @@ WORKDIR /opt/ChituDiffusion
 
 COPY . .
 
-RUN python3.12 -c "from pathlib import Path; p = Path('pyproject.toml'); text = p.read_text().replace('https://pypi.tuna.tsinghua.edu.cn/simple', 'https://pypi.org/simple'); skip = ('vbench', 'sageattention', 'spas_sage_attn', 'flash_attn', 'flashinfer'); text = '\n'.join(line for line in text.splitlines() if not any(item in line for item in skip)) + '\n'; p.write_text(text)"
+RUN python3.12 -c "from pathlib import Path; p = Path('pyproject.toml'); text = p.read_text().replace('https://pypi.tuna.tsinghua.edu.cn/simple', 'https://pypi.org/simple'); skip = ('vbench', 'flash_attn', 'flashinfer'); text = '\n'.join(line for line in text.splitlines() if not any(item in line for item in skip)) + '\n'; p.write_text(text)"
 
 RUN uv sync --no-dev
 

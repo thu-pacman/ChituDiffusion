@@ -3,7 +3,7 @@
 
 Example:
   python script/simulate_h3_epe_trace.py \
-    --stage-config experiments/chitu_api/stage_config.h3.tp2cp4.yaml \
+    --stage-config examples/stage-minimax-h3.yaml \
     --requests 200 --arrival-rate 0.8 \
     --shapes 512x768@2,768x768@5,768x1024@8 \
     --trace-out outputs/h3_trace.json \
@@ -167,7 +167,7 @@ def _record_startup_warmup(
         "--standalone",
         f"--nproc-per-node={len(gpu_ids)}",
         "--module",
-        "experiments.chitu_api.serve",
+        "chitu_diffusion.commands.serve",
         "--stage-config",
         str(stage_config.resolve()),
     ]

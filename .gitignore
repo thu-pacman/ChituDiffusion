@@ -122,8 +122,11 @@ output/*
 srun_wan_demo.sh
 vbench_out/*
 
-# Local algorithm references
-third_party/Cubic/
+# Local-only deployment and development assets
+/offline/
+/experiments/
+/third_party/
+/install.md
 
 # MkDocs
 site/

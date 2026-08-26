@@ -94,28 +94,18 @@ default = true
 # Switch to your cuda version
 torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
-sageattention = { git = "https://github.com/thu-ml/SageAttention.git" }
-spas_sage_attn = { git = "https://github.com/thu-ml/SpargeAttn.git" }
 fast-ulysses = { git = "https://github.com/triple-mu/fast-ulysses.git", rev = "6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87" }
 
 
 
 [tool.uv.extra-build-dependencies]
-sageattention = ["torch==2.10.0", "numpy==2.2.6", "ninja"]
-spas_sage_attn = ["torch==2.10.0"]
 flash_attn = ["torch==2.10.0"]
 fast-ulysses = ["torch==2.10.0", "cmake", "ninja"]
-
-[tool.uv.extra-build-variables]
-sageattention  = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
-spas_sage_attn = { EXT_PARALLEL= "4", NVCC_APPEND_FLAGS="--threads 8", MAX_JOBS="32", "TORCH_CUDA_ARCH_LIST" = "9.0"}
 
 
 
 [tool.uv]
 # config-settings = { editable_mode = "compat" }
-# no-build-isolation-package = ["sageattention", "spas_sage_attn"]
-# reinstall-package = ["spas_sage_attn"]
 override-dependencies = ["transformers==5.12.1"]
 # [dependency-groups]
 # dev = [
@@ -143,8 +133,6 @@ varlen = [
 flash = ["flash_attn"]
 flash3 = ["kernels==0.11.7"]
 flashinfer = ["flashinfer-python", "ninja"]
-sage = ["sageattention"]
-sparge = ["spas_sage_attn"]
 fast-ulysses = ["fast-ulysses"]
 qknorm = [
     "ninja>=1.13.0",

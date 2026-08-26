@@ -44,7 +44,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--base-config",
         type=Path,
-        default=Path("experiments/chitu_api/stage_config.h3.tp2cp4.yaml"),
+        default=Path("examples/stage-minimax-h3.yaml"),
     )
     parser.add_argument(
         "--output-root",

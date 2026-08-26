@@ -40,8 +40,6 @@ Fast transport 必须针对目标 CUDA、NVSHMEM 和 GPU 架构编译。只使�
 
 ```bash
 uv sync --group dev --extra flash
-uv sync --group dev --extra sage
-uv sync --group dev --extra sparge
 ```
 
 ## 检查安装
