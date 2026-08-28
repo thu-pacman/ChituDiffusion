@@ -2,6 +2,7 @@
 
 from .api import DiffusersEPEPipeline
 from .contracts import (
+    ContextParallelPlan,
     DiffusionBackendFactory,
     DiffusionBackendProtocol,
     EmbeddedRuntimeConfig,
@@ -9,9 +10,11 @@ from .contracts import (
     ExecutorBuildContext,
     ImageDecodeCompletion,
     LaneSnapshot,
+    ModelParallelPlan,
     StageWorldSpec,
     TerminalArtifact,
     TransferBundle,
+    VaeParallelPlan,
     normalize_terminal_artifact,
 )
 from .executor import DiffusersBackend
@@ -43,24 +46,6 @@ from .runtime.worker_pool import (
     RankExchange,
     SingletonLaneWorkerPool,
 )
-from .trace_simulator import (
-    EpeTraceSimulator,
-    TraceAblationMode,
-    TracePhase,
-    TraceRequest,
-    TraceRequestResult,
-    TraceSimulationResult,
-    apply_isolated_p95_deadlines,
-    compare_epe_to_static_cp,
-    generate_profile_trace,
-    generate_variable_trace,
-    measure_isolated_baseline,
-    normalize_trace_load,
-    run_slo_baseline_sweep,
-    load_trace,
-    load_warmup_models,
-    save_trace,
-)
 from .scheduling.cost import (
     CalibratedStepCostModel,
     MeasuredStepCostModel,
@@ -78,6 +63,24 @@ from .scheduling.types import (
     SchedulingPolicy,
     StepPlan,
 )
+from .trace_simulator import (
+    EpeTraceSimulator,
+    TraceAblationMode,
+    TracePhase,
+    TraceRequest,
+    TraceRequestResult,
+    TraceSimulationResult,
+    apply_isolated_p95_deadlines,
+    compare_epe_to_static_cp,
+    generate_profile_trace,
+    generate_variable_trace,
+    load_trace,
+    load_warmup_models,
+    measure_isolated_baseline,
+    normalize_trace_load,
+    run_slo_baseline_sweep,
+    save_trace,
+)
 
 __all__ = [
     "AsyncResultChannel",
@@ -94,8 +97,11 @@ __all__ = [
     "EpeSchedulingModule",
     "EpeTraceSimulator",
     "TraceAblationMode",
+    "ContextParallelPlan",
     "EpePhaseAssignment",
     "EpeRequest",
+    "ModelParallelPlan",
+    "VaeParallelPlan",
     "EmbeddedRuntimeConfig",
     "EmbeddedRuntimeHealth",
     "ExecutorBuildContext",

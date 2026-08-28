@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 MINIMAX_H3_QWEN3VL_SELECTED_LAYERS = 50
 
 

@@ -12,12 +12,12 @@ from chitu_diffusion.epe.contracts import (
 )
 from chitu_diffusion.epe.executor import DiffusersBackend
 from chitu_diffusion.serve.app import create_app
+from chitu_diffusion.serve.diffusion_runtime import EpeDiffusionServiceRuntime
 from chitu_diffusion.serve.protocol import (
     AdmissionResponse,
     HealthResponse,
     RequestStatusResponse,
 )
-from chitu_diffusion.serve.diffusion_runtime import EpeDiffusionServiceRuntime
 
 
 def test_legacy_tensor_normalizes_to_named_terminal_artifact() -> None:

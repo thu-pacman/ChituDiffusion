@@ -4,9 +4,9 @@ import argparse
 import json
 import os
 import time
+from functools import partial
 
 import torch
-import torch.distributed as dist
 
 from chitu_diffusion.models.minimax_h3 import load_minimax_h3_transformer
 from chitu_diffusion.parallel.cp import EpeParallelContext
@@ -127,17 +127,17 @@ def main() -> None:
         )
         max_seqlen = max(used_tokens, tokens - used_tokens)
 
-        def run_forward() -> tuple[torch.Tensor, torch.Tensor]:
-            return model.forward_hidden(
-                hidden,
-                unique_timesteps=torch.tensor([1.0], device="cuda"),
-                inverse_indices=inverse_indices,
-                token_tags=token_tags,
-                position_ids=position_ids,
-                cu_seqlens=cu_seqlens,
-                max_seqlen=max_seqlen,
-                ulysses_topology=active_usp if args.up > 1 else None,
-            )
+        run_forward = partial(
+            model.forward_hidden,
+            hidden,
+            unique_timesteps=torch.tensor([1.0], device="cuda"),
+            inverse_indices=inverse_indices,
+            token_tags=token_tags,
+            position_ids=position_ids,
+            cu_seqlens=cu_seqlens,
+            max_seqlen=max_seqlen,
+            ulysses_topology=active_usp if args.up > 1 else None,
+        )
 
         with torch.inference_mode():
             for _ in range(args.warmup):
@@ -165,7 +165,7 @@ def main() -> None:
                 "checksum": checksum.cpu().tolist(),
             }
         )
-        del hidden, position_ids, inverse_indices, token_tags, video, audio
+        del run_forward, hidden, position_ids, inverse_indices, token_tags, video, audio
         torch.cuda.empty_cache()
     if context.rank == 0:
         report = {

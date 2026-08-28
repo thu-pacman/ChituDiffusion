@@ -21,6 +21,7 @@ def main() -> None:
     os.environ.setdefault("LOCAL_RANK", "0")
     os.environ.setdefault("WORLD_SIZE", "1")
 
+    import sglang.multimodal_gen.runtime.models.dits.minimax_h3 as h3_impl
     from sglang.multimodal_gen.configs.models.dits.minimax_h3 import (
         MiniMaxH3DiTConfig,
     )
@@ -29,7 +30,6 @@ def main() -> None:
     )
     from sglang.multimodal_gen.runtime.layers.attention.backends.sdpa import SDPAImpl
     from sglang.multimodal_gen.runtime.loader.fsdp_load import maybe_load_fsdp_model
-    import sglang.multimodal_gen.runtime.models.dits.minimax_h3 as h3_impl
     from sglang.multimodal_gen.runtime.models.dits.minimax_h3 import (
         MiniMaxH3Attention,
         MiniMaxH3DiTModel,

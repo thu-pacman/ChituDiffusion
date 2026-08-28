@@ -92,8 +92,15 @@ def load_tensor_parallel_checkpoint(
     device: torch.device | str | None = None,
     tensor_transform: TensorTransform | None = None,
     strict: bool = True,
+    skip_checkpoint_parameter: Callable[[str], bool] | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Load a safetensors checkpoint while materializing only rank-local shards."""
+    """Load a safetensors checkpoint while materializing only rank-local shards.
+
+    ``skip_checkpoint_parameter`` lets a caller declare that a checkpoint tensor
+    is intentionally absent from this rank's module tree. Expert-parallel ranks
+    use it to ignore the experts they do not own instead of reporting them as
+    unexpected keys.
+    """
 
     root = Path(checkpoint_dir)
     weight_map = _weight_map(root)
@@ -110,6 +117,10 @@ def load_tensor_parallel_checkpoint(
     for file_path, names in by_file.items():
         with safe_open(file_path, framework="pt", device="cpu") as handle:
             for name in names:
+                if skip_checkpoint_parameter is not None and skip_checkpoint_parameter(
+                    name
+                ):
+                    continue
                 if name not in expected:
                     unexpected.append(name)
                     continue

@@ -8,7 +8,6 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import torch
 
-
 SPECIAL_IDS = {
     "<|vision_start|>": 1_000_001,
     "<|vision_end|>": 1_000_002,

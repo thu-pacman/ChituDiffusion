@@ -3,8 +3,13 @@ process: image
 factory: zimage
 gpu: [0, 1, 2, 3]
 parallelism:
-  sp: 4
-  chitu_pool:
+  cp:
+    world_size: 4
+  vae:
+    # Elastic lanes decode concurrently, so terminal decode stays on the lane
+    # that produced the latent. Leave degree unset unless policy is static_cp.
+    enabled: true
+  scheduler:
     policy: elastic
     allowed_lane_widths: [1, 2, 4]
     warmup_resolutions: [512]

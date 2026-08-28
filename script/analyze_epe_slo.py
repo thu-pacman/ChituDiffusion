@@ -13,7 +13,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-
 MODES = ("static-cp-max", "elastic-no-resize", "elastic-resize")
 LABELS = {
     "static-cp-max": "Static CP-max",

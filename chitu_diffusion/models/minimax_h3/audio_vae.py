@@ -12,7 +12,6 @@ from typing import Any, Sequence
 import torch
 from torch import nn
 
-
 AUDIO_LATENT_CHANNELS = 32
 AUDIO_OUTPUT_CHANNELS = 2
 AUDIO_SAMPLE_RATE = 32000

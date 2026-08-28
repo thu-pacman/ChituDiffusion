@@ -13,7 +13,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 ROOT = Path(__file__).resolve().parents[1]
 TRAIN_TOKENS = (8192, 16384, 24576, 32768, 49152)
 VALIDATION_TOKENS = (12288, 20480, 40960)

@@ -7,7 +7,6 @@ import torch
 import torch.nn.functional as F
 from packaging.version import InvalidVersion, Version
 
-
 _MIN_FA4_SM120_VERSION = Version("4.0.0b25")
 
 

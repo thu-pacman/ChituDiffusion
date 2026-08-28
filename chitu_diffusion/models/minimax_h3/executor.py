@@ -20,11 +20,12 @@ from ...epe.contracts import (
 from ...epe.executor import (
     DiffusersBackend,
     build_stage_parallel_context,
+    build_stage_vae_placement,
     scheduling_options_from_pool,
 )
 from ...epe.scheduling.planner import EpeSchedulingModule
 from ...epe.scheduling.types import RequestProfile
-from ...parallel.vae import VaeParallelGroup, create_vae_parallel_group
+from ...parallel.vae import VaeParallelPlacement
 from .api import MiniMaxH3Request
 from .conditioning import load_conditioning_package, make_synthetic_conditioning
 from .cost import H3CostFeatures, MiniMaxH3StepCostModel
@@ -73,8 +74,7 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
         default_fps: int = 24,
         default_output_type: str = "latent",
         ffmpeg_path: str = "ffmpeg",
-        parallel_vae: bool = True,
-        vae_topology: VaeParallelGroup | None = None,
+        vae_placement: VaeParallelPlacement | None = None,
         warmup_media_profiles: tuple[Any, ...] = (),
         warmup_burnin_steps: int = 0,
         cost_profile_path: str | None = None,
@@ -85,6 +85,7 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
             default_width=default_width,
             default_height=default_height,
             default_num_steps=default_num_steps,
+            vae_placement=vae_placement,
         )
         self.default_latent_t = int(default_latent_t)
         self.default_audio_t = int(default_audio_t)
@@ -99,12 +100,6 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
         self.default_fps = int(default_fps)
         self.default_output_type = str(default_output_type)
         self.ffmpeg_path = str(ffmpeg_path)
-        self.parallel_vae = bool(parallel_vae)
-        self.vae_topology = vae_topology or VaeParallelGroup(
-            ranks=(pipeline.parallel_context.rank,),
-            global_rank=pipeline.parallel_context.rank,
-            process_group=None,
-        )
         self.warmup_media_profiles = tuple(warmup_media_profiles)
         self.warmup_burnin_steps = int(warmup_burnin_steps)
         if self.warmup_burnin_steps < 0:
@@ -582,7 +577,8 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
         selected = [image for image in images if image is not None]
         if not selected:
             return None
-        source_rank = self.vae_topology.ranks[0]
+        # Rank 0 always owns a video VAE: it leads every decode placement.
+        source_rank = 0
         if self.parallel_context.rank == source_rank:
             encode = (
                 None
@@ -772,8 +768,10 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
         timings.setdefault("vae_end_unix_ns", now)
         timings.setdefault("vae_decode_ms", 0.0)
         if state.output_type == "mp4":
-            topology = self.vae_topology
-            if not topology.is_member:
+            plane_lane = self.parallel_context.plane_lane(lane_ranks)
+            with self.parallel_context.activate(plane_lane) as lane:
+                topology = self.vae_placement.resolve(lane)
+            if topology is None:
                 return None
             if self.video_vae is None:
                 raise RuntimeError("VAEP member is missing the video VAE")
@@ -818,7 +816,6 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
         return packed if self.parallel_context.rank == lane_ranks[0] else None
 
     def close(self) -> None:
-        self.vae_topology.close()
         super().close()
 
     def postprocess(
@@ -1113,8 +1110,6 @@ class MiniMaxH3LatentExecutor(DiffusersBackend):
 class MiniMaxH3ExecutorFactory:
     model_path: str
     attention_backend: str = "auto"
-    attention_mode: str = "ulysses"
-    ulysses_degree: int | None = None
     flow_shift: float = 12.0
     audio_flow_shift: float = 3.0
     default_width: int = 8
@@ -1134,37 +1129,20 @@ class MiniMaxH3ExecutorFactory:
     default_fps: int = 24
     default_output_type: str = "latent"
     ffmpeg_path: str = "ffmpeg"
-    parallel_vae: bool = True
-    vae_parallel_degree: int | None = None
     warmup_media_profiles: tuple[Any, ...] = ()
     warmup_burnin_steps: int = 0
     cost_profile_path: str | None = None
 
-    def __post_init__(self) -> None:
-        if self.attention_mode != "ulysses":
-            raise ValueError("MiniMax-H3 currently requires attention_mode='ulysses'")
-
     def build(self, context: ExecutorBuildContext) -> MiniMaxH3LatentExecutor:
-        parallel, local_rank = build_stage_parallel_context(
-            context,
-            attention_mode=self.attention_mode,
-            ulysses_degree=self.ulysses_degree,
-        )
+        if context.cp.attention_mode != "ulysses":
+            raise ValueError("MiniMax-H3 currently requires attention_mode='ulysses'")
+        parallel, local_rank = build_stage_parallel_context(context)
         device = (
             torch.device("cuda", local_rank)
             if torch.cuda.is_available()
             else torch.device("cpu")
         )
-        vae_degree = (
-            1
-            if not self.parallel_vae
-            else self.vae_parallel_degree or context.world.world_size
-        )
-        vae_topology = create_vae_parallel_group(
-            vae_degree,
-            world_size=context.world.world_size,
-            rank=context.world.rank,
-        )
+        vae_placement = build_stage_vae_placement(context)
         transformer = load_minimax_h3_transformer(
             self.model_path,
             device=device,
@@ -1198,15 +1176,19 @@ class MiniMaxH3ExecutorFactory:
             text_encoder = load_minimax_h3_qwen3vl_encoder(
                 self.text_encoder_path or "", device=device
             )
-            if vae_topology.is_member:
-                from .audio_vae import load_audio_vae
+            # A lane-scoped placement picks its members per request, so every
+            # rank has to be able to decode. A fixed group is known up front.
+            group = vae_placement.group
+            decodes = group.is_member if group is not None else True
+            leads = group.is_leader if group is not None else True
+            if decodes:
                 from .video_vae import load_video_vae
 
                 video_vae = load_video_vae(self.video_vae_path or "", device=device)
-                if vae_topology.is_leader:
-                    audio_vae = load_audio_vae(
-                        self.audio_vae_path or "", device=device
-                    )
+            if leads:
+                from .audio_vae import load_audio_vae
+
+                audio_vae = load_audio_vae(self.audio_vae_path or "", device=device)
         pipeline = MiniMaxH3LatentPipeline(
             transformer,
             parallel,
@@ -1237,8 +1219,7 @@ class MiniMaxH3ExecutorFactory:
             default_fps=self.default_fps,
             default_output_type=self.default_output_type,
             ffmpeg_path=self.ffmpeg_path,
-            parallel_vae=self.parallel_vae,
-            vae_topology=vae_topology,
+            vae_placement=vae_placement,
             warmup_media_profiles=self.warmup_media_profiles,
             warmup_burnin_steps=self.warmup_burnin_steps,
             cost_profile_path=self.cost_profile_path,

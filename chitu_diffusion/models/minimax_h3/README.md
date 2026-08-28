@@ -6,8 +6,9 @@ EPE DiT execution, independent parallel video VAE decode, audio VAE decode, and
 asynchronous H.264/AAC MP4 packaging. Offline conditioning and deterministic
 synthetic latent modes remain available for parity and performance tests.
 
-The validated reference is single-node 8×RTX PRO 5000, TP4×CP2, FA4,
-synchronous Fast Ulysses, and VAEP8. NCCL remains the CP transport fallback.
+The validated reference is single-node 8×RTX PRO 5000, TP4×CP2, FA4, and
+synchronous Fast Ulysses, measured both with decode on the denoise lane and
+with a static-CP VAEP8 group. NCCL remains the CP transport fallback.
 
 This is foundational service support rather than complete MiniMax-H3 feature
 coverage: arbitrary Ref2VA reference inputs, multi-node execution, and rank
@@ -21,18 +22,28 @@ The checked-in SM120 stage configuration uses:
 - DiT: TP4×CP2 across all eight ranks.
 - CP transport: synchronous Fast Ulysses, with NCCL fallback.
 - Attention: FA4 on SM120.
-- Video VAE: independent VAEP8, orthogonal to DiT TP/CP.
-- Audio VAE and MP4 assembly: VAEP leader.
+- Video VAE: decode on the denoise lane, because the shipped scheduler policy
+  is elastic. A stage-wide VAEP8 group needs `parallelism.vae.degree: 8` and
+  `parallelism.scheduler.policy: static_cp`.
+- Audio VAE and MP4 assembly: decode leader.
 
 EPE schedules in CP-rank space and expands every logical lane across all TP
-planes, so a TP group is never split between requests. `vae_parallel_degree`
-configures VAE decode independently; it defaults to the stage world size when
-`parallel_vae` is enabled.
+planes, so a TP group is never split between requests. `parallelism.vae`
+configures VAE decode independently of `parallelism.cp` and
+`parallelism.model.tensor_parallel_degree`. Leaving `parallelism.vae.degree`
+unset keeps decode on the lane that produced the latent, which is what an
+elastic stage needs; `degree: 8` builds a stage-wide VAEP group and requires
+`parallelism.scheduler.policy: static_cp`.
 
 The reference 768×768, 5-second, 24 FPS, 20-step request completed in 49.51
 seconds. VAEP8 reduced isolated video VAE decode from 8.14 seconds to 1.11
 seconds (7.34×), with a maximum absolute difference of `2.38e-7` from the
 release tiled decoder.
+
+Both decode placements were re-measured on a 768×768, 2-second, 24 FPS, 20-step
+request. Decoding on an elastic CP2 lane took 1.86 to 2.49 seconds; the
+static-CP VAEP8 group took 0.93 seconds. The two placements produced identical
+MP4 bytes.
 
 ## Step cost model
 
@@ -67,7 +78,7 @@ export CHITU_FAST_ULYSSES_ASYNC_CE=0
 
 ```bash
 curl --fail-with-body --request POST \
-  http://127.0.0.1:18088/v1/image-decode \
+  http://127.0.0.1:18083/v1/image-decode \
   --header 'Content-Type: application/json' \
   --data-binary '{
     "prompt": "A red fox running through snow",

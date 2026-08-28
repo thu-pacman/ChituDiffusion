@@ -10,7 +10,6 @@ import torch
 from safetensors import safe_open
 from safetensors.torch import load_file
 
-
 _REQUIRED_TENSORS = ("prompt_embeds", "video_latents", "audio_latents")
 
 

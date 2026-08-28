@@ -7,6 +7,11 @@ from .linear import (
     RowParallelLinear,
 )
 from .loader import load_tensor_parallel_checkpoint
+from .plain_linear import (
+    PlainColumnParallelLinear,
+    PlainMergedColumnParallelLinear,
+    PlainRowParallelLinear,
+)
 from .topology import (
     TensorParallelTopology,
     adopt_external_tensor_parallel_group,
@@ -20,6 +25,9 @@ from .topology import (
 __all__ = [
     "ColumnParallelLinear",
     "MergedColumnParallelLinear",
+    "PlainColumnParallelLinear",
+    "PlainMergedColumnParallelLinear",
+    "PlainRowParallelLinear",
     "ReplicatedLinear",
     "RowParallelLinear",
     "TensorParallelTopology",

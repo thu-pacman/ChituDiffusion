@@ -7,16 +7,16 @@ from chitu_diffusion.parallel.cp.attention_backend import (
     VarlenAttentionBackend,
     create_varlen_attention_backend,
 )
-from chitu_diffusion.parallel.tp.linear import (
-    MergedColumnParallelLinear,
-    RowParallelLinear,
-)
 from chitu_diffusion.parallel.cp.packed_usp import (
     all_to_all_packed_output,
     all_to_all_packed_qkv,
 )
-from chitu_diffusion.parallel.tp.topology import get_tp_world_size
 from chitu_diffusion.parallel.cp.topology import UspTopology
+from chitu_diffusion.parallel.tp.linear import (
+    MergedColumnParallelLinear,
+    RowParallelLinear,
+)
+from chitu_diffusion.parallel.tp.topology import get_tp_world_size
 
 from .config import MiniMaxH3DiTConfig
 from .rope import apply_rope

@@ -12,7 +12,6 @@ from typing import Any
 import yaml
 from PIL import Image
 
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -26,7 +25,6 @@ from chitu_diffusion.models.minimax_h3.qwen3vl_processor import (  # noqa: E402
     build_h3_presentation,
 )
 from script.simulate_h3_epe_trace import _record_startup_warmup  # noqa: E402
-
 
 FULL_SHAPES = (
     (384, 768, 2.0),
@@ -210,15 +208,16 @@ def main() -> None:
 
     raw["name"] = "minimax_h3_cost_profile_smoke" if args.smoke else "minimax_h3_cost_profile"
     raw["output_root"] = str(output_root)
-    raw["parallelism"]["sp"] = 4
-    raw["parallelism"]["tp"] = 2
-    pool = raw["parallelism"]["chitu_pool"]
+    parallelism = raw["parallelism"]
+    parallelism["cp"]["world_size"] = 4
+    parallelism["cp"]["ulysses_degree"] = 4
+    parallelism["model"]["tensor_parallel_degree"] = 2
+    pool = parallelism["scheduler"]
     pool["policy"] = "elastic"
     pool["allowed_lane_widths"] = [1, 2, 4]
     pool["warmup_steps"] = args.measure_steps
     pool["warmup_resolutions"] = [128]
     factory = raw["factory_args"]
-    factory["ulysses_degree"] = 4
     factory["warmup_burnin_steps"] = args.burnin_steps
     factory["warmup_media_profiles"] = profiles
     config_path = output_root / "stage_config.generated.yaml"

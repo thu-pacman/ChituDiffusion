@@ -7,12 +7,12 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from torch import nn
 
+from chitu_diffusion.parallel.cp.topology import UspTopology
 from chitu_diffusion.parallel.tp.linear import ColumnParallelLinear
 from chitu_diffusion.parallel.tp.topology import (
     get_tp_group,
     get_tp_world_size,
 )
-from chitu_diffusion.parallel.cp.topology import UspTopology
 
 from .attention import MiniMaxH3Attention
 from .config import MiniMaxH3DiTConfig

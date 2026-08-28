@@ -8,12 +8,15 @@ from typing import Any
 import torch.distributed as dist
 
 from ..epe.contracts import (
+    ContextParallelPlan,
     DiffusionBackendFactory,
     EmbeddedRuntimeConfig,
     EmbeddedRuntimeHealth,
     ExecutorBuildContext,
     ImageDecodeCompletion,
+    ModelParallelPlan,
     StageWorldSpec,
+    VaeParallelPlan,
 )
 from .runtime import DiffusionServiceRuntime
 
@@ -88,8 +91,19 @@ class EmbeddedDiffusionRuntime:
         pool: Any,
         executor_factory: DiffusionBackendFactory,
         config: EmbeddedRuntimeConfig | None = None,
+        cp: ContextParallelPlan | None = None,
+        vae: VaeParallelPlan | None = None,
+        model: ModelParallelPlan | None = None,
     ) -> "EmbeddedDiffusionRuntime":
-        executor = executor_factory.build(ExecutorBuildContext(world=world, pool=pool))
+        executor = executor_factory.build(
+            ExecutorBuildContext(
+                world=world,
+                pool=pool,
+                cp=cp or ContextParallelPlan(world_size=world.world_size),
+                vae=vae or VaeParallelPlan(),
+                model=model or ModelParallelPlan(),
+            )
+        )
         return cls(
             world=world,
             pool=pool,

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import pytest
-import torch
 from types import SimpleNamespace
 
+import pytest
+import torch
+
 import chitu_diffusion.models.minimax_h3.executor as h3_executor
+from chitu_diffusion.epe.contracts import ContextParallelPlan, TerminalArtifact
 from chitu_diffusion.epe.scheduling.planner import EpeSchedulingModule
 from chitu_diffusion.models.minimax_h3 import (
     MiniMaxH3DiTConfig,
@@ -20,7 +22,6 @@ from chitu_diffusion.models.minimax_h3 import (
 from chitu_diffusion.parallel.cp.context import EpeParallelContext
 from chitu_diffusion.parallel.tp.topology import TensorParallelTopology
 from chitu_diffusion.serve.protocol import ImageGenerateRequest
-from chitu_diffusion.epe.contracts import TerminalArtifact
 
 
 def _context() -> EpeParallelContext:
@@ -106,13 +107,13 @@ def test_token_refiner_does_not_append_an_empty_varlen_segment() -> None:
     assert capture.max_seqlen == 64
 
 
-def test_h3_factory_uses_supported_ulysses_context_mode(monkeypatch) -> None:
+def test_h3_factory_uses_the_shared_ulysses_context_plan(monkeypatch) -> None:
     class ContextCaptured(Exception):
         pass
 
-    def capture_context(context, *, attention_mode, ulysses_degree):
-        assert attention_mode == "ulysses"
-        assert ulysses_degree == 4
+    def capture_context(context):
+        assert context.cp.attention_mode == "ulysses"
+        assert context.cp.ulysses_degree == 4
         raise ContextCaptured
 
     monkeypatch.setattr(
@@ -121,15 +122,18 @@ def test_h3_factory_uses_supported_ulysses_context_mode(monkeypatch) -> None:
         capture_context,
     )
 
+    plan = ContextParallelPlan(
+        world_size=4, attention_mode="ulysses", ulysses_degree=4
+    )
     with pytest.raises(ContextCaptured):
-        MiniMaxH3ExecutorFactory("unused", ulysses_degree=4).build(
-            SimpleNamespace()
-        )
+        MiniMaxH3ExecutorFactory("unused").build(SimpleNamespace(cp=plan))
 
 
 def test_h3_factory_rejects_unsupported_attention_mode() -> None:
+    plan = ContextParallelPlan(world_size=4, attention_mode="agkv")
+
     with pytest.raises(ValueError, match="requires attention_mode='ulysses'"):
-        MiniMaxH3ExecutorFactory("unused", attention_mode="agkv")
+        MiniMaxH3ExecutorFactory("unused").build(SimpleNamespace(cp=plan))
 
 
 def test_h3_executor_merges_http_model_inputs_and_aliases() -> None:

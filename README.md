@@ -83,6 +83,11 @@ DiT 执行与 tensor 布局。
 <td>固定 full-world 静态 CP</td>
 </tr>
 <tr>
+<td><a href="chitu_diffusion/models/hunyuan_image3/README.md">Hunyuan Image 3</a></td>
+<td>固定尺寸文生图与图生图基础服务链路</td>
+<td>可配置 TP×CFG×CP×EP decoder（72 GiB 参考配置 TP2×CFG2×CP2×EP2）、变长 AGKV attention、EPE static CP、变长 all-to-all expert dispatch、独立 VAEP</td>
+</tr>
+<tr>
 <td><a href="chitu_diffusion/models/minimax_h3/README.md">MiniMax-H3</a></td>
 <td>T2VA、first/last-frame FL2VA 基础服务链路</td>
 <td>TP×CP DiT、EPE、Fast Ulysses/NCCL CP、独立 VAEP、音视频解码与 MP4 输出</td>
@@ -136,6 +141,17 @@ torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
   --model flux1 \
   --model-path /path/to/FLUX.1-dev \
   --output outputs/flux1.png
+```
+
+单机 TP×CFG×CP×EP MoE，例如 Hunyuan Image 3 的默认 8 卡拓扑：
+
+```bash
+torchrun --standalone --nproc-per-node=8 -m chitu_diffusion.cli \
+  generate \
+  --model hunyuan-image3 \
+  --model-path /path/to/HunyuanImage-3 \
+  --steps 50 \
+  --output outputs/hunyuan_image3.png
 ```
 
 Fast CP 需要兼容的单机 GPU、GPU P2P、NVSHMEM 和针对目标环境编译的扩展。参数和安装
@@ -274,6 +290,11 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <td>Fixed full-world static CP</td>
 </tr>
 <tr>
+<td><a href="chitu_diffusion/models/hunyuan_image3/README.md">Hunyuan Image 3</a></td>
+<td>Foundational fixed-size text-to-image and image-to-image service path</td>
+<td>Configurable TP×CFG×CP×EP decoder (72 GiB reference: TP2×CFG2×CP2×EP2), variable-length AGKV attention, EPE static CP, variable-length all-to-all expert dispatch, independent VAEP</td>
+</tr>
+<tr>
 <td><a href="chitu_diffusion/models/minimax_h3/README.md">MiniMax-H3</a></td>
 <td>Foundational T2VA and first/last-frame FL2VA service path</td>
 <td>TP×CP DiT, EPE, Fast Ulysses/NCCL CP, independent VAEP, audio/video decode, and MP4 output</td>
@@ -327,6 +348,18 @@ torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
   --model flux1 \
   --model-path /path/to/FLUX.1-dev \
   --output outputs/flux1.png
+```
+
+A single-node TP×CFG×CP×EP MoE stage, for example Hunyuan Image 3 on its default
+eight-GPU topology:
+
+```bash
+torchrun --standalone --nproc-per-node=8 -m chitu_diffusion.cli \
+  generate \
+  --model hunyuan-image3 \
+  --model-path /path/to/HunyuanImage-3 \
+  --steps 50 \
+  --output outputs/hunyuan_image3.png
 ```
 
 Fast CP requires compatible single-node GPUs, GPU P2P, NVSHMEM, and extensions

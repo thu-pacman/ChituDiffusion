@@ -7,7 +7,6 @@ import sys
 import types
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -39,7 +38,6 @@ from chitu_diffusion.integrations.sglang.bootstrap import (  # noqa: E402
     install_sglang_h3_adapter,
     validate_launcher_args,
 )
-
 
 # multiprocessing "spawn" imports the main module in each worker.  Installing
 # at module import time ensures every worker overrides its process-local

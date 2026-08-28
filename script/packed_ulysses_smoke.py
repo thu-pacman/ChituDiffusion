@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 
 import torch
-import torch.distributed as dist
 
 from chitu_diffusion.parallel.cp import (
     EpeParallelContext,

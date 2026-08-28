@@ -11,6 +11,7 @@ _GENERATE_MODULES = {
     "flux2-klein": "chitu_diffusion.commands.generate.flux2_klein",
     "qwen-image": "chitu_diffusion.commands.generate.qwen_image",
     "wan": "chitu_diffusion.commands.generate.wan",
+    "hunyuan-image3": "chitu_diffusion.commands.generate.hunyuan_image3",
 }
 
 

@@ -10,15 +10,15 @@ from threading import RLock
 import torch
 import torch.distributed as dist
 
-from .agkv_transport import (
-    AgkvTransport,
-    create_agkv_transport,
-    resolve_agkv_transport,
-)
 from ..tp.topology import (
     TensorParallelTopology,
     reset_tensor_parallel_topology,
     set_tensor_parallel_topology,
+)
+from .agkv_transport import (
+    AgkvTransport,
+    create_agkv_transport,
+    resolve_agkv_transport,
 )
 from .topology import UlyssesTopology, UspTopology
 from .ulysses_transport import (
@@ -462,6 +462,16 @@ class EpeParallelContext:
             raise RuntimeError(
                 f"AGKV transport was not initialized for lane {topology.ranks}"
             ) from exc
+
+    def lane_topology(self, ranks: tuple[int, ...]) -> ActiveLaneTopology:
+        """Return a pre-created lane's placement without activating it.
+
+        Axes such as expert parallelism bind to a sub-lane of the stage rather
+        than to the lane attention runs on, so they need the group without
+        changing what ``active`` reports.
+        """
+
+        return self._topology_for(tuple(int(rank) for rank in ranks))
 
     def cfg_parallel_topology(
         self, lane_ranks: tuple[int, ...]

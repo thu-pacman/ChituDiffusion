@@ -17,7 +17,6 @@ from chitu_diffusion.parallel.vae import (
     parallel_spatial_vae_decode,
 )
 
-
 VIDEO_LATENT_CHANNELS = 24
 
 

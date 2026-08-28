@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-
 H3_ARCHITECTURE = "MiniMaxH3DiTModel"
 H3_ADAPTER = "chitu_diffusion.integrations.sglang.minimax_h3:MiniMaxH3DiTModel"
 

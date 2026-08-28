@@ -24,8 +24,8 @@ from chitu_diffusion.epe import (
     SingletonLaneWorkerPool,
     StepOutcome,
 )
-from chitu_diffusion.serve.diffusion_runtime import EpeDiffusionServiceRuntime
 from chitu_diffusion.serve import HotSwitchPoolConfig
+from chitu_diffusion.serve.diffusion_runtime import EpeDiffusionServiceRuntime
 
 
 def test_singleton_lane_pool_pulls_next_work_without_a_pulse() -> None:

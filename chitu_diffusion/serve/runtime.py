@@ -68,7 +68,7 @@ class DiffusionServiceRuntime:
     def __init__(self, config, executor: DiffusionBackendProtocol) -> None:
         self.config = config
         self.pool = (
-            config.pool if hasattr(config, "pool") else config.parallelism.chitu_pool
+            config.pool if hasattr(config, "pool") else config.parallelism.scheduler
         )
         self.executor = executor
         self.parallel = executor.parallel_context
@@ -111,6 +111,7 @@ class DiffusionServiceRuntime:
     def from_config(cls, config: StageServiceConfig) -> "DiffusionServiceRuntime":
         from ..epe.contracts import ExecutorBuildContext, StageWorldSpec
         from ..models.flux1.executor import Flux1ExecutorFactory
+        from ..models.hunyuan_image3.executor import HunyuanImage3ExecutorFactory
         from ..models.minimax_h3.executor import MiniMaxH3ExecutorFactory
         from ..models.qwen_image.executor import QwenImageExecutorFactory
         from ..models.wan.executor import WanExecutorFactory
@@ -124,36 +125,27 @@ class DiffusionServiceRuntime:
             "default_width": config.factory_args.default_width,
             "default_height": config.factory_args.default_height,
             "default_num_steps": config.factory_args.num_steps,
-            "attention_mode": config.factory_args.attention_mode,
-            "ulysses_degree": config.factory_args.ulysses_degree,
-            "parallel_vae": config.factory_args.parallel_vae,
-            "vae_parallel_halo": config.factory_args.vae_parallel_halo,
         }
         if config.factory == "zimage":
-            factory = ZImageExecutorFactory(
-                **common,
-                cfg_parallel=config.factory_args.cfg_parallel,
-            )
+            factory = ZImageExecutorFactory(**common)
         elif config.factory == "flux1":
             factory = Flux1ExecutorFactory(**common)
         elif config.factory == "qwen-image":
-            factory = QwenImageExecutorFactory(
-                **common,
-                cfg_parallel=config.factory_args.cfg_parallel,
-            )
+            factory = QwenImageExecutorFactory(**common)
         elif config.factory == "wan":
             factory = WanExecutorFactory(
                 **common,
                 default_num_frames=config.factory_args.num_frames,
-                cfg_parallel=config.factory_args.cfg_parallel,
             )
         elif config.factory == "minimax-h3":
             factory = MiniMaxH3ExecutorFactory(
                 model_path=config.factory_args.model_path,
                 attention_backend=config.factory_args.attention_backend,
-                attention_mode=config.factory_args.attention_mode,
-                ulysses_degree=config.factory_args.ulysses_degree,
-                flow_shift=config.factory_args.flow_shift,
+                flow_shift=(
+                    12.0
+                    if config.factory_args.flow_shift is None
+                    else config.factory_args.flow_shift
+                ),
                 audio_flow_shift=config.factory_args.audio_flow_shift,
                 default_width=config.factory_args.default_width,
                 default_height=config.factory_args.default_height,
@@ -172,19 +164,30 @@ class DiffusionServiceRuntime:
                 default_fps=config.factory_args.default_fps,
                 default_output_type=config.factory_args.default_output_type,
                 ffmpeg_path=config.factory_args.ffmpeg_path,
-                parallel_vae=config.factory_args.parallel_vae,
-                vae_parallel_degree=config.factory_args.vae_parallel_degree,
                 warmup_media_profiles=config.factory_args.warmup_media_profiles,
                 warmup_burnin_steps=config.factory_args.warmup_burnin_steps,
                 cost_profile_path=config.factory_args.cost_profile_path,
             )
+        elif config.factory == "hunyuan-image3":
+            factory = HunyuanImage3ExecutorFactory(
+                model_path=config.factory_args.model_path,
+                default_width=config.factory_args.default_width,
+                default_height=config.factory_args.default_height,
+                default_num_steps=config.factory_args.num_steps,
+                default_guidance_scale=config.factory_args.guidance_scale,
+                default_system_prompt=config.factory_args.system_prompt,
+                flow_shift=config.factory_args.flow_shift,
+            )
         else:  # StageServiceConfig validates this before construction.
             raise ValueError(f"unsupported factory: {config.factory}")
+        parallelism = config.parallelism
         executor = factory.build(
             ExecutorBuildContext(
                 world=world,
-                pool=config.parallelism.chitu_pool,
-                tensor_parallel_degree=config.parallelism.tp,
+                pool=parallelism.scheduler,
+                cp=parallelism.cp,
+                vae=parallelism.vae,
+                model=parallelism.model,
             )
         )
         return cls(config, executor)

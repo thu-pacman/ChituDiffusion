@@ -111,14 +111,14 @@ def test_stage_config_validates_cp_times_tp_against_gpu_count() -> None:
             "factory": "minimax-h3",
             "gpu": list(range(8)),
             "parallelism": {
-                "sp": 2,
-                "tp": 4,
-                "chitu_pool": {"allowed_lane_widths": [1, 2]},
+                "cp": {"world_size": 2, "attention_mode": "ulysses"},
+                "model": {"tensor_parallel_degree": 4},
+                "scheduler": {"allowed_lane_widths": [1, 2]},
             },
             "factory_args": {"model_path": "/models/MiniMax-H3"},
         }
     )
 
-    assert config.parallelism.sp == 2
-    assert config.parallelism.tp == 4
-    assert config.parallelism.chitu_pool.allowed_lane_widths == (1, 2)
+    assert config.parallelism.cp.world_size == 2
+    assert config.parallelism.model.tensor_parallel_degree == 4
+    assert config.parallelism.scheduler.allowed_lane_widths == (1, 2)

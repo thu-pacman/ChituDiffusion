@@ -4,8 +4,8 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 
-from .topology import UspTopology
 from .attention_backend import create_varlen_attention_backend
+from .topology import UspTopology
 
 # The Ulysses layout swap and joint-ring schedule follow xDiT/xFuser's
 # Apache-2.0 implementation, adapted to take EPAC lane groups per call instead

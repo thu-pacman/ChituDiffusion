@@ -1,9 +1,10 @@
 """Parallel execution domains.
 
 Import APIs from :mod:`chitu_diffusion.parallel.cp`,
-:mod:`chitu_diffusion.parallel.tp`, or :mod:`chitu_diffusion.parallel.vae`.
+:mod:`chitu_diffusion.parallel.ep`, :mod:`chitu_diffusion.parallel.tp`, or
+:mod:`chitu_diffusion.parallel.vae`.
 """
 
-from . import cp, tp, vae
+from . import cp, ep, tp, vae
 
-__all__ = ["cp", "tp", "vae"]
+__all__ = ["cp", "ep", "tp", "vae"]

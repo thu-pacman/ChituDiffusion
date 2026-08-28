@@ -12,6 +12,7 @@ from chitu_diffusion.models.flux1 import EpeFlux1Pipeline
 from chitu_diffusion.models.flux1.api import Flux1Pipeline, Flux1Request
 from chitu_diffusion.models.flux1.executor import Flux1ImageDecoderExecutor
 from chitu_diffusion.parallel.cp import ImageContextParallelAttention
+from chitu_diffusion.parallel.vae import VaeParallelPlacement
 
 
 def test_flux1_request_requires_packed_latent_compatible_resolution() -> None:
@@ -130,8 +131,7 @@ def test_flux1_executor_reuses_shared_request_profile_lifecycle() -> None:
         default_width=512,
         default_height=512,
         default_num_steps=4,
-        parallel_vae=False,
-        vae_parallel_halo=4,
+        vae_placement=VaeParallelPlacement(halo=4, sharded=False),
     )
 
     request = executor.normalize_request({"prompt": "test"})
@@ -146,10 +146,7 @@ def test_flux1_executor_reuses_shared_request_profile_lifecycle() -> None:
         "conditions": 1,
         "state_bytes": 1024 * 64 * 4,
     }
-    assert executor._decode_kwargs() == {
-        "parallel_vae": False,
-        "vae_parallel_halo": 4,
-    }
+    assert (executor.parallel_vae, executor.vae_parallel_halo) == (False, 4)
 
 
 def test_flux1_parallel_vae_uses_decoder_scale_not_packing_scale() -> None:
@@ -162,22 +159,8 @@ def test_flux1_parallel_vae_uses_decoder_scale_not_packing_scale() -> None:
     assert EpeFlux1Pipeline.vae_spatial_scale_factor.fget(pipeline) == 8
 
 
-def test_flux1_executor_rejects_negative_vae_halo() -> None:
-    class FakeParallel:
-        rank = 0
-        local_rank = 0
-        world_size = 1
-        allowed_widths = (1,)
+def test_the_shared_vae_plan_rejects_a_negative_halo() -> None:
+    from chitu_diffusion.epe.contracts import VaeParallelPlan
 
-    class FakePipeline:
-        parallel_context = FakeParallel()
-
-    with pytest.raises(ValueError, match="vae_parallel_halo"):
-        Flux1ImageDecoderExecutor(
-            FakePipeline(),
-            EpeSchedulingModule(FakeParallel()),
-            default_width=512,
-            default_height=512,
-            default_num_steps=4,
-            vae_parallel_halo=-1,
-        )
+    with pytest.raises(ValueError, match="halo must be non-negative"):
+        VaeParallelPlan(halo=-1)

@@ -7,7 +7,6 @@ import numpy as np
 
 from ...epe.scheduling.cost import MeasuredStepCostModel
 
-
 H3_COST_KIND = "minimax_h3"
 
 

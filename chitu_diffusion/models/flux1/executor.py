@@ -13,11 +13,12 @@ from ...epe.contracts import ExecutorBuildContext
 from ...epe.executor import (
     DiffusersBackend,
     build_stage_parallel_context,
+    build_stage_vae_placement,
     scheduling_options_from_pool,
 )
 from ...epe.scheduling.planner import EpeSchedulingModule
 from ...flexcache.config import CacheConfig
-from ...parallel.vae import parallel_tiled_vae_decode
+from ...parallel.vae import VaeParallelPlacement, parallel_tiled_vae_decode
 from .api import Flux1Request
 from .pipeline import EpeFlux1Pipeline, Flux1DenoiseState, FluxPipelineOutput
 
@@ -35,8 +36,7 @@ class Flux1ImageDecoderExecutor(DiffusersBackend):
         default_width: int,
         default_height: int,
         default_num_steps: int,
-        parallel_vae: bool = True,
-        vae_parallel_halo: int = 8,
+        vae_placement: VaeParallelPlacement | None = None,
     ) -> None:
         super().__init__(
             pipeline,
@@ -44,11 +44,8 @@ class Flux1ImageDecoderExecutor(DiffusersBackend):
             default_width=default_width,
             default_height=default_height,
             default_num_steps=default_num_steps,
+            vae_placement=vae_placement,
         )
-        self.parallel_vae = bool(parallel_vae)
-        self.vae_parallel_halo = int(vae_parallel_halo)
-        if self.vae_parallel_halo < 0:
-            raise ValueError("vae_parallel_halo must be non-negative")
 
     def warmup(self, *, resolutions, steps) -> dict[str, Any]:
         report = self.pipeline.warmup_epe(resolutions=resolutions, steps=steps)
@@ -257,12 +254,6 @@ class Flux1ImageDecoderExecutor(DiffusersBackend):
         del state
         return 1
 
-    def _decode_kwargs(self) -> dict[str, Any]:
-        return {
-            "parallel_vae": self.parallel_vae,
-            "vae_parallel_halo": self.vae_parallel_halo,
-        }
-
     def package_generate_output(self, output: Any) -> FluxPipelineOutput:
         return FluxPipelineOutput(images=output)
 
@@ -275,22 +266,14 @@ class Flux1ExecutorFactory:
     default_width: int = 1024
     default_height: int = 1024
     default_num_steps: int = 50
-    attention_mode: str = "agkv"
-    ulysses_degree: int | None = None
-    parallel_vae: bool = True
-    vae_parallel_halo: int = 8
 
     def build(self, context: ExecutorBuildContext) -> Flux1ImageDecoderExecutor:
-        parallel, local_rank = build_stage_parallel_context(
-            context,
-            attention_mode=self.attention_mode,
-            ulysses_degree=self.ulysses_degree,
-        )
+        parallel, local_rank = build_stage_parallel_context(context)
         pipeline = EpeFlux1Pipeline.from_pretrained(
             self.model_path,
             parallel_context=parallel,
-            attention_mode=self.attention_mode,
-            ulysses_degree=self.ulysses_degree,
+            attention_mode=context.cp.attention_mode,
+            ulysses_degree=context.cp.ulysses_degree,
             torch_dtype=self.torch_dtype
             or (torch.bfloat16 if torch.cuda.is_available() else torch.float32),
             local_files_only=self.local_files_only,
@@ -308,6 +291,5 @@ class Flux1ExecutorFactory:
             default_width=self.default_width,
             default_height=self.default_height,
             default_num_steps=self.default_num_steps,
-            parallel_vae=self.parallel_vae,
-            vae_parallel_halo=self.vae_parallel_halo,
+            vae_placement=build_stage_vae_placement(context),
         )

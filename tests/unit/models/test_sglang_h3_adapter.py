@@ -11,7 +11,6 @@ from types import SimpleNamespace
 import torch
 from torch import nn
 
-
 ROOT = Path(__file__).resolve().parents[3]
 HAS_SGLANG = importlib.util.find_spec("sglang") is not None and (
     importlib.util.find_spec("sglang.multimodal_gen") is not None
@@ -26,6 +25,8 @@ if HAS_SGLANG:
         run_name="_chitu_sglang_h3_test_bootstrap",
     )
 
+    from sglang.multimodal_gen.runtime.models.registry import ModelRegistry
+
     from chitu_diffusion.integrations.sglang.bootstrap import (
         H3_ARCHITECTURE,
         install_sglang_h3_adapter,
@@ -36,7 +37,6 @@ if HAS_SGLANG:
         MiniMaxH3DiTModel,
     )
     from chitu_diffusion.models.minimax_h3.rope import MiniMaxH3Rope
-    from sglang.multimodal_gen.runtime.models.registry import ModelRegistry
 
 
 EXPECTED_FORWARD_KWARGS = {

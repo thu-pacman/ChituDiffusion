@@ -6,9 +6,17 @@ terminal: true
 
 parallelism:
   # Eight physical ranks form a 4-way TP mesh with two elastic CP slots.
-  sp: 2
-  tp: 4
-  chitu_pool:
+  cp:
+    world_size: 2
+    attention_mode: ulysses
+    ulysses_degree: 2
+  model:
+    tensor_parallel_degree: 4
+  vae:
+    # Elastic lanes decode concurrently, so the video VAE follows the lane.
+    # Switch policy to static_cp and set degree: 8 for a stage-wide VAEP group.
+    enabled: true
+  scheduler:
     policy: elastic
     allowed_lane_widths: [1, 2]
     switch_allowed_until_step: 20
@@ -46,8 +54,6 @@ factory_args:
   audio_t: 8
   audio_channels: 2
   text_length: 64
-  attention_mode: ulysses
-  ulysses_degree: 2
   attention_backend: auto
   flow_shift: 12.0
   audio_flow_shift: 3.0

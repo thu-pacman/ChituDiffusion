@@ -7,7 +7,6 @@ from typing import Any
 
 import torch
 
-
 LIGHT_STAGES = ("presentation", "geometry", "noise", "packed")
 HEAVY_STAGES = ("qwen", "vae", "steps")
 SCHEMA_VERSION = 1

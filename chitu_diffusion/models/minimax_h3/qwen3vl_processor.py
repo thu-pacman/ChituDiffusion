@@ -6,7 +6,6 @@ from typing import Any, Sequence
 
 import torch
 
-
 VISION_START = "<|vision_start|>"
 VISION_END = "<|vision_end|>"
 IMAGE_PAD = "<|image_pad|>"

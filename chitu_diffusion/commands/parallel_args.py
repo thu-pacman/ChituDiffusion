@@ -27,6 +27,50 @@ def add_parallel_transport_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_vae_parallel_arguments(
+    parser: argparse.ArgumentParser, *, with_degree: bool = False
+) -> None:
+    """Add the VAEP flags shared by every standalone generate entry point."""
+
+    parser.add_argument(
+        "--parallel-vae",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Decode spatial tiles across the VAE group instead of one rank.",
+    )
+    if with_degree:
+        parser.add_argument(
+            "--vae-parallel-degree",
+            type=int,
+            default=None,
+            help="VAE group size; defaults to the whole stage.",
+        )
+    parser.add_argument(
+        "--vae-parallel-halo",
+        type=int,
+        default=8,
+        help="Latent rows each decode tile overlaps with its neighbour.",
+    )
+
+
+def validate_vae_parallel_arguments(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> None:
+    if args.vae_parallel_halo < 0:
+        parser.error("--vae-parallel-halo must be non-negative")
+    degree = getattr(args, "vae_parallel_degree", None)
+    if degree is not None and degree < 1:
+        parser.error("--vae-parallel-degree must be positive")
+
+
+def vae_parallel_degree(args: argparse.Namespace, world_size: int) -> int:
+    """Resolve the VAEP group size a standalone launch should build."""
+
+    if not args.parallel_vae:
+        return 1
+    return getattr(args, "vae_parallel_degree", None) or world_size
+
+
 def static_parallel_pipeline_kwargs(args: argparse.Namespace) -> dict[str, object]:
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     return {

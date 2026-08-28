@@ -112,10 +112,7 @@ def test_wan_executor_profiles_video_tokens_and_state() -> None:
     assert profile.attributes["conditions"] == 2
     assert profile.attributes["num_frames"] == 17
     assert profile.attributes["state_bytes"] == 16 * 5 * 60 * 104 * 4
-    assert executor._decode_kwargs() == {
-        "parallel_vae": True,
-        "vae_parallel_halo": 8,
-    }
+    assert (executor.parallel_vae, executor.vae_parallel_halo) == (True, 8)
 
 
 def test_wan_service_packages_mp4_bytes(
@@ -136,26 +133,11 @@ def test_wan_service_packages_mp4_bytes(
     assert WanVideoDecoderExecutor.output_media_type == "video/mp4"
 
 
-def test_wan_executor_rejects_negative_parallel_vae_halo() -> None:
-    class FakeParallel:
-        rank = 0
-        local_rank = 0
-        world_size = 1
-        allowed_widths = (1,)
-
-    class FakePipeline:
-        parallel_context = FakeParallel()
+def test_the_shared_vae_placement_rejects_a_negative_halo() -> None:
+    from chitu_diffusion.parallel.vae import create_vae_parallel_placement
 
     with pytest.raises(ValueError, match="halo must be non-negative"):
-        WanVideoDecoderExecutor(
-            FakePipeline(),
-            EpeSchedulingModule(FakeParallel()),
-            default_width=832,
-            default_height=480,
-            default_num_frames=17,
-            default_num_steps=50,
-            vae_parallel_halo=-1,
-        )
+        create_vae_parallel_placement(None, halo=-1)
 
 
 def test_wan_executor_rejects_invalid_warmup_frame_profile() -> None:

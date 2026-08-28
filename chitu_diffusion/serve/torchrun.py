@@ -130,7 +130,7 @@ def run_runtime(
                         "pulse_steps": backend.epe.pulse_steps,
                         "starvation_ms": backend.epe.starvation_ms,
                         "default_deadline_ms": (
-                            config.parallelism.chitu_pool.default_deadline_ms
+                            config.parallelism.scheduler.default_deadline_ms
                         ),
                         "deadline_guard_ms": backend.epe.deadline_guard_ms,
                         "warmup": {

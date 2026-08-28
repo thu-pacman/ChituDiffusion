@@ -11,6 +11,10 @@ under `chitu_diffusion.commands`.
 - `epe_embedded.py`: embedded EPE lifecycle without HTTP
 - `epe_serve.py`: pipeline-backed EPE HTTP service
 - `stage-zimage.yaml`: four-GPU `chitu serve` configuration
+- `stage-minimax-h3.yaml`: eight-GPU elastic `chitu serve` at TP4×CP2
+- `stage-hunyuan-image3.yaml`: eight-GPU static-CP `chitu serve` at
+  TP2×CFG2×CP2×EP2; the `parallelism.model` degrees select other single-node
+  topologies
 - `static_cp.py`: static NCCL (`torch`) and Fast AGKV CP
 
 Run generation examples directly for one rank or under `torchrun`. For example:

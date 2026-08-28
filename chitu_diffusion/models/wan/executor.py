@@ -16,12 +16,13 @@ from ...epe.contracts import ExecutorBuildContext
 from ...epe.executor import (
     DiffusersBackend,
     build_stage_parallel_context,
+    build_stage_vae_placement,
     scheduling_options_from_pool,
 )
 from ...epe.scheduling.planner import EpeSchedulingModule
 from ...epe.scheduling.types import RequestProfile
 from ...flexcache.config import CacheConfig
-from ...parallel.vae import parallel_tiled_vae_decode
+from ...parallel.vae import VaeParallelPlacement, parallel_tiled_vae_decode
 from .api import WanRequest
 from .pipeline import EpeWanPipeline, WanDenoiseState, WanPipelineOutput
 
@@ -44,8 +45,7 @@ class WanVideoDecoderExecutor(DiffusersBackend):
         default_height: int,
         default_num_frames: int,
         default_num_steps: int,
-        parallel_vae: bool = True,
-        vae_parallel_halo: int = 8,
+        vae_placement: VaeParallelPlacement | None = None,
         warmup_profiles: tuple[tuple[int, int, int], ...] = (),
     ) -> None:
         super().__init__(
@@ -54,12 +54,9 @@ class WanVideoDecoderExecutor(DiffusersBackend):
             default_width=default_width,
             default_height=default_height,
             default_num_steps=default_num_steps,
+            vae_placement=vae_placement,
         )
         self.default_num_frames = int(default_num_frames)
-        self.parallel_vae = bool(parallel_vae)
-        self.vae_parallel_halo = int(vae_parallel_halo)
-        if self.vae_parallel_halo < 0:
-            raise ValueError("vae_parallel_halo must be non-negative")
         self.warmup_profiles = tuple(
             sorted(
                 {
@@ -367,12 +364,6 @@ class WanVideoDecoderExecutor(DiffusersBackend):
     def _state_conditions(self, state: WanDenoiseState) -> int:
         return 2 if state.do_classifier_free_guidance else 1
 
-    def _decode_kwargs(self) -> dict[str, Any]:
-        return {
-            "parallel_vae": self.parallel_vae,
-            "vae_parallel_halo": self.vae_parallel_halo,
-        }
-
     def profile(self, state: WanDenoiseState) -> RequestProfile:
         return RequestProfile(
             total_steps=len(state.timesteps),
@@ -419,28 +410,20 @@ class WanExecutorFactory:
     default_height: int = 480
     default_num_frames: int = 17
     default_num_steps: int = 50
-    attention_mode: str = "agkv"
-    cfg_parallel: bool = True
     flow_shift: float = 8.0
-    parallel_vae: bool = True
-    vae_parallel_halo: int = 8
     warmup_profiles: tuple[tuple[int, int, int], ...] = ()
-    ulysses_degree: int | None = None
 
     def build(self, context: ExecutorBuildContext) -> WanVideoDecoderExecutor:
-        parallel, local_rank = build_stage_parallel_context(
-            context,
-            attention_mode=self.attention_mode,
-            ulysses_degree=self.ulysses_degree,
-        )
+        parallel, local_rank = build_stage_parallel_context(context)
+        placement = build_stage_vae_placement(context)
         pipeline = EpeWanPipeline.from_pretrained(
             self.model_path,
             parallel_context=parallel,
-            attention_mode=self.attention_mode,
-            ulysses_degree=self.ulysses_degree,
-            cfg_parallel=self.cfg_parallel,
-            parallel_vae=self.parallel_vae,
-            vae_parallel_halo=self.vae_parallel_halo,
+            attention_mode=context.cp.attention_mode,
+            ulysses_degree=context.cp.ulysses_degree,
+            cfg_parallel=context.model.cfg_parallel,
+            parallel_vae=placement.sharded,
+            vae_parallel_halo=placement.halo,
             flow_shift=self.flow_shift,
             torch_dtype=self.torch_dtype
             or (torch.bfloat16 if torch.cuda.is_available() else torch.float32),
@@ -459,7 +442,6 @@ class WanExecutorFactory:
             default_height=self.default_height,
             default_num_frames=self.default_num_frames,
             default_num_steps=self.default_num_steps,
-            parallel_vae=self.parallel_vae,
-            vae_parallel_halo=self.vae_parallel_halo,
+            vae_placement=placement,
             warmup_profiles=self.warmup_profiles,
         )

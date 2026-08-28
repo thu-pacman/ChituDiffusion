@@ -52,6 +52,66 @@ class VaeParallelGroup:
             self.owns_group = False
 
 
+@dataclass
+class VaeParallelPlacement:
+    """Which ranks decode a finished latent, and with how much tile overlap.
+
+    A ``None`` group means decode stays on whichever lane produced the latent,
+    which is the only safe option while several lanes run concurrently. A stage
+    group is fixed for the process lifetime and spans ranks the denoise lane may
+    not contain, so it requires a stage that runs one lane at a time.
+    """
+
+    halo: int = 8
+    sharded: bool = True
+    group: VaeParallelGroup | None = None
+
+    def __post_init__(self) -> None:
+        if self.halo < 0:
+            raise ValueError("vae parallel halo must be non-negative")
+
+    @property
+    def degree(self) -> int | None:
+        if not self.sharded:
+            return 1
+        return None if self.group is None else self.group.width
+
+    @property
+    def is_stage_scoped(self) -> bool:
+        return self.group is not None
+
+    def resolve(self, lane: VaeParallelTopology) -> VaeParallelTopology | None:
+        """Return the topology this rank decodes on, or None when it sits out."""
+
+        if self.group is None:
+            return lane
+        return self.group if self.group.is_member else None
+
+    def close(self) -> None:
+        if self.group is not None:
+            self.group.close()
+
+
+def create_vae_parallel_placement(
+    degree: int | None,
+    *,
+    halo: int = 8,
+    world_size: int | None = None,
+    rank: int | None = None,
+) -> VaeParallelPlacement:
+    """Build the stage-wide decode placement described by a VAE parallel plan."""
+
+    if degree == 1:
+        return VaeParallelPlacement(halo=halo, sharded=False, group=None)
+    if degree is None:
+        return VaeParallelPlacement(halo=halo, sharded=True, group=None)
+    return VaeParallelPlacement(
+        halo=halo,
+        sharded=True,
+        group=create_vae_parallel_group(degree, world_size=world_size, rank=rank),
+    )
+
+
 def create_vae_parallel_group(
     degree: int,
     *,
@@ -91,6 +151,8 @@ def create_vae_parallel_group(
 
 __all__ = [
     "VaeParallelGroup",
+    "VaeParallelPlacement",
     "VaeParallelTopology",
     "create_vae_parallel_group",
+    "create_vae_parallel_placement",
 ]

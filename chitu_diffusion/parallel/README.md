@@ -23,8 +23,10 @@ Fast CP 构建条件和 benchmark 见 [`cp/fast/README.md`](cp/fast/README.md)�
 ## VAE
 
 `vae/` 负责 decode lane 的最小 topology contract、空间 tile 规划、通信与 leader
-重组。`vae_parallel_degree` 独立于 DiT TP/CP；例如 TP4×CP2 可以使用
-VAEP8。具体 VAE 的 latent 归一化和单 tile decode 仍由模型包实现。
+重组。`VaeParallelPlacement` 统一两种归属：不指定 degree 时解码跟随当前 denoise
+lane，指定 degree 时创建一个独立于 DiT TP/CP 的固定 decode group，例如 TP4×CP2
+搭配 VAEP8。固定 group 的生命周期由 stage runtime 持有。具体 VAE 的 latent
+归一化和单 tile decode 仍由模型包实现。
 
 依赖方向固定为 `cp -> tp`；`vae` 持有独立 decode group；`tp` 不反向依赖
 其他并行域。EPE 决定 lane，parallel 层不管理请求、SLO 或 worker。

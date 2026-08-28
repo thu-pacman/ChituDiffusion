@@ -11,7 +11,6 @@ from .scheduling.cost import MeasuredStepCostModel, MeasuredTransferCostModel
 from .scheduling.policy import EpeSchedulingPolicy
 from .scheduling.types import RequestProfile, SchedulableRequest, ScheduleStrategy
 
-
 TraceAblationMode = Literal[
     "static-cp-max",
     "elastic-no-resize",

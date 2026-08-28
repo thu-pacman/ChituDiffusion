@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -8,6 +9,7 @@ import torch
 import torch.distributed as dist
 
 from ..parallel.cp import EpeParallelContext, resolve_context_parallel_config
+from ..parallel.vae import VaeParallelPlacement, create_vae_parallel_placement
 from .contracts import (
     ExecutorBuildContext,
     TerminalArtifact,
@@ -38,11 +40,24 @@ def scheduling_options_from_pool(pool: Any) -> dict[str, Any]:
 def build_stage_parallel_context(
     context: ExecutorBuildContext,
     *,
-    attention_mode: str,
-    ulysses_degree: int | None,
+    attention_mode: str | None = None,
+    ulysses_degree: int | None = None,
+    ulysses_transport: str | None = None,
+    agkv_transport: str | None = None,
 ) -> tuple[EpeParallelContext, int]:
-    """Validate a host stage world and attach EPE to its process group."""
+    """Validate a host stage world and attach EPE to its process group.
 
+    The context-parallel geometry comes from the stage-wide plan. A model whose
+    own attention layer decides the exchange shape may override the mode, the
+    degree, or a transport here, so it does not inherit the environment default
+    and pay for a pool it never uses.
+    """
+
+    plan = context.cp
+    attention_mode = attention_mode or plan.attention_mode
+    ulysses_degree = ulysses_degree or plan.ulysses_degree
+    ulysses_transport = ulysses_transport or plan.ulysses_transport
+    agkv_transport = agkv_transport or plan.agkv_transport
     world = context.world
     local_suffix = str(world.local_device).rsplit(":", 1)[-1]
     local_rank = int(local_suffix) if local_suffix.isdigit() else 0
@@ -80,8 +95,23 @@ def build_stage_parallel_context(
         owns_process_group=world.owns_process_group,
         ulysses_degree=degree,
         tensor_parallel_degree=context.tensor_parallel_degree,
+        ulysses_transport=ulysses_transport,
+        agkv_transport=agkv_transport,
     )
     return parallel, local_rank
+
+
+def build_stage_vae_placement(
+    context: ExecutorBuildContext,
+) -> VaeParallelPlacement:
+    """Create the stage's single terminal decode placement."""
+
+    return create_vae_parallel_placement(
+        context.vae.degree,
+        halo=context.vae.halo,
+        world_size=context.world.world_size,
+        rank=context.world.rank,
+    )
 
 
 class DiffusersBackend(ABC):
@@ -97,17 +127,27 @@ class DiffusersBackend(ABC):
         default_width: int = 1024,
         default_height: int = 1024,
         default_num_steps: int = 50,
+        vae_placement: VaeParallelPlacement | None = None,
     ) -> None:
         self.pipeline = pipeline
         self.scheduling_module = scheduling_module
         self.default_width = int(default_width)
         self.default_height = int(default_height)
         self.default_num_steps = int(default_num_steps)
+        self.vae_placement = vae_placement or VaeParallelPlacement()
         self.last_cache_stats: dict[str, Any] | None = None
 
     @property
     def parallel_context(self) -> EpeParallelContext:
         return self.pipeline.parallel_context
+
+    @property
+    def parallel_vae(self) -> bool:
+        return self.vae_placement.sharded
+
+    @property
+    def vae_parallel_halo(self) -> int:
+        return self.vae_placement.halo
 
     @abstractmethod
     def warmup(
@@ -306,11 +346,20 @@ class DiffusersBackend(ABC):
         lane_ranks: tuple[int, ...],
         timings: dict[str, object],
     ) -> TerminalArtifact | torch.Tensor | None:
-        with self.parallel_context.activate(lane_ranks) as topology:
+        now = time.time_ns()
+        timings.setdefault("vae_start_unix_ns", now)
+        timings.setdefault("vae_end_unix_ns", now)
+        placement = self.vae_placement
+        with self.parallel_context.activate(lane_ranks) as lane:
+            topology = placement.resolve(lane)
+            if topology is None:
+                return None
             return self.pipeline.decode_request(
                 state,
                 topology=topology,
                 timings=timings,
+                parallel_vae=placement.sharded,
+                vae_parallel_halo=placement.halo,
                 **self._decode_kwargs(),
             )
 
@@ -350,4 +399,5 @@ class DiffusersBackend(ABC):
         del request_id, state
 
     def close(self) -> None:
+        self.vae_placement.close()
         self.pipeline.close()

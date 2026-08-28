@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 from ..epe.contracts import DiffusionBackendProtocol
-from .config import EPEServeConfig, StageServiceConfig
+from .config import MODEL_PARALLEL_AXES, EPEServeConfig, StageServiceConfig
 from .runtime import DiffusionServiceRuntime
 from .torchrun import run_runtime
 
@@ -40,6 +40,13 @@ def serve_diffusion_backend(
     epe.max_active_requests = config.max_inflight_requests
     epe.calibrator.enabled = config.online_calibration
 
+    model_plan: dict[str, int] = {}
+    supported = MODEL_PARALLEL_AXES.get(backend.model_name, frozenset())
+    tp_degree = int(getattr(parallel, "tensor_parallel_degree", 1))
+    if "tensor_parallel_degree" in supported:
+        model_plan["tensor_parallel_degree"] = tp_degree
+    if "cfg_parallel_degree" in supported:
+        model_plan["cfg_parallel_degree"] = 2 if config.cfg_parallel else 1
     service_config = StageServiceConfig.from_mapping(
         {
             "name": stage_name,
@@ -48,8 +55,20 @@ def serve_diffusion_backend(
             "gpu": _physical_gpu_ids(parallel.world_size),
             "terminal": True,
             "parallelism": {
-                "sp": parallel.world_size,
-                "chitu_pool": {
+                "cp": {
+                    "world_size": getattr(
+                        parallel, "cp_world_size", parallel.world_size
+                    ),
+                    "attention_mode": getattr(epe, "attention_mode", "agkv"),
+                    "ulysses_degree": parallel.active_ulysses.degree,
+                },
+                "vae": {
+                    "enabled": config.parallel_vae,
+                    "degree": config.vae_parallel_degree,
+                    "halo": config.vae_parallel_halo,
+                },
+                "model": model_plan,
+                "scheduler": {
                     "policy": config.schedule_strategy,
                     "allowed_lane_widths": list(widths),
                     "switch_allowed_until_step": (config.switch_allowed_until_step),
@@ -72,11 +91,6 @@ def serve_diffusion_backend(
                 "num_steps": config.default_num_steps,
                 "default_width": config.default_width,
                 "default_height": config.default_height,
-                "attention_mode": getattr(epe, "attention_mode", "agkv"),
-                "ulysses_degree": parallel.active_ulysses.degree,
-                "cfg_parallel": bool(getattr(backend, "cfg_parallel", False)),
-                "parallel_vae": config.parallel_vae,
-                "vae_parallel_halo": config.vae_parallel_halo,
             },
             "service": {
                 "host": config.host,

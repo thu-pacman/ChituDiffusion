@@ -14,6 +14,7 @@ from chitu_diffusion.models.qwen_image.pipeline import (
     EpeQwenImagePipeline,
     combine_qwen_cfg_predictions,
 )
+from chitu_diffusion.parallel.vae import VaeParallelPlacement
 
 
 def test_qwen_image_request_defaults_to_true_cfg() -> None:
@@ -98,8 +99,7 @@ def test_qwen_image_executor_profiles_cfg_and_packed_state() -> None:
         default_width=512,
         default_height=512,
         default_num_steps=50,
-        parallel_vae=False,
-        vae_parallel_halo=4,
+        vae_placement=VaeParallelPlacement(halo=4, sharded=False),
     )
     request = executor.normalize_request({"prompt": "test", "guidance_scale": 2.5})
     profile = executor.request_profile(request, completed_steps=3)
@@ -110,8 +110,5 @@ def test_qwen_image_executor_profiles_cfg_and_packed_state() -> None:
         "conditions": 2,
         "state_bytes": 1024 * 64 * 4,
     }
-    assert executor._decode_kwargs() == {
-        "parallel_vae": False,
-        "vae_parallel_halo": 4,
-    }
+    assert (executor.parallel_vae, executor.vae_parallel_halo) == (False, 4)
     assert request.true_cfg_scale == 2.5

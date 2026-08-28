@@ -3,8 +3,8 @@ from __future__ import annotations
 import torch
 import torch.distributed as dist
 
-from .topology import UspTopology
 from ..tp.topology import get_tp_world_size
+from .topology import UspTopology
 
 
 def validate_tp_ulysses_heads(

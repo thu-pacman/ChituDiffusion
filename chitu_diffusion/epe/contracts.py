@@ -132,10 +132,82 @@ def normalize_terminal_artifact(
 
 
 @dataclass(frozen=True, slots=True)
+class ContextParallelPlan:
+    """Sequence-parallel geometry every stage understands."""
+
+    world_size: int = 1
+    attention_mode: str = "agkv"
+    ulysses_degree: int | None = None
+    ulysses_transport: str | None = None
+    agkv_transport: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.world_size < 1:
+            raise ValueError("context-parallel world_size must be positive")
+        if self.attention_mode not in {"agkv", "ulysses"}:
+            raise ValueError("attention_mode must be one of: agkv, ulysses")
+        if self.ulysses_degree is not None and self.ulysses_degree < 1:
+            raise ValueError("ulysses_degree must be positive when set")
+
+
+@dataclass(frozen=True, slots=True)
+class VaeParallelPlan:
+    """Where terminal decode runs, independent of the denoise topology.
+
+    ``degree`` of ``None`` keeps decode on the denoise lane, which is the only
+    safe choice when several lanes decode concurrently. An explicit degree pins
+    decode to a fixed stage group that outlives any single lane.
+    """
+
+    degree: int | None = None
+    halo: int = 8
+
+    def __post_init__(self) -> None:
+        if self.degree is not None and self.degree < 1:
+            raise ValueError("vae parallel degree must be positive when set")
+        if self.halo < 0:
+            raise ValueError("vae parallel halo must be non-negative")
+
+    @property
+    def is_stage_scoped(self) -> bool:
+        return self.degree is not None and self.degree > 1
+
+
+@dataclass(frozen=True, slots=True)
+class ModelParallelPlan:
+    """Axes only some models implement, resolved by the owning factory."""
+
+    tensor_parallel_degree: int = 1
+    cfg_parallel_degree: int = 1
+    expert_parallel_degree: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.tensor_parallel_degree < 1:
+            raise ValueError("tensor_parallel_degree must be positive")
+        if self.cfg_parallel_degree not in {1, 2}:
+            raise ValueError("cfg_parallel_degree must be 1 or 2")
+        if (
+            self.expert_parallel_degree is not None
+            and self.expert_parallel_degree < 1
+        ):
+            raise ValueError("expert_parallel_degree must be positive when set")
+
+    @property
+    def cfg_parallel(self) -> bool:
+        return self.cfg_parallel_degree > 1
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutorBuildContext:
     world: StageWorldSpec
     pool: Any
-    tensor_parallel_degree: int = 1
+    cp: ContextParallelPlan = ContextParallelPlan()
+    vae: VaeParallelPlan = VaeParallelPlan()
+    model: ModelParallelPlan = ModelParallelPlan()
+
+    @property
+    def tensor_parallel_degree(self) -> int:
+        return self.model.tensor_parallel_degree
 
 
 @dataclass(frozen=True, slots=True)

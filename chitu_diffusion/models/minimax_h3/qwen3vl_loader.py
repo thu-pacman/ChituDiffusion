@@ -12,7 +12,6 @@ from torch import nn
 from .qwen3vl_config import MiniMaxH3Qwen3VLConfig
 from .qwen3vl_encoder import MiniMaxH3Qwen3VLEncoder
 
-
 _PREFIX = "model.language_model"
 
 

@@ -141,9 +141,6 @@ def test_processor_preprocesses_first_last_and_builds_3d_positions() -> None:
 
 
 def test_processor_rejects_grid_placeholder_mismatch() -> None:
-    processor = MiniMaxH3Qwen3VLProcessor(
-        _Tokenizer(), _ImageProcessor(), spatial_merge_size=2
-    )
     ids, _ = build_h3_presentation(_Tokenizer(), "P", image_token_counts=(3,))
     from chitu_diffusion.models.minimax_h3.qwen3vl_processor import (
         build_qwen3vl_position_ids,

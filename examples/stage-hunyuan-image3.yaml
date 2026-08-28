@@ -1,0 +1,54 @@
+name: hunyuan_image3
+process: chitu_hunyuan_image3
+factory: hunyuan-image3
+gpu: [0, 1, 2, 3, 4, 5, 6, 7]
+terminal: true
+
+parallelism:
+  # Eight ranks form two TP planes. Each plane splits CFG over two CP2 lanes.
+  # tensor_parallel_degree, cfg_parallel_degree, and the GPU count decide the
+  # rest: CP is what remains of a plane after the CFG split.
+  cp:
+    world_size: 4
+    attention_mode: agkv
+  model:
+    tensor_parallel_degree: 2
+    cfg_parallel_degree: 2
+    # A token reaches every expert group that owns one of its eight experts, so
+    # halving the group halves the rows on the dispatch wire. EP2 holds 32 of
+    # the 64 experts per rank, which costs 45.7 GiB of a 72 GiB card and runs a
+    # step in 358 ms against 409 ms for EP4. Drop to 4 on smaller cards.
+    expert_parallel_degree: 2
+  vae:
+    enabled: true
+    # Spatial tiles are decoded across all eight ranks, independent of CFG/CP.
+    # A fixed group is only safe because this stage runs one lane at a time.
+    degree: 8
+  scheduler:
+    # A request keeps its key/value cache on its lane, so the lane never resizes.
+    policy: static_cp
+    # Attention (CP2), expert dispatch (EP2), and the plane itself each collect
+    # over a contiguous slice, so every configured degree must be listed here.
+    allowed_lane_widths: [1, 2, 4]
+    pulse_steps: 1
+    max_inflight_requests: 1
+    max_pending_requests: 32
+    warmup_resolutions: [1024]
+    warmup_steps: 3
+    online_calibration: true
+
+factory_args:
+  model_path: /dockerdata/HunyuanImage-3
+  default_height: 1024
+  default_width: 1024
+  num_steps: 50
+  guidance_scale: 5.0
+
+service:
+  host: 0.0.0.0
+  port: 18084
+  advertise_host: 127.0.0.1
+
+output_root: outputs/chitu-api/hunyuan-image3
+record_timeline: true
+postprocess_workers: 2

@@ -15,7 +15,9 @@ from chitu_diffusion.commands.cache_args import (
 )
 from chitu_diffusion.commands.parallel_args import (
     add_parallel_transport_arguments,
+    add_vae_parallel_arguments,
     static_parallel_pipeline_kwargs,
+    validate_vae_parallel_arguments,
 )
 
 
@@ -40,12 +42,10 @@ def main() -> None:
     parser.add_argument(
         "--cfg-parallel", action=argparse.BooleanOptionalAction, default=True
     )
-    parser.add_argument("--no-parallel-vae", action="store_true")
-    parser.add_argument("--vae-parallel-halo", type=int, default=8)
+    add_vae_parallel_arguments(parser)
     add_cache_arguments(parser)
     args = parser.parse_args()
-    if args.vae_parallel_halo < 0:
-        parser.error("--vae-parallel-halo must be non-negative")
+    validate_vae_parallel_arguments(parser, args)
     cache = cache_config_from_args(args)
     cache.validate_steps(args.steps)
 
@@ -56,7 +56,7 @@ def main() -> None:
         attention_mode=args.attention_mode,
         ulysses_degree=args.ulysses_degree,
         cfg_parallel=args.cfg_parallel,
-        parallel_vae=not args.no_parallel_vae,
+        parallel_vae=args.parallel_vae,
         vae_parallel_halo=args.vae_parallel_halo,
         flow_shift=args.flow_shift,
         **static_parallel_pipeline_kwargs(args),
@@ -93,7 +93,7 @@ def main() -> None:
                         "ulysses_degree": args.ulysses_degree,
                         "ulysses_transport": args.ulysses_transport,
                         "agkv_transport": args.agkv_transport,
-                        "parallel_vae": not args.no_parallel_vae,
+                        "parallel_vae": args.parallel_vae,
                         "vae_parallel_halo": args.vae_parallel_halo,
                         "elapsed_s": elapsed_s,
                         "seed": args.seed,
