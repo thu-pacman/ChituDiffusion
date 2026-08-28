@@ -656,7 +656,7 @@
 
 <h1 id="_1">运行</h1>
 <p><code>chitu generate</code> 执行单次生成，<code>chitu serve</code> 启动 EPE 服务。CLI 支持 <code>zimage</code>、
-<code>flux1</code>、<code>flux2-klein</code>、<code>qwen-image</code> 和 <code>wan</code>。</p>
+<code>flux1</code>、<code>flux2-klein</code>、<code>qwen-image</code>、<code>wan</code> 和 <code>hunyuan-image3</code>。</p>
 <h2 id="_2">单卡生成</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>chitu<span class="w"> </span>generate<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>--model<span class="w"> </span>zimage<span class="w"> </span><span class="se">\</span>
@@ -692,32 +692,53 @@
 <a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span>--ulysses-transport<span class="w"> </span>fast_ulysses<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-fast-ulysses.png
 </code></pre></div>
+<p>Hunyuan Image 3 的 TP/CFG/CP/EP 拓扑在启动时确定。以下使用 72 GiB 卡上验证的
+TP2×CFG2×CP2×EP2，并以 VAEP8 解码：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">8</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--model<span class="w"> </span>hunyuan-image3<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/HunyuanImage-3<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span>--expert-parallel-degree<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span>--steps<span class="w"> </span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>--output<span class="w"> </span>outputs/hunyuan_image3.png
+</code></pre></div>
+<p>只需满足 <code>world = TP × CFG × CP</code>、<code>CFG ∈ {1, 2}</code>、<code>EP</code> 整除 <code>CFG × CP</code>，即可改成
+其他单机拓扑。未给出的 degree 由 world size 推导，例如下面等价于 TP2×CFG1×CP4×EP4：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">8</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>generate<span class="w"> </span>--model<span class="w"> </span>hunyuan-image3<span class="w"> </span>--cfg-parallel-degree<span class="w"> </span><span class="m">1</span><span class="w"> </span>...
+</code></pre></div>
 <h2 id="flexcache">FlexCache</h2>
 <p>缓存参数直接附加到 <code>generate</code>：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>chitu<span class="w"> </span>generate<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--model<span class="w"> </span>wan<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Wan2.1-T2V-1.3B<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--steps<span class="w"> </span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span>--cache-strategy<span class="w"> </span>magcache<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span>--output<span class="w"> </span>outputs/wan-magcache.mp4
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>chitu<span class="w"> </span>generate<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--model<span class="w"> </span>wan<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Wan2.1-T2V-1.3B<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>--steps<span class="w"> </span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span>--cache-strategy<span class="w"> </span>magcache<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span>--output<span class="w"> </span>outputs/wan-magcache.mp4
 </code></pre></div>
 <p>策略专属参数使用对应前缀。例如 MeanCache：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>--cache-strategy<span class="w"> </span>meancache<span class="w"> </span>--meancache-fresh-steps<span class="w"> </span><span class="m">25</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>--cache-strategy<span class="w"> </span>meancache<span class="w"> </span>--meancache-fresh-steps<span class="w"> </span><span class="m">25</span>
 </code></pre></div>
 <h2 id="epe">EPE 服务</h2>
 <p>配置中的 GPU 数必须等于 torchrun 进程数。四卡示例：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>serve<span class="w"> </span>--stage-config<span class="w"> </span>examples/stage-zimage.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>serve<span class="w"> </span>--stage-config<span class="w"> </span>examples/stage-zimage.yaml
+</code></pre></div>
+<p>八卡 static-CP MoE 服务示例：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">8</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>serve<span class="w"> </span>--stage-config<span class="w"> </span>examples/stage-hunyuan-image3.yaml
 </code></pre></div>
 <p>leader 提供 HTTP 服务，其他 rank 执行 worker loop。宿主已经管理进程时，可参考
 <code>examples/epe_embedded.py</code> 使用 <code>EmbeddedDiffusionRuntime</code>。</p>
+<p>配置里的 <code>parallelism</code> 分为公共的 <code>cp</code>、<code>vae</code>、<code>scheduler</code> 和模型专属的 <code>model</code>，
+字段含义见 <a href="../../features/epe/#并行配置">EPE 并行配置</a>。</p>
 <h2 id="slurm">Slurm</h2>
 <p>集群入口会为每张 GPU 启动一个 task，并设置 <code>RANK</code>、<code>LOCAL_RANK</code> 和 <code>WORLD_SIZE</code>：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>bash<span class="w"> </span>tools/cluster/srun_direct.sh<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>--model<span class="w"> </span>zimage<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage.png
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>bash<span class="w"> </span>tools/cluster/srun_direct.sh<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span>--model<span class="w"> </span>zimage<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage.png
 </code></pre></div>
 <p>仓库根目录 <code>examples/</code> 还包含各模型 Python API、静态 CP、EPE embedded 和服务配置
 示例。</p>

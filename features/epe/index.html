@@ -488,6 +488,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        并行配置
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -737,6 +748,10 @@ rendezvous、lane pull、状态迁移和异步后处理。当前没有可发布�
 实测，因此文档不提供性能数字。</p>
 <p>EPE 目前不保证任意 rank 故障后的恢复，也不取消已经进入去噪阶段的请求。FlexCache
 不接入 EPE 服务。</p>
+<p>lane 迁移要求模型能导出可恢复的 canonical state。带 lane 常驻 KV cache 或固定
+expert 归属的模型无法满足这一点，只能配置 <code>static_cp</code>，例如 Hunyuan Image 3 的
+TP×CFG×CP×EP stage。这类 backend 的 <code>export_state</code> 会直接报错，而不是静默产生错误
+结果。</p>
 <h2 id="_7">使用示例</h2>
 <p>四卡配置见 <code>examples/stage-zimage.yaml</code>。启动时，torchrun 的进程数必须与配置中的
 GPU 数量一致：</p>
@@ -749,20 +764,45 @@ GPU 数量一致：</p>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nt">factory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">zimage</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nt">gpu</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">3</span><span class="p p-Indicator">]</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nt">parallelism</span><span class="p">:</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">sp</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nt">chitu_pool</span><span class="p">:</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">policy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">elastic</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">allowed_lane_widths</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">warmup_resolutions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">512</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">warmup_steps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="nt">factory_args</span><span class="p">:</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span><span class="nt">model_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/Z-Image</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">  </span><span class="nt">default_width</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512</span>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">  </span><span class="nt">default_height</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="nt">service</span><span class="p">:</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">18200</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">cp</span><span class="p">:</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">world_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="nt">vae</span><span class="p">:</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span><span class="nt">scheduler</span><span class="p">:</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">policy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">elastic</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">allowed_lane_widths</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="nt">warmup_resolutions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">512</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nt">warmup_steps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="nt">factory_args</span><span class="p">:</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">  </span><span class="nt">model_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/Z-Image</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">  </span><span class="nt">default_width</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">  </span><span class="nt">default_height</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512</span>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="nt">service</span><span class="p">:</span>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">18200</span>
 </code></pre></div>
+<h2 id="_8">并行配置</h2>
+<p><code>parallelism</code> 分为四段。<code>cp</code>、<code>vae</code> 和 <code>scheduler</code> 对所有模型含义相同，<code>model</code> 只
+接受当前 factory 真正实现的轴：</p>
+<ul>
+<li><code>cp</code>：交给 CP/CFG 调度的 rank 空间，包含 <code>world_size</code>、<code>attention_mode</code>
+  (<code>agkv</code> 或 <code>ulysses</code>)、<code>ulysses_degree</code> 以及 <code>ulysses_transport</code>、
+  <code>agkv_transport</code>(<code>auto</code>/<code>nccl</code>/<code>fast</code>)。约束是
+  <code>cp.world_size × model.tensor_parallel_degree = GPU 数</code>。</li>
+<li><code>vae</code>：终端解码的并行度，包含 <code>enabled</code>、<code>degree</code> 和 <code>halo</code>。<code>degree</code> 不填时
+  解码跟随产出 latent 的 lane；<code>degree &gt; 1</code> 表示一个跨 lane 的固定解码组，只在
+  <code>scheduler.policy: static_cp</code> 下允许，因为此时整个 stage 同一时刻只有一条 lane。</li>
+<li><code>scheduler</code>：原 <code>chitu_pool</code> 的调度参数，包括 <code>policy</code>、<code>allowed_lane_widths</code>、
+  pulse 与 deadline 控制以及 warmup 设置。</li>
+<li><code>model</code>：模型专属轴。Z-Image、Qwen-Image、Wan 只有 <code>cfg_parallel_degree</code>；
+  MiniMax-H3 有 <code>tensor_parallel_degree</code>；Hunyuan Image 3 有
+  <code>tensor_parallel_degree</code>、<code>cfg_parallel_degree</code> 和 <code>expert_parallel_degree</code>；
+  FLUX.1 没有模型专属轴。配置未实现的轴会直接报错，而不是被忽略。</li>
+</ul>
+<p>旧字段 <code>parallelism.sp</code>、<code>parallelism.tp</code>、<code>parallelism.chitu_pool</code>，以及
+<code>factory_args</code> 中的 <code>attention_mode</code>、<code>ulysses_degree</code>、<code>cfg_parallel</code>、
+<code>expert_parallel_degree</code>、<code>parallel_vae</code>、<code>vae_parallel_degree</code>、
+<code>vae_parallel_halo</code> 不再接受，加载配置时会报出对应的新路径。</p>
 <p>已有宿主管理进程和请求入口时，可以使用 <code>EmbeddedDiffusionRuntime</code>，不启动 HTTP
 server。完整代码见 <code>examples/epe_embedded.py</code>。</p>
 
