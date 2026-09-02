@@ -11,11 +11,8 @@ import torch
 import torch.distributed as dist
 from diffusers import FlowMatchEulerDiscreteScheduler
 
-from ...parallel import (
-    ActiveLaneTopology,
-    EpeParallelContext,
-    parallel_tiled_vae_decode,
-)
+from ...parallel.cp import ActiveLaneTopology, EpeParallelContext
+from ...parallel.vae import parallel_tiled_vae_decode
 
 
 @dataclass

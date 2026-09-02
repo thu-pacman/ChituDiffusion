@@ -12,6 +12,7 @@ from chitu_diffusion.epe.scheduling.planner import EpeSchedulingModule
 from chitu_diffusion.models.llada_image.api import LLaDAImagePipeline
 from chitu_diffusion.models.llada_image.executor import LLaDAImageDecoderExecutor
 from chitu_diffusion.models.llada_image.pipeline import LLaDAImageDiffusionPipeline
+from chitu_diffusion.parallel.vae import VaeParallelPlacement
 
 
 class FakeParallel:
@@ -34,7 +35,7 @@ def make_executor() -> LLaDAImageDecoderExecutor:
         default_width=512,
         default_height=512,
         default_num_steps=20,
-        vae_parallel_halo=4,
+        vae_placement=VaeParallelPlacement(halo=4, sharded=False),
     )
 
 

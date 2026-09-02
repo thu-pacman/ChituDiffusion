@@ -8,7 +8,7 @@ import torch
 from diffusers import FlowMatchEulerDiscreteScheduler
 
 from chitu_diffusion.models.llada_image.runtime import LLaDAImageRuntimeMixin
-from chitu_diffusion.parallel import EpeParallelContext
+from chitu_diffusion.parallel.cp import EpeParallelContext
 
 
 class _FakeTransformer:

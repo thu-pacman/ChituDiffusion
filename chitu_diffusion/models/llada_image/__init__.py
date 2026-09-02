@@ -1,6 +1,6 @@
 """LLaDA-Image integration for ChituDiffusion."""
 
-from ...parallel import ActiveLaneTopology, EpeParallelContext
+from ...parallel.cp import ActiveLaneTopology, EpeParallelContext
 from .api import GenerationMode, LLaDAImagePipeline, LLaDAImageRequest
 from .attention import LLaDAImageCpAttnProcessor
 from .epe import EpeRequest, LLaDAImageEpeModule

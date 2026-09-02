@@ -4,7 +4,7 @@ from typing import Any
 
 import torch
 
-from ...parallel import EpeParallelContext, ImageContextParallelAttention
+from ...parallel.cp import EpeParallelContext, ImageContextParallelAttention
 from .diffusers_components import LLaDAImageAttention
 
 

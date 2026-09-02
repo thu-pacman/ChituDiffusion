@@ -5,7 +5,7 @@ from typing import Any
 
 import torch
 
-from ...parallel import EpeParallelContext
+from ...parallel.cp import EpeParallelContext
 from .attention import LLaDAImageCpAttnProcessor
 from .diffusers_components import LLaDAImageTransformer2DModel
 from .epe import LLaDAImageEpeModule

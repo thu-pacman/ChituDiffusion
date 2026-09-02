@@ -29,13 +29,14 @@ def _llada_stage_config() -> StageServiceConfig:
             "factory": "llada-image",
             "gpu": [0],
             "parallelism": {
-                "sp": 1,
-                "chitu_pool": {"allowed_lane_widths": [1]},
+                "cp": {"world_size": 1},
+                "vae": {"enabled": False},
+                "scheduler": {"allowed_lane_widths": [1]},
+                "model": {"cfg_parallel_degree": 2},
             },
             "factory_args": {
                 "model_path": "/models/llada-image",
                 "num_steps": 20,
-                "cfg_parallel": True,
             },
         }
     )
@@ -104,6 +105,6 @@ def test_stage_runtime_builds_llada_image_factory(monkeypatch) -> None:
     assert runtime.executor is fake_executor
     assert built["factory"].model_path == "/models/llada-image"
     assert built["factory"].default_num_steps == 20
-    assert built["factory"].cfg_parallel is True
-    assert built["factory"].parallel_vae is False
+    assert built["context"].model.cfg_parallel is True
+    assert built["context"].vae.degree == 1
     assert built["context"].world.physical_device_ids == (0,)

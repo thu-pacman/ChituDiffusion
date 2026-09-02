@@ -18,7 +18,7 @@ from chitu_diffusion.models.llada_image.runtime import (
 from chitu_diffusion.models.llada_image.transformer import (
     EpeLLaDAImageTransformer2DModel,
 )
-from chitu_diffusion.parallel import EpeParallelContext
+from chitu_diffusion.parallel.cp import EpeParallelContext
 
 
 def _free_port() -> int:

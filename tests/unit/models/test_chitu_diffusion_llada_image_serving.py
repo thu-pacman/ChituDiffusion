@@ -14,6 +14,7 @@ from chitu_diffusion.models.llada_image.api import (
     LLaDAImageRequest,
 )
 from chitu_diffusion.models.llada_image.executor import LLaDAImageDecoderExecutor
+from chitu_diffusion.parallel.vae import VaeParallelPlacement
 from chitu_diffusion.serve.config import EPEServeConfig
 from chitu_diffusion.serve.protocol import ImageGenerateRequest
 
@@ -38,7 +39,7 @@ def _make_executor() -> LLaDAImageDecoderExecutor:
         default_width=512,
         default_height=512,
         default_num_steps=20,
-        parallel_vae=False,
+        vae_placement=VaeParallelPlacement(sharded=False),
     )
 
 
@@ -158,13 +159,13 @@ def test_facade_resolves_serving_defaults_and_parallel_vae_opt_in() -> None:
     seed_executor.pipeline.transformer.epe = seed_executor.scheduling_module
     facade = LLaDAImagePipeline(seed_executor.pipeline, model_path="unused")
 
-    default_backend = facade._create_backend(EPEServeConfig())
+    default_backend = facade._create_backend(EPEServeConfig(parallel_vae=False))
     opt_in_backend = facade._create_backend(EPEServeConfig(parallel_vae=True))
     normalized = default_backend.normalize_request(
         ImageGenerateRequest(prompt="a red fox")
     )
 
-    assert EPEServeConfig().parallel_vae is None
+    assert EPEServeConfig().parallel_vae is True
     assert default_backend.default_num_steps == 50
     assert normalized.num_inference_steps == 50
     assert default_backend.parallel_vae is False

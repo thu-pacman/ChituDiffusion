@@ -12,7 +12,7 @@ from chitu_diffusion.models.llada_image.kernels import rms_norm_available
 from chitu_diffusion.models.llada_image.transformer import (
     EpeLLaDAImageTransformer2DModel,
 )
-from chitu_diffusion.parallel import EpeParallelContext
+from chitu_diffusion.parallel.cp import EpeParallelContext
 
 
 def _tiny_model(*, layers: int = 1) -> EpeLLaDAImageTransformer2DModel:

@@ -14,6 +14,7 @@ from ...epe.api import (
 )
 from ...epe.request import DiffusionRequest
 from ...flexcache.config import CacheConfig
+from ...parallel.vae import VaeParallelPlacement
 from .pipeline import LLaDAImageDiffusionPipeline
 
 if TYPE_CHECKING:
@@ -196,9 +197,11 @@ class LLaDAImagePipeline(DiffusersEPEPipeline):
             default_width=int(getattr(config, "default_width", 1024)),
             default_height=int(getattr(config, "default_height", 1024)),
             default_num_steps=int(getattr(config, "default_num_steps", 20)),
-            parallel_vae=bool(parallel_vae),
-            vae_parallel_halo=int(
-                getattr(config, "vae_parallel_halo", self.vae_parallel_halo)
+            vae_placement=VaeParallelPlacement(
+                halo=int(
+                    getattr(config, "vae_parallel_halo", self.vae_parallel_halo)
+                ),
+                sharded=bool(parallel_vae),
             ),
         )
 

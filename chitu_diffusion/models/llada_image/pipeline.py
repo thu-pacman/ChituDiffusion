@@ -31,7 +31,7 @@ from transformers import (
     PreTrainedTokenizerBase,
 )
 
-from ...parallel import (
+from ...parallel.cp import (
     EpeParallelContext,
     resolve_context_parallel_config,
 )
