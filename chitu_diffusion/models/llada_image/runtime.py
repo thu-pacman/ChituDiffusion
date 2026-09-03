@@ -42,6 +42,24 @@ class LLaDAImageDenoiseState:
 class LLaDAImageRuntimeMixin:
     """Chitu request lifecycle for the official LLaDA-Image pipeline."""
 
+    def _prepare_sigmas(self, num_inference_steps: int) -> list[float]:
+        if getattr(self.scheduler.config, "use_uniform_sigmas", False):
+            return torch.linspace(
+                1.0,
+                0.0,
+                num_inference_steps + 1,
+                dtype=torch.float64,
+            )[:-1].tolist()
+
+        schedule = torch.linspace(
+            0.001,
+            1.0,
+            num_inference_steps + 1,
+            dtype=torch.float64,
+        )[:-1]
+        schedule = (1 - (1 - schedule**1.17) ** 0.8) ** 1.1
+        return (1 - schedule).tolist()
+
     @property
     def parallel_context(self) -> EpeParallelContext:
         epe = getattr(self.transformer, "epe", None)
@@ -266,7 +284,7 @@ class LLaDAImageRuntimeMixin:
         negative_prompt: str | list[str] | None = None,
         height: int = 1024,
         width: int = 1024,
-        num_inference_steps: int = 20,
+        num_inference_steps: int = 50,
         guidance_scale: float = 4.5,
         num_images_per_prompt: int = 1,
         generator: torch.Generator | list[torch.Generator] | None = None,
@@ -364,14 +382,7 @@ class LLaDAImageRuntimeMixin:
                 )
             latents = latents.to(device=device, dtype=torch.float32)
 
-        schedule = torch.linspace(
-            0.001,
-            1.0,
-            num_inference_steps + 1,
-            dtype=torch.float64,
-        )[:-1]
-        schedule = (1 - (1 - schedule**1.17) ** 0.8) ** 1.1
-        sigmas = (1 - schedule).tolist()
+        sigmas = self._prepare_sigmas(num_inference_steps)
         scheduler = self.scheduler.__class__.from_config(self.scheduler.config)
         scheduler.set_timesteps(sigmas=sigmas, device=device)
 

@@ -3,16 +3,15 @@
 该包将 LLaDA-Image 的官方 Diffusers pipeline 接入 ChituDiffusion，并保留
 text-to-image、MLLM VQ condition 和单图 editing 三种离线生成模式。模型权重必须
 是本地 Diffusers checkpoint 目录；仓库不包含权重。
-checkpoint 的 text encoder 通过 Transformers `trust_remote_code` 加载其中的
-Python 模块，因此模型目录属于可执行制品，只能使用经过校验、只读且可信的本地
-checkpoint。多卡调用应使用公开的 `LLaDAImagePipeline` facade 或 CLI；内部
+checkpoint 的 text encoder 使用 ChituDiffusion 内置的 LLaDA2 MoE 实现加载，
+不依赖 checkpoint 中的远程 Python 代码。多卡调用应使用公开的 `LLaDAImagePipeline` facade 或 CLI；内部
 Diffusers pipeline 不承诺分布式 CFG/VQ 语义。
 
 ## 本地生成
 
 Text-to-image：
 
-    chitu generate --model llada-image --model-path /path/to/LLaDAImage-diffusers --generation-mode text --prompt "a cinematic photograph of a red fox in the snow" --height 1024 --width 1024 --steps 20 --guidance-scale 4.5 --seed 42 --output outputs/llada-image-text.png
+    chitu generate --model llada-image --model-path /path/to/LLaDAImage-diffusers --generation-mode text --prompt "a cinematic photograph of a red fox in the snow" --height 1024 --width 1024 --steps 50 --guidance-scale 4.5 --seed 42 --output outputs/llada-image-text.png
 
 VQ-conditioned 生成会先由 LLaDA text frontend 生成离散图像 token，再交给
 SigVQ 和 DiT：
@@ -39,8 +38,8 @@ conditional/unconditional 两个分支，再在每个分支内部应用 CP。VQ 
 world rank 0 生成一次离散 token，并按请求 seed 隔离 RNG，然后广播给所有 rank。
 
 Fast AGKV/Fast Ulysses 扩展可用时沿用通用 transport 选择；扩展不可用时使用
-PyTorch/NCCL fallback。LLaDA text frontend 同样优先使用原生 flash_attn 和
-veomni，缺少扩展时使用经过测试的 PyTorch fallback。
+PyTorch/NCCL fallback。LLaDA text frontend 直接使用内置 attention 和
+fused-MoE 算子，不依赖外部 MoE 运行时。
 
 ## Serving
 

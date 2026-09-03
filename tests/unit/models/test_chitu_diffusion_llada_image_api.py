@@ -69,8 +69,8 @@ def test_llada_image_request_preserves_official_defaults() -> None:
     request = LLaDAImageRequest(prompt="test")
 
     assert request.generation_mode == "text"
-    assert request.num_inference_steps == 20
-    assert request.num_steps == 20
+    assert request.num_inference_steps == 50
+    assert request.num_steps == 50
     assert request.guidance_scale == 4.5
     assert request.max_sequence_length == 2048
 
@@ -232,10 +232,6 @@ def test_llada_image_executor_normalizes_alias_and_profiles_cfg() -> None:
         "conditions": 1,
         "state_bytes": 0,
         "generation_mode": "text",
-    }
-    assert executor._decode_kwargs() == {
-        "parallel_vae": False,
-        "vae_parallel_halo": 4,
     }
 
 

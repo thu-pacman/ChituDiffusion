@@ -25,7 +25,6 @@ from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from diffusers.utils import BaseOutput, logging
 from diffusers.utils.torch_utils import randn_tensor
 from transformers import (
-    AutoModel,
     AutoTokenizer,
     PreTrainedModel,
     PreTrainedTokenizerBase,
@@ -43,7 +42,7 @@ from .diffusers_components import (
 )
 from .epe import LLaDAImageEpeModule
 from .runtime import LLaDAImageRuntimeMixin
-from .text_encoder_compat import llada_text_frontend_compatibility
+from .text_encoder.modeling import LLaDA2MoeModelLM
 from .transformer import EpeLLaDAImageTransformer2DModel
 
 logger = logging.get_logger(__name__)
@@ -174,12 +173,9 @@ class LLaDAImageDiffusionPipeline(LLaDAImageRuntimeMixin, DiffusionPipeline):
             root / "tokenizer",
             local_files_only=local_files_only,
         )
-        with llada_text_frontend_compatibility():
-            text_encoder = AutoModel.from_pretrained(
-                root / "text_encoder",
-                trust_remote_code=True,
-                **load_kwargs,
-            )
+        text_encoder = LLaDA2MoeModelLM.from_local_pretrained(
+            root / "text_encoder", torch_dtype=torch_dtype
+        )
 
         return cls(
             scheduler=scheduler,
@@ -229,9 +225,11 @@ class LLaDAImageDiffusionPipeline(LLaDAImageRuntimeMixin, DiffusionPipeline):
         max_sequence_length: int,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         formatted_prompts = [
-            "<role>HUMAN</role> Generate an image.\n<role>ASSISTANT</role>\n<IMAGE1>"
-            if prompt is None
-            else f"<role>HUMAN</role> Generate an image: {prompt.strip()}\n<role>ASSISTANT</role>\n<IMAGE1>"
+            (
+                "<role>HUMAN</role> Generate an image.\n<role>ASSISTANT</role>\n<IMAGE1>"
+                if prompt is None
+                else f"<role>HUMAN</role> Generate an image: {prompt.strip()}\n<role>ASSISTANT</role>\n<IMAGE1>"
+            )
             for prompt in prompts
         ]
         text_inputs = self.tokenizer(
@@ -555,7 +553,7 @@ class LLaDAImageDiffusionPipeline(LLaDAImageRuntimeMixin, DiffusionPipeline):
         negative_prompt: str | list[str] | None = None,
         height: int = 1024,
         width: int = 1024,
-        num_inference_steps: int = 20,
+        num_inference_steps: int = 50,
         guidance_scale: float = 4.5,
         num_images_per_prompt: int = 1,
         generator: torch.Generator | list[torch.Generator] | None = None,
@@ -567,10 +565,10 @@ class LLaDAImageDiffusionPipeline(LLaDAImageRuntimeMixin, DiffusionPipeline):
         max_sequence_length: int = 2048,
         output_type: str = "pil",
         return_dict: bool = True,
-        callback_on_step_end: Callable[
-            ["LLaDAImageDiffusionPipeline", int, torch.Tensor, dict], dict
-        ]
-        | None = None,
+        callback_on_step_end: (
+            Callable[["LLaDAImageDiffusionPipeline", int, torch.Tensor, dict], dict]
+            | None
+        ) = None,
         callback_on_step_end_tensor_inputs: list[str] = ["latents"],
     ) -> LLaDAImagePipelineOutput | tuple:
         r"""
@@ -706,10 +704,7 @@ class LLaDAImageDiffusionPipeline(LLaDAImageRuntimeMixin, DiffusionPipeline):
                 )
             latents = latents.to(device=device, dtype=torch.float32)
 
-        schedule_steps = num_inference_steps + 1
-        schedule = torch.linspace(0.001, 1.0, schedule_steps, dtype=torch.float64)[:-1]
-        schedule = (1 - (1 - schedule**1.17) ** 0.8) ** 1.1
-        sigmas = (1 - schedule).tolist()
+        sigmas = self._prepare_sigmas(num_inference_steps)
         self.scheduler.set_timesteps(sigmas=sigmas, device=device)
         timesteps = self.scheduler.timesteps
         self._num_timesteps = len(timesteps)

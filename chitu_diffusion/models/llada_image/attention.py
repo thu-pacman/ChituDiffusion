@@ -66,7 +66,7 @@ class LLaDAImageCpAttnProcessor:
                 freqs_cis,
             )
 
-        if attention_mask is not None and not bool(attention_mask.to(torch.bool).all()):
+        if attention_mask is not None:
             raise NotImplementedError(
                 "LLaDA-Image context parallelism does not support outer ragged masks"
             )

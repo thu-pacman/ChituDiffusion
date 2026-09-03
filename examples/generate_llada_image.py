@@ -17,7 +17,7 @@ try:
             generation_mode="text",
             width=1024,
             height=1024,
-            num_inference_steps=20,
+            num_inference_steps=50,
             guidance_scale=4.5,
             seed=42,
         )

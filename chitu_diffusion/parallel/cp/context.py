@@ -132,7 +132,7 @@ class EpeParallelContext:
         init_process_group: bool = True,
         backend: str | None = None,
         owns_process_group: bool | None = None,
-        ulysses_degree: int = 1,
+        ulysses_degree: int | None = 1,
         tensor_parallel_degree: int = 1,
         ulysses_transport: str | None = None,
         agkv_transport: str | None = None,
@@ -170,12 +170,11 @@ class EpeParallelContext:
             )
         cp_world_size = world_size // tensor_parallel_degree
         widths = allowed_widths or tuple(
-            width
-            for width in range(1, cp_world_size + 1)
-            if cp_world_size % width == 0
+            width for width in range(1, cp_world_size + 1) if cp_world_size % width == 0
         )
         widths = tuple(int(width) for width in widths)
         cls._validate_widths(widths, cp_world_size)
+        ulysses_degree = 1 if ulysses_degree is None else int(ulysses_degree)
         if ulysses_degree < 1:
             raise ValueError("ulysses_degree must be positive")
         if ulysses_degree > cp_world_size:
@@ -189,9 +188,7 @@ class EpeParallelContext:
         owned: list[object] = []
         world_ranks = tuple(range(world_size))
         if tensor_parallel_degree == 1:
-            groups[world_ranks] = (
-                dist.group.WORLD if dist.is_initialized() else None
-            )
+            groups[world_ranks] = dist.group.WORLD if dist.is_initialized() else None
 
         for width in widths:
             for tp_index in range(tensor_parallel_degree):
@@ -366,9 +363,7 @@ class EpeParallelContext:
                 for tp_rank in range(tensor_parallel_degree)
             )
             tp_groups.append((tp_ranks, process_group_for(tp_ranks)))
-        tp_ranks, tp_process_group = next(
-            item for item in tp_groups if rank in item[0]
-        )
+        tp_ranks, tp_process_group = next(item for item in tp_groups if rank in item[0])
         tp_topology = TensorParallelTopology(
             ranks=tp_ranks,
             rank=rank,

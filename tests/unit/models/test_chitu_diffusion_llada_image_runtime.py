@@ -163,6 +163,13 @@ class _RuntimeHarness(LLaDAImageRuntimeMixin):
         pass
 
 
+def test_prepare_sigmas_uses_checkpoint_uniform_schedule() -> None:
+    runtime = _RuntimeHarness()
+    runtime.scheduler.register_to_config(use_uniform_sigmas=True)
+
+    assert runtime._prepare_sigmas(4) == [1.0, 0.75, 0.5, 0.25]
+
+
 class _CaptureScheduler:
     def __init__(self) -> None:
         self.config = SimpleNamespace(num_train_timesteps=1000)

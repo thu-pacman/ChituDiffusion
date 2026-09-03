@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--height", type=int, default=1024)
     parser.add_argument("--width", type=int, default=1024)
-    parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--steps", type=int, default=50)
     parser.add_argument("--guidance-scale", type=float, default=4.5)
     parser.add_argument("--max-sequence-length", type=int, default=2048)
     parser.add_argument("--seed", type=int, default=42)

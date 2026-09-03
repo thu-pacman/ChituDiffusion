@@ -34,7 +34,7 @@ class LLaDAImageDecoderExecutor(DiffusersBackend):
         *,
         default_width: int = 1024,
         default_height: int = 1024,
-        default_num_steps: int = 20,
+        default_num_steps: int = 50,
         vae_placement: VaeParallelPlacement | None = None,
     ) -> None:
         super().__init__(
@@ -246,12 +246,6 @@ class LLaDAImageDecoderExecutor(DiffusersBackend):
     def _state_conditions(self, state: Any) -> int:
         return 2 if state.guidance_scale > 1.0 else 1
 
-    def _decode_kwargs(self) -> dict[str, Any]:
-        return {
-            "parallel_vae": self.parallel_vae,
-            "vae_parallel_halo": self.vae_parallel_halo,
-        }
-
     def package_generate_output(self, output: Any) -> LLaDAImagePipelineOutput:
         return LLaDAImagePipelineOutput(images=output)
 
@@ -263,7 +257,7 @@ class LLaDAImageExecutorFactory:
     local_files_only: bool = True
     default_width: int = 1024
     default_height: int = 1024
-    default_num_steps: int = 20
+    default_num_steps: int = 50
 
     def build(self, context: ExecutorBuildContext) -> LLaDAImageDecoderExecutor:
         parallel, _ = build_stage_parallel_context(context)

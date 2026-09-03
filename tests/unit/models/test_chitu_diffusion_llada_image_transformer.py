@@ -4,6 +4,7 @@ import pytest
 import torch
 from diffusers.models.normalization import RMSNorm as DiffusersRMSNorm
 
+from chitu_diffusion.models.llada_image.attention import LLaDAImageCpAttnProcessor
 from chitu_diffusion.models.llada_image.diffusers_components import (
     RMSNorm as LLaDAImageRMSNorm,
 )
@@ -102,6 +103,18 @@ def test_llada_epe_warmup_uses_patchified_latent_shape() -> None:
     assert report["rows"][0]["raw_image_tokens"] == 4
     assert report["rows"][0]["image_tokens"] == 32
     assert report["rows"][0]["cp_degree"] == 1
+
+
+def test_cp_attention_rejects_any_outer_mask_without_inspecting_values() -> None:
+    processor = object.__new__(LLaDAImageCpAttnProcessor)
+    processor._enabled = True
+
+    with pytest.raises(NotImplementedError, match="outer ragged masks"):
+        processor(
+            None,
+            torch.zeros(1, 1, 1),
+            attention_mask=torch.ones(1, 1, dtype=torch.bool),
+        )
 
 
 @pytest.mark.gpu

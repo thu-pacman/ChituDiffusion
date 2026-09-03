@@ -34,7 +34,7 @@ class LLaDAImageRequest:
     negative_prompt: str | None = None
     width: int = 1024
     height: int = 1024
-    num_inference_steps: int = 20
+    num_inference_steps: int = 50
     guidance_scale: float = 4.5
     seed: int = 0
     max_sequence_length: int = 2048
@@ -196,11 +196,9 @@ class LLaDAImagePipeline(DiffusersEPEPipeline):
             scheduling_module,
             default_width=int(getattr(config, "default_width", 1024)),
             default_height=int(getattr(config, "default_height", 1024)),
-            default_num_steps=int(getattr(config, "default_num_steps", 20)),
+            default_num_steps=int(getattr(config, "default_num_steps", 50)),
             vae_placement=VaeParallelPlacement(
-                halo=int(
-                    getattr(config, "vae_parallel_halo", self.vae_parallel_halo)
-                ),
+                halo=int(getattr(config, "vae_parallel_halo", self.vae_parallel_halo)),
                 sharded=bool(parallel_vae),
             ),
         )
