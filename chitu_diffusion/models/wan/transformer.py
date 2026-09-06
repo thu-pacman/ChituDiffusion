@@ -8,6 +8,7 @@ from diffusers.models.transformers.transformer_wan import WanTransformer3DModel
 
 from ...parallel.cp import EpeParallelContext
 from .attention import WanCpAttnProcessor
+from .tensor_parallel import load_tensor_parallel_transformer
 
 
 class EpeWanTransformer3DModel(WanTransformer3DModel):
@@ -17,7 +18,13 @@ class EpeWanTransformer3DModel(WanTransformer3DModel):
     def from_pretrained(cls, *args: Any, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
         attention_mode = kwargs.pop("attention_mode", "agkv")
-        model = super().from_pretrained(*args, **kwargs)
+        degree = int(kwargs.pop("tensor_parallel_degree", 1) or 1)
+        if degree > 1:
+            model, _ = load_tensor_parallel_transformer(
+                cls, *args, degree=degree, **kwargs
+            )
+        else:
+            model = super().from_pretrained(*args, **kwargs)
         if parallel is not None:
             model.configure_epe(parallel, attention_mode=attention_mode)
         return model

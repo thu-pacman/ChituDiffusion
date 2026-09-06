@@ -65,6 +65,7 @@ class EpeWanPipeline(WanPipeline):
             kwargs.pop("attention_mode", "agkv"),
             kwargs.pop("ulysses_degree", None),
         )
+        tensor_parallel_degree = int(kwargs.pop("tensor_parallel_degree", 1) or 1)
         cfg_parallel = bool(kwargs.pop("cfg_parallel", True))
         parallel_vae = bool(kwargs.pop("parallel_vae", True))
         vae_parallel_halo = int(kwargs.pop("vae_parallel_halo", 8))
@@ -79,6 +80,7 @@ class EpeWanPipeline(WanPipeline):
                     else None
                 ),
                 ulysses_degree=ulysses_degree,
+                tensor_parallel_degree=tensor_parallel_degree,
                 ulysses_transport=ulysses_transport,
                 agkv_transport=agkv_transport,
             )
@@ -98,6 +100,7 @@ class EpeWanPipeline(WanPipeline):
                     subfolder="transformer",
                     parallel_context=parallel,
                     attention_mode=attention_mode,
+                    tensor_parallel_degree=tensor_parallel_degree,
                     torch_dtype=torch_dtype,
                     local_files_only=local_files_only,
                 )
@@ -120,6 +123,14 @@ class EpeWanPipeline(WanPipeline):
                 raise TypeError(
                     "unsupported original-checkpoint loader options: "
                     + ", ".join(sorted(kwargs))
+                )
+            if tensor_parallel_degree > 1:
+                # Sharding reads the rank's slices straight out of the
+                # safetensors files, which the original layout converts rather
+                # than exposes. Convert the checkpoint first.
+                raise ValueError(
+                    "tensor parallelism needs a diffusers-layout Wan checkpoint, "
+                    f"got the original layout at {model_path}"
                 )
             tokenizer, text_encoder, vae, scheduler, transformer = (
                 load_wan_diffusers_components(

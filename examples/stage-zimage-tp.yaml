@@ -1,0 +1,32 @@
+name: image
+process: image
+factory: zimage
+gpu: [0, 1, 2, 3]
+parallelism:
+  cp:
+    # A context-parallel lane lives inside one tensor-parallel plane, so
+    # cp.world_size * model.tensor_parallel_degree must equal the GPU count.
+    world_size: 2
+    attention_mode: agkv
+  model:
+    # Z-Image shards its attention and feed-forward projections through the
+    # shared tensor-parallel plan. The degree must divide the 30 attention
+    # heads, so 2, 3, 5, and 6 work while 4 and 8 do not.
+    tensor_parallel_degree: 2
+    cfg_parallel_degree: 1
+  vae:
+    enabled: true
+  scheduler:
+    # Lanes are planned across the stage world and projected onto each plane,
+    # so keep the geometry fixed while tensor parallelism is on.
+    policy: static_cp
+    allowed_lane_widths: [1, 2]
+    warmup_resolutions: [512]
+    warmup_steps: 3
+factory_args:
+  model_path: /path/to/Z-Image
+  default_width: 512
+  default_height: 512
+service:
+  host: 0.0.0.0
+  port: 18200

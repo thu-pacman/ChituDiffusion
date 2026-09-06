@@ -73,8 +73,16 @@ def vae_parallel_degree(args: argparse.Namespace, world_size: int) -> int:
 
 def static_parallel_pipeline_kwargs(args: argparse.Namespace) -> dict[str, object]:
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    # A context-parallel lane lives inside one tensor-parallel plane, so the
+    # widest lane is the plane, not the world.
+    degree = int(getattr(args, "tensor_parallel_degree", 1) or 1)
+    if degree < 1 or world_size % degree:
+        raise ValueError(
+            f"tensor_parallel_degree {degree} must be a positive divisor of "
+            f"world size {world_size}"
+        )
     return {
-        "allowed_lane_widths": tuple(sorted({1, world_size})),
+        "allowed_lane_widths": tuple(sorted({1, world_size // degree})),
         "ulysses_transport": args.ulysses_transport,
         "agkv_transport": args.agkv_transport,
     }

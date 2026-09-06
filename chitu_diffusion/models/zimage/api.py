@@ -14,6 +14,7 @@ from ...epe.api import (
 )
 from ...epe.request import DiffusionRequest
 from ...flexcache.config import CacheConfig
+from ...parallel.vae import create_vae_parallel_placement
 from .pipeline import EpeZImagePipeline
 
 if TYPE_CHECKING:
@@ -149,8 +150,10 @@ class ZImagePipeline(DiffusersEPEPipeline):
                     getattr(self._pipeline.transformer.epe, "cfg_parallel", True),
                 )
             ),
-            parallel_vae=bool(getattr(config, "parallel_vae", True)),
-            vae_parallel_halo=int(getattr(config, "vae_parallel_halo", 8)),
+            vae_placement=create_vae_parallel_placement(
+                getattr(config, "vae_parallel_degree", None),
+                halo=int(getattr(config, "vae_parallel_halo", 8)),
+            ),
         )
 
     def serve(self, config: "EPEServeConfig | None" = None) -> None:

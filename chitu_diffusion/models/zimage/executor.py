@@ -201,6 +201,7 @@ class ZImageExecutorFactory:
             parallel_context=parallel,
             attention_mode=attention_mode,
             ulysses_degree=context.cp.ulysses_degree,
+            tensor_parallel_degree=context.tensor_parallel_degree,
             epe_options=epe_options,
             torch_dtype=dtype,
             local_files_only=self.local_files_only,

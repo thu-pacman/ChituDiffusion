@@ -84,6 +84,7 @@ class EpeZImagePipeline(ZImagePipeline):
             kwargs.pop("ulysses_degree", None),
         )
         cfg_parallel = bool(kwargs.pop("cfg_parallel", True))
+        tensor_parallel_degree = int(kwargs.pop("tensor_parallel_degree", 1) or 1)
         epe_options = dict(kwargs.pop("epe_options", {}))
         epe_options.setdefault("attention_mode", attention_mode)
         epe_options.setdefault("cfg_parallel", cfg_parallel)
@@ -95,6 +96,7 @@ class EpeZImagePipeline(ZImagePipeline):
                     else None
                 ),
                 ulysses_degree=ulysses_degree,
+                tensor_parallel_degree=tensor_parallel_degree,
                 ulysses_transport=ulysses_transport,
                 agkv_transport=agkv_transport,
             )
@@ -105,6 +107,7 @@ class EpeZImagePipeline(ZImagePipeline):
             transformer_kwargs: dict[str, Any] = {
                 "subfolder": "transformer",
                 "epe_module": epe,
+                "tensor_parallel_degree": tensor_parallel_degree,
             }
             for key in ("torch_dtype", "local_files_only", "variant", "revision"):
                 if key in kwargs:

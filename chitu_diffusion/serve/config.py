@@ -37,10 +37,10 @@ _MIGRATED_CONFIG_FIELDS = {
 
 # Only a model that actually implements an axis may be configured with it.
 MODEL_PARALLEL_AXES: dict[str, frozenset[str]] = {
-    "zimage": frozenset({"cfg_parallel_degree"}),
+    "zimage": frozenset({"cfg_parallel_degree", "tensor_parallel_degree"}),
     "flux1": frozenset(),
     "qwen-image": frozenset({"cfg_parallel_degree"}),
-    "wan": frozenset({"cfg_parallel_degree"}),
+    "wan": frozenset({"cfg_parallel_degree", "tensor_parallel_degree"}),
     "minimax-h3": frozenset({"tensor_parallel_degree"}),
     "hunyuan-image3": frozenset(
         {

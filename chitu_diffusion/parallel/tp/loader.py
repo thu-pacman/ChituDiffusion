@@ -14,6 +14,7 @@ from .linear import (
     MergedColumnParallelLinear,
     RowParallelLinear,
 )
+from .norm import TensorParallelRMSNorm
 
 TensorTransform = Callable[
     [str, Any, nn.Module, str], torch.Tensor | None
@@ -21,9 +22,16 @@ TensorTransform = Callable[
 
 
 def _weight_map(checkpoint_dir: Path) -> dict[str, Path]:
-    index_path = checkpoint_dir / "model.safetensors.index.json"
-    if index_path.is_file():
-        payload = json.loads(index_path.read_text())
+    # Transformers writes model.safetensors.index.json, diffusers writes
+    # diffusion_pytorch_model.safetensors.index.json.
+    indexes = sorted(checkpoint_dir.glob("*.safetensors.index.json"))
+    if len(indexes) > 1:
+        raise FileNotFoundError(
+            f"expected one safetensors index in {checkpoint_dir}, found "
+            f"{', '.join(path.name for path in indexes)}"
+        )
+    if indexes:
+        payload = json.loads(indexes[0].read_text())
         return {
             name: checkpoint_dir / filename
             for name, filename in payload["weight_map"].items()
@@ -72,6 +80,10 @@ def _read_local_tensor(
         local_size = module.input_size_per_partition
         start = module.tp_rank * local_size
         return tensor_slice[:, start : start + local_size]
+    if isinstance(module, TensorParallelRMSNorm):
+        local_size = module.size_per_partition
+        start = module.tp_rank * local_size
+        return tensor_slice[start : start + local_size]
     return tensor_slice[:]
 
 
@@ -107,6 +119,11 @@ def load_tensor_parallel_checkpoint(
     modules = dict(model.named_modules())
     expected = dict(model.named_parameters())
     expected.update(dict(model.named_buffers()))
+    # A checkpoint holds parameters and persistent buffers. Anything else in
+    # the model computes itself at construction -- rotary tables, typically --
+    # so its absence from the file is not a missing weight. It is still
+    # accepted from a file that happens to carry it.
+    required = set(model.state_dict().keys())
     loaded: set[str] = set()
     unexpected: list[str] = []
 
@@ -153,7 +170,7 @@ def load_tensor_parallel_checkpoint(
                     setattr(module, leaf_name, tensor)
                 loaded.add(name)
 
-    missing = sorted(set(expected) - loaded)
+    missing = sorted(required - loaded)
     if strict and (missing or unexpected):
         raise RuntimeError(
             f"checkpoint mismatch: missing={missing[:20]}, "

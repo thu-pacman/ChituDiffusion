@@ -39,6 +39,15 @@ def parse_args() -> argparse.Namespace:
         default="agkv",
     )
     parser.add_argument("--ulysses-degree", type=int, default=None)
+    parser.add_argument(
+        "--tensor-parallel-degree",
+        type=int,
+        default=1,
+        help=(
+            "Shard the transformer across this many ranks. Must divide the "
+            "head count (30) and the world size."
+        ),
+    )
     add_parallel_transport_arguments(parser)
     parser.add_argument(
         "--cfg-parallel",
@@ -77,6 +86,7 @@ def main() -> None:
         local_files_only=args.local_files_only,
         attention_mode=args.attention_mode,
         ulysses_degree=args.ulysses_degree,
+        tensor_parallel_degree=args.tensor_parallel_degree,
         cfg_parallel=args.cfg_parallel,
         **static_parallel_pipeline_kwargs(args),
     )

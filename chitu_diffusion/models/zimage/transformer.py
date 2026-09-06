@@ -9,6 +9,7 @@ from diffusers.models.transformers.transformer_z_image import ZImageTransformer2
 from ...parallel.cp import EpeParallelContext
 from .attention import ZImageCpAttnProcessor
 from .epe import ZImageEpeModule
+from .tensor_parallel import load_tensor_parallel_transformer
 
 
 class EpeZImageTransformer2DModel(ZImageTransformer2DModel):
@@ -18,7 +19,13 @@ class EpeZImageTransformer2DModel(ZImageTransformer2DModel):
     def from_pretrained(cls, *args: Any, **kwargs: Any):
         epe_module = kwargs.pop("epe_module", None)
         parallel_context = kwargs.pop("parallel_context", None)
-        model = super().from_pretrained(*args, **kwargs)
+        degree = int(kwargs.pop("tensor_parallel_degree", 1) or 1)
+        if degree > 1:
+            model, _ = load_tensor_parallel_transformer(
+                cls, *args, degree=degree, **kwargs
+            )
+        else:
+            model = super().from_pretrained(*args, **kwargs)
         if epe_module is not None:
             model.configure_epe(epe_module)
         elif parallel_context is not None:

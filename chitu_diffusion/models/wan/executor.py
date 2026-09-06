@@ -421,6 +421,7 @@ class WanExecutorFactory:
             parallel_context=parallel,
             attention_mode=context.cp.attention_mode,
             ulysses_degree=context.cp.ulysses_degree,
+            tensor_parallel_degree=context.tensor_parallel_degree,
             cfg_parallel=context.model.cfg_parallel,
             parallel_vae=placement.sharded,
             vae_parallel_halo=placement.halo,

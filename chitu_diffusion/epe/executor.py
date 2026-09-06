@@ -243,7 +243,12 @@ class DiffusersBackend(ABC):
         )
 
     def denoise_step(self, state: Any, *, lane_ranks: tuple[int, ...]) -> None:
-        self.pipeline.denoise_step(state, lane_ranks=lane_ranks)
+        # Lanes are planned across the stage world, but a context-parallel lane
+        # lives inside one tensor-parallel plane, so each rank denoises on its
+        # own plane's slice. Without tensor parallelism this is the lane itself.
+        self.pipeline.denoise_step(
+            state, lane_ranks=self.parallel_context.plane_lane(lane_ranks)
+        )
 
     def generate(self, request: Any) -> Any:
         """Run one request synchronously on the full stage world.
@@ -350,7 +355,12 @@ class DiffusersBackend(ABC):
         timings.setdefault("vae_start_unix_ns", now)
         timings.setdefault("vae_end_unix_ns", now)
         placement = self.vae_placement
-        with self.parallel_context.activate(lane_ranks) as lane:
+        # Every tensor-parallel plane holds the same activations, so each one
+        # decodes its own plane-local lane and only the stage leader keeps the
+        # result.
+        with self.parallel_context.activate(
+            self.parallel_context.plane_lane(lane_ranks)
+        ) as lane:
             topology = placement.resolve(lane)
             if topology is None:
                 return None

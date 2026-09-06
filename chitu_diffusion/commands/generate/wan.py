@@ -38,6 +38,16 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--attention-mode", choices=("agkv", "ulysses"), default="agkv")
     parser.add_argument("--ulysses-degree", type=int)
+    parser.add_argument(
+        "--tensor-parallel-degree",
+        type=int,
+        default=1,
+        help=(
+            "Shard the transformer across this many ranks. Every Wan variant "
+            "accepts 2, 4, and 8; the feed-forward width is what rules out the "
+            "odd degrees the head count would otherwise allow."
+        ),
+    )
     add_parallel_transport_arguments(parser)
     parser.add_argument(
         "--cfg-parallel", action=argparse.BooleanOptionalAction, default=True
@@ -55,6 +65,7 @@ def main() -> None:
         local_files_only=True,
         attention_mode=args.attention_mode,
         ulysses_degree=args.ulysses_degree,
+        tensor_parallel_degree=args.tensor_parallel_degree,
         cfg_parallel=args.cfg_parallel,
         parallel_vae=args.parallel_vae,
         vae_parallel_halo=args.vae_parallel_halo,
@@ -91,6 +102,7 @@ def main() -> None:
                         "cfg_parallel": args.cfg_parallel,
                         "attention_mode": args.attention_mode,
                         "ulysses_degree": args.ulysses_degree,
+                        "tensor_parallel_degree": args.tensor_parallel_degree,
                         "ulysses_transport": args.ulysses_transport,
                         "agkv_transport": args.agkv_transport,
                         "parallel_vae": args.parallel_vae,

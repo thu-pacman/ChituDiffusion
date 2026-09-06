@@ -53,10 +53,10 @@ flowchart TD
 
 | 模型 | 静态生成 | EPE 服务 | FlexCache | 输出 |
 | --- | --- | --- | --- | --- |
-| Z-Image | 单卡、NCCL CP、Fast CP | 支持 | MeanCache、TaylorSeer、PAB | 图片 |
+| Z-Image | 单卡、NCCL CP、Fast CP、TP（2/3/5/6） | 支持 | MeanCache、TaylorSeer、PAB | 图片 |
 | FLUX.1-dev | 单卡、NCCL CP、Fast CP | 支持 | MagCache、TeaCache、TaylorSeer、PAB | 图片 |
 | Qwen-Image | 单卡、NCCL CP、Fast CP | 支持 | MagCache、MeanCache、TaylorSeer、PAB | 图片 |
-| Wan 2.1 T2V | 单卡、NCCL CP、Fast CP | 支持 | MagCache、TeaCache、TaylorSeer、PAB | 视频 |
+| Wan 2.1 T2V | 单卡、NCCL CP、Fast CP、TP（2/4，14B 另支持 8） | 支持 | MagCache、TeaCache、TaylorSeer、PAB | 视频 |
 | FLUX.2-klein | 单卡、静态 CP | 不支持 | 不支持 | 图片 |
 | Hunyuan Image 3 | 单机可配置 TP×CFG×CP×EP（72 GiB 参考配置 TP2×CFG2×CP2×EP2） | 支持（仅 `static_cp`） | 不支持 | 图片 |
 | MiniMax-H3 | 仅服务 | 支持 | 不支持 | 音视频 MP4 |
