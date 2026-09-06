@@ -655,7 +655,8 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>fast-ulysses
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>python<span class="w"> </span>tools/install/install_fast_agkv.py<span class="w"> </span>refs/fast-ulysses
 </code></pre></div>
-<p>Fast transport 必须针对目标 CUDA、NVSHMEM 和 GPU 架构编译。只使用单卡或 NCCL CP
+<p>第二步把 <code>chitu_diffusion/parallel/cp/fast/csrc/</code> 下的扩展源码装入 checkout。
+Fast transport 必须针对目标 CUDA、NVSHMEM 和 GPU 架构编译。只使用单卡或 NCCL CP
 时不需要这些扩展。</p>
 <p>其他 attention backend 按需安装：</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>flash

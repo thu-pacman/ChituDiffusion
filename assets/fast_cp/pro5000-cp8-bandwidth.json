@@ -1,0 +1,67 @@
+{
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+  "world_size": 8,
+  "dtype": "bfloat16",
+  "heads": 40,
+  "head_dim": 128,
+  "warmup": 10,
+  "iterations": 30,
+  "metric": "semantic remote egress GiB/s per rank",
+  "rows": [
+    {
+      "global_sequence": 4096,
+      "methods": {
+        "NCCL Ulysses": 17.27,
+        "Fast Ulysses SM": 22.07,
+        "Fast Ulysses CE": 22.55,
+        "NCCL AGKV": 26.18,
+        "Fast AGKV SM": 33.58,
+        "Fast AGKV CE": 41.47
+      }
+    },
+    {
+      "global_sequence": 8192,
+      "methods": {
+        "NCCL Ulysses": 18.68,
+        "Fast Ulysses SM": 23.07,
+        "Fast Ulysses CE": 25.62,
+        "NCCL AGKV": 26.73,
+        "Fast AGKV SM": 36.63,
+        "Fast AGKV CE": 41.81
+      }
+    },
+    {
+      "global_sequence": 16384,
+      "methods": {
+        "NCCL Ulysses": 20.78,
+        "Fast Ulysses SM": 31.78,
+        "Fast Ulysses CE": 26.03,
+        "NCCL AGKV": 27.06,
+        "Fast AGKV SM": 37.95,
+        "Fast AGKV CE": 42.01
+      }
+    },
+    {
+      "global_sequence": 32768,
+      "methods": {
+        "NCCL Ulysses": 21.51,
+        "Fast Ulysses SM": 38.55,
+        "Fast Ulysses CE": 26.23,
+        "NCCL AGKV": 27.20,
+        "Fast AGKV SM": 38.50,
+        "Fast AGKV CE": 42.10
+      }
+    },
+    {
+      "global_sequence": 75600,
+      "methods": {
+        "NCCL Ulysses": 23.20,
+        "Fast Ulysses SM": 35.07,
+        "Fast Ulysses CE": 26.31,
+        "NCCL AGKV": 27.29,
+        "Fast AGKV SM": 38.89,
+        "Fast AGKV CE": 42.15
+      }
+    }
+  ]
+}

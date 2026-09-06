@@ -697,13 +697,24 @@ AGKV 更快。</p>
    norm 和 RoPE。Fast Ulysses 也可把 Q/K all-to-all 放到 Copy Engine。</li>
 <li><strong>共享 symmetric memory。</strong> 同节点 Ulysses subgroup 复用 NVSHMEM symmetric
    pool，避免每次 attention 重新分配通信 buffer。</li>
+<li><strong>Copy Engine 扇出按互连实测。</strong> AGKV 与 all-to-all 的 CE 路径共用一套调度：
+   本地拷贝独占一条 stream，远端目标按 XOR 错开访问顺序，同时在飞的远端目标数
+   逐 shape 实测选择。NVLink 主机每个 peer 有独立链路，会保留原本的每 peer 一条
+   stream；PCIe 主机所有 peer 共用一个 egress 端口，铺开只会掉带宽，实测收敛到
+   单条远端 stream。8x RTX PRO 5000、CP8、Wan 14B shape 下 all-to-all CE 从
+   3.438 ms 降到 2.995 ms，且在 GEMM 之下完全隐藏。</li>
 <li><strong>按运行条件选择后端。</strong> <code>torch</code> 使用 NCCL；<code>auto</code> 在 Fast transport 不可用时
    回落到 NCCL；显式选择 Fast transport 而环境不满足要求时直接报错。</li>
 </ol>
-<p><code>fast_cp/experimental/</code> 还包含 fused Fast AGKV 和 Fast Ring。它们用于 benchmark，
-模型 pipeline 不会自动选择。</p>
+<p><code>fast_cp/experimental/</code> 还包含 Fast Ring，用于 benchmark；模型 pipeline
+不会自动选择。原独立 fused Fast AGKV 实验已经合并到 Fast AGKV transport，
+不再作为第二条路径维护。</p>
 <p>Fast transport 当前要求单机 Hopper、CUDA P2P、NVSHMEM，以及针对目标 CUDA 和 GPU
 架构编译的扩展。多机静态 CP 使用 NCCL。</p>
+<p>一个进程只能持有一个 NVSHMEM runtime，所以每个 rank 只有一条 CP lane 走 Fast，
+由 <code>fast_lane_width</code> 指定其宽度，默认是整个 TP plane。TP、EP、VAEP 和 CFG 分支合并
+都在别的通信域上，与之互不干扰；CFG 把 plane 切成两条半宽 CP lane 时，模型传入实际
+宽度即可让两条 lane 各自使用 Fast。scheduler 激活其它宽度的 lane 时自动回落 NCCL。</p>
 <h2 id="_3">优化结果</h2>
 <p>下表来自单机 NVIDIA H20、BF16、<code>B=1</code>、<code>H=40</code>、<code>D=128</code>、dense non-causal
 attention。每个 CP 配置选择 Fast AGKV、Fast Ulysses 和 Fast Ring 中延迟最低的实现，
@@ -754,7 +765,7 @@ attention。每个 CP 配置选择 Fast AGKV、Fast Ulysses 和 Fast Ring 中延
 <p>这些数字是 attention microbenchmark，不代表任意模型的端到端加速。模型加载、文本
 编码、VAE 和输出处理不会随 CP 线性缩短。</p>
 <h2 id="_4">使用示例</h2>
-<p>安装 Fast Ulysses 及 Fast AGKV overlay：</p>
+<p>安装 Fast Ulysses 并装入 Fast CP 扩展源码：</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>fast-ulysses
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>python<span class="w"> </span>tools/install/install_fast_agkv.py<span class="w"> </span>refs/fast-ulysses
 </code></pre></div>
