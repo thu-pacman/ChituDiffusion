@@ -29,25 +29,41 @@ def _config(**parallelism: Any) -> StageServiceConfig:
 
 def test_the_shipped_examples_describe_their_documented_geometry() -> None:
     zimage = load_stage_service_config(EXAMPLES / "stage-zimage.yaml")
+    zimage_tp = load_stage_service_config(EXAMPLES / "stage-zimage-tp.yaml")
     h3 = load_stage_service_config(EXAMPLES / "stage-minimax-h3.yaml")
+    h3_fast = load_stage_service_config(
+        EXAMPLES / "stage-minimax-h3-fast-cp.yaml"
+    )
     hyi3 = load_stage_service_config(EXAMPLES / "stage-hunyuan-image3.yaml")
+    hyi3_fast = load_stage_service_config(
+        EXAMPLES / "stage-hunyuan-image3-fast-cp.yaml"
+    )
 
     assert zimage.parallelism.cp.world_size == 4
     assert zimage.parallelism.model.tensor_parallel_degree == 1
     assert zimage.parallelism.vae.degree is None
+    assert zimage_tp.parallelism.cp.world_size == 2
+    assert zimage_tp.parallelism.model.tensor_parallel_degree == 2
+    assert zimage_tp.parallelism.scheduler.policy == "static_cp"
 
     assert h3.parallelism.cp.world_size == 2
     assert h3.parallelism.cp.attention_mode == "ulysses"
     assert h3.parallelism.model.tensor_parallel_degree == 4
     assert h3.parallelism.vae.degree is None
+    assert h3_fast.parallelism.cp.ulysses_transport == "fast"
 
     assert hyi3.parallelism.cp.world_size == 4
     assert hyi3.parallelism.model.tensor_parallel_degree == 2
     assert hyi3.parallelism.model.cfg_parallel_degree == 2
     assert hyi3.parallelism.model.expert_parallel_degree == 2
     assert hyi3.parallelism.vae.degree == 8
+    assert hyi3_fast.parallelism.cp.agkv_transport == "fast"
+    # Fast CP runs on the shipped geometry: CFG2 halves the plane and the fast
+    # transport follows attention onto the resulting CP2 lane.
+    assert hyi3_fast.parallelism.model.cfg_parallel_degree == 2
+    assert hyi3_fast.parallelism.model.expert_parallel_degree == 2
 
-    for config in (zimage, h3, hyi3):
+    for config in (zimage, h3, h3_fast, hyi3, hyi3_fast):
         assert config.parallelism.gpu_count == len(config.gpu)
 
 
@@ -161,7 +177,7 @@ def test_a_negative_halo_is_refused() -> None:
     ("factory", "model", "message"),
     [
         ("flux1", {"cfg_parallel_degree": 2}, "supported axes: none"),
-        ("zimage", {"tensor_parallel_degree": 2}, "cfg_parallel_degree"),
+        ("zimage", {"expert_parallel_degree": 2}, "tensor_parallel_degree"),
         ("minimax-h3", {"expert_parallel_degree": 2}, "tensor_parallel_degree"),
     ],
 )

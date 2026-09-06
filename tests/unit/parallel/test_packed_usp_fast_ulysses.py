@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 
 from chitu_diffusion.parallel.cp.packed_usp import (
+    all_gather_packed_kv,
     all_to_all_packed_output,
     all_to_all_packed_qkv,
 )
@@ -39,7 +40,23 @@ class _FakeFastUlysses:
         return tensor + 4
 
 
-def _topology(transport: _FakeFastUlysses) -> UspTopology:
+class _FakeFastAgkv:
+    name = "fast_agkv"
+
+    def __init__(self) -> None:
+        self.shapes = None
+
+    def all_gather_kv(self, key, value):
+        self.shapes = (key.shape, value.shape)
+        return torch.cat((key, key + 10), dim=1), torch.cat(
+            (value, value + 20), dim=1
+        )
+
+
+def _topology(
+    transport: _FakeFastUlysses,
+    agkv_transport: _FakeFastAgkv | None = None,
+) -> UspTopology:
     return UspTopology(
         lane_ranks=(0, 1),
         ulysses_ranks=(0, 1),
@@ -51,6 +68,7 @@ def _topology(transport: _FakeFastUlysses) -> UspTopology:
         ulysses_process_group=object(),
         ring_process_group=None,
         ulysses_transport=transport,
+        agkv_transport=agkv_transport,
     )
 
 
@@ -88,3 +106,24 @@ def test_packed_output_uses_fast_ulysses_transport() -> None:
 
     assert transport.output_call == (torch.Size([1, 8, 2, 8]), 1, 2)
     torch.testing.assert_close(redistributed, output + 4)
+
+
+def test_packed_kv_uses_fast_agkv_transport() -> None:
+    ulysses = _FakeFastUlysses()
+    agkv = _FakeFastAgkv()
+    topology = _topology(ulysses, agkv)
+    key = torch.zeros(4, 2, 8)
+    value = torch.ones_like(key)
+
+    gathered_key, gathered_value = all_gather_packed_kv(
+        key, value, topology=topology
+    )
+
+    assert agkv.shapes == (
+        torch.Size([1, 4, 2, 8]),
+        torch.Size([1, 4, 2, 8]),
+    )
+    assert gathered_key.shape == (8, 2, 8)
+    assert gathered_value.shape == (8, 2, 8)
+    torch.testing.assert_close(gathered_key[4:], key + 10)
+    torch.testing.assert_close(gathered_value[4:], value + 20)

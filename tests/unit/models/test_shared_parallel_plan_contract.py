@@ -34,6 +34,22 @@ FACTORIES = {
     ),
 }
 
+# Both packed-attention models lay their lane out as a Ulysses group whatever
+# the DiT attention mode is; Hunyuan Image 3 additionally names the lane width
+# a fast transport binds to, because CFG parallelism can halve its TP plane.
+EXPECTED_OVERRIDES: dict[str, dict[str, object]] = {
+    "zimage": {},
+    "flux1": {},
+    "qwen-image": {},
+    "wan": {},
+    "minimax-h3": {"attention_mode": "ulysses", "ulysses_degree": 4},
+    "hunyuan-image3": {
+        "attention_mode": "ulysses",
+        "ulysses_degree": 4,
+        "fast_lane_width": 4,
+    },
+}
+
 
 class _ContextCaptured(Exception):
     def __init__(self, context: ExecutorBuildContext, overrides: dict[str, object]):
@@ -76,16 +92,10 @@ def test_every_factory_builds_its_lane_from_the_common_cp_plan(
         factory.build(context)
 
     assert captured.value.context is context
-    if factory_name == "hunyuan-image3":
-        # The DiT attention mode is separate from the lane layout, which this
-        # model always builds as a Ulysses group of its context-parallel degree.
-        # Transports stay on the common CP plan and must not be overwritten.
-        assert captured.value.overrides == {
-            "attention_mode": "ulysses",
-            "ulysses_degree": 4,
-        }
-    else:
-        assert captured.value.overrides == {}
+    # A model may only override how its own attention exchanges: the lane
+    # layout, and the lane width a fast transport may bind to. Transports
+    # themselves stay on the common CP plan and must not be overwritten.
+    assert captured.value.overrides == EXPECTED_OVERRIDES[factory_name]
 
 
 def _capture_context(module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:

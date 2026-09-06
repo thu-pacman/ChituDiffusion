@@ -13,6 +13,7 @@ from ...epe.api import (
 )
 from ...epe.request import DiffusionRequest
 from ...flexcache.config import CacheConfig
+from ...parallel.vae import create_vae_parallel_placement
 from .pipeline import EpeQwenImagePipeline
 
 
@@ -90,6 +91,8 @@ class QwenImagePipeline(DiffusersEPEPipeline):
             default_width=int(getattr(config, "default_width", 1024)),
             default_height=int(getattr(config, "default_height", 1024)),
             default_num_steps=int(getattr(config, "default_num_steps", 50)),
-            parallel_vae=bool(getattr(config, "parallel_vae", True)),
-            vae_parallel_halo=int(getattr(config, "vae_parallel_halo", 8)),
+            vae_placement=create_vae_parallel_placement(
+                getattr(config, "vae_parallel_degree", None),
+                halo=int(getattr(config, "vae_parallel_halo", 8)),
+            ),
         )

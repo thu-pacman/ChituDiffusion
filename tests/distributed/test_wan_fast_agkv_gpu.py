@@ -100,13 +100,13 @@ def test_wan_fast_agkv_overlap_benchmark() -> None:
         "torch",
         process_group=dist.group.WORLD,
         device=device,
-        static_full_world=True,
+        fast_eligible=True,
     )
     fast_transport = create_agkv_transport(
         "fast_agkv",
         process_group=dist.group.WORLD,
         device=device,
-        static_full_world=True,
+        fast_eligible=True,
     )
     active = SimpleNamespace(width=world_size, process_group=dist.group.WORLD)
 

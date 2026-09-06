@@ -127,20 +127,20 @@ def test_transport_names_are_explicit_and_environment_selectable(monkeypatch):
         resolve_ulysses_transport("unknown")
 
 
-def test_fast_transport_requires_static_full_world_topology():
-    with pytest.raises(ValueError, match="static full-world"):
+def test_fast_transport_requires_the_configured_fast_lane():
+    with pytest.raises(ValueError, match="fast lane width"):
         create_ulysses_transport(
             "fast_ulysses",
             process_group=object(),
             device=torch.device("cpu"),
-            static_full_world=False,
+            fast_eligible=False,
         )
 
     transport = create_ulysses_transport(
         "auto",
         process_group=object(),
         device=torch.device("cpu"),
-        static_full_world=False,
+        fast_eligible=False,
     )
     assert isinstance(transport, TorchUlyssesTransport)
 

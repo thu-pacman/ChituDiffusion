@@ -59,6 +59,18 @@ def parse_args() -> argparse.Namespace:
         default="agkv",
         help="Context-parallel attention transport; AGKV is the default.",
     )
+    parser.add_argument(
+        "--ulysses-transport",
+        choices=("auto", "torch", "fast_ulysses"),
+        default=None,
+        help="Ulysses exchange backend; defaults to CHITU_ULYSSES_TRANSPORT/torch.",
+    )
+    parser.add_argument(
+        "--agkv-transport",
+        choices=("auto", "torch", "fast_agkv"),
+        default=None,
+        help="AGKV exchange backend; defaults to CHITU_AGKV_TRANSPORT/torch.",
+    )
     parser.add_argument("--tensor-parallel-degree", type=int, default=2)
     parser.add_argument(
         "--cfg-parallel-degree",
@@ -123,6 +135,8 @@ def main() -> None:
         ),
         vae_parallel_degree=vae_parallel_degree(args, world_size),
         vae_parallel_halo=args.vae_parallel_halo,
+        ulysses_transport=args.ulysses_transport,
+        agkv_transport=args.agkv_transport,
     )
     load_started = time.perf_counter()
     loaded = load_hunyuan_image3(args.model_path, runtime=runtime)

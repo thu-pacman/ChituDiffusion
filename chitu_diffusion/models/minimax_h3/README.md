@@ -6,9 +6,9 @@ EPE DiT execution, independent parallel video VAE decode, audio VAE decode, and
 asynchronous H.264/AAC MP4 packaging. Offline conditioning and deterministic
 synthetic latent modes remain available for parity and performance tests.
 
-The validated reference is single-node 8×RTX PRO 5000, TP4×CP2, FA4, and
-synchronous Fast Ulysses, measured both with decode on the denoise lane and
-with a static-CP VAEP8 group. NCCL remains the CP transport fallback.
+The validated reference is single-node 8×RTX PRO 5000, TP4×CP2, and FA4.
+Packed attention supports native NCCL, Fast Ulysses, and Fast AGKV; the checked
+Fast CP example selects synchronous Fast Ulysses.
 
 This is foundational service support rather than complete MiniMax-H3 feature
 coverage: arbitrary Ref2VA reference inputs, multi-node execution, and rank
@@ -20,7 +20,7 @@ and/or last frames.
 The checked-in SM120 stage configuration uses:
 
 - DiT: TP4×CP2 across all eight ranks.
-- CP transport: synchronous Fast Ulysses, with NCCL fallback.
+- CP transport: native NCCL, synchronous Fast Ulysses, or Fast AGKV.
 - Attention: FA4 on SM120.
 - Video VAE: decode on the denoise lane, because the shipped scheduler policy
   is elastic. A stage-wide VAEP8 group needs `parallelism.vae.degree: 8` and
@@ -39,6 +39,13 @@ The reference 768×768, 5-second, 24 FPS, 20-step request completed in 49.51
 seconds. VAEP8 reduced isolated video VAE decode from 8.14 seconds to 1.11
 seconds (7.34×), with a maximum absolute difference of `2.38e-7` from the
 release tiled decoder.
+
+Fast CP was re-measured on the same 8×RTX PRO 5000 host with TP4×CP2 and a
+71,424-video-token synthetic latent step. Fast Ulysses reduced slowest-rank
+latency from 9615.5 to 9309.4 ms (`1.033×`, 3.18%); Fast AGKV reduced its NCCL
+baseline from 9400.1 to 9293.2 ms (`1.011×`, 1.14%). These are full DiT-step
+numbers, so FA4 compute dominates the transport gain. Both Fast outputs were
+bitwise identical to their corresponding NCCL outputs.
 
 Both decode placements were re-measured on a 768×768, 2-second, 24 FPS, 20-step
 request. Decoding on an elastic CP2 lane took 1.86 to 2.49 seconds; the
@@ -64,15 +71,17 @@ python script/analyze_h3_cost_profile.py \
 export NVSHMEM_HOME=$PWD/refs/nvshmem-developer
 export LD_LIBRARY_PATH=$NVSHMEM_HOME/lib:$LD_LIBRARY_PATH
 export NCCL_IB_DISABLE=1
-export CHITU_ULYSSES_TRANSPORT=fast_ulysses
 export CHITU_FAST_ULYSSES_ASYNC_CE=0
 
 /dockerdata/chitudiffusion-venv-sm120/bin/torchrun \
   --standalone --nproc-per-node=8 \
   -m chitu_diffusion.commands.serve \
   --stage-config \
-  examples/stage-minimax-h3.yaml
+  examples/stage-minimax-h3-fast-cp.yaml
 ```
+
+The example's `parallelism.cp` block contains the Fast AGKV alternative. For a
+native NCCL baseline, set the selected transport to `nccl`.
 
 ## Native request
 

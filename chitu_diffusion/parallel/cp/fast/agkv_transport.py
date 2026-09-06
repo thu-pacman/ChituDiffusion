@@ -5,6 +5,7 @@ import os
 import torch
 import torch.distributed as dist
 
+from ...interconnect import local_interconnect
 from ..agkv_transport import AgkvTransport, AsyncAgkvHandle
 from ._runtime import FastUlyssesAllToAll
 
@@ -50,13 +51,40 @@ class FastAgkvTransport:
 
     @property
     def use_ce(self) -> bool:
-        value = os.environ.get("CHITU_FAST_AGKV_USE_CE", "0")
-        return value.strip().lower() in {"1", "true", "on", "yes"}
+        """Whether the all-gather rides the copy engines instead of the SMs.
+
+        The copy engines win when a GPU reaches all of its peers through one
+        shared egress port, which is what `auto` resolves. On an 8x RTX PRO 5000
+        host the CE all-gather is 1.1-1.2x faster than the SM kernel at CP8 and
+        takes no SMs from the attention it overlaps with; on NVLink the SM mesh
+        wins instead, because there every peer has its own link to fill.
+
+        Every rank of a Fast CP group runs on one host (enforced in _runtime), so
+        this resolves identically across the group -- and it has to: the layered
+        copy-engine schedule issues one more barrier per call than the SM path,
+        so a split decision would drift the group's barrier epochs apart.
+        """
+        value = os.environ.get("CHITU_FAST_AGKV_USE_CE", "auto").strip().lower()
+        if value in {"", "auto"}:
+            return local_interconnect().shared_egress
+        if value in {"1", "true", "on", "yes"}:
+            return True
+        if value in {"0", "false", "off", "no"}:
+            return False
+        raise ValueError(
+            f"CHITU_FAST_AGKV_USE_CE must be auto, on, or off; got {value!r}"
+        )
 
     @property
     def async_enabled(self) -> bool:
         value = os.environ.get("CHITU_FAST_AGKV_ASYNC", "auto").strip().lower()
         if value in {"", "auto"}:
+            # The SM kernel takes SMs from the attention it overlaps with, which
+            # stopped paying off past four ranks. The copy engines take none, so
+            # overlapping keeps paying at any width (CP8, Wan 1.3B shape: 0.789
+            # ms synchronous against 0.725 ms overlapped).
+            if self.use_ce:
+                return True
             return dist.get_world_size(self._process_group) <= 4
         if value in {"1", "true", "on", "yes"}:
             return True

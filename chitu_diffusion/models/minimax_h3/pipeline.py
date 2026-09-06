@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import torch
@@ -165,11 +165,15 @@ class MiniMaxH3LatentPipeline:
         *,
         flow_shift: float = 12.0,
         audio_flow_shift: float = 3.0,
+        attention_mode: str = "ulysses",
     ) -> None:
         self.transformer = transformer
         self._parallel_context = parallel_context
         self.flow_shift = float(flow_shift)
         self.audio_flow_shift = float(audio_flow_shift)
+        if attention_mode not in {"ulysses", "agkv"}:
+            raise ValueError("attention_mode must be 'ulysses' or 'agkv'")
+        self.attention_mode = attention_mode
 
     @property
     def parallel_context(self) -> EpeParallelContext:
@@ -345,7 +349,12 @@ class MiniMaxH3LatentPipeline:
             max_seqlen=packed.max_seqlen,
             ),
             ulysses_topology=(
-                self.parallel_context.active_usp if topology.width > 1 else None
+                replace(
+                    self.parallel_context.active_usp,
+                    attention_mode=self.attention_mode,
+                )
+                if topology.width > 1
+                else None
             ),
             gather_tp_output=True,
         )

@@ -14,6 +14,8 @@ from dataclasses import dataclass
 import torch
 import torch.distributed as dist
 
+from .ulysses_transport import UlyssesTransport
+
 
 def balanced_sequence_lengths(total_length: int, degree: int) -> tuple[int, ...]:
     """Split a sequence into contiguous shards that differ by at most one token."""
@@ -136,6 +138,7 @@ def heads_to_sequence(
     *,
     partition: SequencePartition,
     process_group: object | None,
+    transport: UlyssesTransport | None = None,
 ) -> torch.Tensor:
     """``[B, H, S_local, D]`` to ``[B, H / degree, S_total, D]``."""
 
@@ -154,6 +157,35 @@ def heads_to_sequence(
         raise ValueError(
             f"head count {heads} must be divisible by context-parallel degree {degree}"
         )
+    if (
+        transport is not None
+        and transport.name == "fast_ulysses"
+    ):
+        # Give every rank the same dense extent, then remove the at-most-one
+        # padding token from each rank-major shard after the transpose.
+        padded_length = max(partition.lengths)
+        if local_length < padded_length:
+            tensor = torch.cat(
+                (
+                    tensor,
+                    tensor.new_zeros(
+                        batch, heads, padded_length - local_length, head_dim
+                    ),
+                ),
+                dim=2,
+            )
+        transport.reset()
+        padded = transport.all_to_all(
+            tensor.transpose(1, 2).contiguous(), 2, 1
+        )
+        shards = padded.split(padded_length, dim=1)
+        return torch.cat(
+            tuple(
+                shard[:, :length]
+                for shard, length in zip(shards, partition.lengths, strict=True)
+            ),
+            dim=1,
+        ).transpose(1, 2).contiguous()
     local_heads = heads // degree
     unit = batch * local_heads * head_dim
     payload = (
@@ -189,6 +221,7 @@ def sequence_to_heads(
     *,
     partition: SequencePartition,
     process_group: object | None,
+    transport: UlyssesTransport | None = None,
 ) -> torch.Tensor:
     """``[B, H_local, S_total, D]`` to ``[B, H_local * degree, S_local, D]``."""
 
@@ -203,6 +236,32 @@ def sequence_to_heads(
             f"sequence extent {total_length} does not match partitioned length "
             f"{partition.total_length}"
         )
+    if (
+        transport is not None
+        and transport.name == "fast_ulysses"
+    ):
+        padded_length = max(partition.lengths)
+        padded_shards = tuple(
+            torch.cat(
+                (
+                    shard,
+                    shard.new_zeros(
+                        batch, local_heads, padded_length - length, head_dim
+                    ),
+                ),
+                dim=2,
+            )
+            if length < padded_length
+            else shard
+            for shard, length in zip(
+                tensor.split(list(partition.lengths), dim=2),
+                partition.lengths,
+                strict=True,
+            )
+        )
+        padded = torch.cat(padded_shards, dim=2).transpose(1, 2).contiguous()
+        local = transport.all_to_all(padded, 1, 2).transpose(1, 2)
+        return local[:, :, : partition.local_length].contiguous()
     unit = batch * local_heads * head_dim
     shards = [
         shard.contiguous().reshape(-1)

@@ -33,6 +33,7 @@ uv sync --group dev --extra fast-ulysses
 python tools/install/install_fast_agkv.py refs/fast-ulysses
 ```
 
+第二步把 `chitu_diffusion/parallel/cp/fast/csrc/` 下的扩展源码装入 checkout。
 Fast transport 必须针对目标 CUDA、NVSHMEM 和 GPU 架构编译。只使用单卡或 NCCL CP
 时不需要这些扩展。
 

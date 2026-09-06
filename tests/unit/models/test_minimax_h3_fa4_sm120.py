@@ -12,6 +12,8 @@ from chitu_diffusion.parallel.cp.attention_backend import (
 
 
 def _sm120_fa4_available() -> bool:
+    if find_spec("flash_attn") is None:
+        return False
     return (
         torch.cuda.is_available()
         and torch.cuda.get_device_capability() == (12, 0)

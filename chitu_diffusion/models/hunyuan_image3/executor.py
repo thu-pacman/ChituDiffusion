@@ -468,6 +468,7 @@ class HunyuanImage3ExecutorFactory:
             context,
             attention_mode="ulysses",
             ulysses_degree=plan.context_parallel_degree,
+            fast_lane_width=plan.context_parallel_degree,
         )
         runtime = HunyuanImage3ParallelRuntime(
             plan=plan,

@@ -8,6 +8,7 @@ from chitu_diffusion.parallel.cp.attention_backend import (
     create_varlen_attention_backend,
 )
 from chitu_diffusion.parallel.cp.packed_usp import (
+    all_gather_packed_kv,
     all_to_all_packed_output,
     all_to_all_packed_qkv,
 )
@@ -20,6 +21,22 @@ from chitu_diffusion.parallel.tp.topology import get_tp_world_size
 
 from .config import MiniMaxH3DiTConfig
 from .rope import apply_rope
+
+
+def _local_cu_seqlens(
+    cu_seqlens: torch.Tensor,
+    *,
+    rank: int,
+    local_tokens: int,
+) -> torch.Tensor:
+    """Intersect global packed segments with one contiguous equal-size shard."""
+
+    offset = int(rank) * int(local_tokens)
+    stop = offset + int(local_tokens)
+    starts = cu_seqlens[:-1].clamp(min=offset, max=stop)
+    ends = cu_seqlens[1:].clamp(min=offset, max=stop)
+    lengths = (ends - starts).clamp_min(0)
+    return torch.cat((torch.zeros_like(cu_seqlens[:1]), lengths.cumsum(0)))
 
 
 class MiniMaxH3Attention(nn.Module):
@@ -80,6 +97,7 @@ class MiniMaxH3Attention(nn.Module):
         cu_seqlens: torch.Tensor,
         max_seqlen: int,
         ulysses_topology: UspTopology | None = None,
+        attention_mode: str = "ulysses",
     ) -> torch.Tensor:
         token_count = hidden_states.shape[0]
         qkv, _ = self.qkv_proj(hidden_states)
@@ -92,18 +110,42 @@ class MiniMaxH3Attention(nn.Module):
         if rope_frequencies is not None:
             query = apply_rope(query, rope_frequencies)
             key = apply_rope(key, rope_frequencies)
-        if ulysses_topology is not None and ulysses_topology.ulysses_degree > 1:
+        parallel = (
+            ulysses_topology is not None and ulysses_topology.ulysses_degree > 1
+        )
+        if ulysses_topology is not None:
+            attention_mode = ulysses_topology.attention_mode
+        if attention_mode not in {"ulysses", "agkv"}:
+            raise ValueError("attention_mode must be 'ulysses' or 'agkv'")
+        query_cu = cu_seqlens
+        key_cu = None
+        query_max_seqlen = max_seqlen
+        if parallel and attention_mode == "ulysses":
             query, key, value = all_to_all_packed_qkv(
                 query, key, value, topology=ulysses_topology
             )
+        elif parallel:
+            key, value = all_gather_packed_kv(
+                key, value, topology=ulysses_topology
+            )
+            query_cu = _local_cu_seqlens(
+                cu_seqlens,
+                rank=ulysses_topology.ulysses_rank,
+                local_tokens=token_count,
+            )
+            query_max_seqlen = min(int(max_seqlen), token_count)
         output = self.backend.forward_varlen(
             query,
             key,
             value,
-            cu_seqlens=cu_seqlens,
-            max_seqlen=max_seqlen,
+            cu_seqlens=query_cu,
+            max_seqlen=query_max_seqlen,
+            cu_seqlens_k=key_cu if key_cu is not None else (
+                cu_seqlens if parallel and attention_mode == "agkv" else None
+            ),
+            max_seqlen_k=max_seqlen if parallel and attention_mode == "agkv" else None,
         )
-        if ulysses_topology is not None and ulysses_topology.ulysses_degree > 1:
+        if parallel and attention_mode == "ulysses":
             output = all_to_all_packed_output(
                 output, topology=ulysses_topology
             )

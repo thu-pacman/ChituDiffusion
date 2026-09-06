@@ -74,7 +74,7 @@ SymmetricHeapPool::acquire(const std::vector<int64_t>& shape,
         TORCH_CHECK(buf.peer_ptrs[i] != 0,
                     "nvshmem_ptr returned NULL for peer ",
                     i,
-                    " (non-P2P-reachable; full-mesh requires single-node NVLink).");
+                    " (non-P2P-reachable; Fast AGKV requires a single-node P2P group).");
 
     auto opts = at::TensorOptions().dtype(dtype).device(at::kCUDA, at::cuda::current_device());
     buf.view  = at::from_blob(p, shape, [](void*) {}, opts);

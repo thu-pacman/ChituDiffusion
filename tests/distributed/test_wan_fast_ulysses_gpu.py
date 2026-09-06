@@ -107,13 +107,13 @@ def test_wan_1_3b_full_fast_ulysses_benchmark() -> None:
         "torch",
         process_group=dist.group.WORLD,
         device=device,
-        static_full_world=True,
+        fast_eligible=True,
     )
     fast_transport = create_ulysses_transport(
         "fast_ulysses",
         process_group=dist.group.WORLD,
         device=device,
-        static_full_world=True,
+        fast_eligible=True,
     )
     active = SimpleNamespace(width=world_size, process_group=dist.group.WORLD)
     results = {}

@@ -261,17 +261,16 @@ class HunyuanImage3ParallelRuntime:
         num_experts: int,
         vae_parallel_degree: int | None = None,
         vae_parallel_halo: int = 8,
+        ulysses_transport: str | None = None,
+        agkv_transport: str | None = None,
     ) -> "HunyuanImage3ParallelRuntime":
-        # Dense AGKV uses the generic transport adapter, but a lane narrower
-        # than the plane is NCCL-only. Ulysses remains a correctness fallback
-        # and also uses its explicit uneven exchange rather than a packed
-        # transport.
         context = EpeParallelContext.from_torchrun(
             allowed_widths=plan.lane_widths,
             tensor_parallel_degree=plan.tensor_parallel_degree,
             ulysses_degree=plan.context_parallel_degree,
-            ulysses_transport="torch",
-            agkv_transport="torch",
+            ulysses_transport=ulysses_transport,
+            agkv_transport=agkv_transport,
+            fast_lane_width=plan.context_parallel_degree,
         )
         return cls(
             plan=plan,

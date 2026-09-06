@@ -44,6 +44,7 @@ def build_stage_parallel_context(
     ulysses_degree: int | None = None,
     ulysses_transport: str | None = None,
     agkv_transport: str | None = None,
+    fast_lane_width: int | None = None,
 ) -> tuple[EpeParallelContext, int]:
     """Validate a host stage world and attach EPE to its process group.
 
@@ -51,6 +52,11 @@ def build_stage_parallel_context(
     own attention layer decides the exchange shape may override the mode, the
     degree, or a transport here, so it does not inherit the environment default
     and pay for a pool it never uses.
+
+    ``fast_lane_width`` names the one lane width per rank that may own a fast
+    transport, and defaults to the full tensor-parallel plane. A model that
+    splits that plane further -- CFG parallelism gives each branch half of it --
+    passes the width its attention actually exchanges over.
     """
 
     plan = context.cp
@@ -97,6 +103,7 @@ def build_stage_parallel_context(
         tensor_parallel_degree=context.tensor_parallel_degree,
         ulysses_transport=ulysses_transport,
         agkv_transport=agkv_transport,
+        fast_lane_width=fast_lane_width,
     )
     return parallel, local_rank
 

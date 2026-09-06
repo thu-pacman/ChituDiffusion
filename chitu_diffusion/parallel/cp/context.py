@@ -132,15 +132,19 @@ class EpeParallelContext:
         init_process_group: bool = True,
         backend: str | None = None,
         owns_process_group: bool | None = None,
-        ulysses_degree: int = 1,
+        ulysses_degree: int | None = 1,
         tensor_parallel_degree: int = 1,
         ulysses_transport: str | None = None,
         agkv_transport: str | None = None,
+        fast_lane_width: int | None = None,
     ) -> EpeParallelContext:
         world_size = int(os.environ.get("WORLD_SIZE", "1"))
         rank = int(os.environ.get("RANK", "0"))
         local_rank = int(os.environ.get("LOCAL_RANK", "0"))
         owns_world = False
+        # resolve_context_parallel_config leaves the degree unset in AGKV mode,
+        # where heads are never split.
+        ulysses_degree = 1 if ulysses_degree is None else int(ulysses_degree)
 
         if torch.cuda.is_available():
             torch.cuda.set_device(local_rank)
@@ -184,6 +188,17 @@ class EpeParallelContext:
             )
         requested_transport = resolve_ulysses_transport(ulysses_transport)
         requested_agkv_transport = resolve_agkv_transport(agkv_transport)
+        # A fast transport owns an NVSHMEM runtime, and one process can host
+        # only one of those, so exactly one lane per rank may claim it. Lanes of
+        # a single width partition their plane, so naming that width names one
+        # lane per rank. The default is the whole plane; a model that attends
+        # over a narrower lane -- CFG parallelism halves it -- names its own.
+        fast_width = cp_world_size if fast_lane_width is None else int(fast_lane_width)
+        if fast_width < 1 or cp_world_size % fast_width:
+            raise ValueError(
+                "fast_lane_width must be a positive divisor of the "
+                f"context-parallel world size {cp_world_size}, got {fast_width}"
+            )
 
         groups: dict[tuple[int, ...], object | None] = {}
         owned: list[object] = []
@@ -291,19 +306,15 @@ class EpeParallelContext:
             if rank not in lane:
                 continue
             process_group = process_group_for(lane)
-            plane_start = (lane[0] // cp_world_size) * cp_world_size
-            full_tp_plane = lane == tuple(
-                range(plane_start, plane_start + cp_world_size)
-            )
-            static_full_world = lane == world_ranks or full_tp_plane
+            fast_eligible = len(lane) == fast_width
             selected_ulysses_transport = (
-                requested_transport if static_full_world else "torch"
+                requested_transport if fast_eligible else "torch"
             )
             ulysses_lane_transport = create_ulysses_transport(
                 selected_ulysses_transport,
                 process_group=process_group,
                 device=device,
-                static_full_world=static_full_world,
+                fast_eligible=fast_eligible,
             )
             owned_ulysses_transports.append(ulysses_lane_transport)
             ulysses_topologies[lane] = UlyssesTopology(
@@ -314,13 +325,13 @@ class EpeParallelContext:
                 transport=ulysses_lane_transport,
             )
             selected_agkv_transport = (
-                requested_agkv_transport if static_full_world else "torch"
+                requested_agkv_transport if fast_eligible else "torch"
             )
             agkv_lane_transport = create_agkv_transport(
                 selected_agkv_transport,
                 process_group=process_group,
                 device=device,
-                static_full_world=static_full_world,
+                fast_eligible=fast_eligible,
             )
             agkv_transports[lane] = agkv_lane_transport
             owned_agkv_transports.append(agkv_lane_transport)
@@ -328,6 +339,7 @@ class EpeParallelContext:
                 usp_topologies[lane] = replace(
                     usp_topologies[lane],
                     ulysses_transport=ulysses_lane_transport,
+                    agkv_transport=agkv_lane_transport,
                 )
 
         cfg_topologies: dict[tuple[int, ...], CfgParallelTopology] = {}

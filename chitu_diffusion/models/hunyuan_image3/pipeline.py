@@ -450,7 +450,7 @@ class HunyuanImage3Pipeline:
         return None
 
     def close(self) -> None:
-        return None
+        self.runtime.context.close()
 
 
 __all__ = [

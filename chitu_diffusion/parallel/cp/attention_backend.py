@@ -28,6 +28,8 @@ class VarlenAttentionBackend(Protocol):
         *,
         cu_seqlens: torch.Tensor,
         max_seqlen: int,
+        cu_seqlens_k: torch.Tensor | None = None,
+        max_seqlen_k: int | None = None,
         causal: bool = False,
     ) -> torch.Tensor: ...
 
@@ -37,15 +39,23 @@ def _validate(
     key: torch.Tensor,
     value: torch.Tensor,
     cu_seqlens: torch.Tensor,
+    cu_seqlens_k: torch.Tensor | None = None,
 ) -> None:
     if query.ndim != 3 or key.ndim != 3 or value.ndim != 3:
         raise ValueError("varlen Q/K/V must use packed [tokens, heads, dim] layout")
-    if query.shape != key.shape or query.shape != value.shape:
-        raise ValueError("self-attention Q/K/V shapes must match")
+    if key.shape != value.shape:
+        raise ValueError("K/V shapes must match")
+    if query.shape[1:] != key.shape[1:]:
+        raise ValueError("Q/K/V head shapes must match")
+    cu_seqlens_k = cu_seqlens if cu_seqlens_k is None else cu_seqlens_k
     if cu_seqlens.ndim != 1 or cu_seqlens.numel() < 2:
         raise ValueError("cu_seqlens must be a one-dimensional cumulative array")
+    if cu_seqlens_k.ndim != 1 or cu_seqlens_k.numel() != cu_seqlens.numel():
+        raise ValueError("Q/K cumulative arrays must describe the same segments")
     if int(cu_seqlens[-1].item()) != query.shape[0]:
-        raise ValueError("cu_seqlens[-1] must equal the packed token count")
+        raise ValueError("cu_seqlens[-1] must equal the packed query token count")
+    if int(cu_seqlens_k[-1].item()) != key.shape[0]:
+        raise ValueError("cu_seqlens_k[-1] must equal the packed key token count")
 
 
 def _segment_ids(cu_seqlens: torch.Tensor, token_count: int) -> torch.Tensor:
@@ -64,23 +74,33 @@ class SdpaVarlenBackend:
         *,
         cu_seqlens: torch.Tensor,
         max_seqlen: int,
+        cu_seqlens_k: torch.Tensor | None = None,
+        max_seqlen_k: int | None = None,
         causal: bool = False,
     ) -> torch.Tensor:
-        del max_seqlen
-        _validate(query, key, value, cu_seqlens)
-        bounds = [int(value) for value in cu_seqlens.tolist()]
+        del max_seqlen, max_seqlen_k
+        key_cu = cu_seqlens if cu_seqlens_k is None else cu_seqlens_k
+        _validate(query, key, value, cu_seqlens, key_cu)
+        query_bounds = [int(value) for value in cu_seqlens.tolist()]
+        key_bounds = [int(value) for value in key_cu.tolist()]
         output = torch.empty_like(query)
-        for start, stop in zip(bounds[:-1], bounds[1:], strict=True):
-            if stop == start:
+        for q_start, q_stop, k_start, k_stop in zip(
+            query_bounds[:-1],
+            query_bounds[1:],
+            key_bounds[:-1],
+            key_bounds[1:],
+            strict=True,
+        ):
+            if q_stop == q_start:
                 continue
             segment = F.scaled_dot_product_attention(
-                query[start:stop].transpose(0, 1),
-                key[start:stop].transpose(0, 1),
-                value[start:stop].transpose(0, 1),
+                query[q_start:q_stop].transpose(0, 1),
+                key[k_start:k_stop].transpose(0, 1),
+                value[k_start:k_stop].transpose(0, 1),
                 dropout_p=0.0,
                 is_causal=causal,
             )
-            output[start:stop] = segment.transpose(0, 1)
+            output[q_start:q_stop] = segment.transpose(0, 1)
         return output
 
 
@@ -98,29 +118,34 @@ class FlexVarlenBackend:
         *,
         cu_seqlens: torch.Tensor,
         max_seqlen: int,
+        cu_seqlens_k: torch.Tensor | None = None,
+        max_seqlen_k: int | None = None,
         causal: bool = False,
     ) -> torch.Tensor:
-        del max_seqlen
-        _validate(query, key, value, cu_seqlens)
+        del max_seqlen, max_seqlen_k
+        key_cu = cu_seqlens if cu_seqlens_k is None else cu_seqlens_k
+        _validate(query, key, value, cu_seqlens, key_cu)
         from torch.nn.attention.flex_attention import (
             create_block_mask,
             flex_attention,
         )
 
-        token_count = query.shape[0]
-        document = _segment_ids(cu_seqlens.to(query.device), token_count)
+        query_count = query.shape[0]
+        key_count = key.shape[0]
+        query_document = _segment_ids(cu_seqlens.to(query.device), query_count)
+        key_document = _segment_ids(key_cu.to(query.device), key_count)
 
         def document_mask(batch, head, q_index, kv_index):
             del batch, head
-            visible = document[q_index] == document[kv_index]
+            visible = query_document[q_index] == key_document[kv_index]
             return visible & (q_index >= kv_index) if causal else visible
 
         block_mask = create_block_mask(
             document_mask,
             B=1,
             H=query.shape[1],
-            Q_LEN=token_count,
-            KV_LEN=token_count,
+            Q_LEN=query_count,
+            KV_LEN=key_count,
             device=str(query.device),
         )
         flex_impl = flex_attention
@@ -146,22 +171,28 @@ class Fa4VarlenBackend:
         *,
         cu_seqlens: torch.Tensor,
         max_seqlen: int,
+        cu_seqlens_k: torch.Tensor | None = None,
+        max_seqlen_k: int | None = None,
         causal: bool = False,
     ) -> torch.Tensor:
-        _validate(query, key, value, cu_seqlens)
+        key_cu = cu_seqlens if cu_seqlens_k is None else cu_seqlens_k
+        _validate(query, key, value, cu_seqlens, key_cu)
         if not query.is_cuda:
             raise RuntimeError("FlashAttention-4 requires CUDA")
         from flash_attn.cute.interface import flash_attn_varlen_func
 
-        cu = cu_seqlens.to(device=query.device, dtype=torch.int32).contiguous()
+        cu_q = cu_seqlens.to(device=query.device, dtype=torch.int32).contiguous()
+        cu_k = key_cu.to(device=query.device, dtype=torch.int32).contiguous()
         result = flash_attn_varlen_func(
             query.contiguous(),
             key.contiguous(),
             value.contiguous(),
-            cu_seqlens_q=cu,
-            cu_seqlens_k=cu,
+            cu_seqlens_q=cu_q,
+            cu_seqlens_k=cu_k,
             max_seqlen_q=int(max_seqlen),
-            max_seqlen_k=int(max_seqlen),
+            max_seqlen_k=int(
+                max_seqlen if max_seqlen_k is None else max_seqlen_k
+            ),
             causal=causal,
         )
         return result[0] if isinstance(result, tuple) else result
@@ -192,6 +223,8 @@ class AutoVarlenBackend:
         *,
         cu_seqlens: torch.Tensor,
         max_seqlen: int,
+        cu_seqlens_k: torch.Tensor | None = None,
+        max_seqlen_k: int | None = None,
         causal: bool = False,
     ) -> torch.Tensor:
         backend: VarlenAttentionBackend
@@ -214,6 +247,8 @@ class AutoVarlenBackend:
             value,
             cu_seqlens=cu_seqlens,
             max_seqlen=max_seqlen,
+            cu_seqlens_k=cu_seqlens_k,
+            max_seqlen_k=max_seqlen_k,
             causal=causal,
         )
 

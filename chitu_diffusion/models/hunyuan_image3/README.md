@@ -8,9 +8,9 @@ VAEP group, and
 the released prompt tokenization, conditioning-image encode, and input assembly
 stay on the official rank-synchronous path.
 
-The validated reference is single-node 8×RTX PRO 5000, SDPA attention, eager
-expert execution, and NCCL collectives. Both a distributed CLI and the static-CP
-EPE HTTP service share one pipeline implementation.
+The validated reference is single-node 8×RTX PRO 5000 with SDPA attention and
+eager expert execution. Native NCCL, Fast Ulysses, and Fast AGKV are selectable
+from both the distributed CLI and the static-CP EPE service.
 
 This is foundational support rather than complete feature coverage. The first
 release covers fixed-size Base text-to-image and the Instruct direct and
@@ -54,8 +54,9 @@ which is the cheapest shape in memory rather than the fastest.
   only K/V are padded by at most one token, gathered through the configured AGKV
   transport, and trimmed back into rank order. The output stays sequence-sharded,
   so there is no inverse all-to-all. `--attention-mode ulysses` is retained as a
-  correctness and performance fallback. The validated CP2 subgroup uses the
-  torch/NCCL transport; Fast AGKV still requires subgroup-capable NVSHMEM setup.
+  correctness and performance alternative. A fast transport binds to the lane
+  attention actually exchanges over, so the shipped CFG2/CP2 shape gives each
+  branch its own NVSHMEM runtime rather than falling back to NCCL.
 - Attention mask: read once per step rather than handed to every layer. A
   denoising step queries the generated image block, whose only restriction is
   the token that closes it, so those rows attend to a narrowed key sequence with
@@ -88,6 +89,22 @@ which is the cheapest shape in memory rather than the fastest.
 
 Single node, 8×RTX PRO 5000, 1024×1024, 50 steps, `guidance_scale=5.0`,
 `flow_shift=3.0`, seed 1234, warm cache.
+
+Fast CP acceptance used 20 denoise steps and latent output, median of three
+requests after one warmup. Every Fast output was bitwise identical to its NCCL
+counterpart.
+
+| Topology | Transport | NCCL | Fast | Gain |
+| --- | --- | --- | --- | --- |
+| TP2×CFG2×CP2×EP2 | Ulysses | 7516.0 ms | 7453.9 ms | 0.83% |
+| TP2×CFG2×CP2×EP2 | AGKV | 7244.6 ms | 7225.7 ms | 0.26% |
+| TP2×CFG1×CP4×EP4 | Ulysses | 8979.2 ms | 8933.4 ms | 0.51% |
+| TP2×CFG1×CP4×EP4 | AGKV | 8898.9 ms | 8795.2 ms | 1.16% |
+
+Choosing the topology matters more than choosing the transport here: CFG2×CP2
+is 18.6% faster than CFG1×CP4 whichever transport runs underneath. A CP2 lane
+exchanges half as much across one peer, so the transport has less to win back,
+and MoE execution dominates the step either way.
 
 | Path | Denoise | VAE decode | End to end |
 | --- | --- | --- | --- |
@@ -204,6 +221,11 @@ falling back.
   -m chitu_diffusion.commands.serve \
   --stage-config examples/stage-hunyuan-image3.yaml
 ```
+
+Use `examples/stage-hunyuan-image3-fast-cp.yaml` to put the shipped CFG2/CP2
+layout on Fast AGKV; its CP block also shows the Fast Ulysses alternative. The distributed
+CLI exposes the same choice through `--attention-mode`,
+`--ulysses-transport`, and `--agkv-transport`.
 
 The service takes the same geometry from `parallelism.model`
 (`tensor_parallel_degree`, `cfg_parallel_degree`, `expert_parallel_degree`) with

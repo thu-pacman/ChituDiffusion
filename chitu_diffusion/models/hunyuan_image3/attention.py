@@ -138,15 +138,31 @@ class ParallelSelfAttention(nn.Module):
 
         group = self.sequence_state.process_group
         use_agkv = self.sequence_state.runtime.plan.attention_mode == "agkv"
+        ulysses_transport = (
+            None
+            if use_agkv
+            else self.sequence_state.runtime.context.active_ulysses.transport
+        )
         if use_agkv:
             key, value = self.sequence_state.gather_kv(key, value)
         else:
             query = heads_to_sequence(
-                query, partition=partition, process_group=group
+                query,
+                partition=partition,
+                process_group=group,
+                transport=ulysses_transport,
             )
-            key = heads_to_sequence(key, partition=partition, process_group=group)
+            key = heads_to_sequence(
+                key,
+                partition=partition,
+                process_group=group,
+                transport=ulysses_transport,
+            )
             value = heads_to_sequence(
-                value, partition=partition, process_group=group
+                value,
+                partition=partition,
+                process_group=group,
+                transport=ulysses_transport,
             )
 
         if past_key_value is not None:
@@ -180,7 +196,10 @@ class ParallelSelfAttention(nn.Module):
 
         if not use_agkv:
             attention = sequence_to_heads(
-                attention, partition=partition, process_group=group
+                attention,
+                partition=partition,
+                process_group=group,
+                transport=ulysses_transport,
             )
         attention = attention.transpose(1, 2).reshape(batch, local_length, -1)
         return self.o_proj(attention), None, past_key_value

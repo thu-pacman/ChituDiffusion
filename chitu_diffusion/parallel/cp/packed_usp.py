@@ -100,3 +100,26 @@ def all_to_all_packed_output(
         .contiguous()
     )
 
+
+def all_gather_packed_kv(
+    key: torch.Tensor,
+    value: torch.Tensor,
+    *,
+    topology: UspTopology,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Gather packed ``[local_tokens, heads, dim]`` K/V over a pure CP lane."""
+
+    if key.shape != value.shape or key.ndim != 3:
+        raise ValueError("K/V must have identical [local_tokens, heads, dim] shapes")
+    if topology.ring_degree != 1:
+        raise ValueError("packed AGKV currently supports a pure CP lane only")
+    if topology.ulysses_degree == 1:
+        return key, value
+    transport = topology.agkv_transport
+    if transport is None:
+        raise RuntimeError("packed AGKV transport was not initialized")
+    gathered_key, gathered_value = transport.all_gather_kv(
+        key.unsqueeze(0), value.unsqueeze(0)
+    )
+    return gathered_key.squeeze(0), gathered_value.squeeze(0)
+

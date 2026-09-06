@@ -6,8 +6,10 @@
 #include "tma_ptx.cuh"
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <iostream>
 #include <nvshmemx.h>
 #include <unordered_map>
 
@@ -33,11 +35,6 @@ __host__ __device__ inline int rotation_step(int ws, int dst, int src)
 __host__ __device__ inline int source_chunk_slot(int ws, int dst, int src)
 {
     return ws - 1 - rotation_step(ws, dst, src);
-}
-
-__host__ __device__ inline int source_chunk_owner(int ws, int dst, int slot)
-{
-    return ((dst - (ws - 1 - slot)) % ws + ws) % ws;
 }
 
 template<int WS>
@@ -100,55 +97,6 @@ void launch_fast_agkv_ws(const void*                  key,
         rank);
 }
 
-template<int WS>
-__global__ void full_mesh_phase_copy_kernel(
-    const uint4* key,
-    const uint4* value,
-    AgkvPeers<WS> peers,
-    int64_t phase_vectors,
-    int64_t local_batch_vectors,
-    int64_t global_batch_vectors,
-    int64_t batch_count,
-    int phase,
-    int rank)
-{
-    const int64_t total = 2 * batch_count * phase_vectors;
-    for (int64_t work = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-         work < total;
-         work += static_cast<int64_t>(gridDim.x) * blockDim.x) {
-        const bool is_value = work >= batch_count * phase_vectors;
-        const int64_t local_work =
-            is_value ? work - batch_count * phase_vectors : work;
-        const int64_t batch = local_work / phase_vectors;
-        const int64_t within = local_work - batch * phase_vectors;
-        const int64_t source =
-            batch * local_batch_vectors
-            + static_cast<int64_t>(phase) * phase_vectors
-            + within;
-        // The destination is phase-major, then source-rank-major. Attention is
-        // invariant to a common K/V permutation, and this layout makes every
-        // published phase one contiguous S_local block for TMA.
-        const int64_t destination =
-            batch * global_batch_vectors
-            + static_cast<int64_t>(phase) * local_batch_vectors
-            + static_cast<int64_t>(rank) * phase_vectors
-            + within;
-        const uint4 item = is_value ? value[source] : key[source];
-#pragma unroll
-        for (int peer = 0; peer < WS; ++peer) {
-            auto* output = reinterpret_cast<uint4*>(
-                is_value ? peers.value[peer] : peers.key[peer]);
-            output[destination] = item;
-        }
-    }
-    __threadfence_system();
-}
-
-template<int WS>
-struct AgkvSlotOffsets {
-    int64_t vector[WS];
-};
-
 __global__ void u2fm2_remote_kv_copy_kernel(
     const uint4* key,
     const uint4* value,
@@ -210,178 +158,6 @@ __global__ void u2fm2_publish_remote_flags_kernel(
     const int slot = source_chunk_slot(4, dst, rank);
     auto* remote = reinterpret_cast<int32_t*>(peers.flag[dst]) + slot;
     asm volatile("st.release.sys.global.u32 [%0], %1;" :: "l"(remote), "r"(epoch) : "memory");
-}
-
-template<int WS>
-__global__ void source_chunk_copy_kernel(
-    const uint4* key,
-    const uint4* value,
-    AgkvPeers<WS> peers,
-    AgkvSlotOffsets<WS> slot_offsets,
-    int64_t local_vectors,
-    int64_t local_batch_vectors,
-    int64_t global_batch_vectors,
-    int rank)
-{
-    const int64_t total = 2 * local_vectors;
-    for (int64_t work = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-         work < total;
-         work += static_cast<int64_t>(gridDim.x) * blockDim.x) {
-        const bool is_value = work >= local_vectors;
-        const int64_t local = is_value ? work - local_vectors : work;
-        const int64_t batch = local / local_batch_vectors;
-        const int64_t within = local - batch * local_batch_vectors;
-        const uint4 item = is_value ? value[local] : key[local];
-#pragma unroll
-        for (int peer = 0; peer < WS; ++peer) {
-            if (peer != rank) {
-                const int64_t destination =
-                    batch * global_batch_vectors + slot_offsets.vector[peer] + within;
-                auto* output = reinterpret_cast<uint4*>(
-                    is_value ? peers.value[peer] : peers.key[peer]);
-                output[destination] = item;
-            }
-        }
-    }
-    __threadfence_system();
-}
-
-template<int WS>
-__global__ void publish_full_mesh_phase_kernel(
-    FlagPeers<WS> peers,
-    int phase,
-    int rank,
-    int32_t epoch)
-{
-    if (blockIdx.x == 0 && threadIdx.x == 0) {
-#pragma unroll
-        for (int peer = 0; peer < WS; ++peer) {
-            auto* flags = reinterpret_cast<int32_t*>(peers.flag[peer]);
-            flags[phase * WS + rank] = epoch;
-        }
-        __threadfence_system();
-    }
-}
-
-template<int WS>
-void publish_full_mesh_phase(
-    const std::vector<uint64_t>& flag_peers,
-    int phase,
-    int rank,
-    int32_t epoch,
-    cudaStream_t stream)
-{
-    FlagPeers<WS> peers;
-    for (int peer = 0; peer < WS; ++peer)
-        peers.flag[peer] = flag_peers[peer];
-    publish_full_mesh_phase_kernel<WS><<<1, 1, 0, stream>>>(
-        peers,
-        phase,
-        rank,
-        epoch);
-}
-
-template<int WS>
-__global__ void publish_source_chunk_kernel(
-    FlagPeers<WS> peers,
-    int rank,
-    int32_t epoch)
-{
-    if (blockIdx.x == 0 && threadIdx.x == 0) {
-#pragma unroll
-        for (int peer = 0; peer < WS; ++peer) {
-            if (peer != rank) {
-                const int slot = source_chunk_slot(WS, peer, rank);
-                auto* flags = reinterpret_cast<int32_t*>(peers.flag[peer]);
-                flags[slot] = epoch;
-            }
-        }
-        __threadfence_system();
-    }
-}
-
-template<int WS>
-void launch_source_chunk_ws(
-    const void* key,
-    const void* value,
-    const std::vector<uint64_t>& key_peers,
-    const std::vector<uint64_t>& value_peers,
-    const std::vector<uint64_t>& flag_peers,
-    const std::vector<int64_t>&  slot_vector_offsets,
-    int64_t batch,
-    int64_t local_batch_vectors,
-    int64_t global_batch_vectors,
-    int rank,
-    int32_t epoch,
-    cudaStream_t stream)
-{
-    AgkvPeers<WS> peers;
-    FlagPeers<WS> flags;
-    AgkvSlotOffsets<WS> slot_offsets;
-    for (int peer = 0; peer < WS; ++peer) {
-        peers.key[peer] = key_peers[peer];
-        peers.value[peer] = value_peers[peer];
-        flags.flag[peer] = flag_peers[peer];
-        slot_offsets.vector[peer] = slot_vector_offsets[peer];
-    }
-    constexpr int threads = 512;
-    const int64_t work = 2 * batch * local_batch_vectors;
-    const int blocks = static_cast<int>(std::max<int64_t>(
-        1,
-        std::min<int64_t>(
-            (work + threads - 1) / threads,
-            8LL * sm_count_cached())));
-    source_chunk_copy_kernel<WS><<<blocks, threads, 0, stream>>>(
-        static_cast<const uint4*>(key),
-        static_cast<const uint4*>(value),
-        peers,
-        slot_offsets,
-        batch * local_batch_vectors,
-        local_batch_vectors,
-        global_batch_vectors,
-        rank);
-    publish_source_chunk_kernel<WS><<<1, 1, 0, stream>>>(
-        flags,
-        rank,
-        epoch);
-}
-
-template<int WS>
-void launch_full_mesh_phase_ws(
-    const void* key,
-    const void* value,
-    const std::vector<uint64_t>& key_peers,
-    const std::vector<uint64_t>& value_peers,
-    int64_t batch,
-    int64_t local_batch_vectors,
-    int64_t global_batch_vectors,
-    int phase,
-    int rank,
-    cudaStream_t stream)
-{
-    AgkvPeers<WS> peers;
-    for (int peer = 0; peer < WS; ++peer) {
-        peers.key[peer] = key_peers[peer];
-        peers.value[peer] = value_peers[peer];
-    }
-    const int64_t phase_vectors = local_batch_vectors / WS;
-    constexpr int threads = 512;
-    const int64_t work = 2 * batch * phase_vectors;
-    const int blocks = static_cast<int>(std::max<int64_t>(
-        1,
-        std::min<int64_t>(
-            (work + threads - 1) / threads,
-            8LL * sm_count_cached())));
-    full_mesh_phase_copy_kernel<WS><<<blocks, threads, 0, stream>>>(
-        static_cast<const uint4*>(key),
-        static_cast<const uint4*>(value),
-        peers,
-        phase_vectors,
-        local_batch_vectors,
-        global_batch_vectors,
-        batch,
-        phase,
-        rank);
 }
 
 }  // namespace
@@ -499,6 +275,50 @@ void launch_fast_agkv(const void*                  key,
     }
 }
 
+namespace {
+
+// One rank's K/V shard as the source of a copy-engine transfer: either the
+// caller's packed input or a slot of the gathered buffer, which the layered
+// schedule reads back when it relays a shard it pulled across the socket.
+struct ShardSource {
+    const uint8_t* key;
+    const uint8_t* value;
+    int64_t        batch_stride;
+};
+
+struct AgkvCEGeometry {
+    int64_t batch;
+    int64_t local_batch_bytes;
+    int64_t global_batch_bytes;
+};
+
+// Publish one shard into `slot` of a destination's gathered buffer.
+void issue_shard(const ShardSource&    source,
+                 uint64_t              key_peer,
+                 uint64_t              value_peer,
+                 int                   slot,
+                 const AgkvCEGeometry& geometry,
+                 cudaStream_t          stream)
+{
+    for (int64_t item = 0; item < geometry.batch; ++item) {
+        const int64_t source_offset      = item * source.batch_stride;
+        const int64_t destination_offset = item * geometry.global_batch_bytes
+                                           + static_cast<int64_t>(slot) * geometry.local_batch_bytes;
+        ULYSSES_CUDA_CHECK(cudaMemcpyAsync(reinterpret_cast<uint8_t*>(key_peer) + destination_offset,
+                                           source.key + source_offset,
+                                           geometry.local_batch_bytes,
+                                           cudaMemcpyDefault,
+                                           stream));
+        ULYSSES_CUDA_CHECK(cudaMemcpyAsync(reinterpret_cast<uint8_t*>(value_peer) + destination_offset,
+                                           source.value + source_offset,
+                                           geometry.local_batch_bytes,
+                                           cudaMemcpyDefault,
+                                           stream));
+    }
+}
+
+}  // namespace
+
 void launch_fast_agkv_ce(const void*                  key,
                          const void*                  value,
                          const std::vector<uint64_t>& key_peers,
@@ -509,42 +329,73 @@ void launch_fast_agkv_ce(const void*                  key,
                          int64_t                      head_dim,
                          int64_t                      elem_size,
                          int                          rank,
+                         const CESchedule&            schedule,
+                         const CENumaLayout&          layout,
                          const CEResources&           ce,
+                         const std::function<void()>& phase_barrier,
                          cudaStream_t                 stream)
 {
-    const int ws = static_cast<int>(key_peers.size());
-    const int64_t local_batch_bytes = sequence_local * heads * head_dim * elem_size;
-    const int64_t global_batch_bytes = ws * local_batch_bytes;
-    cudaEvent_t ready;
-    ULYSSES_CUDA_CHECK(cudaEventCreateWithFlags(&ready, cudaEventDisableTiming));
-    ULYSSES_CUDA_CHECK(cudaEventRecord(ready, stream));
-    for (int peer = 0; peer < ws; ++peer) {
-        cudaStream_t copy_stream = ce.streams[peer];
-        ULYSSES_CUDA_CHECK(cudaStreamWaitEvent(copy_stream, ready, 0));
-        for (int64_t item = 0; item < batch; ++item) {
-            const int64_t source_offset = item * local_batch_bytes;
-            const int64_t destination_offset =
-                item * global_batch_bytes + static_cast<int64_t>(rank) * local_batch_bytes;
-            ULYSSES_CUDA_CHECK(cudaMemcpyAsync(
-                reinterpret_cast<uint8_t*>(key_peers[peer]) + destination_offset,
-                static_cast<const uint8_t*>(key) + source_offset,
-                local_batch_bytes,
-                cudaMemcpyDefault,
-                copy_stream));
-            ULYSSES_CUDA_CHECK(cudaMemcpyAsync(
-                reinterpret_cast<uint8_t*>(value_peers[peer]) + destination_offset,
-                static_cast<const uint8_t*>(value) + source_offset,
-                local_batch_bytes,
-                cudaMemcpyDefault,
-                copy_stream));
+    const int            ws = static_cast<int>(key_peers.size());
+    const AgkvCEGeometry geometry{batch,
+                                  sequence_local * heads * head_dim * elem_size,
+                                  ws * sequence_local * heads * head_dim * elem_size};
+    const ShardSource    own{static_cast<const uint8_t*>(key),
+                             static_cast<const uint8_t*>(value),
+                             geometry.local_batch_bytes};
+    // ce.streams holds one stream per rank; the schedule uses a prefix of them
+    // for remote destinations and the next one for the local copy.
+    const int remote_streams = std::max(1, std::min(schedule.remote_streams, std::max(ws - 1, 1)));
+    const int local_slot     = ws > 1 ? remote_streams : 0;
+    const int used_slots     = local_slot + 1;
+
+    if (!schedule.layered) {
+        fork_ce_streams(ce, used_slots, stream);
+        int remote = 0;
+        for (int step = 0; step < ws; ++step) {
+            const int peer = ce_peer_at(rank, step, ws);
+            const int slot = peer == rank ? local_slot : remote++ % remote_streams;
+            issue_shard(own, key_peers[peer], value_peers[peer], rank, geometry, ce.streams[slot]);
         }
-        cudaEvent_t done;
-        ULYSSES_CUDA_CHECK(cudaEventCreateWithFlags(&done, cudaEventDisableTiming));
-        ULYSSES_CUDA_CHECK(cudaEventRecord(done, copy_stream));
-        ULYSSES_CUDA_CHECK(cudaStreamWaitEvent(stream, done, 0));
-        ULYSSES_CUDA_CHECK(cudaEventDestroy(done));
+        join_ce_streams(ce, used_slots, stream);
+        return;
     }
-    ULYSSES_CUDA_CHECK(cudaEventDestroy(ready));
+
+    // Layered: cross the socket once, then replicate inside the NUMA node.
+    const int partner = layout.partner;
+    fork_ce_streams(ce, used_slots, stream);
+    issue_shard(own, key_peers[rank], value_peers[rank], rank, geometry, ce.streams[local_slot]);
+    issue_shard(own, key_peers[partner], value_peers[partner], rank, geometry, ce.streams[0]);
+    join_ce_streams(ce, used_slots, stream);
+    // The relay below reads the slot the partner just wrote, so every rank has
+    // to see the exchange complete before it forwards.
+    phase_barrier();
+
+    const ShardSource relayed{
+        reinterpret_cast<const uint8_t*>(key_peers[rank]) + partner * geometry.local_batch_bytes,
+        reinterpret_cast<const uint8_t*>(value_peers[rank]) + partner * geometry.local_batch_bytes,
+        geometry.global_batch_bytes};
+    fork_ce_streams(ce, used_slots, stream);
+    const int    width = static_cast<int>(layout.block.size());
+    const size_t index = std::find(layout.block.begin(), layout.block.end(), rank) - layout.block.begin();
+    int          remote = 0;
+    for (int step = 1; step < width; ++step) {
+        // Rotating inside the block keeps every relay on this rank's node and
+        // makes each step a permutation of it, so no receiver is a hot spot.
+        const int peer = layout.block[(index + static_cast<size_t>(step)) % layout.block.size()];
+        issue_shard(own,
+                    key_peers[peer],
+                    value_peers[peer],
+                    rank,
+                    geometry,
+                    ce.streams[remote++ % remote_streams]);
+        issue_shard(relayed,
+                    key_peers[peer],
+                    value_peers[peer],
+                    partner,
+                    geometry,
+                    ce.streams[remote++ % remote_streams]);
+    }
+    join_ce_streams(ce, used_slots, stream);
 }
 
 std::tuple<at::Tensor, at::Tensor> all_gather_kv_4d(
@@ -590,19 +441,32 @@ std::tuple<at::Tensor, at::Tensor> all_gather_kv_4d(
     const auto& value_buffer =
         group->pool().acquire(output_shape, value.scalar_type(), value_tag);
     if (use_ce) {
-        launch_fast_agkv_ce(
-            key.data_ptr(),
-            value.data_ptr(),
-            key_buffer.peer_ptrs,
-            value_buffer.peer_ptrs,
-            batch,
-            sequence_local,
-            heads,
-            head_dim,
-            elem_size,
-            static_cast<int>(group->rank()),
-            group->ce_resources(),
-            stream);
+        const int           rank          = static_cast<int>(group->rank());
+        const CENumaLayout& layout        = group->ce_numa_layout(key_buffer.peer_ptrs);
+        const auto          phase_barrier = [&group, stream] { group->fast_barrier(stream); };
+        auto                launch        = [&](const CESchedule& schedule) {
+            launch_fast_agkv_ce(key.data_ptr(),
+                                value.data_ptr(),
+                                key_buffer.peer_ptrs,
+                                value_buffer.peer_ptrs,
+                                batch,
+                                sequence_local,
+                                heads,
+                                head_dim,
+                                elem_size,
+                                rank,
+                                schedule,
+                                layout,
+                                group->ce_resources(),
+                                phase_barrier,
+                                stream);
+        };
+        const CEScheduleKey schedule_key{
+            static_cast<int64_t>(CEPath::all_gather), batch, sequence_local, heads, head_dim, elem_size};
+        const CESchedule&   schedule = group->resolve_ce_schedule(schedule_key, [&] {
+            return tune_ce_schedule(*group, layout.layered, launch, phase_barrier, stream);
+        });
+        launch(schedule);
     }
     else {
         launch_fast_agkv(
@@ -736,7 +600,7 @@ static void gate_on_consumed(
         status == CUDA_SUCCESS,
         "cuStreamWaitValue32 failed (",
         static_cast<int>(status),
-        "); full-mesh streaming needs stream memory operations");
+        "); Fast AGKV transports need stream memory operations");
 }
 
 static void stream_write_value32(
@@ -753,25 +617,12 @@ static void stream_write_value32(
         status == CUDA_SUCCESS,
         "cuStreamWriteValue32 failed (",
         static_cast<int>(status),
-        "); full-mesh streaming needs stream memory operations");
+        "); Fast AGKV transports need stream memory operations");
 }
 
 struct LogicalBarrierPeers {
     uint64_t pointers[8];
 };
-
-__global__ void publish_consumed_kernel(
-    LogicalBarrierPeers peers,
-    int peer_count,
-    int rank,
-    int32_t epoch)
-{
-    const int peer = threadIdx.x;
-    if (peer >= peer_count || peer == rank)
-        return;
-    auto* remote = reinterpret_cast<int32_t*>(peers.pointers[peer]) + rank;
-    asm volatile("st.release.sys.global.u32 [%0], %1;" :: "l"(remote), "r"(epoch) : "memory");
-}
 
 __global__ void logical_subgroup_barrier_kernel(
     uint64_t* local,
@@ -827,451 +678,6 @@ static void launch_logical_subgroup_barrier(
         logical_rank,
         static_cast<uint64_t>(epoch));
     ULYSSES_CUDA_CHECK(cudaGetLastError());
-}
-
-static int64_t chunk_start(int64_t length, int chunks, int chunk)
-{
-    return length * chunk / chunks;
-}
-
-static int64_t chunk_length(int64_t length, int chunks, int chunk)
-{
-    return chunk_start(length, chunks, chunk + 1)
-        - chunk_start(length, chunks, chunk);
-}
-
-// Physical order is [chunk][rotated source]. Within every chunk the local
-// source is highest, and chunks are consumed in descending order.
-static int64_t segment_token_offset(
-    const std::vector<int64_t>& source_lengths,
-    int                         ws,
-    int                         dst,
-    int                         src,
-    int                         chunks,
-    int                         chunk)
-{
-    const int target = source_chunk_slot(ws, dst, src);
-    int64_t offset = 0;
-    for (int prior_chunk = 0; prior_chunk < chunk; ++prior_chunk)
-        for (int slot = 0; slot < ws; ++slot)
-            offset += chunk_length(
-                source_lengths[source_chunk_owner(ws, dst, slot)],
-                chunks,
-                prior_chunk);
-    for (int slot = 0; slot < target; ++slot)
-        offset += chunk_length(
-            source_lengths[source_chunk_owner(ws, dst, slot)],
-            chunks,
-            chunk);
-    return offset;
-}
-
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> full_mesh_stream_kv_4d(
-    const c10::intrusive_ptr<UlyssesGroup>& group,
-    at::Tensor                              key,
-    at::Tensor                              value,
-    std::vector<int64_t>                    source_lengths,
-    std::string                             key_tag,
-    std::string                             value_tag,
-    std::string                             flag_tag,
-    int64_t                                 epoch,
-    bool                                    use_sm,
-    bool                                    source_chunk,
-    int64_t                                 chunk_count,
-    bool                                    copy_local)
-{
-    key = key.contiguous();
-    value = value.contiguous();
-    TORCH_CHECK(key.is_cuda() && key.dim() == 4, "key must be a 4D CUDA tensor");
-    TORCH_CHECK(value.sizes() == key.sizes(), "value shape must match key");
-    TORCH_CHECK(value.scalar_type() == key.scalar_type(), "value dtype must match key");
-    TORCH_CHECK(
-        key.scalar_type() == at::kHalf || key.scalar_type() == at::kBFloat16,
-        "full-mesh streaming supports float16 or bfloat16");
-    TORCH_CHECK(
-        key_tag != value_tag && key_tag != flag_tag && value_tag != flag_tag,
-        "K/V/flag tags must be distinct");
-    TORCH_CHECK(epoch > 0 && epoch <= INT32_MAX, "epoch must fit a positive int32");
-
-    const int ws = static_cast<int>(group->world_size());
-    TORCH_CHECK(ws == 2 || ws == 4 || ws == 8, "world_size must be 2, 4, or 8");
-    TORCH_CHECK(
-        chunk_count >= 1 && chunk_count <= 4,
-        "chunk_count must be in [1, 4]");
-    TORCH_CHECK(
-        source_chunk || chunk_count == 1,
-        "chunk_count only applies to source-chunk streaming");
-    TORCH_CHECK(
-        !use_sm || chunk_count == 1,
-        "chunked source streaming currently requires the Copy Engine path");
-    TORCH_CHECK(
-        copy_local || (ws == 2 && source_chunk && chunk_count == 1 && !use_sm),
-        "remote-only full-mesh transport requires CP2 C1 source chunks on Copy Engines");
-    const int rank = static_cast<int>(group->rank());
-    const int64_t batch = key.size(0);
-    const int64_t sequence_local = key.size(1);
-    const int64_t heads = key.size(2);
-    const int64_t head_dim = key.size(3);
-    TORCH_CHECK(
-        static_cast<int>(source_lengths.size()) == ws,
-        "source_lengths must have one entry per rank");
-    TORCH_CHECK(
-        source_lengths[rank] == sequence_local,
-        "source_lengths[rank] must match key.size(1)");
-    int64_t global_sequence = 0;
-    for (int src = 0; src < ws; ++src) {
-        TORCH_CHECK(
-            source_lengths[src] >= chunk_count,
-            "every source must contain at least chunk_count tokens");
-        global_sequence += source_lengths[src];
-    }
-    const int64_t row_bytes = heads * head_dim * key.element_size();
-    TORCH_CHECK(
-        row_bytes % 16 == 0,
-        "heads * head_dim * itemsize must be 16-byte aligned");
-    const int64_t local_batch_bytes = sequence_local * row_bytes;
-    const int64_t global_batch_bytes = global_sequence * row_bytes;
-    const int64_t phase_bytes = local_batch_bytes / ws;
-    const std::vector<int64_t> output_shape = {
-        batch,
-        global_sequence,
-        heads,
-        head_dim,
-    };
-    if (!source_chunk) {
-        // Phase striping interleaves equal-size stripes from every source, so it
-        // is the one layout that still needs an even split. Source-chunk
-        // streaming keeps whole shards contiguous and tolerates any lengths.
-        TORCH_CHECK(
-            global_sequence == sequence_local * ws
-                && local_batch_bytes % (16 * ws) == 0,
-            "phase-striped full-mesh streaming needs an even, "
-            "16-byte-aligned split across ranks");
-    }
-
-    const at::cuda::CUDAGuard guard(key.device());
-    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-    const auto& key_buffer =
-        group->pool().acquire(output_shape, key.scalar_type(), key_tag);
-    const auto& value_buffer =
-        group->pool().acquire(output_shape, value.scalar_type(), value_tag);
-    const std::vector<int64_t> flag_shape =
-        source_chunk
-        ? std::vector<int64_t>{chunk_count, ws}
-        : std::vector<int64_t>{ws, ws};
-    bool flags_created = false;
-    const auto& flag_buffer =
-        group->pool().acquire(flag_shape, at::kInt, flag_tag, &flags_created);
-    bool acks_created = false;
-    const auto& ack_buffer =
-        group->pool().acquire({ws}, at::kInt, consumed_tag(flag_tag), &acks_created);
-    at::Tensor epoch_guard = at::full(
-        {1},
-        static_cast<int32_t>(epoch),
-        key.options().dtype(at::kInt));
-    if (flags_created || acks_created) {
-        if (flags_created)
-            ULYSSES_CUDA_CHECK(cudaMemsetAsync(
-                flag_buffer.view.data_ptr(),
-                0,
-                static_cast<size_t>(flag_buffer.view.numel() * sizeof(int32_t)),
-                stream));
-        if (acks_created)
-            ULYSSES_CUDA_CHECK(cudaMemsetAsync(
-                ack_buffer.view.data_ptr(),
-                0,
-                static_cast<size_t>(ws * sizeof(int32_t)),
-                stream));
-        group->fast_barrier(stream);
-    }
-    const int32_t* acks_local = ack_buffer.view.data_ptr<int32_t>();
-
-    if (source_chunk) {
-        cudaEvent_t ready;
-        ULYSSES_CUDA_CHECK(cudaEventCreateWithFlags(&ready, cudaEventDisableTiming));
-        ULYSSES_CUDA_CHECK(cudaEventRecord(ready, stream));
-
-        if (copy_local) {
-            for (int chunk = static_cast<int>(chunk_count) - 1; chunk >= 0; --chunk) {
-                const int64_t source_token =
-                    chunk_start(sequence_local, static_cast<int>(chunk_count), chunk);
-                const int64_t tokens =
-                    chunk_length(sequence_local, static_cast<int>(chunk_count), chunk);
-                const int64_t destination_token = segment_token_offset(
-                    source_lengths, ws, rank, rank,
-                    static_cast<int>(chunk_count), chunk);
-                for (int64_t batch_idx = 0; batch_idx < batch; ++batch_idx) {
-                    const int64_t source_offset =
-                        batch_idx * local_batch_bytes + source_token * row_bytes;
-                    const int64_t destination_offset =
-                        batch_idx * global_batch_bytes + destination_token * row_bytes;
-                    ULYSSES_CUDA_CHECK(cudaMemcpyAsync(
-                        reinterpret_cast<uint8_t*>(key_buffer.peer_ptrs[rank])
-                            + destination_offset,
-                        static_cast<const uint8_t*>(key.data_ptr()) + source_offset,
-                        tokens * row_bytes,
-                        cudaMemcpyDefault,
-                        stream));
-                    ULYSSES_CUDA_CHECK(cudaMemcpyAsync(
-                        reinterpret_cast<uint8_t*>(value_buffer.peer_ptrs[rank])
-                            + destination_offset,
-                        static_cast<const uint8_t*>(value.data_ptr()) + source_offset,
-                        tokens * row_bytes,
-                        cudaMemcpyDefault,
-                        stream));
-                }
-                const int slot = chunk * ws + (ws - 1);
-                stream_write_value32(
-                    stream,
-                    flag_buffer.view.data_ptr<int32_t>() + slot,
-                    static_cast<int32_t>(epoch));
-            }
-        }
-
-        if (use_sm) {
-            cudaStream_t comm_stream = group->ce_resources().streams[rank];
-            ULYSSES_CUDA_CHECK(cudaStreamWaitEvent(comm_stream, ready, 0));
-            for (int peer = 0; peer < ws; ++peer)
-                if (peer != rank)
-                    gate_on_consumed(comm_stream, acks_local, peer, epoch);
-            const int64_t local_batch_vectors = local_batch_bytes / 16;
-            const int64_t global_batch_vectors = global_batch_bytes / 16;
-            std::vector<int64_t> slot_vector_offsets(ws, 0);
-            for (int peer = 0; peer < ws; ++peer) {
-                slot_vector_offsets[peer] =
-                    segment_token_offset(source_lengths, ws, peer, rank, 1, 0)
-                    * row_bytes / 16;
-            }
-            if (ws == 2) {
-                launch_source_chunk_ws<2>(
-                    key.data_ptr(), value.data_ptr(),
-                    key_buffer.peer_ptrs, value_buffer.peer_ptrs,
-                    flag_buffer.peer_ptrs, slot_vector_offsets, batch,
-                    local_batch_vectors, global_batch_vectors, rank,
-                    static_cast<int32_t>(epoch), comm_stream);
-            } else if (ws == 4) {
-                launch_source_chunk_ws<4>(
-                    key.data_ptr(), value.data_ptr(),
-                    key_buffer.peer_ptrs, value_buffer.peer_ptrs,
-                    flag_buffer.peer_ptrs, slot_vector_offsets, batch,
-                    local_batch_vectors, global_batch_vectors, rank,
-                    static_cast<int32_t>(epoch), comm_stream);
-            } else {
-                launch_source_chunk_ws<8>(
-                    key.data_ptr(), value.data_ptr(),
-                    key_buffer.peer_ptrs, value_buffer.peer_ptrs,
-                    flag_buffer.peer_ptrs, slot_vector_offsets, batch,
-                    local_batch_vectors, global_batch_vectors, rank,
-                    static_cast<int32_t>(epoch), comm_stream);
-            }
-        } else {
-            const auto& ce = group->ce_resources();
-            for (int step = 1; step < ws; ++step) {
-                const int peer = (rank + step) % ws;
-                cudaStream_t copy_stream = ce.streams[peer];
-                ULYSSES_CUDA_CHECK(cudaStreamWaitEvent(copy_stream, ready, 0));
-                gate_on_consumed(copy_stream, acks_local, peer, epoch);
-                for (int chunk = static_cast<int>(chunk_count) - 1;
-                     chunk >= 0;
-                     --chunk) {
-                    const int64_t source_token = chunk_start(
-                        sequence_local, static_cast<int>(chunk_count), chunk);
-                    const int64_t tokens = chunk_length(
-                        sequence_local, static_cast<int>(chunk_count), chunk);
-                    const int64_t destination_token = segment_token_offset(
-                        source_lengths, ws, peer, rank,
-                        static_cast<int>(chunk_count), chunk);
-                    for (int64_t batch_idx = 0; batch_idx < batch; ++batch_idx) {
-                        const int64_t source_offset =
-                            batch_idx * local_batch_bytes + source_token * row_bytes;
-                        const int64_t destination_offset =
-                            batch_idx * global_batch_bytes
-                            + destination_token * row_bytes;
-                        ULYSSES_CUDA_CHECK(cudaMemcpyAsync(
-                            reinterpret_cast<uint8_t*>(key_buffer.peer_ptrs[peer])
-                                + destination_offset,
-                            static_cast<const uint8_t*>(key.data_ptr()) + source_offset,
-                            tokens * row_bytes,
-                            cudaMemcpyDefault,
-                            copy_stream));
-                        ULYSSES_CUDA_CHECK(cudaMemcpyAsync(
-                            reinterpret_cast<uint8_t*>(value_buffer.peer_ptrs[peer])
-                                + destination_offset,
-                            static_cast<const uint8_t*>(value.data_ptr()) + source_offset,
-                            tokens * row_bytes,
-                            cudaMemcpyDefault,
-                            copy_stream));
-                    }
-                    const int slot =
-                        chunk * ws + source_chunk_slot(ws, peer, rank);
-                    stream_write_value32(
-                        copy_stream,
-                        reinterpret_cast<int32_t*>(
-                            flag_buffer.peer_ptrs[peer]) + slot,
-                        static_cast<int32_t>(epoch));
-                }
-            }
-        }
-        ULYSSES_CUDA_CHECK(cudaGetLastError());
-        ULYSSES_CUDA_CHECK(cudaEventDestroy(ready));
-        return {
-            key_buffer.view,
-            value_buffer.view,
-            flag_buffer.view,
-            epoch_guard,
-        };
-    }
-
-    if (use_sm) {
-        for (int peer = 0; peer < ws; ++peer)
-            if (peer != rank)
-                gate_on_consumed(stream, acks_local, peer, epoch);
-        const int64_t local_batch_vectors = local_batch_bytes / 16;
-        const int64_t global_batch_vectors = ws * local_batch_vectors;
-        for (int phase = ws - 1; phase >= 0; --phase) {
-            if (ws == 2) {
-                launch_full_mesh_phase_ws<2>(
-                    key.data_ptr(), value.data_ptr(),
-                    key_buffer.peer_ptrs, value_buffer.peer_ptrs,
-                    batch, local_batch_vectors, global_batch_vectors,
-                    phase, rank, stream);
-                publish_full_mesh_phase<2>(
-                    flag_buffer.peer_ptrs, phase, rank,
-                    static_cast<int32_t>(epoch), stream);
-            } else if (ws == 4) {
-                launch_full_mesh_phase_ws<4>(
-                    key.data_ptr(), value.data_ptr(),
-                    key_buffer.peer_ptrs, value_buffer.peer_ptrs,
-                    batch, local_batch_vectors, global_batch_vectors,
-                    phase, rank, stream);
-                publish_full_mesh_phase<4>(
-                    flag_buffer.peer_ptrs, phase, rank,
-                    static_cast<int32_t>(epoch), stream);
-            } else {
-                launch_full_mesh_phase_ws<8>(
-                    key.data_ptr(), value.data_ptr(),
-                    key_buffer.peer_ptrs, value_buffer.peer_ptrs,
-                    batch, local_batch_vectors, global_batch_vectors,
-                    phase, rank, stream);
-                publish_full_mesh_phase<8>(
-                    flag_buffer.peer_ptrs, phase, rank,
-                    static_cast<int32_t>(epoch), stream);
-            }
-        }
-        ULYSSES_CUDA_CHECK(cudaGetLastError());
-        return {
-            key_buffer.view,
-            value_buffer.view,
-            flag_buffer.view,
-            epoch_guard,
-        };
-    }
-
-    // CE streams are independent of SM occupancy. Each source publishes one
-    // slot in every destination's [phase, source] flag matrix only after its
-    // K/V stripe has arrived, so attention needs no barrier kernel.
-    cudaEvent_t ready;
-    ULYSSES_CUDA_CHECK(cudaEventCreateWithFlags(&ready, cudaEventDisableTiming));
-    ULYSSES_CUDA_CHECK(cudaEventRecord(ready, stream));
-    const auto& ce = group->ce_resources();
-    for (int peer = 0; peer < ws; ++peer) {
-        cudaStream_t copy_stream = ce.streams[peer];
-        ULYSSES_CUDA_CHECK(cudaStreamWaitEvent(copy_stream, ready, 0));
-        if (peer != rank)
-            gate_on_consumed(copy_stream, acks_local, peer, epoch);
-        for (int phase = ws - 1; phase >= 0; --phase) {
-            for (int64_t batch_idx = 0; batch_idx < batch; ++batch_idx) {
-                const int64_t source_offset =
-                    batch_idx * local_batch_bytes + phase * phase_bytes;
-                const int64_t destination_offset =
-                    batch_idx * global_batch_bytes
-                    + static_cast<int64_t>(phase) * local_batch_bytes
-                    + static_cast<int64_t>(rank) * phase_bytes;
-                ULYSSES_CUDA_CHECK(cudaMemcpyAsync(
-                    reinterpret_cast<uint8_t*>(key_buffer.peer_ptrs[peer])
-                        + destination_offset,
-                    static_cast<const uint8_t*>(key.data_ptr()) + source_offset,
-                    phase_bytes,
-                    cudaMemcpyDefault,
-                    copy_stream));
-                ULYSSES_CUDA_CHECK(cudaMemcpyAsync(
-                    reinterpret_cast<uint8_t*>(value_buffer.peer_ptrs[peer])
-                        + destination_offset,
-                    static_cast<const uint8_t*>(value.data_ptr()) + source_offset,
-                    phase_bytes,
-                    cudaMemcpyDefault,
-                    copy_stream));
-            }
-            stream_write_value32(
-                copy_stream,
-                reinterpret_cast<int32_t*>(flag_buffer.peer_ptrs[peer])
-                    + phase * ws + rank,
-                static_cast<int32_t>(epoch));
-        }
-        cudaEvent_t done;
-        ULYSSES_CUDA_CHECK(cudaEventCreateWithFlags(&done, cudaEventDisableTiming));
-        ULYSSES_CUDA_CHECK(cudaEventRecord(done, copy_stream));
-        ULYSSES_CUDA_CHECK(cudaStreamWaitEvent(stream, done, 0));
-        ULYSSES_CUDA_CHECK(cudaEventDestroy(done));
-    }
-    ULYSSES_CUDA_CHECK(cudaEventDestroy(ready));
-    return {
-        key_buffer.view,
-        value_buffer.view,
-        flag_buffer.view,
-        epoch_guard,
-    };
-}
-
-at::Tensor full_mesh_wait_ready(
-    at::Tensor flags,
-    int64_t   index,
-    int64_t   epoch)
-{
-    TORCH_CHECK(
-        flags.is_cuda() && flags.scalar_type() == at::kInt,
-        "full-mesh flags must be a CUDA int32 tensor");
-    TORCH_CHECK(index >= 0 && index < flags.numel(), "flag index is out of bounds");
-    TORCH_CHECK(epoch > 0 && epoch <= INT32_MAX, "epoch must fit a positive int32");
-    const at::cuda::CUDAGuard guard(flags.device());
-    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-    const CUresult status = cuStreamWaitValue32(
-        stream,
-        reinterpret_cast<CUdeviceptr>(flags.data_ptr<int32_t>() + index),
-        static_cast<cuuint32_t>(epoch),
-        CU_STREAM_WAIT_VALUE_GEQ);
-    TORCH_CHECK(
-        status == CUDA_SUCCESS,
-        "cuStreamWaitValue32 failed (",
-        static_cast<int>(status),
-        "); full-mesh streaming needs stream memory operations");
-    return flags;
-}
-
-at::Tensor full_mesh_publish_consumed(
-    const c10::intrusive_ptr<UlyssesGroup>& group,
-    std::string                             flag_tag,
-    int64_t                                 epoch,
-    at::Tensor                              epoch_guard)
-{
-    TORCH_CHECK(epoch > 0 && epoch <= INT32_MAX, "epoch must fit a positive int32");
-    TORCH_CHECK(
-        epoch_guard.is_cuda() && epoch_guard.scalar_type() == at::kInt
-            && epoch_guard.numel() == 1,
-        "epoch_guard must be a single-element int32 CUDA tensor");
-    const int ws   = static_cast<int>(group->world_size());
-    const int rank = static_cast<int>(group->rank());
-    const at::cuda::CUDAGuard guard(epoch_guard.device());
-    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-    const auto& ack_buffer =
-        group->pool().acquire({ws}, at::kInt, consumed_tag(flag_tag));
-    LogicalBarrierPeers peers{};
-    for (int peer = 0; peer < ws; ++peer)
-        peers.pointers[peer] = ack_buffer.peer_ptrs[peer];
-    publish_consumed_kernel<<<1, 32, 0, stream>>>(
-        peers, ws, rank, static_cast<int32_t>(epoch));
-    ULYSSES_CUDA_CHECK(cudaGetLastError());
-    return ack_buffer.view;
 }
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, std::vector<int64_t>>
@@ -1598,9 +1004,14 @@ at::Tensor logical_subgroup_all_to_all_single_4d_ce(
         logical_ptrs[i] = buffer.peer_ptrs[peer_ranks[i]] + storage_index * slot_bytes;
     const at::cuda::CUDAGuard guard(input.device());
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    // Untuned, unlike the group-wide op: a logical subgroup has no collective barrier of
+    // its own to time candidates against, and ranks in different subgroups do not run
+    // this call in lockstep, so the group-wide reduction that keeps the tuner's barriers
+    // aligned is unavailable here. Keep the stream-per-peer fan-out.
+    const CESchedule schedule{std::max(logical_ws - 1, 1), false};
     launch_a2a_ce(
         input.data_ptr(), logical_ptrs, dims, static_cast<int>(mode),
-        static_cast<int>(input.element_size()), group->ce_resources(), stream);
+        static_cast<int>(input.element_size()), schedule, group->ce_resources(), stream);
     return buffer.view[storage_index].view(out_shape);
 }
 

@@ -1134,9 +1134,14 @@ class MiniMaxH3ExecutorFactory:
     cost_profile_path: str | None = None
 
     def build(self, context: ExecutorBuildContext) -> MiniMaxH3LatentExecutor:
-        if context.cp.attention_mode != "ulysses":
-            raise ValueError("MiniMax-H3 currently requires attention_mode='ulysses'")
-        parallel, local_rank = build_stage_parallel_context(context)
+        # The packed model always needs a pure CP topology. The selected mode
+        # decides whether attention transposes QKV with Ulysses or gathers K/V;
+        # both fast transports are initialized on the same static lane.
+        parallel, local_rank = build_stage_parallel_context(
+            context,
+            attention_mode="ulysses",
+            ulysses_degree=context.cp.ulysses_degree or context.cp.world_size,
+        )
         device = (
             torch.device("cuda", local_rank)
             if torch.cuda.is_available()
@@ -1194,6 +1199,7 @@ class MiniMaxH3ExecutorFactory:
             parallel,
             flow_shift=self.flow_shift,
             audio_flow_shift=self.audio_flow_shift,
+            attention_mode=context.cp.attention_mode,
         )
         scheduling = EpeSchedulingModule(
             parallel,

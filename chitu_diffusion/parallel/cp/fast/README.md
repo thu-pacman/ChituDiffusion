@@ -42,12 +42,9 @@ Fast AGKV 让每个 rank 保留自己的 Q 分片，并接收所有 rank 的 K/V
 
 K/V 能放入显存且序列较长时，Fast AGKV 通常是三种实现中延迟最低的方案。
 
-代码提供两个 AGKV 接口。`FastAgkvAttention` 把 Full-Mesh K/V 传输和 CuTe
-attention 合并，当前用于 benchmark 和研究。`FastAgkvTransport` 只负责 K/V
-传输，可以通过 `--agkv-transport fast_agkv` 接入现有 attention 后端。
-
-Full-Mesh 默认使用单 chunk fixed scheduler。多 chunk 和 ready-mask scheduler
-的 H20 结果比默认实现慢 0.4% 到 3.3%，所以只保留实验接口。
+Fast AGKV 已统一为 `FastAgkvTransport`，负责 K/V 传输并通过
+`--agkv-transport fast_agkv` 接入现有 attention 后端。原独立 Full-Mesh fused
+attention 实验路径已合并后删除，不再维护第二套 AGKV API。
 
 ## Fast Ulysses
 
@@ -79,6 +76,47 @@ H20 的统一评测中，Fast Ring 没有在任何已测序列长度和 CP degre
 它目前用于测试 Ring 通信与 attention 重叠，以及评估低显存方案。模型 pipeline
 不会自动选择 Fast Ring。
 
+## RTX PRO 5000 CP4/CP8 通信带宽
+
+![RTX PRO 5000 CP4 and CP8 Fast CP transport bandwidth](../../../../docs/assets/fast_cp/fast-cp-pro5000-bandwidth.svg)
+
+Fast CE 在 CP4 接近 `51 GiB/s`，跨 NUMA 的 CP8 中 Fast AGKV CE 仍稳定在约
+`42 GiB/s`，两种 Fast transport 均明显优于对应 NCCL 路径。
+
+## 与其它并行方式组合
+
+Fast transport 持有一个 NVSHMEM runtime，一个进程只能有一个，所以每个 rank 只有
+一条 lane 可以用 Fast。context 用 `fast_lane_width` 指定这条 lane 的宽度：同一宽度
+的 lane 正好把 TP plane 划分完，因此指定宽度就等于每个 rank 指定一条 lane。默认值
+是整个 TP plane，attention 在更窄 lane 上交换的模型自己传入实际宽度。
+
+按此规则的组合边界：
+
+- TP：Fast lane 落在单个 TP plane 内，TP 的 all-reduce 仍走 NCCL，两者不冲突。
+- CFG：CFG2 把 plane 切成两条半宽 CP lane。Hunyuan Image 3 传入
+  `fast_lane_width=context_parallel_degree`，两条 CP2 lane 各自建立一个 NVSHMEM
+  runtime，CFG 分支之间的合并仍走 NCCL。
+- EP：expert dispatch 走自己的 all-to-all，与 CP lane 无关，不受影响。
+- VAEP：terminal decode 用独立的 VAE group，恒定走 NCCL。
+- 弹性 lane：Fast 只绑定一个宽度，scheduler 激活其它宽度的 lane 时自动回落 NCCL，
+  不会报错。因此 `policy: static_cp` 之外的配置得不到 Fast 收益。
+
+## 模型接入
+
+8×RTX PRO 5000 实测（20 步 1024×1024 或 71,424 token 视频 latent，中位数）：
+
+| 模型 | 拓扑 | Fast Ulysses | Fast AGKV |
+| --- | --- | --- | --- |
+| MiniMax-H3 | TP4×CP2 | -3.18% | -1.14% |
+| Hunyuan Image 3 | TP2×CFG2×CP2×EP2 | -0.83% | -0.26% |
+| Hunyuan Image 3 | TP2×CFG1×CP4×EP4 | -0.51% | -1.16% |
+
+所有 Fast 输出与对应 NCCL 输出 bitwise 相同。CP2 的交换量本来就小，收益低于
+CP4；但 CFG2×CP2×EP2 本身比 CFG1×CP4×EP4 快 18.6%，因此仍是 Hunyuan Image 3 的
+推荐拓扑。原始数据见
+[`pro5000-model-integration.json`](../../../../docs/assets/fast_cp/pro5000-model-integration.json)，
+复现命令为 `script/benchmark_model_fast_cp.py`。
+
 ## H20 单机结果
 
 下图使用同一组 1 GPU cuDNN latency 计算 speedup。CP2、CP4 和 CP8 的每个点取
@@ -94,7 +132,7 @@ Fast AGKV、Fast Ulysses、Fast Ring 中 latency 最低的实现。
 测试使用 BF16、`B=1`、`H=40`、`D=128` 和 dense non-causal attention。方阵中的
 latency 是所有 rank 中最慢 rank 的 median。
 
-运行 `python tools/plotting/fast_cp_scaling_matrix.py` 可以重新生成两张图。
+运行 `python tools/plotting/fast_cp_scaling_matrix.py` 可以重新生成两张 H20 图。
 
 ## 运行时接口
 
@@ -112,13 +150,12 @@ CHITU_ULYSSES_TRANSPORT=fast_ulysses
 CHITU_AGKV_TRANSPORT=fast_agkv
 ```
 
-这两个 AGKV 接口的含义不同。`fast_agkv` selector 选择
-`FastAgkvTransport`。Fused `FastAgkvAttention` 和 Fast Ring 需要由 benchmark
-或测试代码直接创建。
+`fast_agkv` selector 选择 `FastAgkvTransport`。Fast Ring 仍是独立实验路径，
+需要由 benchmark 或测试代码直接创建。
 
 ## 安装说明
 
-安装 Fast Ulysses 依赖并应用仓库中的 overlay：
+安装 Fast Ulysses 依赖，并把 `csrc/` 下的扩展源码装入 checkout：
 
 ```bash
 uv sync --extra fast-ulysses
@@ -131,24 +168,25 @@ CUDA 13 wheel 环境还需要 CCCL headers：
 uv pip install --python .venv/bin/python nvidia-cuda-cccl
 ```
 
-Fused Fast AGKV 还需要对 FlashAttention 源码应用 CuTe overlay：
-
-```bash
-python tools/install/install_full_mesh_cute.py refs/kernels/flash-attention
-python tools/install/install_fast_agkv.py refs/fast-ulysses
-```
-
-overlay 只修改指定的源码 checkout。应用 overlay 后，根据目标机器设置 CUDA
-toolkit、`NVSHMEM_HOME` 和运行时库路径，然后重新编译并安装 `fast-ulysses` 和
-FlashAttention。
+安装器只改动指定的源码 checkout。装入后，根据目标机器设置 CUDA toolkit、
+`NVSHMEM_HOME` 和运行时库路径，然后重新编译并安装 `fast-ulysses`。
 
 以下环境变量控制实验参数：
 
 - `CHITU_FAST_ULYSSES_POOL_BYTES` 设置 symmetric pool 大小，默认值为 2 GiB。
 - `CHITU_FAST_ULYSSES_USE_TMA=auto/0/1` 选择 TMA transport。
 - `CHITU_FAST_AGKV_POOL_BYTES` 设置 AGKV symmetric pool 大小。
-- `CHITU_FAST_AGKV_USE_CE=0/1` 控制 AGKV Copy Engine transport。
-- `CHITU_FAST_AGKV_ASYNC=auto/on/off` 控制 AGKV 通信与计算重叠策略。
+- `CHITU_FAST_AGKV_USE_CE=auto/on/off` 控制 AGKV Copy Engine transport。`auto`
+  由主机互连决定（`chitu_diffusion/parallel/interconnect.py`）：PCIe 主机上一张
+  GPU 的所有 peer 共用一个 egress 端口，CE 更快且不占 SM；NVLink 主机每个 peer
+  有独立链路，仍走 SM direct-write。探测失败时按 NVLink 处理。
+- `CHITU_FAST_AGKV_ASYNC=auto/on/off` 控制 AGKV 通信与计算重叠策略。`auto` 在走
+  CE 时始终重叠（CE 不从 attention 手里抢 SM），走 SM 时仅在 CP≤4 重叠。
+- `CHITU_FAST_ULYSSES_ASYNC_CE=0` 关闭 Ulysses 的异步 CE all-to-all（Wan
+  processor 用它把 Q/K 传输叠到后续 projection 之下）。同步路径始终走 SM kernel：
+  CE 单独跑更慢，只有叠在计算之下才有收益。
+- `FAST_ULYSSES_CE_TUNE_VERBOSE=1` 打印 CE 扇出调优结果（每个候选的 us/call 与
+  最终选择），用于在新主机上确认调度。扇出由扩展逐 shape 实测，不需要配置。
 
 H3 的 CE/projection overlap 实验因性能不及同步路径已回退；当前 H3 只使用同步
 Fast Ulysses。
@@ -158,7 +196,8 @@ Fast Ulysses。
 - `agkv_transport.py` 实现独立的 K/V gather transport。
 - `ulysses.py` 实现 Fast Ulysses transport、node runtime 和 logical subgroup。
 - `_runtime.py` 适配 Fast Ulysses 和 NVSHMEM 扩展。
-- `experimental/agkv.py` 实现 fused Full-Mesh Fast AGKV attention。
+- `csrc/` 存放本仓库自有的 CUDA/C++ 扩展源码，由 `install_fast_agkv.py` 装入
+  `fast-ulysses` checkout 后编译；详见 `csrc/README.md`。
 - `experimental/ring.py` 实现单节点 Fast Ring。
 - `experimental/_cute.py` 和 `experimental/_ring_merge.py` 支持实验 attention。
 

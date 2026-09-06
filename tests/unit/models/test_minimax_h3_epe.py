@@ -19,6 +19,8 @@ from chitu_diffusion.models.minimax_h3 import (
     pack_latent_tensors,
     unpack_latent_tensors,
 )
+from chitu_diffusion.models.minimax_h3.attention import _local_cu_seqlens
+from chitu_diffusion.parallel.cp.attention_backend import SdpaVarlenBackend
 from chitu_diffusion.parallel.cp.context import EpeParallelContext
 from chitu_diffusion.parallel.tp.topology import TensorParallelTopology
 from chitu_diffusion.serve.protocol import ImageGenerateRequest
@@ -107,13 +109,43 @@ def test_token_refiner_does_not_append_an_empty_varlen_segment() -> None:
     assert capture.max_seqlen == 64
 
 
+def test_h3_agkv_intersects_packed_segments_with_the_local_shard() -> None:
+    global_cu = torch.tensor([0, 5, 12])
+
+    assert _local_cu_seqlens(global_cu, rank=0, local_tokens=6).tolist() == [0, 5, 6]
+    assert _local_cu_seqlens(global_cu, rank=1, local_tokens=6).tolist() == [0, 0, 6]
+
+
+def test_varlen_sdpa_accepts_local_queries_and_global_agkv() -> None:
+    backend = SdpaVarlenBackend()
+    query = torch.randn(3, 2, 4)
+    key = torch.randn(6, 2, 4)
+    value = torch.randn_like(key)
+
+    output = backend.forward_varlen(
+        query,
+        key,
+        value,
+        cu_seqlens=torch.tensor([0, 2, 3]),
+        cu_seqlens_k=torch.tensor([0, 3, 6]),
+        max_seqlen=2,
+        max_seqlen_k=3,
+    )
+
+    assert output.shape == query.shape
+
+
 def test_h3_factory_uses_the_shared_ulysses_context_plan(monkeypatch) -> None:
     class ContextCaptured(Exception):
         pass
 
-    def capture_context(context):
+    def capture_context(context, **overrides):
         assert context.cp.attention_mode == "ulysses"
         assert context.cp.ulysses_degree == 4
+        assert overrides == {
+            "attention_mode": "ulysses",
+            "ulysses_degree": 4,
+        }
         raise ContextCaptured
 
     monkeypatch.setattr(
@@ -129,10 +161,31 @@ def test_h3_factory_uses_the_shared_ulysses_context_plan(monkeypatch) -> None:
         MiniMaxH3ExecutorFactory("unused").build(SimpleNamespace(cp=plan))
 
 
-def test_h3_factory_rejects_unsupported_attention_mode() -> None:
-    plan = ContextParallelPlan(world_size=4, attention_mode="agkv")
+def test_h3_factory_builds_pure_cp_topology_for_agkv(monkeypatch) -> None:
+    class ContextCaptured(Exception):
+        pass
 
-    with pytest.raises(ValueError, match="requires attention_mode='ulysses'"):
+    def capture_context(context, **overrides):
+        assert context.cp.attention_mode == "agkv"
+        assert context.cp.agkv_transport == "fast_agkv"
+        assert overrides == {
+            "attention_mode": "ulysses",
+            "ulysses_degree": 4,
+        }
+        raise ContextCaptured
+
+    monkeypatch.setattr(
+        h3_executor,
+        "build_stage_parallel_context",
+        capture_context,
+    )
+    plan = ContextParallelPlan(
+        world_size=4,
+        attention_mode="agkv",
+        agkv_transport="fast_agkv",
+    )
+
+    with pytest.raises(ContextCaptured):
         MiniMaxH3ExecutorFactory("unused").build(SimpleNamespace(cp=plan))
 
 

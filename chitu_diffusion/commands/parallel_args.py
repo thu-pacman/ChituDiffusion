@@ -13,7 +13,7 @@ def add_parallel_transport_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "Ulysses all-to-all transport. Defaults to CHITU_ULYSSES_TRANSPORT or "
-            "torch; fast_ulysses requires full-world, full-Ulysses static CP."
+            "torch; fast_ulysses requires a single-node static CP lane."
         ),
     )
     parser.add_argument(
@@ -22,7 +22,7 @@ def add_parallel_transport_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "AGKV K/V gather transport. Defaults to CHITU_AGKV_TRANSPORT or "
-            "torch; fast_agkv requires static full-world single-node CP."
+            "torch; fast_agkv requires a single-node static CP lane."
         ),
     )
 

@@ -1,7 +1,10 @@
 # Parallel
 
 该包按执行域分为 `cp`、`tp` 和 `vae`。模型必须从对应子包导入，不再从
-`chitu_diffusion.parallel` 根包导入符号。
+`chitu_diffusion.parallel` 根包导入符号。根包只放跨域共用的主机事实：
+`interconnect.py` 从驱动读出本机 GPU 之间的互连形态（有无 NVLink、每张卡的 NUMA
+节点），供需要在"铺开传输"和"串行传输"之间取舍的调度使用——PCIe 主机一张卡的所有
+peer 共用一个 egress 端口，NVLink 主机每个 peer 有独立链路，两者的最优调度相反。
 
 ## CP
 
@@ -9,6 +12,8 @@
 
 - `cp/nccl/`：Torch/NCCL K/V gather 与 Ulysses all-to-all，作为默认路径。
 - `cp/fast/`：单机 NVSHMEM Fast AGKV/Fast Ulysses；Fast Ring 等代码仅供实验。
+  AGKV 走 SM 还是 copy engine 由 `interconnect.py` 探测的互连决定。CUDA/C++
+  扩展源码在 `cp/fast/csrc/`。
 - `cp/context.py`：创建候选 lane group 并跟踪 active lane。
 - `cp/topology.py`：Ulysses/USP topology。
 - `cp/agkv_transport.py` 与 `cp/ulysses_transport.py`：transport 协议和 factory。

@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""Apply ChituDiffusion's Fast AGKV extension to a fast-ulysses checkout."""
+"""Apply ChituDiffusion's Fast CP sources to a fast-ulysses checkout.
+
+The sources live in ``chitu_diffusion/parallel/cp/fast/csrc`` and are copied
+over the checkout: they are ChituDiffusion's, not patches against upstream. Two
+files stay anchor-patched instead, because upstream owns them and we only add to
+them -- ``bindings.cpp`` (operator registrations plus the tuned copy-engine
+all-to-all body) and the two Python modules that have to follow the caller's
+process group.
+"""
 
 from __future__ import annotations
 
 import argparse
-import re
 import shutil
 from pathlib import Path
 
@@ -25,59 +32,10 @@ REGISTER_BLOCK = (
     "c10::DispatchKey::CompositeExplicitAutograd, "
     "&ulysses::all_gather_kv_4d);\n"
 )
-FULL_MESH_REGISTER_ANCHOR = (
+ALL_GATHER_REGISTER_ANCHOR = (
     '    m.impl("all_gather_kv_4d", '
     "c10::DispatchKey::CompositeExplicitAutograd, "
     "&ulysses::all_gather_kv_4d);\n"
-)
-FULL_MESH_REGISTER_BLOCK = (
-    "\n"
-    '    m.def("full_mesh_stream_kv_4d('
-    "__torch__.torch.classes.fast_ulysses.UlyssesGroup group, "
-    "Tensor key, Tensor value, int[] source_lengths, "
-    "str key_tag, str value_tag, str flag_tag, "
-    "int epoch, bool use_sm=False, bool source_chunk=False, int chunk_count=1, "
-    "bool copy_local=True) "
-    '-> (Tensor, Tensor, Tensor, Tensor)");\n'
-    '    m.impl("full_mesh_stream_kv_4d", '
-    "c10::DispatchKey::CompositeExplicitAutograd, "
-    "&ulysses::full_mesh_stream_kv_4d);\n"
-    "\n"
-    '    m.def("full_mesh_publish_consumed('
-    "__torch__.torch.classes.fast_ulysses.UlyssesGroup group, "
-    'str flag_tag, int epoch, Tensor epoch_guard) -> Tensor");\n'
-    '    m.impl("full_mesh_publish_consumed", '
-    "c10::DispatchKey::CompositeExplicitAutograd, "
-    "&ulysses::full_mesh_publish_consumed);\n"
-)
-NEW_FULL_MESH_SCHEMA = FULL_MESH_REGISTER_BLOCK.split("\n")[1] + "\n"
-# Bindings from earlier overlay revisions declare a narrower schema; rewrite
-# whichever one is present instead of tracking every historical spelling.
-FULL_MESH_SCHEMA_PATTERN = re.compile(
-    r'^[ \t]*m\.def\("full_mesh_stream_kv_4d\(.*?\);\n',
-    re.MULTILINE | re.DOTALL,
-)
-PUBLISH_REGISTER_ANCHOR = (
-    '    m.impl("full_mesh_stream_kv_4d", '
-    "c10::DispatchKey::CompositeExplicitAutograd, "
-    "&ulysses::full_mesh_stream_kv_4d);\n"
-)
-WAIT_REGISTER_BLOCK = (
-    "\n"
-    '    m.def("full_mesh_wait_ready('
-    'Tensor flags, int index, int epoch) -> Tensor");\n'
-    '    m.impl("full_mesh_wait_ready", '
-    "c10::DispatchKey::CompositeExplicitAutograd, "
-    "&ulysses::full_mesh_wait_ready);\n"
-)
-PUBLISH_REGISTER_BLOCK = (
-    "\n"
-    '    m.def("full_mesh_publish_consumed('
-    "__torch__.torch.classes.fast_ulysses.UlyssesGroup group, "
-    'str flag_tag, int epoch, Tensor epoch_guard) -> Tensor");\n'
-    '    m.impl("full_mesh_publish_consumed", '
-    "c10::DispatchKey::CompositeExplicitAutograd, "
-    "&ulysses::full_mesh_publish_consumed);\n"
 )
 RING_CE_REGISTER_BLOCK = (
     "\n"
@@ -148,24 +106,45 @@ HYBRID_SCHEMA_OLD = (
 HYBRID_SCHEMA_NEW = HYBRID_SCHEMA_OLD.replace(
     "int segment_stride)", "int segment_stride, int remote_blocks)"
 )
-CE_STREAMS_DEFAULT = """    if (!ce_ready_) {
-        ce_.streams.resize(world_size_);
-        for (int i = 0; i < world_size_; ++i)
-            ULYSSES_CUDA_CHECK(cudaStreamCreateWithFlags(&ce_.streams[i], cudaStreamNonBlocking));
-        ce_ready_ = true;
-    }
+# The copy-engine all-to-all takes the fan-out the shared CE tuner measured for
+# its transfer shape, instead of one stream per peer. Rationale and measurements:
+# chitu_diffusion/parallel/cp/fast/csrc/ce_schedule.cuh.
+CE_A2A_LAUNCH_OLD = """    launch_a2a_ce(input.data_ptr(),
+                  buf.peer_ptrs,
+                  dims,
+                  static_cast<int>(mode),
+                  static_cast<int>(input.element_size()),
+                  group->ce_resources(),
+                  stream);
 """
-CE_STREAMS_HIGH_PRIORITY = """    if (!ce_ready_) {
-        int least_priority = 0;
-        int greatest_priority = 0;
-        ULYSSES_CUDA_CHECK(cudaDeviceGetStreamPriorityRange(
-            &least_priority, &greatest_priority));
-        ce_.streams.resize(world_size_);
-        for (int i = 0; i < world_size_; ++i)
-            ULYSSES_CUDA_CHECK(cudaStreamCreateWithPriority(
-                &ce_.streams[i], cudaStreamNonBlocking, greatest_priority));
-        ce_ready_ = true;
-    }
+CE_A2A_LAUNCH_NEW = """    // Which fan-out wins depends on the host's interconnect, so it is measured once per
+    // transfer shape (ce_schedule.cuh). The tuning barriers stay in lockstep because
+    // every rank misses the same key on the same call under SPMD -- the same contract the
+    // TMA/non-TMA tuner on the kernel path relies on. No layered candidates here: the
+    // relay only works when every destination receives the same bytes, and in an
+    // all-to-all each one receives its own slice.
+    const int  elem          = static_cast<int>(input.element_size());
+    const auto phase_barrier = [&group, stream] { group->fast_barrier(stream); };
+    const auto launch        = [&](const CESchedule& schedule) {
+        launch_a2a_ce(input.data_ptr(),
+                      buf.peer_ptrs,
+                      dims,
+                      static_cast<int>(mode),
+                      elem,
+                      schedule,
+                      group->ce_resources(),
+                      stream);
+    };
+    const CEScheduleKey schedule_key{
+        static_cast<int64_t>(mode == 0 ? CEPath::all_to_all_mode_0 : CEPath::all_to_all_mode_1),
+        dims.b,
+        dims.s_local,
+        dims.n_local,
+        dims.d,
+        elem};
+    launch(group->resolve_ce_schedule(schedule_key, [&] {
+        return tune_ce_schedule(*group, /*layered_possible=*/false, launch, phase_barrier, stream);
+    }));
 """
 LOCAL_WORLD_REPLACEMENTS = (
     (
@@ -263,10 +242,9 @@ def _adapt_local_world_comm(text: str) -> str:
 
 def apply_overlay(checkout: Path, *, check_only: bool) -> bool:
     project_root = Path(__file__).resolve().parents[2]
-    overlay = project_root / "tools" / "overlays" / "fast_agkv"
+    sources = project_root / "chitu_diffusion" / "parallel" / "cp" / "fast" / "csrc"
     csrc = checkout.resolve() / "fast_ulysses" / "csrc"
     bindings = csrc / "bindings.cpp"
-    group_source = csrc / "ulysses_group.cu"
     comm_source = checkout.resolve() / "fast_ulysses" / "comm.py"
     init_source = checkout.resolve() / "fast_ulysses" / "__init__.py"
     if not bindings.is_file():
@@ -275,27 +253,22 @@ def apply_overlay(checkout: Path, *, check_only: bool) -> bool:
         )
 
     original = bindings.read_text(encoding="utf-8")
-    original_group = group_source.read_text(encoding="utf-8")
     original_comm = comm_source.read_text(encoding="utf-8")
     updated_comm = _adapt_local_world_comm(original_comm)
     original_init = init_source.read_text(encoding="utf-8")
     updated_init = original_init
     if SUBGROUP_FEATURE_MARKER not in updated_init:
         updated_init = updated_init.rstrip() + "\n" + SUBGROUP_FEATURE_MARKER
-    if CE_STREAMS_HIGH_PRIORITY in original_group:
-        updated_group = original_group
-    elif original_group.count(CE_STREAMS_DEFAULT) == 1:
-        updated_group = original_group.replace(
-            CE_STREAMS_DEFAULT, CE_STREAMS_HIGH_PRIORITY, 1
-        )
-    else:
-        raise RuntimeError("fast-ulysses CE stream creation anchor is missing")
     updated = _insert_once(
         original,
         INCLUDE_ANCHOR,
         INCLUDE_LINE,
         "C++ include",
     )
+    if CE_A2A_LAUNCH_NEW not in updated:
+        if updated.count(CE_A2A_LAUNCH_OLD) != 1:
+            raise RuntimeError("fast-ulysses CE all-to-all launch anchor is missing")
+        updated = updated.replace(CE_A2A_LAUNCH_OLD, CE_A2A_LAUNCH_NEW, 1)
     if 'm.def("all_gather_kv_4d(' not in updated:
         updated = _insert_once(
             updated,
@@ -303,46 +276,17 @@ def apply_overlay(checkout: Path, *, check_only: bool) -> bool:
             REGISTER_BLOCK,
             "operator registration",
         )
-    if 'm.def("full_mesh_stream_kv_4d(' not in updated:
-        updated = _insert_once(
-            updated,
-            FULL_MESH_REGISTER_ANCHOR,
-            FULL_MESH_REGISTER_BLOCK,
-            "full-mesh operator registration",
-        )
-    elif NEW_FULL_MESH_SCHEMA not in updated:
-        updated, count = FULL_MESH_SCHEMA_PATTERN.subn(
-            NEW_FULL_MESH_SCHEMA,
-            updated,
-            1,
-        )
-        if count != 1:
-            raise RuntimeError("failed to rewrite the full-mesh operator schema")
-    if 'm.def("full_mesh_wait_ready(' not in updated:
-        updated = _insert_once(
-            updated,
-            PUBLISH_REGISTER_ANCHOR,
-            WAIT_REGISTER_BLOCK,
-            "full-mesh wait registration",
-        )
-    if 'm.def("full_mesh_publish_consumed(' not in updated:
-        updated = _insert_once(
-            updated,
-            PUBLISH_REGISTER_ANCHOR,
-            PUBLISH_REGISTER_BLOCK,
-            "full-mesh consumed registration",
-        )
     if 'm.def("ring_ce_prepare_kv_4d(' not in updated:
         updated = _insert_once(
             updated,
-            PUBLISH_REGISTER_ANCHOR,
+            ALL_GATHER_REGISTER_ANCHOR,
             RING_CE_REGISTER_BLOCK,
             "Flash Ring CE registration",
         )
     if 'm.def("u2fm2_prepare_qkv(' not in updated:
         updated = _insert_once(
             updated,
-            PUBLISH_REGISTER_ANCHOR,
+            ALL_GATHER_REGISTER_ANCHOR,
             HYBRID_REGISTER_BLOCK,
             "U2xFM2 operator registration",
         )
@@ -351,14 +295,13 @@ def apply_overlay(checkout: Path, *, check_only: bool) -> bool:
             raise RuntimeError("failed to rewrite the U2xFM2 operator schema")
         updated = updated.replace(HYBRID_SCHEMA_OLD, HYBRID_SCHEMA_NEW, 1)
     source_pairs = [
-        (overlay / "fast_agkv.cu", csrc / "fast_agkv.cu"),
-        (overlay / "fast_agkv.cuh", csrc / "fast_agkv.cuh"),
-        (overlay / "symmetric_pool.cu", csrc / "symmetric_pool.cu"),
-        (overlay / "symmetric_pool.cuh", csrc / "symmetric_pool.cuh"),
+        (source, csrc / source.name)
+        for source in sorted(sources.glob("*.cu")) + sorted(sources.glob("*.cuh"))
     ]
+    if not source_pairs:
+        raise FileNotFoundError(f"no Fast CP sources found in {sources}")
     changed = (
         updated != original
-        or updated_group != original_group
         or updated_comm != original_comm
         or updated_init != original_init
         or any(
@@ -369,7 +312,6 @@ def apply_overlay(checkout: Path, *, check_only: bool) -> bool:
     if check_only:
         return changed
     bindings.write_text(updated, encoding="utf-8")
-    group_source.write_text(updated_group, encoding="utf-8")
     comm_source.write_text(updated_comm, encoding="utf-8")
     init_source.write_text(updated_init, encoding="utf-8")
     for source, destination in source_pairs:
@@ -394,7 +336,7 @@ def main() -> int:
     if args.check:
         return int(changed)
     print(
-        "Fast AGKV overlay "
+        "Fast CP sources "
         + ("updated" if changed else "already current")
         + f": {args.checkout}"
     )

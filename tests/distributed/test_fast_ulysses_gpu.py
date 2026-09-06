@@ -187,7 +187,7 @@ def test_fast_ulysses_model_shape_transport_benchmark(
             name,
             process_group=dist.group.WORLD,
             device=device,
-            static_full_world=True,
+            fast_eligible=True,
         )
         for name in ("torch", "fast_ulysses")
     }

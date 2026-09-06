@@ -1,0 +1,67 @@
+name: minimax_h3_fast_cp
+process: chitu_minimax_h3_fast_cp
+factory: minimax-h3
+gpu: [0, 1, 2, 3, 4, 5, 6, 7]
+terminal: true
+
+parallelism:
+  cp:
+    world_size: 2
+    # Fast Ulysses:
+    attention_mode: ulysses
+    ulysses_degree: 2
+    ulysses_transport: fast
+    # Fast AGKV alternative (replace the three Ulysses keys above):
+    # attention_mode: agkv
+    # agkv_transport: fast
+  model:
+    tensor_parallel_degree: 4
+  vae:
+    enabled: true
+  scheduler:
+    policy: elastic
+    allowed_lane_widths: [1, 2]
+    switch_allowed_until_step: 20
+    pulse_steps: 2
+    balanced_k: true
+    starvation_ms: 30000
+    deadline_guard_ms: 3000
+    max_inflight_requests: 4
+    max_pending_requests: 64
+    warmup_resolutions: [128]
+    warmup_steps: 3
+    online_calibration: true
+
+factory_args:
+  model_path: /dockerdata/MiniMax-H3/FL2VA/transformer
+  text_encoder_path: /dockerdata/MiniMax-H3/FL2VA/text_encoder
+  tokenizer_path: /dockerdata/MiniMax-H3/FL2VA/tokenizer
+  processor_path: /dockerdata/MiniMax-H3/FL2VA/processor
+  video_vae_path: /dockerdata/MiniMax-H3/FL2VA/video_vae
+  audio_vae_path: /dockerdata/MiniMax-H3/FL2VA/audio_vae
+  enable_native_media: true
+  qwen_num_layers: 50
+  ffmpeg_path: ffmpeg
+  default_duration_s: 5.0
+  default_fps: 24
+  default_output_type: mp4
+  warmup_media_profiles: []
+  num_steps: 20
+  default_width: 128
+  default_height: 128
+  latent_t: 4
+  audio_t: 8
+  audio_channels: 2
+  text_length: 64
+  attention_backend: auto
+  flow_shift: 12.0
+  audio_flow_shift: 3.0
+
+service:
+  host: 0.0.0.0
+  port: 18083
+  advertise_host: 127.0.0.1
+
+output_root: outputs/chitu-api/minimax-h3-fast-cp
+record_timeline: true
+postprocess_workers: 2

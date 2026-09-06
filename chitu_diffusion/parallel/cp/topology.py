@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .agkv_transport import AgkvTransport
     from .ulysses_transport import UlyssesTransport
 
 
@@ -32,3 +33,5 @@ class UspTopology:
     ulysses_process_group: object | None
     ring_process_group: object | None
     ulysses_transport: UlyssesTransport | None = None
+    agkv_transport: AgkvTransport | None = None
+    attention_mode: str = "ulysses"

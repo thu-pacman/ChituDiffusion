@@ -4,6 +4,7 @@
 #include <ATen/ATen.h>
 #include <cstdint>
 #include <cuda_runtime.h>
+#include <functional>
 #include <string>
 #include <torch/custom_class.h>
 #include <tuple>
@@ -32,6 +33,11 @@ void launch_fast_agkv(const void*                  key,
                       int                          rank,
                       cudaStream_t                 stream);
 
+// Copy-engine all-gather. `schedule` decides how many remote destinations may
+// be in flight and whether the socket boundary is crossed once and relayed;
+// `layout` names the peers a relay may go through; `phase_barrier` is only
+// invoked by the layered schedule, between the exchange and the relay, and must
+// be collective across the group.
 void launch_fast_agkv_ce(const void*                  key,
                          const void*                  value,
                          const std::vector<uint64_t>& key_peers,
@@ -42,7 +48,10 @@ void launch_fast_agkv_ce(const void*                  key,
                          int64_t                      head_dim,
                          int64_t                      elem_size,
                          int                          rank,
+                         const CESchedule&            schedule,
+                         const CENumaLayout&          layout,
                          const CEResources&           ce,
+                         const std::function<void()>& phase_barrier,
                          cudaStream_t                 stream);
 
 std::tuple<at::Tensor, at::Tensor> all_gather_kv_4d(
@@ -52,31 +61,6 @@ std::tuple<at::Tensor, at::Tensor> all_gather_kv_4d(
     std::string                             key_tag,
     std::string                             value_tag,
     bool                                    use_ce);
-
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> full_mesh_stream_kv_4d(
-    const c10::intrusive_ptr<UlyssesGroup>& group,
-    at::Tensor                              key,
-    at::Tensor                              value,
-    std::vector<int64_t>                    source_lengths,
-    std::string                             key_tag,
-    std::string                             value_tag,
-    std::string                             flag_tag,
-    int64_t                                 epoch,
-    bool                                    use_sm,
-    bool                                    source_chunk,
-    int64_t                                 chunk_count,
-    bool                                    copy_local);
-
-at::Tensor full_mesh_wait_ready(
-    at::Tensor flags,
-    int64_t   index,
-    int64_t   epoch);
-
-at::Tensor full_mesh_publish_consumed(
-    const c10::intrusive_ptr<UlyssesGroup>& group,
-    std::string                             flag_tag,
-    int64_t                                 epoch,
-    at::Tensor                              epoch_guard);
 
 // The trailing handles are the peer and local addresses every later phase
 // reuses: peer key, peer value, peer arrivals, local acks, and peer acks.

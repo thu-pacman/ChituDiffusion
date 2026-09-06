@@ -303,7 +303,7 @@ def test_fast_agkv_image_attention_integration() -> None:
         "fast_agkv",
         process_group=dist.group.WORLD,
         device=device,
-        static_full_world=True,
+        fast_eligible=True,
     )
     try:
         generator = torch.Generator(device=device).manual_seed(
@@ -341,4 +341,77 @@ def test_fast_agkv_image_attention_integration() -> None:
         transport.close()
         dist.barrier()
         if owned_world:
+            dist.destroy_process_group()
+
+
+@pytest.mark.gpu
+@pytest.mark.distributed
+@torch.inference_mode()
+def test_a_cfg_halved_lane_owns_the_fast_transport() -> None:
+    """CFG parallelism cuts the plane in two, and both halves stay on Fast AGKV.
+
+    Each half is its own NVSHMEM runtime, which is legal because a rank belongs
+    to exactly one of them.
+    """
+
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if world_size not in {4, 8} or not torch.cuda.is_available():
+        pytest.skip("a CFG-halved lane needs 4 or 8 GPUs")
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    owned_world = not dist.is_initialized()
+    if owned_world:
+        dist.init_process_group(
+            "nccl",
+            device_id=torch.device("cuda", local_rank),
+        )
+    device = torch.device("cuda", local_rank)
+
+    from chitu_diffusion.parallel.cp.context import (
+        EpeParallelContext,
+        cfg_parallel_rank_groups,
+    )
+    from chitu_diffusion.parallel.cp.nccl.agkv import all_gather_sequence_pair
+
+    half = world_size // 2
+    context = EpeParallelContext.from_torchrun(
+        allowed_widths=(1, half, world_size),
+        ulysses_degree=half,
+        owns_process_group=False,
+        agkv_transport="fast_agkv",
+        fast_lane_width=half,
+    )
+    try:
+        rank = dist.get_rank()
+        cp_groups, _ = cfg_parallel_rank_groups(tuple(range(world_size)))
+        lane = next(group for group in cp_groups if rank in group)
+        with context.activate(lane) as topology:
+            transport = context.active_agkv_transport
+            assert transport.name == "fast_agkv"
+            generator = torch.Generator(device=device).manual_seed(20260902 + rank)
+            key, value = [
+                torch.randn(
+                    1,
+                    128,
+                    8,
+                    128,
+                    dtype=torch.bfloat16,
+                    device=device,
+                    generator=generator,
+                )
+                for _ in range(2)
+            ]
+            gathered_key, gathered_value = transport.all_gather_kv(key, value)
+            expected_key, expected_value = all_gather_sequence_pair(
+                key, value, topology.process_group
+            )
+            assert gathered_key.shape[1] == half * key.shape[1]
+            torch.testing.assert_close(gathered_key, expected_key, rtol=0, atol=0)
+            torch.testing.assert_close(gathered_value, expected_value, rtol=0, atol=0)
+        # The plane the CFG branches were cut from is not the fast lane.
+        with context.activate(tuple(range(world_size))):
+            assert context.active_agkv_transport.name != "fast_agkv"
+    finally:
+        context.close()
+        if owned_world and dist.is_initialized():
             dist.destroy_process_group()

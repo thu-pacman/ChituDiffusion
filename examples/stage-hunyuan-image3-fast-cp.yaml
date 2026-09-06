@@ -1,0 +1,51 @@
+name: hunyuan_image3_fast_cp
+process: chitu_hunyuan_image3_fast_cp
+factory: hunyuan-image3
+gpu: [0, 1, 2, 3, 4, 5, 6, 7]
+terminal: true
+
+parallelism:
+  # Fast CP binds its NVSHMEM runtime to the lane attention exchanges over,
+  # which CFG parallelism halves: the TP plane is four ranks and each CFG
+  # branch attends over two of them.
+  cp:
+    world_size: 4
+    # Fast AGKV:
+    attention_mode: agkv
+    agkv_transport: fast
+    # Fast Ulysses alternative (replace the two AGKV keys above):
+    # attention_mode: ulysses
+    # ulysses_degree: 2
+    # ulysses_transport: fast
+  model:
+    tensor_parallel_degree: 2
+    cfg_parallel_degree: 2
+    expert_parallel_degree: 2
+  vae:
+    enabled: true
+    degree: 8
+  scheduler:
+    policy: static_cp
+    allowed_lane_widths: [1, 2, 4]
+    pulse_steps: 1
+    max_inflight_requests: 1
+    max_pending_requests: 32
+    warmup_resolutions: [1024]
+    warmup_steps: 3
+    online_calibration: true
+
+factory_args:
+  model_path: /dockerdata/HunyuanImage-3
+  default_height: 1024
+  default_width: 1024
+  num_steps: 50
+  guidance_scale: 5.0
+
+service:
+  host: 0.0.0.0
+  port: 18084
+  advertise_host: 127.0.0.1
+
+output_root: outputs/chitu-api/hunyuan-image3-fast-cp
+record_timeline: true
+postprocess_workers: 2

@@ -131,7 +131,7 @@ def create_ulysses_transport(
     *,
     process_group: object | None,
     device: torch.device,
-    static_full_world: bool,
+    fast_eligible: bool,
 ) -> UlyssesTransport:
     from .nccl.ulysses import TorchUlyssesTransport
 
@@ -139,10 +139,11 @@ def create_ulysses_transport(
     fallback = TorchUlyssesTransport(process_group)
     if requested == "torch":
         return fallback
-    if not static_full_world:
+    if not fast_eligible:
         if requested == "fast_ulysses":
             raise ValueError(
-                "fast_ulysses currently requires static full-world, full-Ulysses CP"
+                "fast_ulysses binds one NVSHMEM runtime to a single static lane, "
+                "so it is only built for lanes of the configured fast lane width"
             )
         return fallback
     ready, reason = _collect_fast_capability(

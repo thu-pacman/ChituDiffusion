@@ -1,0 +1,67 @@
+{
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+  "gpus": 8,
+  "methodology": {
+    "aggregation": "median of 3 measured requests after 1 warmup request; slowest-rank wall time",
+    "correctness": "Fast Ulysses and Fast AGKV outputs were bitwise identical to their matching NCCL outputs in every row",
+    "harness": "script/benchmark_model_fast_cp.py",
+    "hunyuan_image3": "1024x1024, 20 denoise steps, latent output",
+    "minimax_h3": "71424 video tokens, 1 denoise step, synthetic latent output"
+  },
+  "results": [
+    {
+      "fast_ms": 9309.437823295593,
+      "latency_reduction_percent": 3.183498238534915,
+      "mode": "ulysses",
+      "model": "minimax-h3",
+      "nccl_ms": 9615.518283098936,
+      "speedup": 1.0328786525289704,
+      "topology": "TP4xCP2"
+    },
+    {
+      "fast_ms": 9293.245758861303,
+      "latency_reduction_percent": 1.1368770838883324,
+      "mode": "agkv",
+      "model": "minimax-h3",
+      "nccl_ms": 9400.113366544247,
+      "speedup": 1.0114998447523825,
+      "topology": "TP4xCP2"
+    },
+    {
+      "fast_ms": 7453.871868550777,
+      "latency_reduction_percent": 0.8263956886762996,
+      "mode": "ulysses",
+      "model": "hunyuan-image3",
+      "nccl_ms": 7515.9835033118725,
+      "speedup": 1.0083325733731137,
+      "topology": "TP2xCFG2xCP2xEP2"
+    },
+    {
+      "fast_ms": 7225.6551291793585,
+      "latency_reduction_percent": 0.26183982046200234,
+      "mode": "agkv",
+      "model": "hunyuan-image3",
+      "nccl_ms": 7244.624321348965,
+      "speedup": 1.0026252766460214,
+      "topology": "TP2xCFG2xCP2xEP2"
+    },
+    {
+      "fast_ms": 8933.390689082444,
+      "latency_reduction_percent": 0.5097426232799129,
+      "mode": "ulysses",
+      "model": "hunyuan-image3",
+      "nccl_ms": 8979.161323048174,
+      "speedup": 1.005123549381854,
+      "topology": "TP2xCFG1xCP4xEP4"
+    },
+    {
+      "fast_ms": 8795.23022659123,
+      "latency_reduction_percent": 1.1647017426113747,
+      "mode": "agkv",
+      "model": "hunyuan-image3",
+      "nccl_ms": 8898.875664919615,
+      "speedup": 1.0117843652779285,
+      "topology": "TP2xCFG1xCP4xEP4"
+    }
+  ]
+}

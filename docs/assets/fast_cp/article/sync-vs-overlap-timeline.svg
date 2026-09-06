@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="760" viewBox="0 0 1320 760" role="img" aria-labelledby="title desc">
+  <title id="title">torch.distributed async 与本地 Attention 重叠的 profiler 实测</title>
+  <desc id="desc">在八张 RTX PRO 5000 上，同步执行 K/V all-gather 和本地 FlashAttention 需要约 69.75 毫秒，异步双流执行约 62.03 毫秒。</desc>
+  <defs>
+    <style>
+      .bg{fill:#f8fafc}.panel{fill:#fff;stroke:#cbd5e1;stroke-width:2}.title{fill:#0f172a;font:700 29px Inter,"Noto Sans SC",sans-serif}.subtitle{fill:#475569;font:400 16px Inter,"Noto Sans SC",sans-serif}.paneltitle{fill:#0f172a;font:700 21px Inter,"Noto Sans SC",sans-serif}.lane{fill:#334155;font:600 16px Inter,"Noto Sans SC",sans-serif}.bartext{fill:#0f172a;font:600 14px Inter,"Noto Sans SC",sans-serif}.small{fill:#475569;font:400 14px Inter,"Noto Sans SC",sans-serif}.metric{fill:#0f172a;font:700 19px Inter,"Noto Sans SC",sans-serif}.axis{stroke:#94a3b8;stroke-width:1.5}.grid{stroke:#e2e8f0;stroke-width:1}.comm{fill:#bfdbfe;stroke:#2563eb;stroke-width:2}.attn{fill:#bbf7d0;stroke:#059669;stroke-width:2}.idle{fill:#f1f5f9;stroke:#cbd5e1;stroke-width:1.5}.saved{fill:#fef3c7;stroke:#d97706;stroke-width:2}.badge{fill:#ecfdf5;stroke:#10b981;stroke-width:1.5}
+    </style>
+  </defs>
+  <rect class="bg" width="1320" height="760"/>
+  <text class="title" x="660" y="47" text-anchor="middle">torch.distributed async：与本地 Attention 重叠的实测</text>
+  <text class="subtitle" x="660" y="77" text-anchor="middle">8× RTX PRO 5000 · BF16 · CP8 · S=75,600 · H=40 · D=128 · 不包含 Q/K/V projection</text>
+
+  <g transform="translate(0,0)">
+    <rect x="35" y="105" width="1250" height="255" rx="18" class="panel"/>
+    <text class="paneltitle" x="65" y="140">同步：K/V gather 完成后才启动本地 FlashAttention</text>
+    <text class="lane" x="65" y="209">GPU stream</text>
+    <line x1="220" y1="220" x2="1180" y2="220" class="axis"/>
+    <rect x="220" y="180" width="422" height="58" rx="8" class="comm"/>
+    <text class="bartext" x="431" y="205" text-anchor="middle">NCCL all-gather K</text><text class="small" x="431" y="225" text-anchor="middle">35.18 ms</text>
+    <rect x="642" y="180" width="374" height="58" rx="8" class="comm"/>
+    <text class="bartext" x="829" y="205" text-anchor="middle">NCCL all-gather V</text><text class="small" x="829" y="225" text-anchor="middle">31.20 ms</text>
+    <rect x="1016" y="180" width="97" height="58" rx="8" class="attn"/>
+    <text class="bartext" x="1064" y="204" text-anchor="middle">Local FA</text><text class="small" x="1064" y="224" text-anchor="middle">8.05 ms</text>
+    <text class="small" x="220" y="268">上方 bar 来自 rank 0 的单次 PyTorch Profiler GPU trace</text>
+    <rect x="935" y="275" width="300" height="52" rx="12" class="saved"/>
+    <text class="metric" x="1085" y="307" text-anchor="middle">10 次中位延迟：69.75 ms</text>
+  </g>
+
+  <g transform="translate(0,285)">
+    <rect x="35" y="105" width="1250" height="285" rx="18" class="panel"/>
+    <text class="paneltitle" x="65" y="140">异步双流：本地 FlashAttention 与第一次 NCCL all-gather 并发</text>
+    <text class="lane" x="65" y="204">计算流</text><text class="lane" x="65" y="282">NCCL 流</text>
+    <line x1="220" y1="215" x2="1180" y2="215" class="axis"/><line x1="220" y1="293" x2="1180" y2="293" class="axis"/>
+    <rect x="222" y="176" width="100" height="57" rx="8" class="attn"/>
+    <text class="bartext" x="272" y="200" text-anchor="middle">Local FA</text><text class="small" x="272" y="220" text-anchor="middle">8.36 ms</text>
+    <rect x="322" y="176" width="644" height="57" rx="8" class="idle"/>
+    <text class="small" x="644" y="209" text-anchor="middle">本地 partial attention 已完成，等待远端 K/V</text>
+    <rect x="220" y="254" width="371" height="57" rx="8" class="comm"/>
+    <text class="bartext" x="405" y="278" text-anchor="middle">NCCL all-gather K</text><text class="small" x="405" y="298" text-anchor="middle">30.91 ms</text>
+    <rect x="591" y="254" width="375" height="57" rx="8" class="comm"/>
+    <text class="bartext" x="778" y="278" text-anchor="middle">NCCL all-gather V</text><text class="small" x="778" y="298" text-anchor="middle">31.21 ms</text>
+    <path d="M222 331 H322" stroke="#059669" stroke-width="6"/><text class="small" x="272" y="353" text-anchor="middle">已隐藏 8.36 ms</text>
+    <rect x="935" y="326" width="300" height="52" rx="12" class="badge"/>
+    <text class="metric" x="1085" y="358" text-anchor="middle">10 次中位延迟：62.03 ms</text>
+  </g>
+
+  <g>
+    <line x1="220" y1="682" x2="1180" y2="682" class="axis"/>
+    <g class="small" text-anchor="middle">
+      <text x="220" y="705">0</text><text x="340" y="705">10</text><text x="460" y="705">20</text><text x="580" y="705">30</text><text x="700" y="705">40</text><text x="820" y="705">50</text><text x="940" y="705">60</text><text x="1060" y="705">70</text>
+    </g>
+    <text class="small" x="1180" y="705" text-anchor="end">时间 / ms</text>
+    <text class="subtitle" x="660" y="738" text-anchor="middle">中位数：local attention 8.18 ms；async 后隐藏 7.89 ms（96.5%）。数据：torch-dist-async-profile-cp8.json</text>
+  </g>
+</svg>

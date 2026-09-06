@@ -1,0 +1,37 @@
+{
+  "date": "2026-09-06",
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+  "world_size": 8,
+  "torch": "2.10.0+cu130",
+  "cuda": "13.0",
+  "dtype": "bfloat16",
+  "global_sequence": 75600,
+  "local_sequence": 9450,
+  "heads": 40,
+  "head_dim": 128,
+  "experiment": "Two NCCL all_gather_into_tensor operations for K/V, overlapped with local FlashAttention over local Q/K/V. No Q/K/V projections are included.",
+  "iterations": 10,
+  "median_ms": {
+    "local_attention": 8.1751,
+    "nccl_sync_gather": 61.8452,
+    "nccl_async_gather_wait": 61.7434,
+    "sync_gather_then_local_attention": 69.7459,
+    "async_gather_with_local_attention": 62.0272
+  },
+  "derived": {
+    "hidden_ms": 7.8914,
+    "overlap_efficiency": 0.9653
+  },
+  "rank_0_profiler_trace_ms": {
+    "sync": [
+      {"name": "NCCL all-gather K", "start": 0.0, "duration": 35.183},
+      {"name": "NCCL all-gather V", "start": 35.185, "duration": 31.202},
+      {"name": "local FlashAttention", "start": 66.389, "duration": 8.049}
+    ],
+    "async": [
+      {"name": "NCCL all-gather K", "stream": "NCCL", "start": 0.0, "duration": 30.911},
+      {"name": "NCCL all-gather V", "stream": "NCCL", "start": 30.912, "duration": 31.209},
+      {"name": "local FlashAttention", "stream": "compute", "start": 0.142, "duration": 8.356}
+    ]
+  }
+}
