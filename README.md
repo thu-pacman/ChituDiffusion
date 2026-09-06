@@ -8,7 +8,7 @@
   <b>中文</b> &nbsp;·&nbsp; <a href="#english-version">English</a>
 </p>
 
-<h3 align="center">支持 TP、EPE、Fast CP、NCCL CP 与 FlexCache 的 Diffusers 推理运行时</h3>
+<h3 align="center">支持 EPE、Fast CP、NCCL CP 与 FlexCache 的 Diffusers 推理运行时</h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12--3.13-blue?logo=python" alt="Python">
@@ -59,24 +59,6 @@ DiT 执行与 tensor 布局。
 
 </td>
 </tr>
-<tr>
-<td width="50%" valign="top">
-
-### <a href="chitu_diffusion/parallel/README.md#tp">通用 Tensor Parallel</a>
-
-通过模型声明式 parallel plan 完成 linear、head 与 RMSNorm 切分，并从
-safetensors checkpoint 按 rank 直接加载分片，避免先加载完整权重。
-
-</td>
-<td width="50%" valign="top">
-
-### <a href="docs/usage/running.md">组合并行与常驻服务</a>
-
-支持按模型组合 TP、CP、CFG、EP 与独立 VAEP；静态生成和 EPE 服务共享模型
-executor、拓扑校验与 transport 配置。
-
-</td>
-</tr>
 </table>
 
 **支持模型**
@@ -118,12 +100,12 @@ executor、拓扑校验与 transport 配置。
 <tr>
 <td><a href="chitu_diffusion/models/wan/README.md">Wan 2.1 T2V</a></td>
 <td>文生视频</td>
-<td>TP（1.3B：2/4；14B：2/4/8）、NCCL/Fast CP、EPE executor、FlexCache profiles</td>
+<td>NCCL/Fast CP、EPE executor、FlexCache profiles</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/zimage/README.md">Z-Image</a></td>
 <td>文生图</td>
-<td>TP（2/3/5/6）、NCCL/Fast CP、统一 EPE 服务入口、FlexCache integration</td>
+<td>NCCL/Fast CP、统一 EPE 服务入口、FlexCache integration</td>
 </tr>
 </tbody>
 </table>
@@ -229,7 +211,7 @@ mkdocs build --strict
   <a href="#chitudiffusion">中文</a> &nbsp;·&nbsp; <b>English</b>
 </p>
 
-<h3 align="center">Diffusers inference with TP, EPE, Fast CP, NCCL CP, and FlexCache</h3>
+<h3 align="center">Diffusers inference with EPE, Fast CP, NCCL CP, and FlexCache</h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12--3.13-blue?logo=python" alt="Python">
@@ -284,25 +266,6 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 
 </td>
 </tr>
-<tr>
-<td width="50%" valign="top">
-
-### <a href="chitu_diffusion/parallel/README.md#tp">Shared Tensor Parallelism</a>
-
-Model-declared parallel plans shard linears, heads, and RMSNorm, while loading
-rank-local slices directly from safetensors checkpoints instead of materializing
-the full weights first.
-
-</td>
-<td width="50%" valign="top">
-
-### <a href="docs/usage/running.md">Composed parallelism and serving</a>
-
-Models can compose TP, CP, CFG, EP, and independent VAEP. Static generation and
-EPE serving share model executors, topology validation, and transport settings.
-
-</td>
-</tr>
 </table>
 
 **Supported models**
@@ -344,12 +307,12 @@ EPE serving share model executors, topology validation, and transport settings.
 <tr>
 <td><a href="chitu_diffusion/models/wan/README.md">Wan 2.1 T2V</a></td>
 <td>Text to video</td>
-<td>TP (1.3B: 2/4; 14B: 2/4/8), NCCL/Fast CP, EPE executor, and FlexCache profiles</td>
+<td>NCCL/Fast CP, EPE executor, and FlexCache profiles</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/zimage/README.md">Z-Image</a></td>
 <td>Text to image</td>
-<td>TP (2/3/5/6), NCCL/Fast CP, unified EPE serving, and FlexCache integration</td>
+<td>NCCL/Fast CP, unified EPE serving, and FlexCache integration</td>
 </tr>
 </tbody>
 </table>

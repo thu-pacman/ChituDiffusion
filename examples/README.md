@@ -11,10 +11,6 @@ under `chitu_diffusion.commands`.
 - `epe_embedded.py`: embedded EPE lifecycle without HTTP
 - `epe_serve.py`: pipeline-backed EPE HTTP service
 - `stage-zimage.yaml`: four-GPU `chitu serve` configuration
-- `stage-zimage-tp.yaml`: the same four GPUs as TP2 x CP2, using the shared
-  tensor-parallel plan
-- `stage-wan-tp.yaml`: eight-GPU `chitu serve` at TP2 x CP4, using the shared
-  tensor-parallel plan
 - `stage-minimax-h3.yaml`: eight-GPU elastic `chitu serve` at TP4×CP2
 - `stage-minimax-h3-fast-cp.yaml`: the same stage with selectable Fast Ulysses
   and Fast AGKV transport
