@@ -1,0 +1,38 @@
+name: video
+process: video
+factory: wan
+gpu: [0, 1, 2, 3, 4, 5, 6, 7]
+parallelism:
+  cp:
+    # A context-parallel lane lives inside one tensor-parallel plane, so
+    # cp.world_size * model.tensor_parallel_degree must equal the GPU count.
+    world_size: 4
+    attention_mode: agkv
+  model:
+    # Wan shards its attention and feed-forward projections through the shared
+    # tensor-parallel plan, which also reduces the across-heads qk-norm across
+    # shards. The degree has to divide both the head count and the
+    # feed-forward width, which leaves 2, 4, and 8 for 14B and 2 and 4 for
+    # 1.3B.
+    tensor_parallel_degree: 2
+    cfg_parallel_degree: 1
+  vae:
+    enabled: true
+  scheduler:
+    # Lanes are planned across the stage world and projected onto each plane,
+    # so keep the geometry fixed while tensor parallelism is on.
+    policy: static_cp
+    allowed_lane_widths: [1, 4]
+    warmup_resolutions: [480]
+    warmup_steps: 3
+factory_args:
+  # Tensor parallelism reads each rank's slices out of the safetensors files,
+  # so this has to be a diffusers-layout checkpoint rather than the original
+  # Wan release layout.
+  model_path: /path/to/Wan2.1-T2V-14B-Diffusers
+  default_width: 832
+  default_height: 480
+  default_num_frames: 17
+service:
+  host: 0.0.0.0
+  port: 18300

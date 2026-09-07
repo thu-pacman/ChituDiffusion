@@ -1,6 +1,6 @@
-"""Wan2.1 T2V integration for the Diffusers-native EPAC runtime."""
+"""Wan2.1 T2V integration for the Diffusers-native EPE runtime."""
 
-from .api import WanEPACPipeline, WanRequest
+from .api import WanPipeline, WanRequest
 from .executor import WanExecutorFactory, WanVideoDecoderExecutor
 from .pipeline import EpeWanPipeline, WanDenoiseState
 from .transformer import EpeWanTransformer3DModel
@@ -9,7 +9,7 @@ __all__ = [
     "EpeWanPipeline",
     "EpeWanTransformer3DModel",
     "WanDenoiseState",
-    "WanEPACPipeline",
+    "WanPipeline",
     "WanExecutorFactory",
     "WanRequest",
     "WanVideoDecoderExecutor",

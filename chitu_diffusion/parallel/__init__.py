@@ -1,31 +1,10 @@
-"""Model-independent parallel topology and communication primitives."""
+"""Parallel execution domains.
 
-from .groups import (
-    ActiveLaneTopology,
-    CfgParallelTopology,
-    EpeParallelContext,
-    cfg_parallel_rank_groups,
-)
-from .image_attention import (
-    CONTEXT_PARALLEL_MODES,
-    ImageContextParallelAttention,
-    ImageSelfAttention,
-    resolve_context_parallel_config,
-)
-from .topology import UspTopology
-from .usp import DynamicUspAttention
-from .vae import parallel_tiled_vae_decode
+Import APIs from :mod:`chitu_diffusion.parallel.cp`,
+:mod:`chitu_diffusion.parallel.ep`, :mod:`chitu_diffusion.parallel.tp`, or
+:mod:`chitu_diffusion.parallel.vae`.
+"""
 
-__all__ = [
-    "ActiveLaneTopology",
-    "CONTEXT_PARALLEL_MODES",
-    "CfgParallelTopology",
-    "DynamicUspAttention",
-    "EpeParallelContext",
-    "ImageContextParallelAttention",
-    "ImageSelfAttention",
-    "UspTopology",
-    "cfg_parallel_rank_groups",
-    "parallel_tiled_vae_decode",
-    "resolve_context_parallel_config",
-]
+from . import cp, ep, tp, vae
+
+__all__ = ["cp", "ep", "tp", "vae"]

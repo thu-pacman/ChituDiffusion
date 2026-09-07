@@ -7,7 +7,7 @@ from typing import Any
 
 import torch
 
-from chitu_diffusion.epac.cache import CacheConfig
+from chitu_diffusion.flexcache.config import CacheConfig
 
 from .contracts import CacheStats, CacheStepContext, CacheStrategy
 from .spec import FlexCacheModelSpec
@@ -159,7 +159,9 @@ class CacheSession:
             assert strategy is not None
             lane_ranks = kwargs.get(
                 "lane_ranks",
-                args[0] if args else tuple(range(_pipeline.parallel_context.world_size)),
+                args[0]
+                if args
+                else tuple(range(_pipeline.parallel_context.world_size)),
             )
             return strategy.denoise_step(
                 _pipeline,

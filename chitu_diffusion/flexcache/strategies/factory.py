@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from chitu_diffusion.epac.cache import (
+from chitu_diffusion.flexcache.config import (
     CacheConfig,
     MagCacheConfig,
     MeanCacheConfig,

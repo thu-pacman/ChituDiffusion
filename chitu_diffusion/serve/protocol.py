@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -17,6 +17,7 @@ class ImageGenerateRequest(BaseModel):
     num_steps: int | None = None
     guidance_scale: float = 5.0
     deadline_ms: float | None = None
+    model_inputs: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_shape(self) -> "ImageGenerateRequest":
@@ -47,6 +48,7 @@ class AdmissionResponse(BaseModel):
     status: Literal["accepted"] = "accepted"
     status_url: str
     image_url: str
+    media_url: str | None = None
 
 
 class RequestStatusResponse(BaseModel):
@@ -59,6 +61,7 @@ class RequestStatusResponse(BaseModel):
     latency_ms: float | None = None
     error: str | None = None
     image_url: str | None = None
+    media_url: str | None = None
 
 
 class CancelResponse(BaseModel):

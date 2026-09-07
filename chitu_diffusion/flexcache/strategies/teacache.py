@@ -4,7 +4,7 @@ from typing import Any
 
 import torch
 
-from chitu_diffusion.epac.cache import TeaCacheConfig
+from chitu_diffusion.flexcache.config import TeaCacheConfig
 
 from ..contracts import CacheStepContext
 from ..spec import BlockSite, FlexCacheModelSpec
@@ -78,7 +78,9 @@ class TeaCacheStrategy(BaseCacheStrategy):
             "coefficients": self.coefficients,
         }
 
-    def _resolve_coefficients(self, model_spec: FlexCacheModelSpec) -> tuple[float, ...]:
+    def _resolve_coefficients(
+        self, model_spec: FlexCacheModelSpec
+    ) -> tuple[float, ...]:
         if self.params.coefficients is not None:
             return self.params.coefficients
         variant = model_spec.variant()
@@ -126,9 +128,7 @@ class TeaCacheStrategy(BaseCacheStrategy):
             relative = (
                 float("inf")
                 if denominator == 0
-                else (
-                    (probe - self.previous_probe).abs().mean() / denominator
-                ).item()
+                else ((probe - self.previous_probe).abs().mean() / denominator).item()
             )
         self.previous_probe = probe.detach().clone()
         self.accumulated += self._polyval(relative)

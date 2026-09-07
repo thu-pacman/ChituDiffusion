@@ -8,12 +8,16 @@ import torch
 TensorTree = Any
 
 
-def tree_map(function: Callable[[torch.Tensor], torch.Tensor], tree: TensorTree) -> TensorTree:
+def tree_map(
+    function: Callable[[torch.Tensor], torch.Tensor], tree: TensorTree
+) -> TensorTree:
     if isinstance(tree, torch.Tensor):
         return function(tree)
     if isinstance(tree, tuple):
-        return type(tree)(*(tree_map(function, value) for value in tree)) if hasattr(tree, "_fields") else tuple(
-            tree_map(function, value) for value in tree
+        return (
+            type(tree)(*(tree_map(function, value) for value in tree))
+            if hasattr(tree, "_fields")
+            else tuple(tree_map(function, value) for value in tree)
         )
     if isinstance(tree, list):
         return [tree_map(function, value) for value in tree]
@@ -38,10 +42,12 @@ def tree_zip_map(
         return type(left)(*values) if hasattr(left, "_fields") else tuple(values)
     if isinstance(left, list) and isinstance(right, list) and len(left) == len(right):
         return [tree_zip_map(function, a, b) for a, b in zip(left, right)]
-    if isinstance(left, Mapping) and isinstance(right, Mapping) and left.keys() == right.keys():
-        values = {
-            key: tree_zip_map(function, left[key], right[key]) for key in left
-        }
+    if (
+        isinstance(left, Mapping)
+        and isinstance(right, Mapping)
+        and left.keys() == right.keys()
+    ):
+        values = {key: tree_zip_map(function, left[key], right[key]) for key in left}
         try:
             return type(left)(**values)
         except TypeError:
@@ -105,5 +111,3 @@ def first_tensor(tree: TensorTree) -> torch.Tensor | None:
             if found is not None:
                 return found
     return None
-
-

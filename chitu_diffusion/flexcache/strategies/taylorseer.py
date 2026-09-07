@@ -4,7 +4,7 @@ from typing import Any
 
 import torch
 
-from chitu_diffusion.epac.cache import TaylorSeerConfig
+from chitu_diffusion.flexcache.config import TaylorSeerConfig
 
 from ..contracts import CacheStepContext
 from ..spec import BlockSite, FlexCacheModelSpec, LeafSite
@@ -106,8 +106,7 @@ class TaylorSeerStrategy(BaseCacheStrategy):
             context.step_index < max(self.warmup_steps, self.params.first_enhance)
             or context.step_index >= self.total_steps - self.cooldown_steps
             or not self.anchor_steps
-            or context.step_index - self.anchor_steps[-1]
-            >= self.params.fresh_threshold
+            or context.step_index - self.anchor_steps[-1] >= self.params.fresh_threshold
         )
         if force:
             self.reuse_current_step = False
@@ -189,9 +188,7 @@ class TaylorSeerStrategy(BaseCacheStrategy):
         kwargs: dict[str, Any],
     ) -> tuple[torch.Tensor, torch.Tensor] | None:
         hidden_states = self._argument(args, kwargs, "hidden_states", 0)
-        encoder_hidden_states = self._argument(
-            args, kwargs, "encoder_hidden_states", 1
-        )
+        encoder_hidden_states = self._argument(args, kwargs, "encoder_hidden_states", 1)
         temb = self._argument(args, kwargs, "temb", 2)
         attention_outputs = self._predicted_leaf(context, site, "attn")
         ff_output = self._predicted_leaf(context, site, "ff")
@@ -241,9 +238,7 @@ class TaylorSeerStrategy(BaseCacheStrategy):
         kwargs: dict[str, Any],
     ) -> tuple[torch.Tensor, torch.Tensor] | None:
         hidden_states = self._argument(args, kwargs, "hidden_states", 0)
-        encoder_hidden_states = self._argument(
-            args, kwargs, "encoder_hidden_states", 1
-        )
+        encoder_hidden_states = self._argument(args, kwargs, "encoder_hidden_states", 1)
         temb = self._argument(args, kwargs, "temb", 2)
         projection = self._predicted_leaf(context, site, "proj_out")
         if (
@@ -324,8 +319,6 @@ class TaylorSeerStrategy(BaseCacheStrategy):
                 )
         self.factors[site.site_id] = updated
         self.stats.cache_bytes = sum(
-            tree_nbytes(value)
-            for values in self.factors.values()
-            for value in values
+            tree_nbytes(value) for values in self.factors.values() for value in values
         )
         return None

@@ -1,49 +1,37 @@
 # Parallel
 
-该目录维护 EPAC 中与模型无关的并行拓扑、通信和计算。它不是仅面向 context
-parallel 的包：当前实现 CP，后续 CFG parallel 也应在此扩展，并复用同一套动态 lane
-和 process-group 生命周期。
+该包按执行域分为 `cp`、`tp` 和 `vae`。模型必须从对应子包导入，不再从
+`chitu_diffusion.parallel` 根包导入符号。根包只放跨域共用的主机事实：
+`interconnect.py` 从驱动读出本机 GPU 之间的互连形态（有无 NVLink、每张卡的 NUMA
+节点），供需要在"铺开传输"和"串行传输"之间取舍的调度使用——PCIe 主机一张卡的所有
+peer 共用一个 egress 端口，NVLink 主机每个 peer 有独立链路，两者的最优调度相反。
 
-- `groups.py`：启动阶段创建候选 lane group，并维护当前 active lane；
-- `topology.py`：active lane 对应的 Ulysses/Ring group view；
-- `usp.py`：支持调用时注入 group 的 Ulysses x Ring attention；
-- `image_attention.py`：统一的 AGKV/USP 配置，以及 sharded self-attention 和
-  `sharded image + replicated joint/text` 两类模型无关接口。
+## CP
 
-`groups.py` 是通用资源层；后三者是当前 context-parallel 实现。模型目录只能保留
-QKV/RoPE/布局等 glue，不应复制通信算子或创建 process group。
+`cp/` 负责 lane/process-group 生命周期、context-parallel attention 和 transport：
 
-USP 的 all-to-all 与 joint-ring schedule 基于 xDiT/xFuser 和 yunchang 的
-Apache-2.0 实现。与 xFuser 原始全局 `PROCESS_GROUP` 不同，这里的 group 是每次调用显式
-传入的，因此 EPAC 可以在 pulse 之间从 cp4 `u2r2` 切换到 cp2 `u2r1` 或 cp1 `u1r1`。
-所有候选 group 必须在服务启动阶段以确定顺序创建；attention forward 不创建或销毁 group。
+- `cp/nccl/`：Torch/NCCL K/V gather 与 Ulysses all-to-all，作为默认路径。
+- `cp/fast/`：单机 NVSHMEM Fast AGKV/Fast Ulysses；Fast Ring 等代码仅供实验。
+  AGKV 走 SM 还是 copy engine 由 `interconnect.py` 探测的互连决定。CUDA/C++
+  扩展源码在 `cp/fast/csrc/`。
+- `cp/context.py`：创建候选 lane group 并跟踪 active lane。
+- `cp/topology.py`：Ulysses/USP topology。
+- `cp/agkv_transport.py` 与 `cp/ulysses_transport.py`：transport 协议和 factory。
 
-安装 USP 可选依赖：
+Fast CP 构建条件和 benchmark 见 [`cp/fast/README.md`](cp/fast/README.md)。
 
-```bash
-uv sync --extra usp
-```
+## TP
 
-CUDA 路径使用 yunchang `SeqAllToAll4D`、FlashAttention 和 xDiT-style joint ring。
-CPU 路径只用于多进程数值回归，不代表服务性能。
+`tp/` 负责 tensor-parallel topology、Column/Row/MergedColumn/Replicated linear
+以及按 rank 加载 checkpoint。TP 不依赖 CP 或 VAE。
 
-所有模型入口默认 `attention_mode="agkv"`。选择 `attention_mode="usp"` 且未指定
-`ulysses_degree` 时默认使用 degree 2；实际 active lane 会自动降到可整除该 lane width
-的 degree，因而同一实例可以在 u2r2、u2r1 和 u1r1 之间动态切换。
+## VAE
 
-2026-07-28 在 4 x H20 上完成以下 USP smoke：Z-Image 512/2-step
-（`examples/zimage_epe.py`，Slurm `201838`）、FLUX.2-klein 512/1-step
-（`examples/flux2_klein_cp.py`，`201833`）、Qwen-Image 512/4-step CFP2 x CP2
-（`examples/qwen_image_epac.py`，`201839`）和 Wan2.1-T2V-1.3B
-832x480/17-frame/2-step CFP2 x CP2（`examples/wan_epac.py`，`201835`）。调用形式均为：
+`vae/` 负责 decode lane 的最小 topology contract、空间 tile 规划、通信与 leader
+重组。`VaeParallelPlacement` 统一两种归属：不指定 degree 时解码跟随当前 denoise
+lane，指定 degree 时创建一个独立于 DiT TP/CP 的固定 decode group，例如 TP4×CP2
+搭配 VAEP8。固定 group 的生命周期由 stage runtime 持有。具体 VAE 的 latent
+归一化和单 tile decode 仍由模型包实现。
 
-```bash
-bash script/srun_direct.sh 1 4 <entry> \
-  --model-path <path> --attention-mode usp --ulysses-degree 2
-```
-
-四个作业均完成生成并正常退出；Qwen PNG SHA256 为
-`54c3291b13c9ddc760490eccef851c9b36feb5c7da6907da732fa313135b7291`，Wan 完成 MP4
-编码。FLUX.1 的同步 facade follower parallel-VAE 收尾问题修正后，以 512/1-step
-u2r2 作业 `201861` 完整验证。共享 pure self-attention 另以 4 卡 BF16 CUDA 数值
-smoke `201841` 验证 u2r2，最大绝对误差不超过 `0.0078125`。
+依赖方向固定为 `cp -> tp`；`vae` 持有独立 decode group；`tp` 不反向依赖
+其他并行域。EPE 决定 lane，parallel 层不管理请求、SLO 或 worker。

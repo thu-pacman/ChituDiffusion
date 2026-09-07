@@ -6,14 +6,16 @@ from typing import Any, Mapping
 
 import torch
 
-from ...epac.cache import CacheConfig
-from ...epac.image_decoder import ExecutorBuildContext
-from ...epac.model_executor import (
+from ...epe.contracts import ExecutorBuildContext
+from ...epe.executor import (
     DiffusersBackend,
     build_stage_parallel_context,
+    build_stage_vae_placement,
     scheduling_options_from_pool,
 )
-from .api import EPACRequest
+from ...flexcache.config import CacheConfig
+from ...parallel.vae import VaeParallelPlacement
+from .api import ZImageRequest
 from .pipeline import EpeZImagePipeline, ZImageDenoiseState, ZImagePipelineOutput
 
 
@@ -32,8 +34,7 @@ class ZImageImageDecoderExecutor(DiffusersBackend):
         default_height: int = 1024,
         default_num_steps: int = 50,
         cfg_parallel: bool = True,
-        parallel_vae: bool = True,
-        vae_parallel_halo: int = 8,
+        vae_placement: VaeParallelPlacement | None = None,
     ) -> None:
         super().__init__(
             pipeline,
@@ -41,13 +42,10 @@ class ZImageImageDecoderExecutor(DiffusersBackend):
             default_width=default_width,
             default_height=default_height,
             default_num_steps=default_num_steps,
+            vae_placement=vae_placement,
         )
         self.cfg_parallel = bool(cfg_parallel)
         self.scheduling_module.cfg_parallel = self.cfg_parallel
-        self.parallel_vae = bool(parallel_vae)
-        self.vae_parallel_halo = int(vae_parallel_halo)
-        if self.vae_parallel_halo < 0:
-            raise ValueError("vae_parallel_halo must be non-negative")
 
     def warmup(self, *, resolutions, steps):
         report = self.pipeline.warmup_epe(resolutions=resolutions, steps=steps)
@@ -82,14 +80,14 @@ class ZImageImageDecoderExecutor(DiffusersBackend):
         self.scheduling_module.initialize_cost_model(report["rows"])
         return report
 
-    def normalize_request(self, request: Any) -> EPACRequest:
-        if isinstance(request, EPACRequest):
+    def normalize_request(self, request: Any) -> ZImageRequest:
+        if isinstance(request, ZImageRequest):
             return request
         if hasattr(request, "model_dump"):
             request = request.model_dump()
         if not isinstance(request, Mapping):
-            raise TypeError("Z-Image requests must be EPACRequest or a mapping")
-        return EPACRequest(
+            raise TypeError("Z-Image requests must be ZImageRequest or a mapping")
+        return ZImageRequest(
             prompt=request.get("prompt"),
             request_id=str(request.get("request_id") or uuid.uuid4().hex),
             negative_prompt=request.get("negative_prompt"),
@@ -165,21 +163,15 @@ class ZImageImageDecoderExecutor(DiffusersBackend):
             **kwargs,
         )
 
-    def _request_conditions(self, request: EPACRequest) -> int:
+    def _request_conditions(self, request: ZImageRequest) -> int:
         return 2 if request.guidance_scale > 0 else 1
 
-    def _request_state_bytes(self, request: EPACRequest, image_tokens: int) -> int:
+    def _request_state_bytes(self, request: ZImageRequest, image_tokens: int) -> int:
         del request
         return image_tokens * 64 * 4
 
     def _state_conditions(self, state: ZImageDenoiseState) -> int:
         return 2 if state.guidance_scale > 0 else 1
-
-    def _decode_kwargs(self) -> dict[str, Any]:
-        return {
-            "parallel_vae": self.parallel_vae,
-            "vae_parallel_halo": self.vae_parallel_halo,
-        }
 
     def package_generate_output(self, output: Any) -> ZImagePipelineOutput:
         return ZImagePipelineOutput(images=output)
@@ -193,29 +185,23 @@ class ZImageExecutorFactory:
     default_width: int = 1024
     default_height: int = 1024
     default_num_steps: int = 50
-    attention_mode: str = "agkv"
-    ulysses_degree: int | None = None
-    cfg_parallel: bool = True
-    parallel_vae: bool = True
-    vae_parallel_halo: int = 8
 
     def build(self, context: ExecutorBuildContext) -> ZImageImageDecoderExecutor:
-        parallel, _ = build_stage_parallel_context(
-            context,
-            attention_mode=self.attention_mode,
-            ulysses_degree=self.ulysses_degree,
-        )
+        parallel, _ = build_stage_parallel_context(context)
+        attention_mode = context.cp.attention_mode
+        cfg_parallel = context.model.cfg_parallel
         dtype = self.torch_dtype or (
             torch.bfloat16 if torch.cuda.is_available() else torch.float32
         )
         epe_options = scheduling_options_from_pool(context.pool)
-        epe_options["attention_mode"] = self.attention_mode
-        epe_options["cfg_parallel"] = self.cfg_parallel
+        epe_options["attention_mode"] = attention_mode
+        epe_options["cfg_parallel"] = cfg_parallel
         pipeline = EpeZImagePipeline.from_pretrained(
             self.model_path,
             parallel_context=parallel,
-            attention_mode=self.attention_mode,
-            ulysses_degree=self.ulysses_degree,
+            attention_mode=attention_mode,
+            ulysses_degree=context.cp.ulysses_degree,
+            tensor_parallel_degree=context.tensor_parallel_degree,
             epe_options=epe_options,
             torch_dtype=dtype,
             local_files_only=self.local_files_only,
@@ -228,7 +214,6 @@ class ZImageExecutorFactory:
             default_width=self.default_width,
             default_height=self.default_height,
             default_num_steps=self.default_num_steps,
-            cfg_parallel=self.cfg_parallel,
-            parallel_vae=self.parallel_vae,
-            vae_parallel_halo=self.vae_parallel_halo,
+            cfg_parallel=cfg_parallel,
+            vae_placement=build_stage_vae_placement(context),
         )

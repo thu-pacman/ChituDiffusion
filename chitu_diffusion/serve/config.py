@@ -6,7 +6,8 @@ from typing import Any, Literal, Mapping
 
 import yaml
 
-from ..epac.cache import CacheConfig
+from ..epe.contracts import ContextParallelPlan, ModelParallelPlan, VaeParallelPlan
+from ..flexcache.config import CacheConfig
 
 _LEGACY_CONFIG_FIELDS = {
     "infer",
@@ -14,12 +15,45 @@ _LEGACY_CONFIG_FIELDS = {
     "step_interleave",
     "dynamic_sp",
     "hotswitch_enabled",
-    "tp",
+}
+
+# Parallelism used to be spelled per model under factory_args. The replacement
+# path is reported instead of silently aliasing, because a stale degree changes
+# collective membership rather than just a default.
+_MIGRATED_CONFIG_FIELDS = {
+    "parallelism.sp": "parallelism.cp.world_size",
+    "parallelism.tp": "parallelism.model.tensor_parallel_degree",
+    "parallelism.chitu_pool": "parallelism.scheduler",
+    "factory_args.attention_mode": "parallelism.cp.attention_mode",
+    "factory_args.ulysses_degree": "parallelism.cp.ulysses_degree",
+    "factory_args.cfg_parallel": "parallelism.model.cfg_parallel_degree",
+    "factory_args.expert_parallel_degree": (
+        "parallelism.model.expert_parallel_degree"
+    ),
+    "factory_args.parallel_vae": "parallelism.vae.enabled",
+    "factory_args.vae_parallel_degree": "parallelism.vae.degree",
+    "factory_args.vae_parallel_halo": "parallelism.vae.halo",
+}
+
+# Only a model that actually implements an axis may be configured with it.
+MODEL_PARALLEL_AXES: dict[str, frozenset[str]] = {
+    "zimage": frozenset({"cfg_parallel_degree", "tensor_parallel_degree"}),
+    "flux1": frozenset(),
+    "qwen-image": frozenset({"cfg_parallel_degree"}),
+    "wan": frozenset({"cfg_parallel_degree", "tensor_parallel_degree"}),
+    "minimax-h3": frozenset({"tensor_parallel_degree"}),
+    "hunyuan-image3": frozenset(
+        {
+            "tensor_parallel_degree",
+            "cfg_parallel_degree",
+            "expert_parallel_degree",
+        }
+    ),
 }
 
 
 @dataclass(frozen=True, slots=True)
-class EPACServeConfig:
+class EPEServeConfig:
     host: str = "0.0.0.0"
     port: int = 18200
     advertise_host: str | None = None
@@ -35,6 +69,9 @@ class EPACServeConfig:
     starvation_ms: float = 30_000.0
     default_deadline_ms: float | None = None
     deadline_guard_ms: float = 3_000.0
+    min_resize_gain_ms: float = 0.0
+    resize_hysteresis_ms: float = 0.0
+    resize_control_cost_ms: float = 0.0
     max_inflight_requests: int = 4
     max_pending_requests: int = 64
     default_num_steps: int = 50
@@ -46,6 +83,7 @@ class EPACServeConfig:
     postprocess_workers: int = 4
     cfg_parallel: bool = True
     parallel_vae: bool = True
+    vae_parallel_degree: int | None = None
     vae_parallel_halo: int = 8
     cache: CacheConfig = CacheConfig()
     schedule_strategy: Literal["elastic", "static_cp", "static_dp"] = "elastic"
@@ -72,6 +110,12 @@ class EPACServeConfig:
             raise ValueError("warmup_resolutions must not be empty")
         if self.deadline_guard_ms < 0:
             raise ValueError("deadline_guard_ms must be >= 0")
+        if min(
+            self.min_resize_gain_ms,
+            self.resize_hysteresis_ms,
+            self.resize_control_cost_ms,
+        ) < 0:
+            raise ValueError("resize cost and hysteresis controls must be >= 0")
         if self.default_deadline_ms is not None and self.default_deadline_ms <= 0:
             raise ValueError("default_deadline_ms must be positive")
         if self.vae_parallel_halo < 0:
@@ -96,6 +140,11 @@ def _mapping(value: Any, field_name: str) -> Mapping[str, Any]:
 def _reject_legacy_fields(raw: Mapping[str, Any], *, prefix: str = "") -> None:
     for key, value in raw.items():
         path = f"{prefix}.{key}" if prefix else str(key)
+        replacement = _MIGRATED_CONFIG_FIELDS.get(path)
+        if replacement is not None:
+            raise ValueError(
+                f"{path} moved to {replacement}; update the stage config"
+            )
         if key in _LEGACY_CONFIG_FIELDS:
             raise ValueError(
                 f"legacy chitu_diffusion config field is not supported: {path}"
@@ -133,6 +182,9 @@ class HotSwitchPoolConfig:
     starvation_ms: float = 30_000.0
     default_deadline_ms: float | None = None
     deadline_guard_ms: float = 3_000.0
+    min_resize_gain_ms: float = 0.0
+    resize_hysteresis_ms: float = 0.0
+    resize_control_cost_ms: float = 0.0
     max_inflight_requests: int = 64
     max_pending_requests: int = 256
     warmup_resolutions: tuple[tuple[int, int], ...] = (
@@ -151,7 +203,14 @@ class HotSwitchPoolConfig:
     def from_mapping(
         cls, raw: Mapping[str, Any], *, world_size: int
     ) -> "HotSwitchPoolConfig":
-        widths = tuple(int(value) for value in raw.get("allowed_lane_widths", (1,)))
+        # An unset lane set means "whatever the world can be divided into",
+        # because the only lane sets that validate span 1 to the full world.
+        default_widths = tuple(
+            width for width in range(1, world_size + 1) if world_size % width == 0
+        )
+        widths = tuple(
+            int(value) for value in raw.get("allowed_lane_widths", default_widths)
+        )
         if not widths:
             raise ValueError("allowed_lane_widths must not be empty")
         if tuple(sorted(set(widths))) != widths:
@@ -171,7 +230,8 @@ class HotSwitchPoolConfig:
         policy = str(raw.get("policy", "elastic"))
         if policy not in {"elastic", "static_cp", "static_dp"}:
             raise ValueError(
-                "chitu_pool.policy must be one of: elastic, static_cp, static_dp"
+                "parallelism.scheduler.policy must be one of: "
+                "elastic, static_cp, static_dp"
             )
 
         pulse_steps = int(raw.get("pulse_steps", 1))
@@ -184,6 +244,9 @@ class HotSwitchPoolConfig:
             None if raw_default_deadline is None else float(raw_default_deadline)
         )
         deadline_guard_ms = float(raw.get("deadline_guard_ms", 3_000.0))
+        min_resize_gain_ms = float(raw.get("min_resize_gain_ms", 0.0))
+        resize_hysteresis_ms = float(raw.get("resize_hysteresis_ms", 0.0))
+        resize_control_cost_ms = float(raw.get("resize_control_cost_ms", 0.0))
         warmup_steps = int(raw.get("warmup_steps", 5))
         warmup_resolutions = tuple(
             _resolution(value)
@@ -204,6 +267,12 @@ class HotSwitchPoolConfig:
             raise ValueError("default_deadline_ms must be positive")
         if deadline_guard_ms < 0:
             raise ValueError("deadline_guard_ms must be >= 0")
+        if min(
+            min_resize_gain_ms,
+            resize_hysteresis_ms,
+            resize_control_cost_ms,
+        ) < 0:
+            raise ValueError("resize cost and hysteresis controls must be >= 0")
         if warmup_steps < 3:
             raise ValueError("warmup_steps must be >= 3")
         if not warmup_resolutions:
@@ -218,6 +287,9 @@ class HotSwitchPoolConfig:
             starvation_ms=starvation_ms,
             default_deadline_ms=default_deadline_ms,
             deadline_guard_ms=deadline_guard_ms,
+            min_resize_gain_ms=min_resize_gain_ms,
+            resize_hysteresis_ms=resize_hysteresis_ms,
+            resize_control_cost_ms=resize_control_cost_ms,
             max_inflight_requests=max_inflight,
             max_pending_requests=max_pending,
             warmup_resolutions=warmup_resolutions,
@@ -226,25 +298,208 @@ class HotSwitchPoolConfig:
         )
 
 
+_TRANSPORTS = {"auto", "nccl", "fast"}
+
+
+def _parallel_section(
+    raw: Mapping[str, Any], key: str, allowed: frozenset[str]
+) -> Mapping[str, Any]:
+    section = _mapping(raw.get(key, {}), f"parallelism.{key}")
+    unknown = sorted(set(section) - allowed)
+    if unknown:
+        raise ValueError(
+            f"unknown parallelism.{key} keys: {', '.join(unknown)}; "
+            f"supported keys: {', '.join(sorted(allowed))}"
+        )
+    return section
+
+
+def _transport(section: Mapping[str, Any], key: str) -> str | None:
+    value = section.get(key, "auto")
+    if value is None:
+        return None
+    text = str(value)
+    if text not in _TRANSPORTS:
+        raise ValueError(
+            f"parallelism.cp.{key} must be one of: {', '.join(sorted(_TRANSPORTS))}"
+        )
+    return None if text == "auto" else text
+
+
+def _model_parallel_plan(
+    raw: Mapping[str, Any], *, factory: str
+) -> ModelParallelPlan:
+    section = _mapping(raw.get("model", {}), "parallelism.model")
+    supported = MODEL_PARALLEL_AXES[factory]
+    unknown = sorted(set(section) - supported)
+    if unknown:
+        listed = ", ".join(sorted(supported)) or "none"
+        raise ValueError(
+            f"{factory} does not implement parallelism.model keys: "
+            f"{', '.join(unknown)}; supported axes: {listed}"
+        )
+    cfg_default = 2 if "cfg_parallel_degree" in supported else 1
+    expert_degree = section.get("expert_parallel_degree")
+    return ModelParallelPlan(
+        tensor_parallel_degree=int(section.get("tensor_parallel_degree", 1)),
+        cfg_parallel_degree=int(section.get("cfg_parallel_degree", cfg_default)),
+        expert_parallel_degree=(
+            None if expert_degree is None else int(expert_degree)
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class ParallelismConfig:
-    sp: int
-    chitu_pool: HotSwitchPoolConfig
+    """Common CP/VAEP geometry plus the axes the chosen model owns."""
+
+    cp: ContextParallelPlan
+    vae: VaeParallelPlan
+    scheduler: HotSwitchPoolConfig
+    model: ModelParallelPlan
+
+    @property
+    def gpu_count(self) -> int:
+        return self.cp.world_size * self.model.tensor_parallel_degree
 
     @classmethod
     def from_mapping(
-        cls, raw: Mapping[str, Any], *, gpu_count: int
+        cls, raw: Mapping[str, Any], *, gpu_count: int, factory: str
     ) -> "ParallelismConfig":
-        sp = int(raw.get("sp", gpu_count))
-        if sp != gpu_count:
+        unknown = sorted(set(raw) - {"cp", "vae", "scheduler", "model"})
+        if unknown:
             raise ValueError(
-                f"parallelism.sp ({sp}) must equal the number of stage GPUs ({gpu_count})"
+                f"unknown parallelism keys: {', '.join(unknown)}; supported "
+                "keys: cp, model, scheduler, vae"
             )
-        pool_raw = _mapping(raw.get("chitu_pool", {}), "parallelism.chitu_pool")
-        return cls(
-            sp=sp,
-            chitu_pool=HotSwitchPoolConfig.from_mapping(pool_raw, world_size=sp),
+        model = _model_parallel_plan(raw, factory=factory)
+        tp = model.tensor_parallel_degree
+        if gpu_count % tp:
+            raise ValueError(
+                f"parallelism.model.tensor_parallel_degree ({tp}) must divide "
+                f"the number of stage GPUs ({gpu_count})"
+            )
+
+        cp_raw = _parallel_section(
+            raw,
+            "cp",
+            frozenset(
+                {
+                    "world_size",
+                    "attention_mode",
+                    "ulysses_degree",
+                    "ulysses_transport",
+                    "agkv_transport",
+                }
+            ),
         )
+        ulysses_degree = cp_raw.get("ulysses_degree")
+        cp = ContextParallelPlan(
+            world_size=int(cp_raw.get("world_size", gpu_count // tp)),
+            attention_mode=str(cp_raw.get("attention_mode", "agkv")),
+            ulysses_degree=(
+                None if ulysses_degree is None else int(ulysses_degree)
+            ),
+            ulysses_transport=_transport(cp_raw, "ulysses_transport"),
+            agkv_transport=_transport(cp_raw, "agkv_transport"),
+        )
+        if cp.world_size * tp != gpu_count:
+            raise ValueError(
+                "parallelism.cp.world_size * "
+                "parallelism.model.tensor_parallel_degree must equal the "
+                f"number of stage GPUs ({gpu_count})"
+            )
+
+        scheduler_raw = _mapping(raw.get("scheduler", {}), "parallelism.scheduler")
+        scheduler = HotSwitchPoolConfig.from_mapping(
+            scheduler_raw, world_size=cp.world_size
+        )
+        if tp > 1 and scheduler.policy == "static_dp":
+            raise ValueError("static_dp is not supported with tensor parallelism")
+
+        vae_raw = _parallel_section(
+            raw, "vae", frozenset({"enabled", "degree", "halo"})
+        )
+        vae = _vae_plan(vae_raw, gpu_count=gpu_count, scheduler=scheduler)
+        return cls(cp=cp, vae=vae, scheduler=scheduler, model=model)
+
+
+def _vae_plan(
+    raw: Mapping[str, Any], *, gpu_count: int, scheduler: HotSwitchPoolConfig
+) -> VaeParallelPlan:
+    enabled = bool(raw.get("enabled", True))
+    degree_raw = raw.get("degree")
+    degree = None if degree_raw is None else int(degree_raw)
+    if not enabled:
+        if degree not in (None, 1):
+            raise ValueError(
+                "parallelism.vae.degree must be unset or 1 when vae is disabled"
+            )
+        degree = 1
+    if degree is not None and not 1 <= degree <= gpu_count:
+        raise ValueError(
+            f"parallelism.vae.degree must be in [1, {gpu_count}]"
+        )
+    # A fixed decode group outlives one lane, so it is only safe when the whole
+    # stage runs a single lane at a time. Elastic and static-DP stages keep
+    # decode on the denoise lane instead.
+    if degree is not None and degree > 1 and scheduler.policy != "static_cp":
+        raise ValueError(
+            "parallelism.vae.degree above 1 requires "
+            "parallelism.scheduler.policy=static_cp; leave degree unset to "
+            "decode on the denoise lane"
+        )
+    return VaeParallelPlan(degree=degree, halo=int(raw.get("halo", 8)))
+
+
+@dataclass(frozen=True)
+class MediaWarmupProfile:
+    duration_s: float
+    fps: int
+    height: int
+    width: int
+    output_type: str = "mp4"
+    prompt: str = "MiniMax-H3 startup warmup"
+    first_frame_path: str | None = None
+    last_frame_path: str | None = None
+    profile_id: str | None = None
+
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, Any]) -> "MediaWarmupProfile":
+        profile = cls(
+            duration_s=float(raw.get("duration_s", 5.0)),
+            fps=int(raw.get("fps", 24)),
+            height=int(raw.get("height", 768)),
+            width=int(raw.get("width", 1344)),
+            output_type=str(raw.get("output_type", "mp4")),
+            prompt=str(raw.get("prompt", "MiniMax-H3 startup warmup")),
+            first_frame_path=(
+                None
+                if raw.get("first_frame_path") is None
+                else str(raw["first_frame_path"])
+            ),
+            last_frame_path=(
+                None
+                if raw.get("last_frame_path") is None
+                else str(raw["last_frame_path"])
+            ),
+            profile_id=(
+                None if raw.get("profile_id") is None else str(raw["profile_id"])
+            ),
+        )
+        if profile.duration_s <= 0 or profile.fps <= 0:
+            raise ValueError("media warmup duration and fps must be positive")
+        if (
+            min(profile.height, profile.width) < 32
+            or profile.height % 32
+            or profile.width % 32
+        ):
+            raise ValueError("media warmup dimensions must be multiples of 32")
+        if profile.output_type not in {"mp4", "latent"}:
+            raise ValueError("media warmup output_type must be mp4 or latent")
+        if not profile.prompt:
+            raise ValueError("media warmup prompt must not be empty")
+        return profile
 
 
 @dataclass(frozen=True)
@@ -255,11 +510,30 @@ class DiffusionFactoryConfig:
     default_width: int = 1024
     default_height: int = 1024
     num_frames: int = 17
-    attention_mode: str = "agkv"
-    ulysses_degree: int = 1
-    cfg_parallel: bool = True
-    parallel_vae: bool = True
-    vae_parallel_halo: int = 8
+    attention_backend: str = "auto"
+    # Unset means every model keeps its own schedule shift default.
+    flow_shift: float | None = None
+    audio_flow_shift: float = 3.0
+    latent_t: int = 2
+    audio_t: int = 3
+    audio_channels: int = 2
+    text_length: int = 32
+    text_encoder_path: str | None = None
+    tokenizer_path: str | None = None
+    processor_path: str | None = None
+    video_vae_path: str | None = None
+    audio_vae_path: str | None = None
+    enable_native_media: bool = False
+    qwen_num_layers: int = 50
+    default_duration_s: float = 5.0
+    default_fps: int = 24
+    default_output_type: str = "latent"
+    ffmpeg_path: str = "ffmpeg"
+    warmup_media_profiles: tuple[MediaWarmupProfile, ...] = ()
+    warmup_burnin_steps: int = 0
+    cost_profile_path: str | None = None
+    guidance_scale: float = 5.0
+    system_prompt: str | None = None
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "DiffusionFactoryConfig":
@@ -269,26 +543,68 @@ class DiffusionFactoryConfig:
         num_steps = int(raw.get("num_steps", 20))
         width = int(raw.get("default_width", 1024))
         height = int(raw.get("default_height", 1024))
-        attention_mode = str(raw.get("attention_mode", "agkv"))
-        ulysses_degree = int(
-            raw.get("ulysses_degree", 2 if attention_mode == "usp" else 1)
-        )
         if num_steps < 1:
             raise ValueError("factory_args.num_steps must be >= 1")
         if width < 16 or height < 16 or width % 16 or height % 16:
             raise ValueError(
                 "default image dimensions must be positive multiples of 16"
             )
-        if attention_mode not in {"agkv", "usp"}:
-            raise ValueError("factory_args.attention_mode must be one of: agkv, usp")
-        if ulysses_degree < 1:
-            raise ValueError("factory_args.ulysses_degree must be positive")
-        vae_parallel_halo = int(raw.get("vae_parallel_halo", 8))
         num_frames = int(raw.get("num_frames", 17))
-        if vae_parallel_halo < 0:
-            raise ValueError("factory_args.vae_parallel_halo must be non-negative")
+        attention_backend = str(raw.get("attention_backend", "auto"))
+        raw_flow_shift = raw.get("flow_shift")
+        flow_shift = None if raw_flow_shift is None else float(raw_flow_shift)
+        audio_flow_shift = float(raw.get("audio_flow_shift", 3.0))
+        latent_t = int(raw.get("latent_t", 2))
+        audio_t = int(raw.get("audio_t", 3))
+        audio_channels = int(raw.get("audio_channels", 2))
+        text_length = int(raw.get("text_length", 32))
+        default_duration_s = float(raw.get("default_duration_s", 5.0))
+        default_fps = int(raw.get("default_fps", 24))
+        default_output_type = str(raw.get("default_output_type", "latent"))
+        ffmpeg_path = str(raw.get("ffmpeg_path", "ffmpeg")).strip()
+        qwen_num_layers = int(raw.get("qwen_num_layers", 50))
+        enable_native_media = bool(raw.get("enable_native_media", False))
+        warmup_media_profiles = tuple(
+            MediaWarmupProfile.from_mapping(
+                _mapping(item, "factory_args.warmup_media_profiles[]")
+            )
+            for item in raw.get("warmup_media_profiles", ())
+        )
+        warmup_burnin_steps = int(raw.get("warmup_burnin_steps", 0))
+        if warmup_burnin_steps < 0:
+            raise ValueError("factory_args.warmup_burnin_steps must be non-negative")
+        guidance_scale = float(raw.get("guidance_scale", 5.0))
+        if guidance_scale <= 0:
+            raise ValueError("factory_args.guidance_scale must be positive")
         if num_frames < 1 or (num_frames - 1) % 4:
             raise ValueError("factory_args.num_frames must equal 4n+1")
+        if attention_backend not in {"auto", "fa4", "flex", "sdpa"}:
+            raise ValueError(
+                "factory_args.attention_backend must be auto, fa4, flex, or sdpa"
+            )
+        if (flow_shift is not None and flow_shift <= 0) or audio_flow_shift <= 0:
+            raise ValueError("factory_args flow shifts must be positive")
+        if min(latent_t, audio_t, audio_channels, text_length) < 1:
+            raise ValueError("MiniMax-H3 sequence dimensions must be positive")
+        if default_duration_s <= 0 or default_fps <= 0:
+            raise ValueError("default duration and fps must be positive")
+        if default_output_type not in {"mp4", "latent"}:
+            raise ValueError("default_output_type must be mp4 or latent")
+        if not ffmpeg_path:
+            raise ValueError("factory_args.ffmpeg_path must not be empty")
+        if not 1 <= qwen_num_layers <= 64:
+            raise ValueError("qwen_num_layers must be in [1, 64]")
+        if enable_native_media:
+            missing = [
+                name
+                for name in ("text_encoder_path", "video_vae_path", "audio_vae_path")
+                if not str(raw.get(name, "")).strip()
+            ]
+            if missing:
+                raise ValueError(
+                    "native MiniMax-H3 component paths are missing: "
+                    + ", ".join(missing)
+                )
         return cls(
             model_path=model_path,
             num_steps=num_steps,
@@ -296,11 +612,57 @@ class DiffusionFactoryConfig:
             default_width=width,
             default_height=height,
             num_frames=num_frames,
-            attention_mode=attention_mode,
-            ulysses_degree=ulysses_degree,
-            cfg_parallel=bool(raw.get("cfg_parallel", True)),
-            parallel_vae=bool(raw.get("parallel_vae", True)),
-            vae_parallel_halo=vae_parallel_halo,
+            attention_backend=attention_backend,
+            flow_shift=flow_shift,
+            audio_flow_shift=audio_flow_shift,
+            latent_t=latent_t,
+            audio_t=audio_t,
+            audio_channels=audio_channels,
+            text_length=text_length,
+            text_encoder_path=(
+                None
+                if raw.get("text_encoder_path") is None
+                else str(raw["text_encoder_path"])
+            ),
+            tokenizer_path=(
+                None
+                if raw.get("tokenizer_path") is None
+                else str(raw["tokenizer_path"])
+            ),
+            processor_path=(
+                None
+                if raw.get("processor_path") is None
+                else str(raw["processor_path"])
+            ),
+            video_vae_path=(
+                None
+                if raw.get("video_vae_path") is None
+                else str(raw["video_vae_path"])
+            ),
+            audio_vae_path=(
+                None
+                if raw.get("audio_vae_path") is None
+                else str(raw["audio_vae_path"])
+            ),
+            enable_native_media=enable_native_media,
+            qwen_num_layers=qwen_num_layers,
+            default_duration_s=default_duration_s,
+            default_fps=default_fps,
+            default_output_type=default_output_type,
+            ffmpeg_path=ffmpeg_path,
+            warmup_media_profiles=warmup_media_profiles,
+            warmup_burnin_steps=warmup_burnin_steps,
+            cost_profile_path=(
+                None
+                if raw.get("cost_profile_path") is None
+                else str(raw["cost_profile_path"])
+            ),
+            guidance_scale=guidance_scale,
+            system_prompt=(
+                None
+                if raw.get("system_prompt") is None
+                else str(raw["system_prompt"])
+            ),
         )
 
 
@@ -365,7 +727,7 @@ class StageServiceConfig:
             raise ValueError("name is required")
         process = str(raw.get("process", name)).strip()
         factory = str(raw.get("factory", "zimage")).strip()
-        if factory not in {"zimage", "flux1", "qwen-image", "wan"}:
+        if factory not in MODEL_PARALLEL_AXES:
             raise ValueError(f"unsupported factory: {factory}")
 
         return cls(
@@ -376,6 +738,7 @@ class StageServiceConfig:
             parallelism=ParallelismConfig.from_mapping(
                 _mapping(raw.get("parallelism", {}), "parallelism"),
                 gpu_count=len(gpu),
+                factory=factory,
             ),
             factory_args=DiffusionFactoryConfig.from_mapping(
                 _mapping(raw.get("factory_args", {}), "factory_args")
@@ -388,6 +751,7 @@ class StageServiceConfig:
             record_timeline=bool(raw.get("record_timeline", False)),
             postprocess_workers=int(raw.get("postprocess_workers", 4)),
         )
+
 
 def load_stage_service_config(path: str | Path) -> StageServiceConfig:
     config_path = Path(path).expanduser().resolve()

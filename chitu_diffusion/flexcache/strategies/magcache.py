@@ -4,16 +4,18 @@ from typing import Any
 
 import torch
 
-from chitu_diffusion.epac.cache import MagCacheConfig
+from chitu_diffusion.flexcache.config import MagCacheConfig
 
 from ..contracts import CacheStepContext
 from ..spec import BlockSite, FlexCacheModelSpec
 from ..tree import TensorTree
 from .base import BaseCacheStrategy
-from .magcache_profiles import MagCacheProfile, OFFICIAL_MAGCACHE_PROFILES
+from .magcache_profiles import OFFICIAL_MAGCACHE_PROFILES, MagCacheProfile
 
 
-def _nearest_resample(values: tuple[float, ...], target_steps: int) -> tuple[float, ...]:
+def _nearest_resample(
+    values: tuple[float, ...], target_steps: int
+) -> tuple[float, ...]:
     if target_steps == 1:
         return values[-1:]
     scale = (len(values) - 1) / (target_steps - 1)
@@ -73,7 +75,9 @@ class MagCacheStrategy(BaseCacheStrategy):
         super().begin(total_steps=total_steps, model_spec=model_spec)
         profile = self._resolve_profile(model_spec)
         threshold = (
-            profile.threshold if self.params.threshold is None else self.params.threshold
+            profile.threshold
+            if self.params.threshold is None
+            else self.params.threshold
         )
         max_skip_steps = (
             profile.max_skip_steps
@@ -185,7 +189,10 @@ class MagCacheStrategy(BaseCacheStrategy):
         self.stats.block_hits += 1
         if site.index == 0:
             if isinstance(block_input, tuple):
-                return True, (*block_input[:-1], block_input[-1] + self.previous_residual)
+                return True, (
+                    *block_input[:-1],
+                    block_input[-1] + self.previous_residual,
+                )
             return True, block_input + self.previous_residual
         return True, block_input
 
@@ -201,7 +208,9 @@ class MagCacheStrategy(BaseCacheStrategy):
         assert self.model_spec is not None
         if site.index == 0:
             block_input = self.model_spec.block_input(site, args, kwargs)
-            hidden_input = block_input[-1] if isinstance(block_input, tuple) else block_input
+            hidden_input = (
+                block_input[-1] if isinstance(block_input, tuple) else block_input
+            )
             if not isinstance(hidden_input, torch.Tensor):
                 raise TypeError("MagCache backbone input must contain a tensor")
             self.backbone_input = hidden_input.detach().clone()
@@ -226,8 +235,8 @@ class MagCacheStrategy(BaseCacheStrategy):
                     f"{tuple(self.backbone_input.shape)} vs {tuple(hidden_output.shape)}"
                 )
         self.previous_residual = (
-            hidden_output.detach() - self.backbone_input
-        ).detach().clone()
+            (hidden_output.detach() - self.backbone_input).detach().clone()
+        )
         self.stats.cache_bytes = (
             self.previous_residual.numel() * self.previous_residual.element_size()
         )

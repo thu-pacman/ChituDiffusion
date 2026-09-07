@@ -108,7 +108,7 @@ def load_wan_diffusers_components(
         raise FileNotFoundError("Wan original checkpoint is missing config.json")
     original_config = json.loads(config_path.read_text(encoding="utf-8"))
     if original_config.get("model_type") != "t2v":
-        raise NotImplementedError("Wan EPAC original loader currently supports T2V")
+        raise NotImplementedError("Wan EPE original loader currently supports T2V")
     model_dim = int(original_config["dim"])
     num_heads = int(original_config["num_heads"])
     if model_dim % num_heads:
@@ -135,7 +135,7 @@ def load_wan_diffusers_components(
     transformer.load_state_dict(transformer_state, strict=True, assign=True)
     del transformer_state
     transformer.to(dtype=torch_dtype).eval().requires_grad_(False)
-    transformer.configure_epac(parallel_context, attention_mode=attention_mode)
+    transformer.configure_epe(parallel_context, attention_mode=attention_mode)
 
     with init_empty_weights():
         vae = AutoencoderKLWan()

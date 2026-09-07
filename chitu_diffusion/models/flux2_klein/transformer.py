@@ -6,7 +6,7 @@ import torch
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.transformers.transformer_flux2 import Flux2Transformer2DModel
 
-from ...parallel import EpeParallelContext, resolve_context_parallel_config
+from ...parallel.cp import EpeParallelContext, resolve_context_parallel_config
 from .attention import (
     Flux2KleinCpAttnProcessor,
     Flux2KleinCpSingleAttnProcessor,

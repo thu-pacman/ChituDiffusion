@@ -6,13 +6,14 @@ from typing import Any, Mapping
 
 import torch
 
-from ...epac.api import (
-    DiffusersEPACPipeline,
+from ...epe.api import (
+    DiffusersEPEPipeline,
     build_diffusion_request,
     validate_image_request,
 )
-from ...epac.cache import CacheConfig
-from ...epac.request import DiffusionRequest
+from ...epe.request import DiffusionRequest
+from ...flexcache.config import CacheConfig
+from ...parallel.vae import create_vae_parallel_placement
 from .pipeline import EpeWanPipeline
 
 
@@ -71,14 +72,14 @@ class WanRequest:
         )
 
 
-class WanEPACPipeline(DiffusersEPACPipeline):
-    """Diffusers-style facade for Wan2.1 T2V EPAC generation."""
+class WanPipeline(DiffusersEPEPipeline):
+    """Diffusers-style facade for Wan2.1 T2V EPE generation."""
 
     pipeline_class = EpeWanPipeline
-    generation_error_prefix = "Wan EPAC"
+    generation_error_prefix = "Wan EPE"
 
     def _create_backend(self, config: Any | None = None) -> Any:
-        from ...epac.model_scheduling import EpeSchedulingModule
+        from ...epe.scheduling.planner import EpeSchedulingModule
         from .executor import WanVideoDecoderExecutor
 
         return WanVideoDecoderExecutor(
@@ -91,6 +92,8 @@ class WanEPACPipeline(DiffusersEPACPipeline):
             default_height=int(getattr(config, "default_height", 480)),
             default_num_frames=81,
             default_num_steps=int(getattr(config, "default_num_steps", 50)),
-            parallel_vae=bool(getattr(config, "parallel_vae", True)),
-            vae_parallel_halo=int(getattr(config, "vae_parallel_halo", 8)),
+            vae_placement=create_vae_parallel_placement(
+                getattr(config, "vae_parallel_degree", None),
+                halo=int(getattr(config, "vae_parallel_halo", 8)),
+            ),
         )
