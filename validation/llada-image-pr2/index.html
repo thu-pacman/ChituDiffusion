@@ -1,0 +1,839 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Diffusers-native diffusion inference with EPE, context parallelism, and FlexCache">
+      
+      
+      
+        <link rel="canonical" href="https://thu-pacman.github.io/ChituDiffusion/validation/llada-image-pr2/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>LLaDA-Image PR #2 Review and Acceptance - ChituDiffusion</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#llada-image-pr-2-review-and-acceptance" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href="../.." title="ChituDiffusion" class="md-header__button md-logo" aria-label="ChituDiffusion" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ChituDiffusion
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              LLaDA-Image PR #2 Review and Acceptance
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/thu-pacman/ChituDiffusion" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    thu-pacman/ChituDiffusion
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ChituDiffusion" class="md-nav__button md-logo" aria-label="ChituDiffusion" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    ChituDiffusion
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/thu-pacman/ChituDiffusion" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    thu-pacman/ChituDiffusion
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    项目概述
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    核心功能
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    核心功能
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/fast-cp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fast CP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/epe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EPE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/flexcache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FlexCache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/diffusers-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diffusers API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    使用说明
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    使用说明
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    安装
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage/running/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    运行
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="llada-image-pr-2-review-and-acceptance">LLaDA-Image PR #2 Review and Acceptance</h1>
+<p>Date: 2026-09-08.</p>
+<h2 id="revisions">Revisions</h2>
+<ul>
+<li>PR: <a href="https://github.com/thu-pacman/ChituDiffusion/pull/2">https://github.com/thu-pacman/ChituDiffusion/pull/2</a></li>
+<li>Reviewed PR head: <code>8878340</code>.</li>
+<li>Integration base: <code>b2ca508</code>.</li>
+<li>Integration branch: <code>codex/review-pr2-llada-image</code>.</li>
+<li>Official reference: <a href="https://github.com/inclusionAI/LLaDA-Image">https://github.com/inclusionAI/LLaDA-Image</a>,
+  commit <code>e7c861b0aaa00d2f7ed49600a3a6f170e02a9d59</code>.</li>
+<li>BF16 checkpoint: <a href="https://huggingface.co/inclusionAI/LLaDA-Image">https://huggingface.co/inclusionAI/LLaDA-Image</a>,
+  revision <code>e4e2703f410f7ddb6ee8d6b09dac6a8ec5093039</code>.</li>
+<li>Local checkpoint: <code>/home/chenyy/WORK/models/LLaDA-Image</code>.
+  Files downloaded from the official ModelScope mirror are checked against
+  the fixed Hugging Face revision's SHA-256 or Git blob hash.</li>
+</ul>
+<h2 id="review-findings">Review Findings</h2>
+<p>All findings below are addressed on the integration branch.</p>
+<ol>
+<li><strong>P1: the serving factory could not construct the LLaDA scheduler.</strong>
+   <code>scheduling_options_from_pool()</code> supplies <code>min_resize_gain_ms</code>,
+   <code>resize_hysteresis_ms</code>, and <code>resize_control_cost_ms</code>, which the model's
+   scheduling constructor rejected. Forward these options to the shared
+   planner and test the real pool-to-scheduler contract.</li>
+<li><strong>P2: serving enabled approximate VAE decoding without opt-in.</strong>
+   A stage that omitted <code>parallelism.vae</code> inherited the generic sharded
+   default. LLaDA now defaults to full-image decode, including direct executor
+   construction. Explicit <code>enabled: true</code> or a fixed degree above one opts in.
+   The facade also respects the shared <code>vae_parallel_degree</code> setting.</li>
+<li><strong>P2: constructing the local text encoder left expert tensors uninitialized.</strong>
+   The experts allocated <code>torch.empty</code> parameters, but their existing
+   <code>reset_parameters()</code> was never called by the model initializer. This
+   produced intermittent NaNs in checkpoint round-trip tests. Initialize the
+   expert parameters through the model's initialization hook and assert
+   finite parameters before saving the regression fixture.</li>
+<li><strong>P2: warmup omitted the fixed QueryFormer condition tokens.</strong>
+   The default measured 32 caption tokens even though the checkpoint adds
+   256 learned queries. The default now measures <code>num_queries + 32</code>; explicit
+   profiling lengths remain supported.</li>
+</ol>
+<p>The five textual merge conflicts were mechanical: preserve main's unified
+VAE placement calls in FLUX.1, Qwen-Image, Wan, and Z-Image; retain Wan/Z-Image
+tensor parallel support and add LLaDA's CFG axis to the service capability
+table. Main already normalized an unset Ulysses degree, so the PR's duplicate
+normalization and formatting changes were unnecessary. No behavior conflict
+requires a user decision.</p>
+<p>The bundled DiT classes match the official reference at AST level; the
+additional RMSNorm subclass and parallel wrappers are reviewed separately.
+The official text checkpoint's complete key set matches the bundled text
+encoder. Its differences from the reference concern checkpoint loading,
+Transformers compatibility, attention selection, and the local MoE operator.</p>
+<h2 id="environments">Environments</h2>
+<ul>
+<li>Existing <code>.venv</code>: PyTorch <code>2.9.1+cu130</code>, Transformers <code>4.56.2</code>,
+  Diffusers <code>0.37.0</code>.</li>
+<li>Isolated <code>.venv-pr2-review</code>: PyTorch <code>2.10.0+cu128</code>, Transformers <code>5.12.1</code>,
+  Diffusers <code>0.38.0</code>, with the base requirements declared in <code>pyproject.toml</code>.
+  The default CUDA 12.8 wheel was used for this isolated check; the user's
+  existing CUDA 13 environment is preserved.</li>
+<li>Full <code>uv sync</code> also resolves optional extras and currently fails on the
+  existing <code>varlen</code> dependency <code>nvidia-cutlass-dsl-libs-base==4.6.0.dev0</code>.
+  The base dependency installation avoids that unrelated optional extra:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--no-config<span class="w"> </span>--python<span class="w"> </span>.venv-pr2-review/bin/python<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>--index-url<span class="w"> </span>https://mirrors.aliyun.com/pypi/simple<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>-r<span class="w"> </span>pyproject.toml<span class="w"> </span>--no-sources<span class="w"> </span>pytest<span class="w"> </span>ruff<span class="w"> </span>httpx
+</code></pre></div>
+<h2 id="validation">Validation</h2>
+<p>Acceptance passed. Generated images, numerical outputs, and full logs are
+kept under the ignored <code>outputs/pr2-review/</code> directory. All GPU checks used
+NVIDIA H20 GPUs with approximately 96 GiB of memory each.</p>
+<ul>
+<li>Unit and integration suite: <strong>474 passed, 19 skipped in each environment</strong>.
+  GPU-specific checks were run separately; the remaining skips are the
+  existing suite's optional hardware/dependency tests.</li>
+<li>CPU two-process parallel contract test: passed.</li>
+<li>H20 two-GPU NCCL contract test: passed, including text/VQ/editing
+  transformer equivalence and CFG/VQ synchronization.</li>
+<li>H20 targeted transformer/runtime tests: 20 passed, including the Triton
+  RMSNorm comparison with the Diffusers implementation.</li>
+<li>Declared-dependency H20 GPU regressions: 5 passed, covering the two-rank
+  NCCL contract and transformer/RMSNorm checks.</li>
+<li>Ruff, Python compilation, CLI help, stage configuration parsing, and
+  <code>git diff --check</code>: passed.</li>
+</ul>
+<h3 id="real-checkpoint-results">Real Checkpoint Results</h3>
+<p>The prompt was <code>A red ceramic teapot on a white table, studio photograph</code>,
+seed 42, BF16, guidance 4.5, with exact VAE decode. Editing used the official
+reference image and <code>Change the teapot to blue, preserve the composition</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Resolution / steps</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unmodified official demo, existing environment</td>
+<td>1024 / 50</td>
+<td>Successful; coherent red teapot</td>
+</tr>
+<tr>
+<td><code>chitu generate</code>, existing environment</td>
+<td>1024 / 50</td>
+<td>Successful; 26.21 dB PSNR against official output</td>
+</tr>
+<tr>
+<td><code>chitu generate</code>, declared dependencies</td>
+<td>1024 / 50</td>
+<td>Successful; 25.49 dB PSNR against official output</td>
+</tr>
+<tr>
+<td>Single-GPU text and editing</td>
+<td>512 / 8</td>
+<td>Successful; edit changes teapot to blue</td>
+</tr>
+<tr>
+<td>Single-GPU VQ</td>
+<td>1024 / 50</td>
+<td>Successful; coherent red teapot, 220.0 s generation</td>
+</tr>
+<tr>
+<td>Two-GPU VQ + CFG smoke</td>
+<td>256 / 8</td>
+<td>Successful; 38.95 dB PSNR against single-GPU smoke</td>
+</tr>
+<tr>
+<td>Two-GPU HTTP EPE service</td>
+<td>Two concurrent 512 / 8 requests</td>
+<td>Both completed in approximately 4.16 s; PNG retrieval and health checks passed</td>
+</tr>
+</tbody>
+</table>
+<p>The 256-pixel VQ run checks execution and rank consistency, not composition
+quality: it cropped the subject. The standard 1024-pixel VQ run was therefore
+also required and visually inspected. The HTTP test rejected editing mode
+with status 422 and the service shut down cleanly after testing.</p>
+<p>The following real-checkpoint comparisons use the same 512 / 8 single-GPU
+baseline. Their image differences are consistent with BF16 changes in batch
+shape, reduction order, and fused kernels; outputs are not bit-identical.</p>
+<table>
+<thead>
+<tr>
+<th>Topology</th>
+<th style="text-align: right;">Text PSNR (dB)</th>
+<th style="text-align: right;">Editing PSNR (dB)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CFG2</td>
+<td style="text-align: right;">32.79</td>
+<td style="text-align: right;">51.92</td>
+</tr>
+<tr>
+<td>AGKV CP2, serial CFG</td>
+<td style="text-align: right;">44.70</td>
+<td style="text-align: right;">51.79</td>
+</tr>
+<tr>
+<td>Ulysses CP2, serial CFG</td>
+<td style="text-align: right;">44.70</td>
+<td style="text-align: right;">51.79</td>
+</tr>
+<tr>
+<td>CFG2 x AGKV CP2 (4 GPUs)</td>
+<td style="text-align: right;">44.70</td>
+<td style="text-align: right;">51.79</td>
+</tr>
+<tr>
+<td>CFG2 x AGKV CP4 (8 GPUs)</td>
+<td style="text-align: right;">32.67</td>
+<td style="text-align: right;">52.42</td>
+</tr>
+</tbody>
+</table>
+<p>These are correctness checks, not a controlled performance benchmark;
+some jobs ran concurrently. The strict small-model tests provide numerical
+parallelism checks independent of the end-to-end image metrics.</p>
+<h3 id="reproduction">Reproduction</h3>
+<p>The official baseline used the unmodified reference launcher:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>srun<span class="w"> </span>-p<span class="w"> </span>debug<span class="w"> </span>--nodes<span class="w"> </span><span class="m">1</span><span class="w"> </span>--ntasks<span class="w"> </span><span class="m">1</span><span class="w"> </span>--gres<span class="o">=</span>gpu:1<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>--cpus-per-task<span class="w"> </span><span class="m">8</span><span class="w"> </span>--mem<span class="w"> </span>160G<span class="w"> </span>--time<span class="o">=</span><span class="m">00</span>:30:00<span class="w"> </span>/usr/bin/env<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nv">PYTHON</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/.venv/bin/python"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nv">MODEL_PATH</span><span class="o">=</span>/home/chenyy/WORK/models/LLaDA-Image<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nv">OUTPUT_ROOT</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/outputs/pr2-review/upstream"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nv">HEIGHT</span><span class="o">=</span><span class="m">1024</span><span class="w"> </span><span class="nv">WIDTH</span><span class="o">=</span><span class="m">1024</span><span class="w"> </span><span class="nv">STEPS</span><span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="nv">GUIDANCE_SCALE</span><span class="o">=</span><span class="m">4</span>.5<span class="w"> </span><span class="nv">SEED</span><span class="o">=</span><span class="m">42</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nv">GENERATION_MODE</span><span class="o">=</span>text<span class="w"> </span><span class="nv">OMP_NUM_THREADS</span><span class="o">=</span><span class="m">8</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span>bash<span class="w"> </span>refs/llada-image/scripts/run_llada_image.sh<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">  </span><span class="s2">"A red ceramic teapot on a white table, studio photograph"</span>
+</code></pre></div>
+<p>The production CLI acceptance command:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nv">SRUN_CPUS_PER_GPU</span><span class="o">=</span><span class="m">8</span><span class="w"> </span><span class="nv">SRUN_MEM_PER_GPU</span><span class="o">=</span><span class="m">160000</span><span class="w"> </span><span class="nv">OMP_NUM_THREADS</span><span class="o">=</span><span class="m">8</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>tools/cluster/srun_direct.sh<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">1</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span>generate<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--model<span class="w"> </span>llada-image<span class="w"> </span>--model-path<span class="w"> </span>/home/chenyy/WORK/models/LLaDA-Image<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--prompt<span class="w"> </span><span class="s2">"A red ceramic teapot on a white table, studio photograph"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>--height<span class="w"> </span><span class="m">1024</span><span class="w"> </span>--width<span class="w"> </span><span class="m">1024</span><span class="w"> </span>--steps<span class="w"> </span><span class="m">50</span><span class="w"> </span>--guidance-scale<span class="w"> </span><span class="m">4</span>.5<span class="w"> </span>--seed<span class="w"> </span><span class="m">42</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>--local-files-only<span class="w"> </span>--output<span class="w"> </span>outputs/pr2-review/chitu-cli-1024.png
+</code></pre></div>
+<p>For the declared environment, set <code>CHITU_PYTHON_BIN</code> to
+<code>$PWD/.venv-pr2-review/bin/python</code> and <code>PYTHONPATH</code> to <code>$PWD</code>.</p>
+<p>Reusable real-checkpoint validation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>tools/cluster/srun_direct.sh<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">1</span><span class="w"> </span>script/validate_llada_image.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--model-path<span class="w"> </span>/home/chenyy/WORK/models/LLaDA-Image<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--output<span class="w"> </span>outputs/pr2-review/smoke-1<span class="w"> </span>--modes<span class="w"> </span>text
+</code></pre></div>
+<p>Use the same source image for editing comparisons. <code>--reference</code> reads saved
+single-GPU pixel tensors and reports RMSE/PSNR; these metrics complement the
+strict small-model parallel tests and visual inspection. A successful process
+exit alone does not establish image quality or parallel equivalence.</p>
+<p>The service used <code>examples/stage-llada-image.yaml</code> with the local model path,
+port 18372, eight request steps, and an elastic two-rank pool. Its temporary
+server was stopped after acceptance; this review does not deploy a service.</p>
+<h2 id="boundaries">Boundaries</h2>
+<ul>
+<li>Batch size and output count are one.</li>
+<li>HTTP supports text-to-image; VQ and editing use the offline API/CLI.</li>
+<li>FlexCache remains explicitly unsupported.</li>
+<li>Parallel tiled VAE decode is approximate and opt-in.</li>
+<li>Fast transports require their own hardware/extension acceptance; the
+  default Torch/NCCL path is the baseline for this review.</li>
+<li>Request-side migration cost remains unknown (<code>state_bytes=0</code>), as disclosed
+  by the PR. Exact prepared latent state sizes are available to workers.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "toc.integrate", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
