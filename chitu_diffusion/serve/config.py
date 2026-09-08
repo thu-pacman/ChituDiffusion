@@ -41,6 +41,7 @@ MODEL_PARALLEL_AXES: dict[str, frozenset[str]] = {
     "flux1": frozenset(),
     "qwen-image": frozenset({"cfg_parallel_degree"}),
     "wan": frozenset({"cfg_parallel_degree", "tensor_parallel_degree"}),
+    "llada-image": frozenset({"cfg_parallel_degree"}),
     "minimax-h3": frozenset({"tensor_parallel_degree"}),
     "hunyuan-image3": frozenset(
         {
@@ -420,6 +421,10 @@ class ParallelismConfig:
         vae_raw = _parallel_section(
             raw, "vae", frozenset({"enabled", "degree", "halo"})
         )
+        if factory == "llada-image" and "enabled" not in vae_raw:
+            # Flux2 VAE tiles are approximate; LLaDA requires explicit opt-in.
+            degree = vae_raw.get("degree")
+            vae_raw = {**vae_raw, "enabled": degree is not None and int(degree) > 1}
         vae = _vae_plan(vae_raw, gpu_count=gpu_count, scheduler=scheduler)
         return cls(cp=cp, vae=vae, scheduler=scheduler, model=model)
 

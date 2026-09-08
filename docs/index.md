@@ -60,6 +60,7 @@ flowchart TD
 | FLUX.2-klein | 单卡、静态 CP | 不支持 | 不支持 | 图片 |
 | Hunyuan Image 3 | 单机可配置 TP×CFG×CP×EP（72 GiB 参考配置 TP2×CFG2×CP2×EP2） | 支持（仅 `static_cp`） | 不支持 | 图片 |
 | MiniMax-H3 | 仅服务 | 支持 | 不支持 | 音视频 MP4 |
+| [LLaDA-Image](../chitu_diffusion/models/llada_image/README.md) | 文生图、VQ 条件生成、编辑；AGKV/Ulysses CP、CFG 并行 | 文生图 | 不支持 | 图片 |
 
 项目目前处于开发者预览阶段。EPE 不保证任意 rank 故障后的恢复。Fast CP 和
 FlexCache 的结果只适用于文档列出的硬件、模型、尺寸和参数。

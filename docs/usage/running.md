@@ -1,7 +1,7 @@
 # 运行
 
 `chitu generate` 执行单次生成，`chitu serve` 启动 EPE 服务。CLI 支持 `zimage`、
-`flux1`、`flux2-klein`、`qwen-image`、`wan` 和 `hunyuan-image3`。
+`flux1`、`flux2-klein`、`qwen-image`、`wan`、`llada-image` 和 `hunyuan-image3`。
 
 ## 单卡生成
 

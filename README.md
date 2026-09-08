@@ -88,6 +88,11 @@ DiT 执行与 tensor 布局。
 <td>可配置 TP×CFG×CP×EP decoder（72 GiB 参考配置 TP2×CFG2×CP2×EP2）、NCCL/Fast AGKV/Fast Ulysses、EPE static CP、变长 expert dispatch、独立 VAEP</td>
 </tr>
 <tr>
+<td><a href="chitu_diffusion/models/llada_image/README.md">LLaDA-Image</a></td>
+<td>文生图、VQ 条件生成、单图编辑</td>
+<td>AGKV/Ulysses CP、CFG 并行、EPE 文生图服务；不支持 FlexCache</td>
+</tr>
+<tr>
 <td><a href="chitu_diffusion/models/minimax_h3/README.md">MiniMax-H3</a></td>
 <td>T2VA、first/last-frame FL2VA 基础服务链路</td>
 <td>TP×CP DiT、EPE、Fast Ulysses/NCCL CP、独立 VAEP、音视频解码与 MP4 输出</td>
@@ -293,6 +298,11 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <td><a href="chitu_diffusion/models/hunyuan_image3/README.md">Hunyuan Image 3</a></td>
 <td>Foundational fixed-size text-to-image and image-to-image service path</td>
 <td>Configurable TP×CFG×CP×EP decoder (72 GiB reference: TP2×CFG2×CP2×EP2), NCCL/Fast AGKV/Fast Ulysses, EPE static CP, variable-length expert dispatch, and independent VAEP</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/llada_image/README.md">LLaDA-Image</a></td>
+<td>Text to image, VQ-conditioned generation, and single-image editing</td>
+<td>AGKV/Ulysses CP, CFG parallelism, and EPE text-to-image serving; no FlexCache</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/minimax_h3/README.md">MiniMax-H3</a></td>
