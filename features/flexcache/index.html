@@ -426,7 +426,7 @@
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        基本原理
+        支持策略
       
     </span>
   </a>
@@ -434,22 +434,33 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#_2" class="md-nav__link">
+  <a href="#freecache-v2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        优化方案
+        FreeCache Preview
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="优化方案">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#优化结果" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        速度与质量
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="速度与质量">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#magcache" class="md-nav__link">
+  <a href="#freecache" class="md-nav__link">
     <span class="md-ellipsis">
       
-        MagCache
+        FreeCache 工作点
       
     </span>
   </a>
@@ -457,21 +468,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#meancache" class="md-nav__link">
+  <a href="#_2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        MeanCache
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#teacachetaylorseer-pab" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TeaCache、TaylorSeer 和 PAB
+        画面对比
       
     </span>
   </a>
@@ -487,46 +487,7 @@
   <a href="#_3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        优化结果
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="优化结果">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#magcache_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        MagCache
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#meancache_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        MeanCache
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        使用示例
+        其他策略用法
       
     </span>
   </a>
@@ -685,6 +646,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage/freecache-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FreeCache Preview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -713,18 +702,9 @@
 
 
 <h1 id="flexcache">FlexCache</h1>
-<p>FlexCache 为不同特征复用方法提供统一配置、生命周期和统计接口。它只作用于一次
-<code>generate()</code>，请求结束或发生异常时会恢复所有临时 hook。</p>
-<h2 id="_1">基本原理</h2>
-<p>扩散模型相邻去噪步骤的中间特征通常相近。缓存策略在 fresh step 执行原始计算并保存
-结果，在 reuse step 跳过部分计算，用残差、历史输出或预测值代替。</p>
-<p><code>CacheSession</code> 在请求开始时定位模型、block 和 attention site，并只包装当前 pipeline
-实例。串行 CFG 的 conditional 与 unconditional 分支分别保存状态，因此不会读取对方
-的 tensor。</p>
-<p>FlexCache 可用于单卡、静态 NCCL CP 和静态 Fast CP。缓存层不创建 process group，
-也不选择并行布局。同一 CP lane 的所有 rank 根据 step、timestep 或完整序列 probe
-做出相同 fresh/reuse 决定，避免 collective 控制流分叉。</p>
-<h2 id="_2">优化方案</h2>
+<p>FlexCache 为扩散模型提供统一的缓存加速接口。在完整计算的步骤保存输出，在后续步骤
+复用或预测部分结果，从而减少生成耗时。不同策略提供不同的速度与画面保真度取舍。</p>
+<h2 id="_1">支持策略</h2>
 <table>
 <thead>
 <tr>
@@ -735,14 +715,19 @@
 </thead>
 <tbody>
 <tr>
-<td>MagCache</td>
-<td>image-token backbone residual</td>
-<td>FLUX.1、Qwen-Image、Wan 1.3B 的官方 profile</td>
+<td>FreeCache Preview</td>
+<td>模型输出与采样状态</td>
+<td>Z-Image、Qwen-Image、FLUX.1-dev</td>
 </tr>
 <tr>
 <td>MeanCache</td>
-<td>CFG 合并后的 prediction 与 scheduler state</td>
+<td>模型输出与采样状态</td>
 <td>Z-Image、Qwen-Image，固定 50 steps</td>
+</tr>
+<tr>
+<td>MagCache</td>
+<td>主干 residual</td>
+<td>FLUX.1、Qwen-Image、Wan 1.3B 的官方 profile</td>
 </tr>
 <tr>
 <td>TeaCache</td>
@@ -751,140 +736,192 @@
 </tr>
 <tr>
 <td>TaylorSeer</td>
-<td>attention、MLP 和 projection 的 Taylor 预测值</td>
+<td>attention、MLP 和 projection 输出</td>
 <td>Z-Image、FLUX.1、Qwen-Image、Wan</td>
 </tr>
 <tr>
 <td>PAB</td>
-<td>按周期复用 attention 输出</td>
+<td>attention 输出</td>
 <td>Z-Image、FLUX.1、Qwen-Image、Wan</td>
 </tr>
 </tbody>
 </table>
-<h3 id="magcache">MagCache</h3>
-<p>MagCache 根据模型预先标定的 magnitude-ratio profile 生成 reuse 日程。fresh step 保存
-整个 image-token backbone 的 residual，reuse step 在第一个 block 注入 residual，并
-跳过后续 block。</p>
-<h3 id="meancache">MeanCache</h3>
-<p>MeanCache 在 scheduler 边界保存 CFG 合并后的 prediction、latents 和 sigma 历史。
-reuse step 使用 sigma-JVP 外推 prediction，再执行正常 scheduler step。它不修改
-transformer block。</p>
-<h3 id="teacachetaylorseer-pab">TeaCache、TaylorSeer 和 PAB</h3>
-<p>TeaCache 根据 modulation probe 的累计变化决定是否复用 block-group residual。
-TaylorSeer 用有限差分和 Taylor 展开预测 block 内部输出，计算量更低，但缓存 tensor
-较多。PAB 按 attention 类型和周期复用输出，MLP 仍正常执行。</p>
-<p>每种方法都改变数值轨迹。profile、threshold、fresh step 数或周期改变后，需要重新测量
-质量和延迟。</p>
-<h2 id="_3">优化结果</h2>
-<p>以下结果均来自单张 NVIDIA H20、BF16，并相对相同 ChituDiffusion backend、prompt 和
-seed 的无缓存结果。不同模型和策略的工作负载不同，不能横向比较。</p>
-<h3 id="magcache_1">MagCache</h3>
-<table>
-<thead>
-<tr>
-<th>模型与配置</th>
-<th style="text-align: right;">无缓存</th>
-<th style="text-align: right;">MagCache</th>
-<th style="text-align: right;">加速</th>
-<th style="text-align: right;">PSNR / LPIPS</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>FLUX.1，1024²，28 steps</td>
-<td style="text-align: right;">24.83s</td>
-<td style="text-align: right;">8.31s</td>
-<td style="text-align: right;">2.99x</td>
-<td style="text-align: right;">17.06 / 0.2963</td>
-</tr>
-<tr>
-<td>Qwen-Image，1664×928，50 steps</td>
-<td style="text-align: right;">100.45s</td>
-<td style="text-align: right;">73.27s</td>
-<td style="text-align: right;">1.37x</td>
-<td style="text-align: right;">35.90 / 0.0172</td>
-</tr>
-<tr>
-<td>Wan 1.3B，480×832×81 帧，50 steps</td>
-<td style="text-align: right;">263.69s</td>
-<td style="text-align: right;">116.49s</td>
-<td style="text-align: right;">2.26x</td>
-<td style="text-align: right;">16.00 / 0.2043</td>
-</tr>
-</tbody>
-</table>
-<h3 id="meancache_1">MeanCache</h3>
-<p>测试使用 512²、50 steps、seed 42。<code>fresh</code> 表示 50 个步骤中执行完整模型的步骤数。</p>
+<h2 id="freecache-v2">FreeCache Preview</h2>
+<p>FreeCache Preview 内置模型 profile，无需读取实验文件或手动标定。
+Fresh 预算支持 <strong>1–50 的任意整数</strong>，建议从 F25 开始。
+F10 / F17 / F25 保留原有预设，其他预算自动生成调度；数字代表 50 个采样步骤中
+执行完整模型计算的次数，不改变采样区间。极低预算可能明显损坏画面。</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chitu_diffusion</span><span class="w"> </span><span class="kn">import</span> <span class="n">CacheConfig</span><span class="p">,</span> <span class="n">FreeCacheConfig</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">cache</span> <span class="o">=</span> <span class="n">CacheConfig</span><span class="p">(</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">"freecache"</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">params</span><span class="o">=</span><span class="n">FreeCacheConfig</span><span class="o">.</span><span class="n">preview</span><span class="p">(</span><span class="s2">"zimage"</span><span class="p">,</span> <span class="n">fresh_budget</span><span class="o">=</span><span class="mi">25</span><span class="p">),</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">)</span>
+</code></pre></div>
+<p>CLI 使用 <code>--cache-strategy freecache --freecache-profile zimage:25</code>。
+完整示例、三模型参数和 Slurm 命令见 <a href="../../usage/freecache-v2/">FreeCache 使用说明</a>。</p>
+<h2 id="优化结果">速度与质量</h2>
+<p>以下为 2026-09-09 Preview 的同轮参考评测，实际耗时随运行环境和版本变化。
+单张 NVIDIA H20，BF16，1024²，50 steps；每个模型使用相同的 3 个 prompt、2 个 seed。
+横轴为实测完整生成耗时的加速比，纵轴为相对无缓存结果的 PSNR / 1-LPIPS，越靠右上越好。
+LPIPS 在原始 1024² 上计算，不缩放、不裁剪；耗时不含模型加载、图片保存和评测。
+CFG 为 Z-Image 5、Qwen-Image 4、FLUX.1-dev 3.5，各方法使用同模型的单卡 torch SDPA 路径。</p>
+<p><a href="../../assets/flexcache-preview-budget/speed_quality.png"><img alt="FlexCache 全策略速度与质量曲线" src="../../assets/flexcache-preview-budget/speed_quality.png" /></a></p>
+<p>同方法连线连接实测工作点，仅作视觉引导；Origin 的 PSNR 为无穷大，不在 PSNR 轴上人为封顶。
+FreeCache 实心圆为 F10 / F17 / F25 定档点，空心菱形为 F13 / F31 自动外推调度的实测点。
+全部方法和五个 FreeCache 点在同轮重新测量，加速比相对于同轮 Origin。
+图中只比较各模型支持的方法：TeaCache 在 FLUX 上测量，MagCache 在 Qwen/FLUX 上测量，
+MeanCache 在 Z-Image/Qwen 上测量；FreeCache、TaylorSeer 和 PAB 覆盖三个模型。</p>
+<h3 id="freecache">FreeCache 工作点</h3>
 <table>
 <thead>
 <tr>
 <th>模型</th>
-<th style="text-align: right;">fresh</th>
+<th>Fresh 预算</th>
+<th style="text-align: right;">生成耗时</th>
 <th style="text-align: right;">加速</th>
-<th style="text-align: right;">PSNR</th>
+<th style="text-align: right;">PSNR ↑</th>
+<th style="text-align: right;">1-LPIPS ↑</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>Z-Image</td>
-<td style="text-align: right;">25 / 17 / 13</td>
-<td style="text-align: right;">2.26x / 2.83x / 4.23x</td>
-<td style="text-align: right;">29.25 / 24.90 / 19.76</td>
+<td>F31（外推）</td>
+<td style="text-align: right;">30.82s</td>
+<td style="text-align: right;">1.61x</td>
+<td style="text-align: right;">26.53</td>
+<td style="text-align: right;">0.8942</td>
+</tr>
+<tr>
+<td>Z-Image</td>
+<td>F25</td>
+<td style="text-align: right;">24.95s</td>
+<td style="text-align: right;">1.98x</td>
+<td style="text-align: right;">22.57</td>
+<td style="text-align: right;">0.8389</td>
+</tr>
+<tr>
+<td>Z-Image</td>
+<td>F17</td>
+<td style="text-align: right;">17.04s</td>
+<td style="text-align: right;">2.90x</td>
+<td style="text-align: right;">21.16</td>
+<td style="text-align: right;">0.7663</td>
+</tr>
+<tr>
+<td>Z-Image</td>
+<td>F13（外推）</td>
+<td style="text-align: right;">13.11s</td>
+<td style="text-align: right;">3.77x</td>
+<td style="text-align: right;">17.75</td>
+<td style="text-align: right;">0.5840</td>
+</tr>
+<tr>
+<td>Z-Image</td>
+<td>F10</td>
+<td style="text-align: right;">10.17s</td>
+<td style="text-align: right;">4.87x</td>
+<td style="text-align: right;">15.65</td>
+<td style="text-align: right;">0.5412</td>
 </tr>
 <tr>
 <td>Qwen-Image</td>
-<td style="text-align: right;">25 / 17 / 10</td>
-<td style="text-align: right;">2.07x / 2.65x / 4.73x</td>
-<td style="text-align: right;">31.15 / 30.11 / 27.44</td>
+<td>F31（外推）</td>
+<td style="text-align: right;">38.24s</td>
+<td style="text-align: right;">1.60x</td>
+<td style="text-align: right;">41.00</td>
+<td style="text-align: right;">0.9919</td>
+</tr>
+<tr>
+<td>Qwen-Image</td>
+<td>F25</td>
+<td style="text-align: right;">30.95s</td>
+<td style="text-align: right;">1.98x</td>
+<td style="text-align: right;">37.84</td>
+<td style="text-align: right;">0.9852</td>
+</tr>
+<tr>
+<td>Qwen-Image</td>
+<td>F17</td>
+<td style="text-align: right;">21.13s</td>
+<td style="text-align: right;">2.90x</td>
+<td style="text-align: right;">28.06</td>
+<td style="text-align: right;">0.9369</td>
+</tr>
+<tr>
+<td>Qwen-Image</td>
+<td>F13（外推）</td>
+<td style="text-align: right;">16.32s</td>
+<td style="text-align: right;">3.75x</td>
+<td style="text-align: right;">28.79</td>
+<td style="text-align: right;">0.9103</td>
+</tr>
+<tr>
+<td>Qwen-Image</td>
+<td>F10</td>
+<td style="text-align: right;">12.55s</td>
+<td style="text-align: right;">4.88x</td>
+<td style="text-align: right;">22.01</td>
+<td style="text-align: right;">0.8496</td>
+</tr>
+<tr>
+<td>FLUX.1-dev</td>
+<td>F31（外推）</td>
+<td style="text-align: right;">20.33s</td>
+<td style="text-align: right;">1.60x</td>
+<td style="text-align: right;">34.09</td>
+<td style="text-align: right;">0.9718</td>
+</tr>
+<tr>
+<td>FLUX.1-dev</td>
+<td>F25</td>
+<td style="text-align: right;">16.44s</td>
+<td style="text-align: right;">1.98x</td>
+<td style="text-align: right;">31.03</td>
+<td style="text-align: right;">0.9580</td>
+</tr>
+<tr>
+<td>FLUX.1-dev</td>
+<td>F17</td>
+<td style="text-align: right;">11.26s</td>
+<td style="text-align: right;">2.90x</td>
+<td style="text-align: right;">27.28</td>
+<td style="text-align: right;">0.9154</td>
+</tr>
+<tr>
+<td>FLUX.1-dev</td>
+<td>F13（外推）</td>
+<td style="text-align: right;">8.68s</td>
+<td style="text-align: right;">3.76x</td>
+<td style="text-align: right;">24.42</td>
+<td style="text-align: right;">0.8623</td>
+</tr>
+<tr>
+<td>FLUX.1-dev</td>
+<td>F10</td>
+<td style="text-align: right;">6.78s</td>
+<td style="text-align: right;">4.81x</td>
+<td style="text-align: right;">22.76</td>
+<td style="text-align: right;">0.7989</td>
 </tr>
 </tbody>
 </table>
-<p>仓库目前没有条件一致的 TeaCache、TaylorSeer 和 PAB 评测，因此不提供这三种方法的
-性能结论。</p>
-<h2 id="_4">使用示例</h2>
-<p>CLI 使用 MagCache：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>chitu<span class="w"> </span>generate<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>--model<span class="w"> </span>wan<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Wan2.1-T2V-1.3B<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>--steps<span class="w"> </span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span>--cache-strategy<span class="w"> </span>magcache<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span>--output<span class="w"> </span>outputs/wan-magcache.mp4
+<h3 id="_2">画面对比</h3>
+<p><img alt="Z-Image 咖啡场景对比" src="../../assets/flexcache-preview-budget/coffee_comparison.png" /></p>
+<p>拼图缩小展示；指标使用原尺寸图片计算。</p>
+<p><a href="../../assets/flexcache-preview-budget/summary.csv">全部工作点 CSV</a></p>
+<h2 id="_3">其他策略用法</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>chitu<span class="w"> </span>generate<span class="w"> </span>--model<span class="w"> </span>flux1<span class="w"> </span>--model-path<span class="w"> </span>/path/to/Flux-1<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>--prompt<span class="w"> </span><span class="s2">"A porcelain coffee cup on a cafe table, soft morning light."</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>--steps<span class="w"> </span><span class="m">50</span><span class="w"> </span>--cache-strategy<span class="w"> </span>magcache<span class="w"> </span>--output<span class="w"> </span>outputs/coffee-magcache.png
 </code></pre></div>
-<p>Python API 使用 MeanCache：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chitu_diffusion</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">CacheConfig</span><span class="p">,</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">MeanCacheConfig</span><span class="p">,</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">ZImagePipeline</span><span class="p">,</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">ZImageRequest</span><span class="p">,</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">)</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">pipeline</span> <span class="o">=</span> <span class="n">ZImagePipeline</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="s2">"/path/to/Z-Image"</span><span class="p">,</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>    <span class="n">cache</span><span class="o">=</span><span class="n">CacheConfig</span><span class="p">(</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>        <span class="n">strategy</span><span class="o">=</span><span class="s2">"meancache"</span><span class="p">,</span>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>        <span class="n">params</span><span class="o">=</span><span class="n">MeanCacheConfig</span><span class="p">(</span><span class="n">fresh_steps</span><span class="o">=</span><span class="mi">25</span><span class="p">),</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>    <span class="p">),</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="p">)</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span>
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>        <span class="n">ZImageRequest</span><span class="p">(</span>
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>            <span class="n">prompt</span><span class="o">=</span><span class="s2">"a red cube on a white table"</span><span class="p">,</span>
-<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>            <span class="n">num_steps</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
-<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>            <span class="n">seed</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span>
-<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>        <span class="p">)</span>
-<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>    <span class="p">)</span>
-<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>    <span class="k">if</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">parallel_context</span><span class="o">.</span><span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>        <span class="n">result</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">"zimage-meancache.png"</span><span class="p">)</span>
-<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>        <span class="nb">print</span><span class="p">(</span><span class="n">pipeline</span><span class="o">.</span><span class="n">last_cache_stats</span><span class="p">)</span>
-<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a><span class="k">finally</span><span class="p">:</span>
-<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>    <span class="n">pipeline</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-</code></pre></div>
-<p>EPE <code>serve</code> 不接受 FlexCache 配置。当前缓存状态是 request-local，不能跨排队请求或
-动态 lane 共享。</p>
+<p>Python API 同样通过 <code>CacheConfig(strategy=..., params=...)</code> 选择策略。
+每次 <code>generate()</code> 独立维护缓存，请求结束后恢复临时 hook，不跨请求复用状态。
+FreeCache Preview 仅支持单卡、50-step 的确定性 FlowMatch Euler <code>generate()</code>；
+其他策略可按模型支持范围使用静态 NCCL CP / Fast CP。均不支持 EPE <code>serve</code>。</p>
+<p>所有缓存策略都是有损加速。更换模型、采样参数或缓存档位后，应检查生成结果；
+需要保持原始结果时使用 <code>--cache-strategy none</code>。</p>
 
 
 

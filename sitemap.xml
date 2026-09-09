@@ -2,38 +2,42 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://thu-pacman.github.io/ChituDiffusion/</loc>
-         <lastmod>2026-09-08</lastmod>
+         <lastmod>2026-09-09</lastmod>
     </url>
     <url>
          <loc>https://thu-pacman.github.io/ChituDiffusion/assets/fast_cp/article/fast_cp/</loc>
-         <lastmod>2026-09-08</lastmod>
+         <lastmod>2026-09-09</lastmod>
     </url>
     <url>
          <loc>https://thu-pacman.github.io/ChituDiffusion/features/diffusers-api/</loc>
-         <lastmod>2026-09-08</lastmod>
+         <lastmod>2026-09-09</lastmod>
     </url>
     <url>
          <loc>https://thu-pacman.github.io/ChituDiffusion/features/epe/</loc>
-         <lastmod>2026-09-08</lastmod>
+         <lastmod>2026-09-09</lastmod>
     </url>
     <url>
          <loc>https://thu-pacman.github.io/ChituDiffusion/features/fast-cp/</loc>
-         <lastmod>2026-09-08</lastmod>
+         <lastmod>2026-09-09</lastmod>
     </url>
     <url>
          <loc>https://thu-pacman.github.io/ChituDiffusion/features/flexcache/</loc>
-         <lastmod>2026-09-08</lastmod>
+         <lastmod>2026-09-09</lastmod>
+    </url>
+    <url>
+         <loc>https://thu-pacman.github.io/ChituDiffusion/usage/freecache-v2/</loc>
+         <lastmod>2026-09-09</lastmod>
     </url>
     <url>
          <loc>https://thu-pacman.github.io/ChituDiffusion/usage/installation/</loc>
-         <lastmod>2026-09-08</lastmod>
+         <lastmod>2026-09-09</lastmod>
     </url>
     <url>
          <loc>https://thu-pacman.github.io/ChituDiffusion/usage/running/</loc>
-         <lastmod>2026-09-08</lastmod>
+         <lastmod>2026-09-09</lastmod>
     </url>
     <url>
          <loc>https://thu-pacman.github.io/ChituDiffusion/validation/llada-image-pr2/</loc>
-         <lastmod>2026-09-08</lastmod>
+         <lastmod>2026-09-09</lastmod>
     </url>
 </urlset>
