@@ -22,6 +22,7 @@ nav:
   - 使用说明:
       - 安装: usage/installation.md
       - 运行: usage/running.md
+      - FreeCache Preview: usage/freecache-v2.md
 markdown_extensions:
   - admonition
   - attr_list

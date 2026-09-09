@@ -4,6 +4,8 @@ These files demonstrate public library APIs; command-line implementation lives
 under `chitu_diffusion.commands`.
 
 - `generate_zimage_flexcache.py`: `ZImagePipeline`/`ZImageRequest` plus MeanCache
+- `generate_zimage_freecache.py`: single-GPU FreeCache Preview with any integer
+  Fresh budget 1..50; `--dry-run` validates configuration without loading weights
 - `generate_flux1.py`: `Flux1Pipeline`/`Flux1Request`
 - `generate_flux2_klein.py`: fixed-CP FLUX.2-klein pipeline
 - `generate_qwen_image.py`: `QwenImagePipeline`/`QwenImageRequest`

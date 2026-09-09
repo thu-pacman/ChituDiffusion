@@ -117,6 +117,8 @@ logs/*
 
 # Diffusion
 *.csv
+# Portable public benchmark summary; raw runs remain under outputs/.
+!/docs/assets/flexcache-preview-budget/summary.csv
 *.mp4
 output/*
 srun_wan_demo.sh

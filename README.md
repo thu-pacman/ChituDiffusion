@@ -47,7 +47,8 @@ NVSHMEM 和目标架构扩展的兼容单机环境优化通信路径。
 ### <a href="docs/features/flexcache.md">FlexCache：Cache 加速 API 和评测</a>
 
 提供 MagCache、MeanCache、TeaCache、TaylorSeer 与 PAB 的统一 API，可叠加单卡或
-静态 CP。查看 <a href="docs/features/flexcache.md#优化结果">速度与质量评测</a>。
+静态 CP；另提供单卡 FreeCache Preview，支持任意整数 Fresh 预算。
+查看 <a href="docs/features/flexcache.md#优化结果">速度与质量评测</a>。
 
 </td>
 <td width="50%" valign="top">
@@ -194,6 +195,9 @@ chitu generate \
 缓存支持与模型、步数和 profile 绑定。不支持的组合会在运行前报错。原理、支持范围和
 测试结果见 [FlexCache 文档](docs/features/flexcache.md)。
 
+FreeCache Preview 支持 Z-Image、Qwen-Image 和 FLUX.1-dev 的单卡 50-step 生成，
+Fresh 预算可选 1–50，建议从 25 开始。见 [使用说明](docs/usage/freecache-v2.md)。
+
 ## EPE 服务
 
 ```bash
@@ -276,7 +280,8 @@ with one executor lifecycle for queues, state migration, and workers.
 ### <a href="docs/features/flexcache.md">FlexCache: Cache APIs and evaluation</a>
 
 One API for MagCache, MeanCache, TeaCache, TaylorSeer, and PAB, composable with
-single-GPU or static CP generation. See the
+single-GPU or static CP generation. FreeCache Preview adds single-GPU generation
+with any integer Fresh budget. See the
 <a href="docs/features/flexcache.md#优化结果">speed and quality evaluations</a>.
 
 </td>
@@ -427,6 +432,10 @@ Cache support is tied to the model, step count, and profile. Unsupported
 combinations fail before execution. See the
 [FlexCache documentation](docs/features/flexcache.md) for principles, support,
 and measured results.
+
+FreeCache Preview supports single-GPU, 50-step generation for Z-Image, Qwen-Image,
+and FLUX.1-dev with Fresh budgets from 1 to 50. Start with 25; see the
+[usage guide](docs/usage/freecache-v2.md).
 
 ## EPE serving
 
