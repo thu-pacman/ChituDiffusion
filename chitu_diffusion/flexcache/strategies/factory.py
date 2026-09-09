@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from chitu_diffusion.flexcache.config import (
     CacheConfig,
+    FreeCacheConfig,
     MagCacheConfig,
     MeanCacheConfig,
     PABConfig,
@@ -10,6 +11,7 @@ from chitu_diffusion.flexcache.config import (
 )
 
 from .base import BaseCacheStrategy
+from .freecache import FreeCacheStrategy
 from .magcache import MagCacheStrategy
 from .meancache import MeanCacheStrategy
 from .pab import PABStrategy
@@ -22,6 +24,9 @@ def create_cache_strategy(config: CacheConfig) -> BaseCacheStrategy:
     common = config.common
     if config.strategy == "none":
         return BaseCacheStrategy()
+    if config.strategy == "freecache":
+        assert isinstance(config.params, FreeCacheConfig)
+        return FreeCacheStrategy(config.params)
     if config.strategy == "magcache":
         assert isinstance(config.params, MagCacheConfig)
         return MagCacheStrategy(config.params)

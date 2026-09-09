@@ -136,7 +136,7 @@ class CacheSession:
                 self._token = None
 
     def _install_denoise_wrapper(self) -> None:
-        if self.model_spec.family not in {"zimage", "qwen_image"}:
+        if self.model_spec.family not in {"zimage", "qwen_image", "flux1"}:
             raise NotImplementedError(
                 f"request-level cache is unsupported for {self.model_spec.family}"
             )

@@ -5,6 +5,7 @@ import argparse
 from ..flexcache.config import (
     CacheCommonConfig,
     CacheConfig,
+    FreeCacheConfig,
     MagCacheConfig,
     MeanCacheConfig,
     PABConfig,
@@ -16,11 +17,28 @@ from ..flexcache.config import (
 def add_cache_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--cache-strategy",
-        choices=("none", "magcache", "meancache", "teacache", "taylorseer", "pab"),
+        choices=(
+            "none",
+            "freecache",
+            "magcache",
+            "meancache",
+            "teacache",
+            "taylorseer",
+            "pab",
+        ),
         default="none",
     )
     parser.add_argument("--cache-warmup-steps", type=int, default=0)
     parser.add_argument("--cache-cooldown-steps", type=int, default=0)
+    parser.add_argument(
+        "--freecache-profile",
+        help="MODEL:FRESH, e.g. zimage:13 or flux1:31; Fresh budget 1..50",
+    )
+    parser.add_argument(
+        "--freecache-fresh-budget",
+        type=int,
+        help="Static Fresh budget 1..50; model profile selected automatically (default 25)",
+    )
     parser.add_argument("--magcache-threshold", type=float)
     parser.add_argument("--magcache-max-skip-steps", type=int)
     parser.add_argument("--magcache-retention-ratio", type=float)
@@ -52,6 +70,21 @@ def cache_config_from_args(args: argparse.Namespace) -> CacheConfig:
     )
     if args.cache_strategy == "none":
         params = None
+    elif args.cache_strategy == "freecache":
+        if args.freecache_profile:
+            if args.freecache_fresh_budget is not None:
+                raise ValueError(
+                    "Specify either --freecache-profile or --freecache-fresh-budget"
+                )
+            try:
+                model, budget = args.freecache_profile.split(":")
+                params = FreeCacheConfig.preview(model, int(budget))
+            except ValueError as exc:
+                raise ValueError(
+                    "Use zimage/qwen_image/flux1:FRESH with an integer budget in [1, 50]"
+                ) from exc
+        else:
+            params = FreeCacheConfig(fresh_budget=args.freecache_fresh_budget)
     elif args.cache_strategy == "magcache":
         params = MagCacheConfig(
             threshold=args.magcache_threshold,

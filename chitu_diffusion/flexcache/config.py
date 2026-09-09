@@ -7,6 +7,7 @@ from typing import Any, Literal, Mapping
 
 CacheStrategyName = Literal[
     "none",
+    "freecache",
     "magcache",
     "meancache",
     "teacache",
@@ -52,6 +53,69 @@ class MeanCacheConfig:
     def __post_init__(self) -> None:
         if self.fresh_steps < 1:
             raise ValueError("MeanCache fresh_steps must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class FreeCacheProfile:
+    """A static Fresh schedule and its velocity-extrapolation coefficient."""
+
+    profile_id: str
+    model_family: str
+    reference_steps: int
+    fresh_steps: tuple[int, ...]
+    proposal_coefficient: float = 0.0
+
+    def __post_init__(self) -> None:
+        steps = tuple(self.fresh_steps)
+        object.__setattr__(self, "fresh_steps", steps)
+        if not self.profile_id or self.model_family not in {
+            "zimage",
+            "qwen_image",
+            "flux1",
+        }:
+            raise ValueError(
+                "FreeCache profile requires an ID and a supported model family"
+            )
+        if type(self.reference_steps) is not int or self.reference_steps != 50:
+            raise ValueError("FreeCache preview profiles require exactly 50 steps")
+        if not steps or any(type(step) is not int for step in steps):
+            raise ValueError("FreeCache fresh_steps must contain integers")
+        if steps[0] != 0 or steps[-1] >= 50 or steps != tuple(sorted(set(steps))):
+            raise ValueError(
+                "FreeCache fresh_steps must be sorted, unique, start at 0 and be below 50"
+            )
+        if (
+            not math.isfinite(self.proposal_coefficient)
+            or not 0 <= self.proposal_coefficient <= 1
+        ):
+            raise ValueError("FreeCache proposal_coefficient must be in [0, 1]")
+
+
+@dataclass(frozen=True, slots=True)
+class FreeCacheConfig:
+    """Static model profiles; defaults to 25 Fresh steps, with no online controller."""
+
+    fresh_budget: int | None = None
+    profile: FreeCacheProfile | None = None
+
+    @classmethod
+    def preview(cls, model_family: str, fresh_budget: int = 25) -> "FreeCacheConfig":
+        from .presets import preview_profile
+
+        return cls(profile=preview_profile(model_family, fresh_budget))
+
+    def __post_init__(self) -> None:
+        if self.fresh_budget is not None and (
+            type(self.fresh_budget) is not int or not 1 <= self.fresh_budget <= 50
+        ):
+            raise ValueError("FreeCache fresh_budget must be an integer in [1, 50]")
+        if self.profile is not None:
+            if not isinstance(self.profile, FreeCacheProfile):
+                raise ValueError("FreeCache profile must be a FreeCacheProfile")
+            if self.fresh_budget is not None and self.fresh_budget != len(
+                self.profile.fresh_steps
+            ):
+                raise ValueError("FreeCache fresh_budget must match its profile")
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,7 +221,8 @@ class PABConfig:
 
 
 CacheParams = (
-    MagCacheConfig
+    FreeCacheConfig
+    | MagCacheConfig
     | MeanCacheConfig
     | TeaCacheConfig
     | TaylorSeerConfig
@@ -165,6 +230,7 @@ CacheParams = (
     | None
 )
 _PARAM_TYPES = {
+    "freecache": FreeCacheConfig,
     "magcache": MagCacheConfig,
     "meancache": MeanCacheConfig,
     "teacache": TeaCacheConfig,
@@ -182,6 +248,7 @@ class CacheConfig:
     def __post_init__(self) -> None:
         if self.strategy not in {
             "none",
+            "freecache",
             "magcache",
             "meancache",
             "teacache",
@@ -189,7 +256,7 @@ class CacheConfig:
             "pab",
         }:
             raise ValueError(
-                "cache strategy must be one of: none, magcache, meancache, teacache, "
+                "cache strategy must be one of: none, freecache, magcache, meancache, teacache, "
                 "taylorseer, pab"
             )
         expected = _PARAM_TYPES.get(self.strategy)
@@ -203,7 +270,7 @@ class CacheConfig:
             raise ValueError(
                 f"cache strategy {self.strategy!r} requires {expected.__name__}"
             )
-        if self.strategy in {"magcache", "meancache"} and (
+        if self.strategy in {"freecache", "magcache", "meancache"} and (
             self.common.warmup_steps or self.common.cooldown_steps
         ):
             raise ValueError(
@@ -240,6 +307,11 @@ class CacheConfig:
             params = None
         else:
             try:
+                if param_type is FreeCacheConfig and isinstance(
+                    params_raw.get("profile"), Mapping
+                ):
+                    params_raw = dict(params_raw)
+                    params_raw["profile"] = FreeCacheProfile(**params_raw["profile"])
                 params = param_type(**params_raw)
             except TypeError as exc:
                 raise ValueError(f"invalid {strategy} cache params: {exc}") from exc
@@ -257,6 +329,8 @@ class CacheConfig:
             raise ValueError("cache total_steps must be positive")
         if self.strategy == "meancache" and total_steps != 50:
             raise ValueError("official MeanCache schedules require exactly 50 steps")
+        if self.strategy == "freecache" and total_steps != 50:
+            raise ValueError("FreeCache preview requires exactly 50 steps")
         if self.common.warmup_steps + self.common.cooldown_steps >= total_steps:
             raise ValueError(
                 "cache warmup_steps + cooldown_steps must be < total_steps"

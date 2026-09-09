@@ -4,6 +4,8 @@ from .epe import EmbeddedRuntimeConfig, StageWorldSpec
 from .flexcache import (
     CacheCommonConfig,
     CacheConfig,
+    FreeCacheConfig,
+    FreeCacheProfile,
     MagCacheConfig,
     MeanCacheConfig,
     PABConfig,
@@ -22,6 +24,8 @@ from .serve import EmbeddedDiffusionRuntime, EPEServeConfig, HotSwitchPoolConfig
 __all__ = [
     "CacheCommonConfig",
     "CacheConfig",
+    "FreeCacheConfig",
+    "FreeCacheProfile",
     "EmbeddedDiffusionRuntime",
     "EmbeddedRuntimeConfig",
     "EPEServeConfig",
