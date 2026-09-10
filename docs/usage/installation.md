@@ -93,3 +93,11 @@ python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 chitu --help
 python -m pytest -q -m "not gpu and not distributed and not benchmark"
 ```
+
+### Transformers 导入提示
+
+当前固定的 `transformers==5.12.1` 在导入 Qwen2.5-VL 模块时，可能直接打印
+`Qwen2_5_VLCausalLMOutputWithPast.__init__` 的 `loss`、`logits` 未写入 docstring
+的 `[ERROR]` 提示。这两条来自依赖的文档生成检查，不表示模型加载或推理失败。
+Chitu 的公共入口按需导入模型，`chitu --help` 和不需要该模块的模型导入不再
+触发这些提示；实际使用该依赖路径时仍可能看到它们。其他错误需单独排查。
