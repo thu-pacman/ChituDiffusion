@@ -101,7 +101,7 @@ default = true
 # Switch to your cuda version
 torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
-fast-ulysses = { git = "https://github.com/triple-mu/fast-ulysses.git", rev = "6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87" }
+fast-ulysses = { git = "ssh://git@github.com/triple-mu/fast-ulysses.git", rev = "6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87" }
 
 
 
