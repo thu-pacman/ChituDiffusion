@@ -19,7 +19,7 @@ from ...parallel.cp import (
     EpeParallelContext,
     resolve_context_parallel_config,
 )
-from ...parallel.vae import parallel_tiled_vae_decode
+from ...parallel.vae import parallel_vae_decode
 from .epe import ZImageEpeModule
 from .transformer import EpeZImageTransformer2DModel
 
@@ -198,14 +198,10 @@ class EpeZImagePipeline(ZImagePipeline):
                         if device.type == "cuda":
                             torch.cuda.synchronize(device)
                         started = time.perf_counter()
-                        decoded = parallel_tiled_vae_decode(
+                        decoded = parallel_vae_decode(
+                            self.vae,
                             latents,
-                            lambda value: self.vae.decode(value, return_dict=False)[0],
                             topology=topology,
-                            latent_split_dim=2,
-                            pixel_split_dim=2,
-                            scale=int(self.vae_scale_factor),
-                            halo=vae_parallel_halo,
                             enabled=parallel_vae,
                         )
                         if device.type == "cuda":
@@ -535,18 +531,10 @@ class EpeZImagePipeline(ZImagePipeline):
         profile["vae_start_unix_ns"] = time.time_ns()
         decode_started = time.perf_counter()
         active = topology or self.parallel_context.active
-
-        def decode_fn(value: torch.Tensor) -> torch.Tensor:
-            return self.vae.decode(value, return_dict=False)[0]
-
-        image = parallel_tiled_vae_decode(
+        image = parallel_vae_decode(
+            self.vae,
             latents,
-            decode_fn,
             topology=active,
-            latent_split_dim=2,
-            pixel_split_dim=2,
-            scale=int(self.vae_scale_factor),
-            halo=vae_parallel_halo,
             enabled=parallel_vae,
         )
         if device.type == "cuda":

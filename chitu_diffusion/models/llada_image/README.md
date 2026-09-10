@@ -59,7 +59,7 @@ Editing/VQ 仍使用离线 API；在条件状态迁移协议完成前，不宣�
 elastic serving。
 
 HTTP 请求和离线 CLI/API 的默认去噪步数均为 50。
-stage 配置省略 `parallelism.vae` 时使用完整解码；近似分块解码必须显式设置
+stage 配置省略 `parallelism.vae` 时使用完整解码；并行解码必须显式设置
 `parallelism.vae.enabled: true`，或在 `static_cp` 下指定大于 1 的 `degree`。
 
 当前 LLaDA-Image 的 request-side `state_bytes` 沿用 elastic scheduler 的未知状态
@@ -74,8 +74,7 @@ stage 配置省略 `parallelism.vae` 时使用完整解码；近似分块解码�
 - 当前每个请求只支持一张输出图，batch size 必须为 1。
 - AGKV、Ulysses 和 CFP 支持 text、VQ 与 editing 离线生成。
 - FlexCache 尚未建立 LLaDA-Image 的模型级正确性契约，非 none 策略会提前报错。
-- parallel_vae 默认关闭。AutoencoderKLFlux2 包含 GroupNorm 和全局
-  mid-block attention，通用 tiled VAE decode 是近似计算；只有显式
-  --parallel-vae 才会启用，并在运行时给出警告。
+- parallel_vae 默认关闭。显式 --parallel-vae 使用逐层行分片，GroupNorm
+  合并全局统计量，mid-block attention 使用 AGKV；当前仅验证静态并行。
 - width=1 使用官方 transformer 路径；Chitu wrapper 只在并行宽度大于 1 时改写
   DiT 的 attention 和 image-token 布局。

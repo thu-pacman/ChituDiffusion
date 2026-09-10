@@ -18,7 +18,7 @@ from ...epe.executor import (
 )
 from ...epe.scheduling.planner import EpeSchedulingModule
 from ...flexcache.config import CacheConfig
-from ...parallel.vae import VaeParallelPlacement, parallel_tiled_vae_decode
+from ...parallel.vae import VaeParallelPlacement, parallel_vae_decode
 from .api import Flux1Request
 from .pipeline import EpeFlux1Pipeline, Flux1DenoiseState, FluxPipelineOutput
 
@@ -86,16 +86,10 @@ class Flux1ImageDecoderExecutor(DiffusersBackend):
                         if device.type == "cuda":
                             torch.cuda.synchronize(device)
                         started = time.perf_counter()
-                        image = parallel_tiled_vae_decode(
+                        image = parallel_vae_decode(
+                            self.pipeline.vae,
                             latents,
-                            lambda value: self.pipeline.vae.decode(
-                                value, return_dict=False
-                            )[0],
                             topology=topology,
-                            latent_split_dim=2,
-                            pixel_split_dim=2,
-                            scale=self.pipeline.vae_spatial_scale_factor,
-                            halo=self.vae_parallel_halo,
                             enabled=self.parallel_vae,
                         )
                         if device.type == "cuda":

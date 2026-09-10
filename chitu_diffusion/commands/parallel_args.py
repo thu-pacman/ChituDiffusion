@@ -28,15 +28,15 @@ def add_parallel_transport_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def add_vae_parallel_arguments(
-    parser: argparse.ArgumentParser, *, with_degree: bool = False
+    parser: argparse.ArgumentParser, *, with_degree: bool = False, default: bool = True
 ) -> None:
     """Add the VAEP flags shared by every standalone generate entry point."""
 
     parser.add_argument(
         "--parallel-vae",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Decode spatial tiles across the VAE group instead of one rank.",
+        default=default,
+        help="Parallelize decoding across the VAE group when the decoder supports it.",
     )
     if with_degree:
         parser.add_argument(
@@ -49,7 +49,7 @@ def add_vae_parallel_arguments(
         "--vae-parallel-halo",
         type=int,
         default=8,
-        help="Latent rows each decode tile overlaps with its neighbour.",
+        help="Legacy tile overlap; layer-wise decoders infer convolution halos automatically.",
     )
 
 

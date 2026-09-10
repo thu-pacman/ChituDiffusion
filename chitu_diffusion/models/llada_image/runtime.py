@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import statistics
 import time
-import warnings
 from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
@@ -12,7 +11,7 @@ import torch.distributed as dist
 from diffusers import FlowMatchEulerDiscreteScheduler
 
 from ...parallel.cp import ActiveLaneTopology, EpeParallelContext
-from ...parallel.vae import parallel_tiled_vae_decode
+from ...parallel.vae import parallel_vae_decode
 
 
 @dataclass
@@ -105,12 +104,6 @@ class LLaDAImageRuntimeMixin:
         dtype = self.vae.dtype
         in_channels = int(self.transformer.config.in_channels)
         rows: list[dict[str, Any]] = []
-        if parallel_vae and max(self.parallel_context.allowed_widths) > 1:
-            warnings.warn(
-                "LLaDA-Image parallel VAE warmup measures an approximate decode",
-                RuntimeWarning,
-                stacklevel=2,
-            )
 
         for height, width in resolutions:
             latent_height = height // int(self.latent_scale_factor)
@@ -146,14 +139,10 @@ class LLaDAImageRuntimeMixin:
                         if device.type == "cuda":
                             torch.cuda.synchronize(device)
                         started = time.perf_counter()
-                        decoded = parallel_tiled_vae_decode(
+                        decoded = parallel_vae_decode(
+                            self.vae,
                             vae_latents,
-                            lambda value: self.vae.decode(value, return_dict=False)[0],
                             topology=topology,
-                            latent_split_dim=2,
-                            pixel_split_dim=2,
-                            scale=int(self.vae_scale_factor),
-                            halo=vae_parallel_halo,
                             enabled=parallel_vae,
                         )
                         if device.type == "cuda":
@@ -685,24 +674,13 @@ class LLaDAImageRuntimeMixin:
         if topology is None:
             epe = getattr(self.transformer, "epe", None)
             topology = epe.parallel.active if epe is not None else None
-        if parallel_vae and topology is not None and topology.width > 1:
-            warnings.warn(
-                "LLaDA-Image parallel VAE decode is approximate because "
-                "AutoencoderKLFlux2 contains global normalization and attention",
-                RuntimeWarning,
-                stacklevel=2,
-            )
         if topology is None:
             images = decode_fn(latents)
         else:
-            images = parallel_tiled_vae_decode(
+            images = parallel_vae_decode(
+                self.vae,
                 latents,
-                decode_fn,
                 topology=topology,
-                latent_split_dim=2,
-                pixel_split_dim=2,
-                scale=int(self.vae_scale_factor),
-                halo=vae_parallel_halo,
                 enabled=parallel_vae,
             )
         if device.type == "cuda":

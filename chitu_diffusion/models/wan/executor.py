@@ -22,7 +22,7 @@ from ...epe.executor import (
 from ...epe.scheduling.planner import EpeSchedulingModule
 from ...epe.scheduling.types import RequestProfile
 from ...flexcache.config import CacheConfig
-from ...parallel.vae import VaeParallelPlacement, parallel_tiled_vae_decode
+from ...parallel.vae import VaeParallelPlacement, parallel_vae_decode
 from .api import WanRequest
 from .pipeline import EpeWanPipeline, WanDenoiseState, WanPipelineOutput
 
@@ -166,16 +166,10 @@ class WanVideoDecoderExecutor(DiffusersBackend):
                         if device.type == "cuda":
                             torch.cuda.synchronize(device)
                         started = time.perf_counter()
-                        video = parallel_tiled_vae_decode(
+                        video = parallel_vae_decode(
+                            self.pipeline.vae,
                             self.pipeline._denormalize_latents(latents),
-                            lambda value: self.pipeline.vae.decode(
-                                value, return_dict=False
-                            )[0],
                             topology=topology,
-                            latent_split_dim=4,
-                            pixel_split_dim=4,
-                            scale=int(self.pipeline.vae_scale_factor_spatial),
-                            halo=self.vae_parallel_halo,
                             enabled=self.parallel_vae,
                         )
                         if device.type == "cuda":

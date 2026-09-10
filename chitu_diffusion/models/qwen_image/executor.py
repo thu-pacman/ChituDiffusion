@@ -18,7 +18,7 @@ from ...epe.executor import (
 )
 from ...epe.scheduling.planner import EpeSchedulingModule
 from ...flexcache.config import CacheConfig
-from ...parallel.vae import VaeParallelPlacement, parallel_tiled_vae_decode
+from ...parallel.vae import VaeParallelPlacement, parallel_vae_decode
 from .api import QwenImageRequest
 from .pipeline import (
     EpeQwenImagePipeline,
@@ -90,16 +90,13 @@ class QwenImageDecoderExecutor(DiffusersBackend):
                         if device.type == "cuda":
                             torch.cuda.synchronize(device)
                         started = time.perf_counter()
-                        image = parallel_tiled_vae_decode(
+                        image = parallel_vae_decode(
+                            self.pipeline.vae,
                             latents,
-                            lambda value: self.pipeline.vae.decode(
+                            decode_fn=lambda value: self.pipeline.vae.decode(
                                 value, return_dict=False
                             )[0][:, :, 0],
                             topology=topology,
-                            latent_split_dim=3,
-                            pixel_split_dim=2,
-                            scale=int(self.pipeline.vae_scale_factor),
-                            halo=self.vae_parallel_halo,
                             enabled=self.parallel_vae,
                         )
                         if device.type == "cuda":

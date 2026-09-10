@@ -16,7 +16,7 @@ from diffusers.pipelines.qwenimage.pipeline_qwenimage import (
 )
 
 from ...parallel.cp import EpeParallelContext, resolve_context_parallel_config
-from ...parallel.vae import parallel_tiled_vae_decode
+from ...parallel.vae import parallel_vae_decode
 from .transformer import EpeQwenImageTransformer2DModel
 
 
@@ -522,14 +522,11 @@ class EpeQwenImagePipeline(QwenImagePipeline):
             torch.cuda.synchronize(device)
         profile["vae_start_unix_ns"] = time.time_ns()
         started = time.perf_counter()
-        image = parallel_tiled_vae_decode(
+        image = parallel_vae_decode(
+            self.vae,
             latents,
-            lambda value: self.vae.decode(value, return_dict=False)[0][:, :, 0],
+            decode_fn=lambda value: self.vae.decode(value, return_dict=False)[0][:, :, 0],
             topology=topology or self.parallel_context.active,
-            latent_split_dim=3,
-            pixel_split_dim=2,
-            scale=int(self.vae_scale_factor),
-            halo=vae_parallel_halo,
             enabled=parallel_vae,
         )
         if device.type == "cuda":
