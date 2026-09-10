@@ -12,6 +12,10 @@ from chitu_diffusion.commands.cache_args import (
     add_cache_arguments,
     cache_config_from_args,
 )
+from chitu_diffusion.commands.generate.common import (
+    generation_timestamp,
+    write_generation_metadata,
+)
 from chitu_diffusion.commands.parallel_args import (
     add_parallel_transport_arguments,
     add_vae_parallel_arguments,
@@ -97,6 +101,7 @@ def main() -> None:
         **static_parallel_pipeline_kwargs(args),
     )
     try:
+        started = generation_timestamp()
         output = pipeline.generate(
             ZImageRequest(
                 prompt=args.prompt,
@@ -109,9 +114,13 @@ def main() -> None:
                 cache=cache,
             )
         )
+        elapsed_s = generation_timestamp() - started
         if pipeline.parallel_context.rank == 0:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             output.images[0].save(args.output)
+            write_generation_metadata(
+                args.output, args=args, pipeline=pipeline, elapsed_s=elapsed_s
+            )
             print(f"Saved EPE static image to {args.output.resolve()}")
             if pipeline.last_cache_stats is not None:
                 print(f"FlexCache stats: {pipeline.last_cache_stats}")

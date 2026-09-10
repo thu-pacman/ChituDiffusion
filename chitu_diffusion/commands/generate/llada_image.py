@@ -9,6 +9,10 @@ import torch.distributed as dist
 from PIL import Image
 
 from chitu_diffusion import LLaDAImagePipeline, LLaDAImageRequest
+from chitu_diffusion.commands.generate.common import (
+    generation_timestamp,
+    write_generation_metadata,
+)
 from chitu_diffusion.commands.parallel_args import (
     add_parallel_transport_arguments,
     static_parallel_pipeline_kwargs,
@@ -54,8 +58,7 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "Opt in to approximate tiled VAE decode. AutoencoderKLFlux2 "
-            "contains global normalization and attention, so tiles are not exact."
+            "Enable layer-wise VAE decode with global normalization and AGKV attention."
         ),
     )
     parser.add_argument("--vae-parallel-halo", type=int, default=8)
@@ -112,6 +115,7 @@ def main() -> None:
         **static_parallel_pipeline_kwargs(args),
     )
     try:
+        started = generation_timestamp()
         output = pipeline.generate(
             LLaDAImageRequest(
                 prompt=args.prompt,
@@ -126,9 +130,13 @@ def main() -> None:
                 max_sequence_length=args.max_sequence_length,
             )
         )
+        elapsed_s = generation_timestamp() - started
         if pipeline.parallel_context.rank == 0:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             output.images[0].save(args.output)
+            write_generation_metadata(
+                args.output, args=args, pipeline=pipeline, elapsed_s=elapsed_s
+            )
             print(f"Saved LLaDA-Image output to {args.output.resolve()}")
         if dist.is_initialized():
             dist.barrier()

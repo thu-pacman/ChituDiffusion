@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import time
 from pathlib import Path
@@ -9,6 +8,10 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 
+from chitu_diffusion.commands.generate.common import (
+    generation_timestamp,
+    write_generation_metadata,
+)
 from chitu_diffusion.commands.parallel_args import (
     add_vae_parallel_arguments,
     vae_parallel_degree,
@@ -155,7 +158,7 @@ def main() -> None:
         default_guidance_scale=args.guidance_scale,
     )
     try:
-        started = time.perf_counter()
+        started = generation_timestamp()
         images = executor.generate(
             HunyuanImage3Request(
                 prompt=args.prompt,
@@ -168,7 +171,8 @@ def main() -> None:
                 seed=args.seed,
             )
         )
-        total_ms = (time.perf_counter() - started) * 1000
+        elapsed_s = generation_timestamp() - started
+        total_ms = elapsed_s * 1000
         if runtime.rank == 0:
             if not images:
                 raise RuntimeError("rank 0 did not receive a decoded image")
@@ -191,8 +195,12 @@ def main() -> None:
                 "vae_parallel_degree": runtime.vae_placement.degree,
                 "attention_mode": plan.attention_mode,
             }
-            args.output.with_suffix(".json").write_text(
-                json.dumps(metadata, indent=2, sort_keys=True) + "\n"
+            write_generation_metadata(
+                args.output,
+                args=args,
+                pipeline=pipeline,
+                elapsed_s=elapsed_s,
+                metadata=metadata,
             )
             print(f"Saved Hunyuan Image 3 result to {args.output.resolve()}")
             print(f"load {load_ms:.0f} ms, generate {total_ms:.0f} ms")

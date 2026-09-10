@@ -19,6 +19,12 @@ chitu generate \
 chitu generate --model zimage --help
 ```
 
+所有 `generate` 入口都会打印 `elapsed_s=...`，并在产物旁写入同名 `.json`。
+`elapsed_s` 与兼容字段 `generate_seconds` 都以秒记录本次生成耗时，包括文本编码、
+去噪、VAE 解码和结果后处理，不含模型加载、图片保存或视频编码。CUDA 计时边界会
+等待设备工作完成；这是单次请求耗时，首轮可能包含编译或初始化成本。
+JSON 同时记录 prompt、seed、步数和并行参数；FlexCache 模型还记录缓存统计。
+
 ## 静态多卡生成
 
 所有 rank 执行同一条命令，只有 leader 写出结果。默认 transport 是 Torch/NCCL：

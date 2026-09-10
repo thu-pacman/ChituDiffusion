@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import os
-import time
 from pathlib import Path
 
 import torch
@@ -13,6 +11,10 @@ from chitu_diffusion import QwenImagePipeline, QwenImageRequest
 from chitu_diffusion.commands.cache_args import (
     add_cache_arguments,
     cache_config_from_args,
+)
+from chitu_diffusion.commands.generate.common import (
+    generation_timestamp,
+    write_generation_metadata,
 )
 from chitu_diffusion.commands.parallel_args import (
     add_parallel_transport_arguments,
@@ -63,8 +65,7 @@ def main() -> None:
         **static_parallel_pipeline_kwargs(args),
     )
     try:
-        torch.cuda.synchronize()
-        started = time.perf_counter()
+        started = generation_timestamp()
         result = pipeline.generate(
             QwenImageRequest(
                 prompt=args.prompt,
@@ -77,32 +78,17 @@ def main() -> None:
                 cache=cache,
             )
         )
-        torch.cuda.synchronize()
-        generate_seconds = time.perf_counter() - started
+        generate_seconds = generation_timestamp() - started
         if pipeline.parallel_context.rank == 0:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             result.images[0].save(args.output)
             digest = hashlib.sha256(args.output.read_bytes()).hexdigest()
-            args.output.with_suffix(".json").write_text(
-                json.dumps(
-                    {
-                        "world_size": pipeline.parallel_context.world_size,
-                        "steps": args.steps,
-                        "true_cfg_scale": args.true_cfg_scale,
-                        "cfg_parallel": args.cfg_parallel,
-                        "attention_mode": args.attention_mode,
-                        "ulysses_degree": args.ulysses_degree,
-                        "ulysses_transport": args.ulysses_transport,
-                        "agkv_transport": args.agkv_transport,
-                        "seed": args.seed,
-                        "generate_seconds": generate_seconds,
-                        "sha256": digest,
-                        "cache": pipeline.last_cache_stats,
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
+            write_generation_metadata(
+                args.output,
+                args=args,
+                pipeline=pipeline,
+                elapsed_s=generate_seconds,
+                metadata={"sha256": digest},
             )
             print(f"Saved Qwen-Image EPE output to {args.output.resolve()}")
             print(f"sha256={digest}")
