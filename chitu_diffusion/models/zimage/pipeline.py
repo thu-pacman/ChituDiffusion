@@ -84,6 +84,10 @@ class EpeZImagePipeline(ZImagePipeline):
             kwargs.pop("ulysses_degree", None),
         )
         cfg_parallel = bool(kwargs.pop("cfg_parallel", True))
+        parallel_vae = bool(kwargs.pop("parallel_vae", False))
+        vae_parallel_halo = int(kwargs.pop("vae_parallel_halo", 8))
+        if vae_parallel_halo < 0:
+            raise ValueError("vae_parallel_halo must be non-negative")
         tensor_parallel_degree = int(kwargs.pop("tensor_parallel_degree", 1) or 1)
         epe_options = dict(kwargs.pop("epe_options", {}))
         epe_options.setdefault("attention_mode", attention_mode)
@@ -126,7 +130,17 @@ class EpeZImagePipeline(ZImagePipeline):
             transformer=transformer,
             **kwargs,
         )
+        pipeline._epe_parallel_vae = parallel_vae
+        pipeline._epe_vae_parallel_halo = vae_parallel_halo
         return pipeline
+
+    @property
+    def parallel_vae(self) -> bool:
+        return bool(getattr(self, "_epe_parallel_vae", False))
+
+    @property
+    def vae_parallel_halo(self) -> int:
+        return int(getattr(self, "_epe_vae_parallel_halo", 8))
 
     @property
     def parallel_context(self) -> EpeParallelContext:
@@ -497,8 +511,8 @@ class EpeZImagePipeline(ZImagePipeline):
         state: ZImageDenoiseState,
         *,
         topology: ActiveLaneTopology | None = None,
-        parallel_vae: bool = True,
-        vae_parallel_halo: int = 8,
+        parallel_vae: bool | None = None,
+        vae_parallel_halo: int | None = None,
         timings: dict[str, Any] | None = None,
     ) -> torch.Tensor | None:
         """Decode completed latents without performing CPU image conversion."""
@@ -531,11 +545,12 @@ class EpeZImagePipeline(ZImagePipeline):
         profile["vae_start_unix_ns"] = time.time_ns()
         decode_started = time.perf_counter()
         active = topology or self.parallel_context.active
+        enabled = self.parallel_vae if parallel_vae is None else parallel_vae
         image = parallel_vae_decode(
             self.vae,
             latents,
             topology=active,
-            enabled=parallel_vae,
+            enabled=enabled,
         )
         if device.type == "cuda":
             torch.cuda.synchronize(device)

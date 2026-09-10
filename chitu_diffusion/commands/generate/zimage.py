@@ -14,7 +14,9 @@ from chitu_diffusion.commands.cache_args import (
 )
 from chitu_diffusion.commands.parallel_args import (
     add_parallel_transport_arguments,
+    add_vae_parallel_arguments,
     static_parallel_pipeline_kwargs,
+    validate_vae_parallel_arguments,
 )
 
 
@@ -63,6 +65,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--local-files-only", action="store_true")
     add_cache_arguments(parser)
+    add_vae_parallel_arguments(parser, default=False)
     parser.add_argument(
         "--output",
         type=Path,
@@ -73,6 +76,7 @@ def parse_args() -> argparse.Namespace:
         parser.error("--model-path or ZIMAGE_MODEL_PATH is required")
     if args.steps <= 0:
         parser.error("--steps must be positive")
+    validate_vae_parallel_arguments(parser, args)
     return args
 
 
@@ -88,6 +92,8 @@ def main() -> None:
         ulysses_degree=args.ulysses_degree,
         tensor_parallel_degree=args.tensor_parallel_degree,
         cfg_parallel=args.cfg_parallel,
+        parallel_vae=args.parallel_vae,
+        vae_parallel_halo=args.vae_parallel_halo,
         **static_parallel_pipeline_kwargs(args),
     )
     try:

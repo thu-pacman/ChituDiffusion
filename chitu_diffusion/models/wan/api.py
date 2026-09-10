@@ -82,6 +82,7 @@ class WanPipeline(DiffusersEPEPipeline):
         from ...epe.scheduling.planner import EpeSchedulingModule
         from .executor import WanVideoDecoderExecutor
 
+        parallel_vae = getattr(config, "parallel_vae", self._pipeline.parallel_vae)
         return WanVideoDecoderExecutor(
             self._pipeline,
             EpeSchedulingModule(
@@ -93,7 +94,9 @@ class WanPipeline(DiffusersEPEPipeline):
             default_num_frames=81,
             default_num_steps=int(getattr(config, "default_num_steps", 50)),
             vae_placement=create_vae_parallel_placement(
-                getattr(config, "vae_parallel_degree", None),
-                halo=int(getattr(config, "vae_parallel_halo", 8)),
+                getattr(config, "vae_parallel_degree", None) if parallel_vae else 1,
+                halo=int(
+                    getattr(config, "vae_parallel_halo", self._pipeline.vae_parallel_halo)
+                ),
             ),
         )

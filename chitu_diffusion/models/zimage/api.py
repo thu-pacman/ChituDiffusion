@@ -138,6 +138,7 @@ class ZImagePipeline(DiffusersEPEPipeline):
     def _create_backend(self, config: Any | None = None) -> Any:
         from .executor import ZImageImageDecoderExecutor
 
+        parallel_vae = getattr(config, "parallel_vae", self._pipeline.parallel_vae)
         return ZImageImageDecoderExecutor(
             self._pipeline,
             default_width=int(getattr(config, "default_width", 1024)),
@@ -151,8 +152,10 @@ class ZImagePipeline(DiffusersEPEPipeline):
                 )
             ),
             vae_placement=create_vae_parallel_placement(
-                getattr(config, "vae_parallel_degree", None),
-                halo=int(getattr(config, "vae_parallel_halo", 8)),
+                getattr(config, "vae_parallel_degree", None) if parallel_vae else 1,
+                halo=int(
+                    getattr(config, "vae_parallel_halo", self._pipeline.vae_parallel_halo)
+                ),
             ),
         )
 
@@ -163,7 +166,10 @@ class ZImagePipeline(DiffusersEPEPipeline):
         from ...serve.runner import serve_diffusion_backend
 
         try:
-            serve_config = config or EPEServeConfig()
+            serve_config = config or EPEServeConfig(
+                parallel_vae=self._pipeline.parallel_vae,
+                vae_parallel_halo=self._pipeline.vae_parallel_halo,
+            )
             serve_config.cache.require_serve_available()
             serve_diffusion_backend(
                 self._create_backend(serve_config),
