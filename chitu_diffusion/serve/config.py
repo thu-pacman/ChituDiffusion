@@ -421,8 +421,8 @@ class ParallelismConfig:
         vae_raw = _parallel_section(
             raw, "vae", frozenset({"enabled", "degree", "halo"})
         )
-        if factory == "llada-image" and "enabled" not in vae_raw:
-            # Flux2 VAE tiles are approximate; LLaDA requires explicit opt-in.
+        if factory in {"llada-image", "zimage"} and "enabled" not in vae_raw:
+            # Keep leader decoding unless these models explicitly opt into VAEP.
             degree = vae_raw.get("degree")
             vae_raw = {**vae_raw, "enabled": degree is not None and int(degree) > 1}
         vae = _vae_plan(vae_raw, gpu_count=gpu_count, scheduler=scheduler)

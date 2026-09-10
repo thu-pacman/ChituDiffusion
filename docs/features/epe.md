@@ -82,7 +82,7 @@ parallelism:
   cp:
     world_size: 4
   vae:
-    enabled: true
+    enabled: false
   scheduler:
     policy: elastic
     allowed_lane_widths: [1, 2, 4]
@@ -109,6 +109,8 @@ service:
 - `vae`：终端解码的并行度，包含 `enabled`、`degree` 和 `halo`。`degree` 不填时
   解码跟随产出 latent 的 lane；`degree > 1` 表示一个跨 lane 的固定解码组，只在
   `scheduler.policy: static_cp` 下允许，因为此时整个 stage 同一时刻只有一条 lane。
+  Z-Image 默认关闭分片。逐层 VAE 的全局统计量与 AGKV 通信目前仅验证静态
+  并行，不包含动态 EPE；详见 [VAE 验证记录](../validation/vae-parallel.md)。
 - `scheduler`：原 `chitu_pool` 的调度参数，包括 `policy`、`allowed_lane_widths`、
   pulse 与 deadline 控制以及 warmup 设置。
 - `model`：模型专属轴。Z-Image、Qwen-Image、Wan 只有 `cfg_parallel_degree`；

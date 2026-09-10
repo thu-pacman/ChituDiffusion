@@ -36,13 +36,14 @@ class ZImageImageDecoderExecutor(DiffusersBackend):
         cfg_parallel: bool = True,
         vae_placement: VaeParallelPlacement | None = None,
     ) -> None:
+        placement = vae_placement or VaeParallelPlacement(sharded=False)
         super().__init__(
             pipeline,
             pipeline.transformer.epe,
             default_width=default_width,
             default_height=default_height,
             default_num_steps=default_num_steps,
-            vae_placement=vae_placement,
+            vae_placement=placement,
         )
         self.cfg_parallel = bool(cfg_parallel)
         self.scheduling_module.cfg_parallel = self.cfg_parallel

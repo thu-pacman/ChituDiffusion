@@ -41,7 +41,7 @@ def test_the_shipped_examples_describe_their_documented_geometry() -> None:
 
     assert zimage.parallelism.cp.world_size == 4
     assert zimage.parallelism.model.tensor_parallel_degree == 1
-    assert zimage.parallelism.vae.degree is None
+    assert zimage.parallelism.vae.degree == 1
     assert zimage_tp.parallelism.cp.world_size == 2
     assert zimage_tp.parallelism.model.tensor_parallel_degree == 2
     assert zimage_tp.parallelism.scheduler.policy == "static_cp"
@@ -75,7 +75,7 @@ def test_an_empty_parallelism_section_fills_the_whole_stage_with_cp() -> None:
     assert config.parallelism.cp.ulysses_degree is None
     assert config.parallelism.cp.ulysses_transport is None
     assert config.parallelism.cp.agkv_transport is None
-    assert config.parallelism.vae.degree is None
+    assert config.parallelism.vae.degree == 1
     assert config.parallelism.vae.halo == 8
     assert config.parallelism.scheduler.policy == "elastic"
     assert config.parallelism.scheduler.allowed_lane_widths == (1, 2, 4)

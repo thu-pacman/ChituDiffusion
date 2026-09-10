@@ -75,6 +75,27 @@ torchrun --standalone --nproc-per-node=8 -m chitu_diffusion.cli \
   generate --model hunyuan-image3 --cfg-parallel-degree 1 ...
 ```
 
+## VAE 解码
+
+Z-Image、FLUX.1、LLaDA-Image、Wan 和 Qwen-Image 的静态并行解码使用逐层
+行分片：卷积交换相邻 rank 的边界行，GroupNorm 通信全局统计量，attention
+使用本地 Q 和 all-gather 后的全局 K/V（AGKV）。视频保留原有时序缓存。
+该路径保留整图解码语义，浮点归约与卷积算法差异仍可能造成数值误差。
+
+使用 `--parallel-vae` 开启，`--no-parallel-vae` 让 leader 整图解码。
+Z-Image 和 LLaDA-Image 默认关闭，其余上述模型默认开启。单 rank、分片过短
+或不支持的 decoder 使用 leader 路径；不支持的结构会提示原因。
+开启逐层并行前需关闭 Diffusers 自带 tiling，否则会报错。
+
+`--vae-parallel-halo N` 保留兼容（非负），但上述逐层路径按各层卷积核自动
+推导 halo，不使用该值；其他模型的独立 tile 路径仍有自己的 halo 语义。
+sidecar 的 `requested_parallel_vae`、`requested_vae_parallel_halo` 保留请求值，
+`vae_decode_mode`（`layerwise` / `leader`）、`parallel_vae` 和
+`vae_parallel_degree` 记录实际执行方式，逐层路径的 `vae_parallel_halo` 为 null。
+
+本次实现和验证范围为静态并行，不包含动态 EPE。
+支持范围、误差和性能测量见 [VAE 验证记录](../validation/vae-parallel.md)。
+
 ## FlexCache
 
 缓存参数直接附加到 `generate`：
