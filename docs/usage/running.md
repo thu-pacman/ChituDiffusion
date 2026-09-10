@@ -155,5 +155,16 @@ bash tools/cluster/srun_direct.sh 1 4 -m chitu_diffusion.cli \
   --output outputs/zimage.png
 ```
 
+混合 GPU 节点可通过 `SRUN_GPU_TYPE` 指定 Slurm 注册的型号，例如：
+
+```bash
+SRUN_PARTITION=Star SRUN_GPU_TYPE=PRO6000 \
+  bash tools/cluster/srun_direct.sh 1 2 -m chitu_diffusion.cli \
+  generate --model zimage --model-path /path/to/Z-Image \
+  --output outputs/zimage-pro6000.png
+```
+
+未设置 `SRUN_GPU_TYPE` 时保留 `gpu:N` 的调度方式；型号名称以集群的 GRES 配置为准。
+
 仓库根目录 `examples/` 还包含各模型 Python API、静态 CP、EPE embedded 和服务配置
 示例。
