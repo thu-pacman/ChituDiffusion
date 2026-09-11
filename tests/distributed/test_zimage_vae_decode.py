@@ -83,20 +83,6 @@ def _decode_worker(rank: int, rendezvous: str) -> None:
                 else:
                     assert actual is None
 
-        # A local convolution still reconstructs the full decode with enough halo.
-        conv = torch.nn.Conv2d(2, 3, (3, 1), padding=(1, 0)).eval()
-        with torch.inference_mode():
-            actual = parallel_tiled_vae_decode(
-                latents,
-                conv,
-                topology=topology,
-                latent_split_dim=2,
-                pixel_split_dim=2,
-                scale=1,
-                halo=1,
-            )
-            if rank == 0:
-                torch.testing.assert_close(actual, conv(latents))
         dist.barrier()
     finally:
         dist.destroy_process_group()

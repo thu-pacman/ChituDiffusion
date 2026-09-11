@@ -131,7 +131,6 @@ class MiniMaxH3VideoVAE(nn.Module):
         }
         mean, std = _validate_stats(stats_config)
         self.model = model.to(dtype=torch.float32).eval()
-        self.require_tiled_decoder = require_tiled_decoder
         self.register_buffer("latents_mean", torch.tensor(mean, dtype=torch.float32))
         self.register_buffer("latents_std", torch.tensor(std, dtype=torch.float32))
 

@@ -525,7 +525,9 @@ class EpeQwenImagePipeline(QwenImagePipeline):
         image = parallel_vae_decode(
             self.vae,
             latents,
-            decode_fn=lambda value: self.vae.decode(value, return_dict=False)[0][:, :, 0],
+            decode_fn=lambda value: self.vae.decode(value, return_dict=False)[0][
+                :, :, 0
+            ],
             topology=topology or self.parallel_context.active,
             enabled=parallel_vae,
         )

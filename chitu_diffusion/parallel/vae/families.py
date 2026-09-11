@@ -17,7 +17,6 @@ from torch import nn
 
 @dataclass(frozen=True)
 class DecoderSpec:
-    name: str
     forwards: tuple[tuple[type, Callable], ...] = ()
 
 
@@ -29,7 +28,7 @@ def decoder_spec(decoder: nn.Module) -> DecoderSpec:
     from diffusers.models.autoencoders.vae import Decoder
 
     if type(decoder) in (Decoder, WanDecoder3d, QwenImageDecoder3d):
-        return DecoderSpec(type(decoder).__name__)
+        return DecoderSpec()
     source = import_module(type(decoder).__module__)
     if (
         source.__name__.split(".")[-1] == "autoencoder_kl_3d"
@@ -37,7 +36,6 @@ def decoder_spec(decoder: nn.Module) -> DecoderSpec:
         and isinstance(decoder.mid.attn_1, source.AttnBlock)
     ):
         return DecoderSpec(
-            "hunyuan_conv3d",
             (
                 (source.AttnBlock, _hunyuan_attention),
                 (source.Conv3d, _hunyuan_convolution),
@@ -55,7 +53,6 @@ def decoder_spec(decoder: nn.Module) -> DecoderSpec:
                 "disable release VAE sequence parallelism before Chitu VAEP"
             )
         return DecoderSpec(
-            "minimax_vit3d",
             (
                 (type(decoder), _minimax_decoder),
                 (attention.Attention, _minimax_attention),

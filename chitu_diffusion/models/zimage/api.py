@@ -154,7 +154,9 @@ class ZImagePipeline(DiffusersEPEPipeline):
             vae_placement=create_vae_parallel_placement(
                 getattr(config, "vae_parallel_degree", None) if parallel_vae else 1,
                 halo=int(
-                    getattr(config, "vae_parallel_halo", self._pipeline.vae_parallel_halo)
+                    getattr(
+                        config, "vae_parallel_halo", self._pipeline.vae_parallel_halo
+                    )
                 ),
             ),
         )
