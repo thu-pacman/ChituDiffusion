@@ -16,6 +16,7 @@ nav:
   - 项目概述: index.md
   - 核心功能:
       - Fast CP: features/fast-cp.md
+      - VAEP: features/vae-parallel.md
       - EPE: features/epe.md
       - FlexCache: features/flexcache.md
       - Diffusers API: features/diffusers-api.md

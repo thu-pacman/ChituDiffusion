@@ -17,6 +17,14 @@ and/or last frames.
 
 ## Parallel layout
 
+Video VAE decoding now uses the [shared static VAEP implementation](../../../docs/features/vae-parallel.md):
+local queries with global K/V, full-image RoPE coordinates, and single-owner
+register/CLS K/V. Both serial and parallel video paths disable spatial tiling.
+Temporal windows and audio decoding retain their release semantics. The new
+path is validated for static groups; dynamic EPE is outside this change's scope.
+See [validation](../../../docs/validation/vae-parallel.md) for source revisions
+and the small-instance CPU/GPU checks.
+
 The checked-in SM120 stage configuration uses:
 
 - DiT: TP4×CP2 across all eight ranks.
@@ -34,6 +42,10 @@ configures VAE decode independently of `parallelism.cp` and
 unset keeps decode on the lane that produced the latent, which is what an
 elastic stage needs; `degree: 8` builds a stage-wide VAEP group and requires
 `parallelism.scheduler.policy: static_cp`.
+
+The following video VAE and end-to-end numbers describe the historical tiled
+implementation, not the new full-image path. A new full-weight performance run
+is still needed.
 
 The reference 768×768, 5-second, 24 FPS, 20-step request completed in 49.51
 seconds. VAEP8 reduced isolated video VAE decode from 8.14 seconds to 1.11

@@ -3,7 +3,7 @@
 ChituDiffusion runs Hunyuan Image 3 on a single-node parallel stage instead of
 the released `device_map="auto"` layout. The 80B MoE decoder is sharded over
 tensor, CFG, context, and expert parallelism chosen at launch — TP2×CFG2×CP2×EP2
-on the reference machine — the VAE decodes spatial tiles across an independent
+on the reference machine — the VAE decodes spatial row bands across an independent
 VAEP group, and
 the released prompt tokenization, conditioning-image encode, and input assembly
 stay on the official rank-synchronous path.
@@ -78,14 +78,21 @@ which is the cheapest shape in memory rather than the fastest.
   `[tokens, experts, capacity]` dispatch mask instead, which is why the official
   path cannot run conditioning images at this resolution on this machine (see
   below).
-- VAE: independent VAEP8 by default, orthogonal to the decoder geometry. 384px
-  tiles with at least 48px of overlap, one round-robin tile assignment, and
-  blending on the group leader.
+- VAE: independent VAEP8 by default, orthogonal to the decoder geometry. Per-layer
+  convolution halos, global GroupNorm, and AGKV preserve full-image semantics.
+  The leader assembles disjoint rows without blending. See the
+  [shared VAEP architecture](../../../docs/features/vae-parallel.md).
 - Checkpoint: every rank materializes only its tensor-parallel shards and
   expert-parallel slices, so no process ever holds the full 158 GiB checkpoint.
   Resident memory is 44.3 GiB per card at EP2 and 26.3 GiB at EP4.
 
 ## Measured results
+
+The VAE and end-to-end timings below describe the previous tile implementation.
+They do not measure the full-image layer-wise path introduced on 2026-09-11.
+Its release-source CPU/GPU acceptance checks are recorded in
+[VAE validation](../../../docs/validation/vae-parallel.md); a new full-weight
+Hunyuan performance measurement is still needed.
 
 Single node, 8×RTX PRO 5000, 1024×1024, 50 steps, `guidance_scale=5.0`,
 `flow_shift=3.0`, seed 1234, warm cache.

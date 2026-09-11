@@ -1,9 +1,10 @@
 # Static Layer-Wise VAE Decode
 
-Validated 2026-09-10 against Diffusers 0.38.0 and Torch 2.10.0+cu130.
-This replaces independent latent tiles in the static decode paths for Z-Image,
-FLUX.1, LLaDA-Image, Wan, and Qwen-Image. Dynamic EPE is outside this work's
-implementation and validation scope.
+Validated 2026-09-10 and extended 2026-09-11 against Diffusers 0.38.0 and Torch
+2.10.0+cu130. All eight supported models now share the static full-image
+image/video decode contract. Dynamic EPE is outside this work's scope.
+The [architecture](../features/vae-parallel.md) separates common communication
+operators from decoder-specific layout/position/cache adapters.
 
 ## Semantics and Communication
 
@@ -31,8 +32,9 @@ Wan and Qwen also have spatial attention in their mid blocks. An empty
 communication is therefore not specific to Z-Image. Additional latent overlap
 or boundary blending cannot reproduce these global operators.
 
-Supported decoders are the Diffusers `Decoder`, `WanDecoder3d`, and
-`QwenImageDecoder3d` structures used by the four tested VAE families below.
+Supported decoders are Diffusers `Decoder`, `WanDecoder3d`, and
+`QwenImageDecoder3d`, Hunyuan's released `AutoencoderKLConv3D.Decoder`, and
+MiniMax's released `ViT3DDecoder`.
 They require eval mode, centered odd-kernel convolutions with unit height
 stride, and standard SDPA self-attention. Unsupported decoders/processors
 warn and use dense leader decoding. Active Diffusers tiling is rejected because
@@ -52,20 +54,22 @@ Model coverage at the time of these fixes:
 | Model | Integration | Validation |
 | --- | --- | --- |
 | Z-Image, Wan | Layer-wise static decoding | Full pretrained VAE on two GPUs; Z-Image also has an end-to-end generation check |
-| FLUX.1, LLaDA-Image, Qwen-Image | Layer-wise static decoding | Small models from the corresponding VAE families on CPU |
-| FLUX.2-klein | Independent pipeline still uses original Diffusers decoding | AutoencoderKLFlux2 family support does not imply pipeline integration |
-| Hunyuan Image 3, MiniMax-H3 video | Existing release tile distribution | Not adapted here; equivalence to non-tiled full-image decoding is not established |
+| FLUX.1, LLaDA-Image, Qwen-Image | Layer-wise static decoding | Small models from the corresponding VAE families on CPU and two GPUs |
+| FLUX.2-klein | Independent pipeline now invokes shared VAEP | AutoencoderKLFlux2 CPU/GPU checks; output type, positional call arguments, and leader routing tested |
+| Hunyuan Image 3 | Layer-wise 3D CNN with global GroupNorm and AGKV | Actual release code instantiated at small size on two/four CPU ranks and two GPUs |
+| MiniMax-H3 video | Global-position ViT AGKV with unique suffix K/V | Actual release code on two/four CPU ranks and two GPUs; complete temporal wrapper on two CPU ranks |
 
 MiniMax-H3 audio decoding remains on the leader. Only Z-Image and Wan weights
 were available locally; no full-checkpoint GPU results are claimed for other models.
 
 ```bash
 .venv/bin/python -m pytest -q -m 'not gpu and not distributed and not benchmark'
-.venv/bin/python -m pytest -q tests/distributed/test_exact_vae.py -m gpu
+.venv/bin/python -m pytest -q tests/distributed/test_exact_vae.py \
+  tests/distributed/test_released_vae.py -m gpu
 ```
 
-The CPU regression suite passed **690 tests**, with 21 skips and 35 deselections
-before the additional four-rank and GPU-only tests were added. CPU distributed tests compare
+The final CPU regression suite passed **705 tests**, with 21 skips and 38
+deselections in 129.22 s. CPU distributed tests compare
 `AutoencoderKL`, `AutoencoderKLFlux2`, `AutoencoderKLWan`, and
 `AutoencoderKLQwenImage` with dense decoding. Coverage includes even/uneven
 height, batched images, multiple video frames with temporal upsampling, repeat
@@ -74,23 +78,43 @@ processors, disabled parallelism, and undersized inputs. Full decoded tensors
 are compared, including boundary rows. Parameter keys and dense outputs are
 also checked after adaptation.
 
-The CUDA GroupNorm test passed on two PRO6000 GPUs. It covers FP64 with a large
-mean offset, FP32, FP16, BF16, affine on/off, and batched image/video inputs.
-Full pretrained GPU verification covers Z-Image and Wan; Flux2/Qwen family
-coverage is through small CPU models, not their full GPU checkpoints.
+The three CUDA tests passed on two PRO6000 GPUs in 36.66 s. They cover all six
+decoder families: four Diffusers families in IEEE FP32 and both custom releases
+under FP16 autocast. GroupNorm also covers FP64 with a large mean offset, FP32,
+FP16, BF16, affine on/off, and batched image/video inputs. FP32 output tolerances
+are `atol=3e-5, rtol=4e-4`; custom-release FP16 autocast uses `3e-3` for both.
 
-The final focused run passed **10 tests**, with one GPU test deselected:
+Hunyuan/MiniMax acceptance uses the actual downloaded Python implementation
+with small random-weight instances, not handwritten stand-ins. MiniMax tests
+use nonzero attention residual scales, zero/four register tokens, block-causal
+attention, partial-head RoPE, unequal rows, repeat calls, and dense decode after
+adaptation. Its full wrapper also compares 1/3/7/11 latent-frame inputs, including
+temporal windows/trimming and restored release state. These tests do not measure
+pretrained image/video quality or full-size performance for those models.
+
+Release sources are optional for routine CI and skipped if absent. Reproduce
+the exact source versions used here with these weight-free downloads:
 
 ```bash
-.venv/bin/python -m pytest -q tests/distributed/test_exact_vae.py \
-  tests/distributed/test_zimage_vae_decode.py \
-  tests/integration/test_chitu_diffusion_cli.py \
-  tests/integration/test_public_imports.py -m 'not gpu'
+hf download tencent/HunyuanImage-3.0 \
+  --revision 36f21fe74b65614451cc50ffd8a35a5f662dac70 \
+  --include '*.py' --local-dir refs/HunyuanImage-3.0
+hf download MiniMaxAI/MiniMax-H3 \
+  --revision 42ed227ee7df40d41602854ae760620d6eb651fe \
+  --include 'FL2VA/video_vae/*.py' --local-dir refs/MiniMax-H3
+.venv/bin/python -m pytest -q tests/distributed/test_released_vae.py -m 'not gpu'
 ```
 
-This includes full two/four-rank groups and a two-rank subgroup on global ranks
-1 and 3. The CUDA test was run separately and passed. Ruff and `git diff --check`
-also passed.
+The source-only CPU acceptance passed all five tests. On the validation host,
+downloads used `HF_ENDPOINT=https://hf-mirror.com HF_HUB_DISABLE_XET=1`.
+Sources remain in ignored `refs/`; production uses the code shipped with model
+weights. References: [Hunyuan VAE source](https://huggingface.co/tencent/HunyuanImage-3.0/blob/36f21fe74b65614451cc50ffd8a35a5f662dac70/autoencoder_kl_3d.py),
+[MiniMax ViT VAE source](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/42ed227ee7df40d41602854ae760620d6eb651fe/FL2VA/video_vae/vae_vit.py).
+
+The pretrained measurements below remain the 2026-09-10 Z-Image/Wan results.
+Historical Hunyuan/MiniMax tile timings in their model READMEs do not describe
+the new full-image implementation. Spatial tiling is disabled for both serial
+and parallel MiniMax video decoding; temporal release windows remain unchanged.
 
 ## Pretrained GPU Measurements
 

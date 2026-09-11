@@ -198,6 +198,10 @@ chitu generate \
 FreeCache Preview 支持 Z-Image、Qwen-Image 和 FLUX.1-dev 的单卡 50-step 生成，
 Fresh 预算可选 1–50，建议从 25 开始。见 [使用说明](docs/usage/freecache-v2.md)。
 
+八个已支持模型的图像/视频解码共用静态逐层 VAEP：卷积 halo、全局归一化、
+AGKV，以及模型特定的位置编码和时序适配。见 [VAEP 架构](docs/features/vae-parallel.md)
+与 [验证范围](docs/validation/vae-parallel.md)。
+
 ## EPE 服务
 
 ```bash
@@ -436,6 +440,11 @@ and measured results.
 FreeCache Preview supports single-GPU, 50-step generation for Z-Image, Qwen-Image,
 and FLUX.1-dev with Fresh budgets from 1 to 50. Start with 25; see the
 [usage guide](docs/usage/freecache-v2.md).
+
+All eight supported models share static layer-wise image/video VAEP with
+convolution halos, global normalization, AGKV, and model-specific position/time
+adapters. See the [architecture](docs/features/vae-parallel.md) and
+[validation coverage](docs/validation/vae-parallel.md).
 
 ## EPE serving
 
