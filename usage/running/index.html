@@ -421,6 +421,93 @@
       
   
   
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验功能
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    实验功能
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/vae-parallel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VAEP：VAE 并行解码
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -439,10 +526,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -460,8 +547,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -588,6 +675,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#vae" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VAE 解码
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#flexcache" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -697,6 +795,11 @@
 <p>查看某个模型的完整参数：</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>chitu<span class="w"> </span>generate<span class="w"> </span>--model<span class="w"> </span>zimage<span class="w"> </span>--help
 </code></pre></div>
+<p>所有 <code>generate</code> 入口都会打印 <code>elapsed_s=...</code>，并在产物旁写入同名 <code>.json</code>。
+<code>elapsed_s</code> 与兼容字段 <code>generate_seconds</code> 都以秒记录本次生成耗时，包括文本编码、
+去噪、VAE 解码和结果后处理，不含模型加载、图片保存或视频编码。CUDA 计时边界会
+等待设备工作完成；这是单次请求耗时，首轮可能包含编译或初始化成本。
+JSON 同时记录 prompt、seed、步数和并行参数；FlexCache 模型还记录缓存统计。</p>
 <h2 id="_3">静态多卡生成</h2>
 <p>所有 rank 执行同一条命令，只有 leader 写出结果。默认 transport 是 Torch/NCCL：</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
@@ -737,6 +840,27 @@ TP2×CFG2×CP2×EP2，并以 VAEP8 解码：</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">8</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>generate<span class="w"> </span>--model<span class="w"> </span>hunyuan-image3<span class="w"> </span>--cfg-parallel-degree<span class="w"> </span><span class="m">1</span><span class="w"> </span>...
 </code></pre></div>
+<h2 id="vae">VAE 解码</h2>
+<p>Z-Image、FLUX.1、FLUX.2-klein、LLaDA-Image、Wan、Qwen-Image、Hunyuan
+Image 3 和 MiniMax-H3 的图像/视频静态并行解码统一使用逐层
+行分片：卷积交换相邻 rank 的边界行，GroupNorm 通信全局统计量，attention
+使用本地 Q 和 all-gather 后的全局 K/V（AGKV）。视频保留原有时序缓存。
+该路径保留整图解码语义，浮点归约与卷积算法差异仍可能造成数值误差。</p>
+<p>提供 VAE 开关的离线入口使用 <code>--parallel-vae</code> 开启，<code>--no-parallel-vae</code>
+让 leader 整图解码；固定服务组使用 <code>parallelism.vae</code> 配置。
+Z-Image 和 LLaDA-Image 默认关闭，其余上述模型默认开启。单 rank、分片过短
+或不支持的 decoder 使用 leader 路径；不支持的结构会提示原因。
+开启逐层并行前需关闭 Diffusers 自带 tiling，否则会报错。</p>
+<p><code>--vae-parallel-halo N</code> 保留兼容（非负），但上述逐层路径按各层卷积核自动
+推导 halo，不使用该值。FLUX.2-klein 只提供启停开关，不需要手工 halo 参数。
+sidecar 的 <code>requested_parallel_vae</code>、<code>requested_vae_parallel_halo</code> 保留请求值，
+<code>vae_decode_mode</code>（<code>layerwise</code> / <code>leader</code>）、<code>parallel_vae</code> 和
+<code>vae_parallel_degree</code> 记录实际执行方式，逐层路径的 <code>vae_parallel_halo</code> 为 null。</p>
+<p>本次实现和验证范围为静态并行，不包含动态 EPE。
+Hunyuan 的全局 GroupNorm/attention 和 MiniMax 的全局 RoPE、特殊 token
+都已纳入通信语义；MiniMax 串行参考也改为关闭空间 tiling，音频仍由 leader 解码。
+统一算子范式见 <a href="../../features/vae-parallel/">VAEP 架构</a>。
+支持范围、误差和性能测量见 <a href="../../validation/vae-parallel/">VAE 验证记录</a>。</p>
 <h2 id="flexcache">FlexCache</h2>
 <p>缓存参数直接附加到 <code>generate</code>：</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>chitu<span class="w"> </span>generate<span class="w"> </span><span class="se">\</span>
@@ -770,6 +894,13 @@ TP2×CFG2×CP2×EP2，并以 VAEP8 解码：</p>
 <a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage.png
 </code></pre></div>
+<p>混合 GPU 节点可通过 <code>SRUN_GPU_TYPE</code> 指定 Slurm 注册的型号，例如：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nv">SRUN_PARTITION</span><span class="o">=</span>Star<span class="w"> </span><span class="nv">SRUN_GPU_TYPE</span><span class="o">=</span>PRO6000<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>bash<span class="w"> </span>tools/cluster/srun_direct.sh<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span>generate<span class="w"> </span>--model<span class="w"> </span>zimage<span class="w"> </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-pro6000.png
+</code></pre></div>
+<p>未设置 <code>SRUN_GPU_TYPE</code> 时保留 <code>gpu:N</code> 的调度方式；型号名称以集群的 GRES 配置为准。</p>
 <p>仓库根目录 <code>examples/</code> 还包含各模型 Python API、静态 CP、EPE embedded 和服务配置
 示例。</p>
 

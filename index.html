@@ -331,7 +331,7 @@
   <a href="#_2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        执行路径
+        实验功能
       
     </span>
   </a>
@@ -340,6 +340,17 @@
       
         <li class="md-nav__item">
   <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        执行路径
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         支持模型
@@ -558,7 +569,7 @@
   <span class="md-ellipsis">
     
   
-    使用说明
+    实验功能
   
 
     
@@ -571,6 +582,93 @@
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    实验功能
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="features/vae-parallel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VAEP：VAE 并行解码
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    使用说明
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -722,7 +820,11 @@
 </li>
 </ul>
 </div>
-<h2 id="_2">执行路径</h2>
+<h2 id="_2">实验功能</h2>
+<p><a href="features/vae-parallel/">VAEP：VAE 并行解码</a>将 VAE 解码按高度分到多张 GPU，
+通过逐层边界交换、全局归一化和 AGKV 保持完整图像的计算语义。当前用于固定并行组，
+不接入动态 EPE。设计与各模型的验证范围见功能文档。</p>
+<h2 id="_3">执行路径</h2>
 <pre class="mermaid"><code>flowchart TD
     A[Diffusers pipeline] --&gt; B[模型 Pipeline / Request / executor]
     B --&gt; C[generate]
@@ -734,7 +836,7 @@
 <p>静态生成和 EPE 服务复用同一套模型 executor。FlexCache 只用于 <code>generate</code>，不保存
 跨请求状态，也不接入动态 lane。Fast CP 只用于单机静态 CP；多机和 EPE 动态 lane
 使用 NCCL。</p>
-<h2 id="_3">支持模型</h2>
+<h2 id="_4">支持模型</h2>
 <table>
 <thead>
 <tr>

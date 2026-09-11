@@ -1,0 +1,978 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Diffusers-native diffusion inference with EPE, context parallelism, and FlexCache">
+      
+      
+      
+        <link rel="canonical" href="https://thu-pacman.github.io/ChituDiffusion/validation/vae-parallel/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Static Layer-Wise VAE Decode - ChituDiffusion</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#static-layer-wise-vae-decode" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href="../.." title="ChituDiffusion" class="md-header__button md-logo" aria-label="ChituDiffusion" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ChituDiffusion
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Static Layer-Wise VAE Decode
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/thu-pacman/ChituDiffusion" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    thu-pacman/ChituDiffusion
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ChituDiffusion" class="md-nav__button md-logo" aria-label="ChituDiffusion" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    ChituDiffusion
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/thu-pacman/ChituDiffusion" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    thu-pacman/ChituDiffusion
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    项目概述
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    核心功能
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    核心功能
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/fast-cp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fast CP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/epe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EPE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/flexcache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FlexCache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/diffusers-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diffusers API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验功能
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    实验功能
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/vae-parallel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VAEP：VAE 并行解码
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    使用说明
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    使用说明
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    安装
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage/running/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    运行
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage/freecache-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FreeCache Preview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="static-layer-wise-vae-decode">Static Layer-Wise VAE Decode</h1>
+<p>Validated 2026-09-10 and extended 2026-09-11 against Diffusers 0.38.0 and Torch
+2.10.0+cu130. All eight supported models now share the static full-image
+image/video decode contract. Dynamic EPE is outside this work's scope.
+The <a href="../../features/vae-parallel/">architecture</a> separates common communication
+operators from decoder-specific layout/position/cache adapters.</p>
+<h2 id="semantics-and-communication">Semantics and Communication</h2>
+<p><code>chitu_diffusion/parallel/vae/exact.py</code> partitions latent height into disjoint
+row bands. Uneven divisions keep their actual lengths throughout decoding.
+The original module classes, parameters, and video cache accounting remain
+intact. Dense decoding still uses the original forwards outside a parallel call.</p>
+<table>
+<thead>
+<tr>
+<th>Operator</th>
+<th>Distributed behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Spatial convolution</td>
+<td>Exchange kernel-radius boundary rows with adjacent ranks using batched P2P. Zero padding appears only at the global image edges. Halo size follows each layer's kernel and dilation.</td>
+</tr>
+<tr>
+<td>GroupNorm</td>
+<td>Compute local central moments in FP32 (FP64 for FP64 input), gather only two scalars per batch/group/rank, and merge with actual shard-size weights. CUDA applies these statistics and channel affine with native inference BatchNorm, folding batch into channels; it neither computes batch statistics nor changes running state.</td>
+</tr>
+<tr>
+<td>Attention</td>
+<td>Keep Q local. Stack K/V into one all-gather, remove transport padding for uneven shards, and run SDPA against global K/V. No full attention-output replication.</td>
+</tr>
+<tr>
+<td>Video temporal operations</td>
+<td>Keep the entire temporal sequence on every spatial shard and preserve the original causal cache protocol. Channel RMSNorm stays local.</td>
+</tr>
+<tr>
+<td>Output</td>
+<td>Gather decoded rows only to the VAE leader. Workers do not retain the full output.</td>
+</tr>
+</tbody>
+</table>
+<p>GroupNorm statistics use the central-moment merge
+<code>mean = sum(w_i * mean_i)</code> and
+<code>var = sum(w_i * (var_i + (mean_i - mean)^2))</code>.
+This avoids cancellation from subtracting two large squared quantities.
+Only the small statistics tensors are gathered, not the feature maps.</p>
+<p>Wan and Qwen also have spatial attention in their mid blocks. An empty
+<code>attn_scales</code> list does not remove that attention. The need for global
+communication is therefore not specific to Z-Image. Additional latent overlap
+or boundary blending cannot reproduce these global operators.</p>
+<p>Supported decoders are Diffusers <code>Decoder</code>, <code>WanDecoder3d</code>, and
+<code>QwenImageDecoder3d</code>, Hunyuan's released <code>AutoencoderKLConv3D.Decoder</code>, and
+MiniMax's released <code>ViT3DDecoder</code>.
+They require eval mode, centered odd-kernel convolutions with unit height
+stride, and standard SDPA self-attention. Unsupported decoders/processors
+warn and use dense leader decoding. Active Diffusers tiling is rejected because
+it changes whole-image semantics. A single rank or shards smaller than the
+required halo also use the dense leader path.</p>
+<p>Z-Image and LLaDA retain their conservative serial defaults. Use
+<code>--parallel-vae</code> for the static distributed path. The legacy
+<code>--vae-parallel-halo</code> option is accepted but does not control per-layer halos.
+Sidecars record <code>vae_decode_mode: layerwise</code>, the actual degree, and
+<code>vae_parallel_halo: null</code>; requested options remain in <code>requested_*</code> fields.</p>
+<h2 id="correctness-tests">Correctness Tests</h2>
+<p>Model coverage at the time of these fixes:</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Integration</th>
+<th>Validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Z-Image, Wan</td>
+<td>Layer-wise static decoding</td>
+<td>Full pretrained VAE on two GPUs; Z-Image also has an end-to-end generation check</td>
+</tr>
+<tr>
+<td>FLUX.1, LLaDA-Image, Qwen-Image</td>
+<td>Layer-wise static decoding</td>
+<td>Small models from the corresponding VAE families on CPU and two GPUs</td>
+</tr>
+<tr>
+<td>FLUX.2-klein</td>
+<td>Independent pipeline now invokes shared VAEP</td>
+<td>AutoencoderKLFlux2 CPU/GPU checks; output type, positional call arguments, and leader routing tested</td>
+</tr>
+<tr>
+<td>Hunyuan Image 3</td>
+<td>Layer-wise 3D CNN with global GroupNorm and AGKV</td>
+<td>Actual release code instantiated at small size on two/four CPU ranks and two GPUs</td>
+</tr>
+<tr>
+<td>MiniMax-H3 video</td>
+<td>Global-position ViT AGKV with unique suffix K/V</td>
+<td>Actual release code on two/four CPU ranks and two GPUs; complete temporal wrapper on two CPU ranks</td>
+</tr>
+</tbody>
+</table>
+<p>MiniMax-H3 audio decoding remains on the leader. Only Z-Image and Wan weights
+were available locally; no full-checkpoint GPU results are claimed for other models.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span><span class="s1">'not gpu and not distributed and not benchmark'</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>tests/distributed/test_exact_vae.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>tests/distributed/test_released_vae.py<span class="w"> </span>-m<span class="w"> </span>gpu
+</code></pre></div>
+<p>The final CPU regression suite passed <strong>705 tests</strong>, with 21 skips and 38
+deselections in 129.22 s. CPU distributed tests compare
+<code>AutoencoderKL</code>, <code>AutoencoderKLFlux2</code>, <code>AutoencoderKLWan</code>, and
+<code>AutoencoderKLQwenImage</code> with dense decoding. Coverage includes even/uneven
+height, batched images, multiple video frames with temporal upsampling, repeat
+decodes, static noncontiguous subgroups, exception cleanup, changed attention
+processors, disabled parallelism, and undersized inputs. Full decoded tensors
+are compared, including boundary rows. Parameter keys and dense outputs are
+also checked after adaptation.</p>
+<p>The three CUDA tests passed on two PRO6000 GPUs in 36.66 s. They cover all six
+decoder families: four Diffusers families in IEEE FP32 and both custom releases
+under FP16 autocast. GroupNorm also covers FP64 with a large mean offset, FP32,
+FP16, BF16, affine on/off, and batched image/video inputs. FP32 output tolerances
+are <code>atol=3e-5, rtol=4e-4</code>; custom-release FP16 autocast uses <code>3e-3</code> for both.</p>
+<p>Hunyuan/MiniMax acceptance uses the actual downloaded Python implementation
+with small random-weight instances, not handwritten stand-ins. MiniMax tests
+use nonzero attention residual scales, zero/four register tokens, block-causal
+attention, partial-head RoPE, unequal rows, repeat calls, and dense decode after
+adaptation. Its full wrapper also compares 1/3/7/11 latent-frame inputs, including
+temporal windows/trimming and restored release state. These tests do not measure
+pretrained image/video quality or full-size performance for those models.</p>
+<p>Release sources are optional for routine CI and skipped if absent. Reproduce
+the exact source versions used here with these weight-free downloads:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>hf<span class="w"> </span>download<span class="w"> </span>tencent/HunyuanImage-3.0<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>--revision<span class="w"> </span>36f21fe74b65614451cc50ffd8a35a5f662dac70<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>--include<span class="w"> </span><span class="s1">'*.py'</span><span class="w"> </span>--local-dir<span class="w"> </span>refs/HunyuanImage-3.0
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>hf<span class="w"> </span>download<span class="w"> </span>MiniMaxAI/MiniMax-H3<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span>--revision<span class="w"> </span>42ed227ee7df40d41602854ae760620d6eb651fe<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span>--include<span class="w"> </span><span class="s1">'FL2VA/video_vae/*.py'</span><span class="w"> </span>--local-dir<span class="w"> </span>refs/MiniMax-H3
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>tests/distributed/test_released_vae.py<span class="w"> </span>-m<span class="w"> </span><span class="s1">'not gpu'</span>
+</code></pre></div>
+<p>The source-only CPU acceptance passed all five tests. On the validation host,
+downloads used <code>HF_ENDPOINT=https://hf-mirror.com HF_HUB_DISABLE_XET=1</code>.
+Sources remain in ignored <code>refs/</code>; production uses the code shipped with model
+weights. References: <a href="https://huggingface.co/tencent/HunyuanImage-3.0/blob/36f21fe74b65614451cc50ffd8a35a5f662dac70/autoencoder_kl_3d.py">Hunyuan VAE source</a>,
+<a href="https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/42ed227ee7df40d41602854ae760620d6eb651fe/FL2VA/video_vae/vae_vit.py">MiniMax ViT VAE source</a>.</p>
+<p>The pretrained measurements below remain the 2026-09-10 Z-Image/Wan results.
+Historical Hunyuan/MiniMax tile timings in their model READMEs do not describe
+the new full-image implementation. Spatial tiling is disabled for both serial
+and parallel MiniMax video decoding; temporal release windows remain unchanged.</p>
+<h2 id="pretrained-gpu-measurements">Pretrained GPU Measurements</h2>
+<p>Node <code>fuse3</code>, two RTX PRO 6000 Blackwell Server Edition GPUs. Identical seeded
+random latents and weights are used for dense and parallel decode. Each path
+has one warmup and five timed samples. Timings include VAE communication and
+leader output gathering, exclude model loading and CPU transfers, and report
+the median of the slowest rank per sample. Dense references run independently
+on both GPUs. Memory is maximum additional allocated memory over all ranks,
+including operator workspace, excluding already-resident weights/latents.</p>
+<table>
+<thead>
+<tr>
+<th>VAE / output size</th>
+<th>Precision</th>
+<th style="text-align: right;">Dense ms</th>
+<th style="text-align: right;">Native VAEP2 ms</th>
+<th style="text-align: right;">Speedup</th>
+<th style="text-align: right;">RMSE</th>
+<th style="text-align: right;">Maximum error</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Z-Image / 1024 x 1024</td>
+<td>BF16</td>
+<td style="text-align: right;">105.97</td>
+<td style="text-align: right;">57.11</td>
+<td style="text-align: right;">1.86x</td>
+<td style="text-align: right;">0.002387</td>
+<td style="text-align: right;">0.072266</td>
+</tr>
+<tr>
+<td>Z-Image / 1024 x 1024</td>
+<td>FP32, TF32 off</td>
+<td style="text-align: right;">425.28</td>
+<td style="text-align: right;">227.69</td>
+<td style="text-align: right;">1.87x</td>
+<td style="text-align: right;">6.95e-7</td>
+<td style="text-align: right;">2.02e-5</td>
+</tr>
+<tr>
+<td>Wan / 17 x 480 x 832</td>
+<td>FP32, TF32 off</td>
+<td style="text-align: right;">2800.22</td>
+<td style="text-align: right;">1484.23</td>
+<td style="text-align: right;">1.89x</td>
+<td style="text-align: right;">5.43e-7</td>
+<td style="text-align: right;">1.72e-5</td>
+</tr>
+</tbody>
+</table>
+<p>Z-Image BF16 additional peak allocation falls from 2434 to 1475 MiB; Wan FP32
+falls from 12723 to 8708 MiB. Z-Image IEEE FP32 instead uses 9764 / 9995 MiB
+because convolution workspace depends on shape. Memory reduction is not
+guaranteed for every precision and cuDNN algorithm.</p>
+<p>The mean absolute jump across the split boundary is 0.0991406 / 0.0991638 for
+dense / parallel Z-Image BF16, and 0.04014081 / 0.04014080 for Wan FP32.
+These are raw decoder-value units, not 8-bit RGB units. Whole-tensor comparisons
+are the correctness check; a small boundary metric alone is insufficient.</p>
+<p>An initial FP32 run with TF32 convolution enabled had Z-Image RMSE 9.87e-5;
+disabling TF32 reduced it below 7e-7. Production code does not change global
+precision settings. The algorithm preserves full-image operator semantics,
+but changed reduction order and convolution/SDPA kernels prevent a general
+bitwise-equivalence guarantee, especially in BF16.</p>
+<h2 id="distvae-comparison-and-reproduction">DistVAE Comparison and Reproduction</h2>
+<p>Reference: <a href="https://github.com/xdit-project/DistVAE">DistVAE</a>, commit
+<code>dce484185dc11d7406076117771e36acd796aa6a</code>, read under ignored <code>refs/DistVAE</code>.
+The native implementation adds no DistVAE or custom-kernel build dependency.
+In this revision DistVAE's 2D adapter runs the input convolution and mid block
+replicated before sharding the upsampling stack. Its video attention adapter
+gathers features and evaluates full attention on each rank. Our attention uses
+local Q with gathered K/V in both families.</p>
+<p>In the same Z-Image BF16 run, DistVAE measured <strong>61.49 ms</strong>, RMSE <strong>0.002433</strong>,
+maximum error <strong>0.0625</strong>, and additional peak allocation <strong>1475 MiB</strong>. Native
+VAEP measured <strong>57.11 ms</strong>. This is one configuration, not a general performance
+ranking; no pretrained Wan DistVAE comparison was run.</p>
+<p>Example launch from the repository root:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>srun<span class="w"> </span>--immediate<span class="o">=</span><span class="m">30</span><span class="w"> </span>-p<span class="w"> </span>Star<span class="w"> </span>-w<span class="w"> </span>fuse3<span class="w"> </span>--nodes<span class="o">=</span><span class="m">1</span><span class="w"> </span>--ntasks<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--gres<span class="o">=</span>gpu:PRO6000:2<span class="w"> </span>--cpus-per-task<span class="o">=</span><span class="m">16</span><span class="w"> </span>--mem<span class="o">=</span>100G<span class="w"> </span>--time<span class="o">=</span><span class="m">00</span>:15:00<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--chdir<span class="o">=</span>/home/chenyy20/ChituDiffusion<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>/usr/bin/env<span class="w"> </span><span class="nv">PYTHONPATH</span><span class="o">=</span>/home/chenyy20/ChituDiffusion/refs/DistVAE:/home/chenyy20/ChituDiffusion<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>/home/chenyy20/ChituDiffusion/.venv/bin/torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>tools/benchmarks/vae_parallel.py<span class="w"> </span>--family<span class="w"> </span>kl<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span>--model-path<span class="w"> </span>/home/chenyy20/models/Z-Image<span class="w"> </span>--distvae<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span>--output<span class="w"> </span>outputs/issue-validation/vae-kl-bf16-distvae.json
+</code></pre></div>
+<p>Omit <code>--distvae</code> and its <code>PYTHONPATH</code> entry for native-only verification.
+Use <code>--dtype float32 --max-rmse 0.00002</code> for the FP32 check. TF32 is disabled
+by default in the benchmark; <code>--allow-tf32</code> explicitly enables it. For Wan use
+<code>--family wan --model-path /home/chenyy20/models/Wan2.1-T2V-1.3B-Diffusers
+--height 480 --width 832 --frames 17 --dtype float32 --max-rmse 0.00002</code>.
+Raw JSON reports are retained in ignored <code>outputs/issue-validation/</code>.</p>
+<h2 id="original-seam-reproduction">Original Seam Reproduction</h2>
+<p>The original Z-Image CLI case also completed with <code>--parallel-vae</code>: two GPUs,
+1024 x 1024, BF16, 50 steps, seed 7, prompt <code>a red cube on a white table</code>.
+The output is <code>outputs/issue-validation/zimage-exact.png</code>; its sidecar confirms
+<code>vae_decode_mode: layerwise</code>, <code>parallel_vae: true</code>, and <code>vae_parallel_degree: 2</code>.
+Generation took 11.553 s, excluding model loading and image saving.</p>
+<p>Using the original report's seam metric (mean absolute adjacent-row difference
+of RGB channel means, in 0-255 units), the row 511/512 jump is <strong>0.628255</strong>.
+The saved whole-image baseline is <strong>0.628906</strong> and the original broken tile
+output was <strong>4.705729</strong>. The new image's strongest row transition is at row 399,
+away from the split. Whole-image RGB RMSE against the saved dense baseline is
+<strong>0.360128</strong>, with MAE <strong>0.129658</strong>. Visual inspection found no horizontal seam.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "toc.integrate", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

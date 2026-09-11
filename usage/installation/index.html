@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://thu-pacman.github.io/ChituDiffusion/usage/installation/">
       
       
-        <link rel="prev" href="../../features/diffusers-api/">
+        <link rel="prev" href="../../features/vae-parallel/">
       
       
         <link rel="next" href="../running/">
@@ -421,6 +421,93 @@
       
   
   
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验功能
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    实验功能
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/vae-parallel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VAEP：VAE 并行解码
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -439,10 +526,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -460,8 +547,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -552,7 +639,7 @@
   <a href="#_3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        可选依赖
+        受限网络与文件系统
       
     </span>
   </a>
@@ -563,10 +650,38 @@
   <a href="#_4" class="md-nav__link">
     <span class="md-ellipsis">
       
+        可选依赖
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
         检查安装
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="检查安装">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transformers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transformers 导入提示
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -678,22 +793,57 @@
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>chitu<span class="w"> </span>--help
 </code></pre></div>
 <p>安装结果包含 ChituDiffusion、Torch、Diffusers、测试、构建和文档工具。</p>
-<h2 id="_3">可选依赖</h2>
+<h2 id="_3">受限网络与文件系统</h2>
+<p><code>uv sync</code> 解析项目时也会解析未启用的 extras，因此基础安装仍可能访问
+<code>fast-ulysses</code> 的 Git 源。若输出长时间停在创建 <code>.venv</code>，先检查 GitHub
+连接；仅省略 <code>--extra fast-ulysses</code> 不会跳过这个解析步骤。</p>
+<p>仓库默认使用 HTTPS，无需配置 GitHub SSH key。GitHub HTTPS 不通、但已配置 key 的环境，可以在本地将
+<code>[tool.uv.sources]</code> 中的对应条目改为下面的显式 SSH URL，保留固定 revision：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">fast-ulysses</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">git</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ssh://git@github.com/triple-mu/fast-ulysses.git"</span><span class="p">,</span><span class="w"> </span><span class="n">rev</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87"</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<p>这项修改仅用于本地网络适配。不要只依赖 Git CLI 的 <code>insteadOf</code> 配置：
+某些环境中它不会改写 uv 实际访问的 HTTPS 地址。</p>
+<p>完全无法访问 GitHub、且只需要单卡或 Torch/NCCL CP 时，在本地
+<code>pyproject.toml</code> 中同时移除以下三项，再执行 <code>uv sync --group dev</code>：</p>
+<ul>
+<li><code>[project.optional-dependencies]</code> 中的 <code>fast-ulysses = ["fast-ulysses"]</code>。</li>
+<li><code>[tool.uv.sources]</code> 中的 <code>fast-ulysses</code> Git 源。</li>
+<li><code>[tool.uv.extra-build-dependencies]</code> 中的 <code>fast-ulysses</code> 构建依赖。</li>
+</ul>
+<p>只删除 Git 源仍会解析同名 PyPI 依赖，不能保证基础安装独立于这个可选扩展。
+之后要启用 Fast CP 时，先恢复这三项配置。其余依赖的包索引仍需可访问。</p>
+<p>部分 ZFS 环境会在安装 wheel 时出现 <code>Failed to clone</code>、
+<code>Resource temporarily unavailable (os error 11)</code>。改用文件复制：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nv">UV_LINK_MODE</span><span class="o">=</span>copy<span class="w"> </span>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev
+</code></pre></div>
+<p>使用 <code>hf-mirror.com</code> 下载权重时，若 Xet CAS 返回 401，可关闭 Xet：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nv">HF_ENDPOINT</span><span class="o">=</span>https://hf-mirror.com<span class="w"> </span><span class="nv">HF_HUB_DISABLE_XET</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>hf<span class="w"> </span>download<span class="w"> </span>Wan-AI/Wan2.1-T2V-1.3B-Diffusers<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--local-dir<span class="w"> </span>/path/to/Wan2.1-T2V-1.3B-Diffusers
+</code></pre></div>
+<p>下载完成后通过 <code>--model-path</code> 指向本地目录。</p>
+<h2 id="_4">可选依赖</h2>
 <p>Fast CP 需要 Fast Ulysses 与 NVSHMEM：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>fast-ulysses
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>python<span class="w"> </span>tools/install/install_fast_agkv.py<span class="w"> </span>refs/fast-ulysses
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>fast-ulysses
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>python<span class="w"> </span>tools/install/install_fast_agkv.py<span class="w"> </span>refs/fast-ulysses
 </code></pre></div>
 <p>第二步把 <code>chitu_diffusion/parallel/cp/fast/csrc/</code> 下的扩展源码装入 checkout。
 Fast transport 必须针对目标 CUDA、NVSHMEM 和 GPU 架构编译。只使用单卡或 NCCL CP
 时不需要这些扩展。</p>
 <p>其他 attention backend 按需安装：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>flash
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>flash
 </code></pre></div>
-<h2 id="_4">检查安装</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import torch; print(torch.__version__, torch.cuda.is_available())"</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>chitu<span class="w"> </span>--help
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span><span class="s2">"not gpu and not distributed and not benchmark"</span>
+<h2 id="_5">检查安装</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import torch; print(torch.__version__, torch.cuda.is_available())"</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>chitu<span class="w"> </span>--help
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span><span class="s2">"not gpu and not distributed and not benchmark"</span>
 </code></pre></div>
+<h3 id="transformers">Transformers 导入提示</h3>
+<p>当前固定的 <code>transformers==5.12.1</code> 在导入 Qwen2.5-VL 模块时，可能直接打印
+<code>Qwen2_5_VLCausalLMOutputWithPast.__init__</code> 的 <code>loss</code>、<code>logits</code> 未写入 docstring
+的 <code>[ERROR]</code> 提示。这两条来自依赖的文档生成检查，不表示模型加载或推理失败。
+Chitu 的公共入口按需导入模型，<code>chitu --help</code> 和不需要该模块的模型导入不再
+触发这些提示；实际使用该依赖路径时仍可能看到它们。其他错误需单独排查。</p>
 
 
 

@@ -489,7 +489,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#_8" class="md-nav__link">
+  <a href="#并行配置" class="md-nav__link">
     <span class="md-ellipsis">
       
         并行配置
@@ -601,7 +601,7 @@
   <span class="md-ellipsis">
     
   
-    使用说明
+    实验功能
   
 
     
@@ -614,6 +614,93 @@
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    实验功能
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vae-parallel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VAEP：VAE 并行解码
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    使用说明
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -795,7 +882,7 @@ GPU 数量一致：</p>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">cp</span><span class="p">:</span>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">world_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="nt">vae</span><span class="p">:</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span><span class="nt">scheduler</span><span class="p">:</span>
 <a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">policy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">elastic</span>
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">allowed_lane_widths</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4</span><span class="p p-Indicator">]</span>
@@ -809,7 +896,7 @@ GPU 数量一致：</p>
 <a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
 <a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">18200</span>
 </code></pre></div>
-<h2 id="_8">并行配置</h2>
+<h2 id="并行配置">并行配置</h2>
 <p><code>parallelism</code> 分为四段。<code>cp</code>、<code>vae</code> 和 <code>scheduler</code> 对所有模型含义相同，<code>model</code> 只
 接受当前 factory 真正实现的轴：</p>
 <ul>
@@ -819,7 +906,9 @@ GPU 数量一致：</p>
   <code>cp.world_size × model.tensor_parallel_degree = GPU 数</code>。</li>
 <li><code>vae</code>：终端解码的并行度，包含 <code>enabled</code>、<code>degree</code> 和 <code>halo</code>。<code>degree</code> 不填时
   解码跟随产出 latent 的 lane；<code>degree &gt; 1</code> 表示一个跨 lane 的固定解码组，只在
-  <code>scheduler.policy: static_cp</code> 下允许，因为此时整个 stage 同一时刻只有一条 lane。</li>
+  <code>scheduler.policy: static_cp</code> 下允许，因为此时整个 stage 同一时刻只有一条 lane。
+  Z-Image 默认关闭分片。逐层 VAE 的全局统计量与 AGKV 通信目前仅验证静态
+  并行，不包含动态 EPE；详见 <a href="../../validation/vae-parallel/">VAE 验证记录</a>。</li>
 <li><code>scheduler</code>：原 <code>chitu_pool</code> 的调度参数，包括 <code>policy</code>、<code>allowed_lane_widths</code>、
   pulse 与 deadline 控制以及 warmup 设置。</li>
 <li><code>model</code>：模型专属轴。Z-Image、Qwen-Image、Wan 只有 <code>cfg_parallel_degree</code>；

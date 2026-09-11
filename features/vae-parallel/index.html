@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://thu-pacman.github.io/ChituDiffusion/features/fast-cp/">
+        <link rel="canonical" href="https://thu-pacman.github.io/ChituDiffusion/features/vae-parallel/">
       
       
-        <link rel="prev" href="../..">
+        <link rel="prev" href="../diffusers-api/">
       
       
-        <link rel="next" href="../epe/">
+        <link rel="next" href="../../usage/installation/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Fast CP - ChituDiffusion</title>
+        <title>VAEP：VAE 并行解码 - ChituDiffusion</title>
       
     
     
@@ -68,7 +68,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#fast-cp" class="md-skip">
+        <a href="#vaepvae" class="md-skip">
           跳转至
         </a>
       
@@ -104,7 +104,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Fast CP
+              VAEP：VAE 并行解码
             
           </span>
         </div>
@@ -250,8 +250,6 @@
       
   
   
-    
-  
   
   
     
@@ -264,11 +262,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
@@ -289,7 +287,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -304,37 +302,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Fast CP
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../fast-cp/" class="md-nav__link">
         
   
   
@@ -350,98 +321,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        基本原理
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="基本原理">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#agkv" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        AGKV
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#ulysses" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Ulysses
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        优化方案
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        优化结果
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        使用示例
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -542,8 +421,10 @@
       
   
   
+    
   
   
+  
     
     
     
@@ -554,11 +435,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
@@ -579,7 +460,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -594,10 +475,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../vae-parallel/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VAEP：VAE 并行解码
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -613,6 +521,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        按高度分片，逐层解码
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        卷积：交换边界行
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#groupnorm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GroupNorm：合并全局统计量
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attention-q-kv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attention：本地 Q，全局 K/V
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        不同模型如何复用
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        使用与验证范围
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -788,126 +782,134 @@
   
 
 
-<h1 id="fast-cp">Fast CP</h1>
-<p>Fast CP 将 DiT 的图像或视频 token 分到多张 GPU。每张 GPU 只保存并计算本地 token，
-attention 通过通信获得完整上下文。ChituDiffusion 提供 AGKV 和 Ulysses 两种分片方式，
-并为二者提供 NCCL 与 Fast transport。</p>
-<h2 id="_1">基本原理</h2>
-<h3 id="agkv">AGKV</h3>
-<p>每个 rank 保留本地 Q，只收集其他 rank 的 K/V。NCCL 路径使用
-<code>all_gather_into_tensor</code>，Fast AGKV 通过 NVSHMEM 把本地 K/V 直接写入目标 rank 的
-最终 buffer。通信结束后，各 rank 使用本地 Q 和全局 K/V 计算 attention。</p>
-<p>AGKV 适合 head 数较少或序列较长的模型，因为它不要求按 rank 切分 attention heads。</p>
-<h3 id="ulysses">Ulysses</h3>
-<p>Ulysses 在 attention 前把张量从“局部序列、全部 heads”变换为“完整序列、局部
-heads”，attention 后执行反向变换。NCCL 路径使用 all-to-all，Fast Ulysses 使用
-NVSHMEM transport。</p>
-<p>Ulysses 的并行度必须整除 attention head 数。序列较短、head 数足够时，它通常比
-AGKV 更快。</p>
-<h2 id="_2">优化方案</h2>
-<p>Fast CP 包含以下优化：</p>
-<ol>
-<li><strong>直接写入最终 K/V buffer。</strong> Fast AGKV 省去 NCCL gather 后的中间组织和重排。</li>
-<li><strong>通信与 Q/K/V 计算重叠。</strong> Wan attention 在传输 K/V 时继续执行 Q projection、
-   norm 和 RoPE。Fast Ulysses 也可把 Q/K all-to-all 放到 Copy Engine。</li>
-<li><strong>共享 symmetric memory。</strong> 同节点 Ulysses subgroup 复用 NVSHMEM symmetric
-   pool，避免每次 attention 重新分配通信 buffer。</li>
-<li><strong>Copy Engine 扇出按互连实测。</strong> AGKV 与 all-to-all 的 CE 路径共用一套调度：
-   本地拷贝独占一条 stream，远端目标按 XOR 错开访问顺序，同时在飞的远端目标数
-   逐 shape 实测选择。NVLink 主机每个 peer 有独立链路，会保留原本的每 peer 一条
-   stream；PCIe 主机所有 peer 共用一个 egress 端口，铺开只会掉带宽，实测收敛到
-   单条远端 stream。8x RTX PRO 5000、CP8、Wan 14B shape 下 all-to-all CE 从
-   3.438 ms 降到 2.995 ms，且在 GEMM 之下完全隐藏。</li>
-<li><strong>按运行条件选择后端。</strong> <code>torch</code> 使用 NCCL；<code>auto</code> 在 Fast transport 不可用时
-   回落到 NCCL；显式选择 Fast transport 而环境不满足要求时直接报错。</li>
-</ol>
-<p><code>fast_cp/experimental/</code> 还包含 Fast Ring，用于 benchmark；模型 pipeline
-不会自动选择。原独立 fused Fast AGKV 实验已经合并到 Fast AGKV transport，
-不再作为第二条路径维护。</p>
-<p>Fast transport 当前要求单机 Hopper、CUDA P2P、NVSHMEM，以及针对目标 CUDA 和 GPU
-架构编译的扩展。多机静态 CP 使用 NCCL。</p>
-<p>一个进程只能持有一个 NVSHMEM runtime，所以每个 rank 只有一条 CP lane 走 Fast，
-由 <code>fast_lane_width</code> 指定其宽度，默认是整个 TP plane。TP、EP、VAEP 和 CFG 分支合并
-都在别的通信域上，与之互不干扰；CFG 把 plane 切成两条半宽 CP lane 时，模型传入实际
-宽度即可让两条 lane 各自使用 Fast。scheduler 激活其它宽度的 lane 时自动回落 NCCL。</p>
-<h2 id="_3">优化结果</h2>
-<p>下表来自单机 NVIDIA H20、BF16、<code>B=1</code>、<code>H=40</code>、<code>D=128</code>、dense non-causal
-attention。每个 CP 配置选择 Fast AGKV、Fast Ulysses 和 Fast Ring 中延迟最低的实现，
-加速比相对同环境单卡 cuDNN attention。</p>
+<h1 id="vaepvae">VAEP：VAE 并行解码</h1>
+<p>VAEP 将图像或视频的 VAE 解码分到固定的一组 GPU 上，降低单卡解码计算量和中间特征显存。
+核心设计是：<strong>按高度分片，逐层补齐算子需要的邻域或全局信息</strong>，最后由 leader 汇总输出。
+当前支持静态并行，不接入动态 EPE，也不包含训练和 VAE 编码并行。</p>
+<h2 id="_1">按高度分片，逐层解码</h2>
+<p>每张 GPU 持有一段互不重叠的高度区间，保留全部通道、宽度和本次解码调用的时间维。
+区间可以不等长；上采样后，各自负责的输出区间同步扩大。</p>
+<pre class="mermaid"><code>flowchart TD
+    Z[完整 latent] --&gt; A[GPU 0：上半部行]
+    Z --&gt; B[GPU 1：下半部行]
+    A --&gt; DA[逐层解码]
+    B --&gt; DB[逐层解码]
+    DA &lt;--&gt;|按算子交换所需信息| DB
+    DA --&gt; OA[上半部输出]
+    DB --&gt; OB[下半部输出]
+    OA --&gt; G[仅向 leader 汇总]
+    OB --&gt; G
+    G --&gt; O[完整图像或视频，再做输出处理]</code></pre>
+<p>激活函数、逐点运算、仅沿通道的归一化和最近邻上采样等操作在本地执行。
+卷积、GroupNorm 和 attention 则分别通过下面三种通信补齐依赖。
+这样每层都保持完整图像的计算语义，分片边界无需做重叠混合来掩盖接缝。
+浮点归约顺序和计算内核可能带来数值误差，不保证逐位一致。</p>
+<h2 id="_2">卷积：交换边界行</h2>
+<p>卷积需要相邻分片的少量特征行，称为 halo。每个卷积层根据卷积核和 dilation
+计算所需宽度，通过点对点通信交换边界，只保留属于本分片的卷积输出。</p>
+<pre class="mermaid"><code>flowchart TD
+    A[GPU 0 的本地特征] --&gt; CA[GPU 0 卷积]
+    B[GPU 1 的本地特征] --&gt; CB[GPU 1 卷积]
+    A --&gt;|底部 halo 行| CB
+    B --&gt;|顶部 halo 行| CA
+    P0[全图上边界 padding] --&gt; CA
+    P1[全图下边界 padding] --&gt; CB
+    CA --&gt; OA[GPU 0 的有效输出行]
+    CB --&gt; OB[GPU 1 的有效输出行]</code></pre>
+<p>高度方向只在<strong>全图外侧</strong>使用原始 padding，内部切分处使用邻居的真实特征。
+通信量取决于边界行数，无需收集整幅特征图。视频的 3D 卷积也沿高度交换 halo，
+时间因果关系和缓存由原模型保留。</p>
+<h2 id="groupnorm">GroupNorm：合并全局统计量</h2>
+<p>GroupNorm 的统计范围包含空间维。各分片需要使用同一份全局均值和方差，
+否则即使卷积边界正确，也可能出现区域间的亮度或色彩差异。</p>
+<pre class="mermaid"><code>flowchart TD
+    A[GPU 0：局部均值、方差] --&gt; G[All-gather 少量统计量]
+    B[GPU 1：局部均值、方差] --&gt; G
+    G --&gt; M[按实际元素数加权合并]
+    M --&gt; N0[GPU 0：用全局统计量归一化]
+    M --&gt; N1[GPU 1：用全局统计量归一化]</code></pre>
+<p>对每个样本、每个通道组分别统计。设分片元素数占比为 <code>w_i</code>，则合并规则为：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>全局均值 = sum(w_i * 局部均值_i)
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>全局方差 = sum(w_i * (局部方差_i + (局部均值_i - 全局均值)^2))
+</code></pre></div>
+<p>按实际元素数加权可支持不等长分片；方差包含分片均值之间的差异。
+统计使用 FP32，FP64 输入则保留 FP64。通信只传统计量，特征仍留在各卡。</p>
+<h2 id="attention-q-kv">Attention：本地 Q，全局 K/V</h2>
+<p>Attention 采用 AGKV（All-Gather K/V）：各卡计算本地 Q/K/V，把 K、V 合并在一次
+all-gather 中收集，再用本地 Q 对全局 K/V 做 attention。输出仍属于本地分片。</p>
+<pre class="mermaid"><code>flowchart TD
+    X0[GPU 0 特征] --&gt; Q0[本地 Q0]
+    X0 --&gt; KV0[本地 K0 / V0]
+    X1[GPU 1 特征] --&gt; Q1[本地 Q1]
+    X1 --&gt; KV1[本地 K1 / V1]
+    KV0 --&gt; G[一次 All-gather K/V]
+    KV1 --&gt; G
+    G --&gt;|全局 K/V| A0[GPU 0 Attention]
+    G --&gt;|全局 K/V| A1[GPU 1 Attention]
+    Q0 --&gt; A0
+    Q1 --&gt; A1
+    A0 --&gt; O0[本地输出 0]
+    A1 --&gt; O1[本地输出 1]</code></pre>
+<p>不等长分片为通信补齐的 padding 会在 attention 前移除。位置编码与 mask 使用
+全局坐标，并保留原模型的注意力范围，例如 Wan 的逐帧空间 attention。
+MiniMax 的 register/CLS token 可以在各卡计算 Q，但 K/V 只由一张卡贡献，避免重复计入。</p>
+<h2 id="_3">不同模型如何复用</h2>
+<p>统一的是<strong>算子的依赖与通信</strong>。接入分为三层：pipeline 保留 latent 的缩放和输出处理；
+模型族适配器保留布局、位置编码、mask、时间缓存与窗口；公共算子负责分片、halo、
+全局统计量、AGKV 和输出汇总。原模型的模块与权重继续复用。</p>
 <table>
 <thead>
 <tr>
-<th style="text-align: right;">全局序列长度</th>
-<th style="text-align: right;">CP2</th>
-<th style="text-align: right;">CP4</th>
-<th style="text-align: right;">CP8</th>
+<th>模型</th>
+<th>VAE 类型</th>
+<th>适配重点</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align: right;">4K</td>
-<td style="text-align: right;">1.71x</td>
-<td style="text-align: right;">2.85x</td>
-<td style="text-align: right;">4.41x</td>
+<td>Z-Image、FLUX.1</td>
+<td>AutoencoderKL，2D CNN</td>
+<td>卷积 halo、全局 GroupNorm、AGKV</td>
 </tr>
 <tr>
-<td style="text-align: right;">8K</td>
-<td style="text-align: right;">1.88x</td>
-<td style="text-align: right;">3.43x</td>
-<td style="text-align: right;">5.84x</td>
+<td>LLaDA-Image、FLUX.2-klein</td>
+<td>AutoencoderKLFlux2，2D CNN</td>
+<td>复用公共算子，保留 latent BatchNorm 和 patch 转换</td>
 </tr>
 <tr>
-<td style="text-align: right;">16K</td>
-<td style="text-align: right;">1.98x</td>
-<td style="text-align: right;">3.83x</td>
-<td style="text-align: right;">7.05x</td>
+<td>Wan</td>
+<td>因果 3D CNN</td>
+<td>空间 halo、逐帧 AGKV、时间缓存</td>
 </tr>
 <tr>
-<td style="text-align: right;">32K</td>
-<td style="text-align: right;">1.99x</td>
-<td style="text-align: right;">4.00x</td>
-<td style="text-align: right;">7.67x</td>
+<td>Qwen-Image</td>
+<td>因果 3D CNN</td>
+<td>空间 halo、AGKV，保留自身的缓存与输出帧布局</td>
 </tr>
 <tr>
-<td style="text-align: right;">75.6K</td>
-<td style="text-align: right;">2.01x</td>
-<td style="text-align: right;">4.00x</td>
-<td style="text-align: right;">7.98x</td>
+<td>Hunyuan Image 3</td>
+<td>AutoencoderKLConv3D</td>
+<td>3D 卷积 halo、全局 GroupNorm、时空 AGKV、DCAE 上采样</td>
+</tr>
+<tr>
+<td>MiniMax-H3 视频</td>
+<td>ViT3DDecoder</td>
+<td>全局 RoPE、特殊 token 的 K/V 唯一归属、原始 mask 与时间窗口</td>
 </tr>
 </tbody>
 </table>
-<p><img alt="H20 Fast CP scaling" src="../../assets/fast_cp/fast-cp-h20-single-node-scaling.png" /></p>
-<p>这些数字是 attention microbenchmark，不代表任意模型的端到端加速。模型加载、文本
-编码、VAE 和输出处理不会随 CP 线性缩短。</p>
-<h2 id="_4">使用示例</h2>
-<p>安装 Fast Ulysses 并装入 Fast CP 扩展源码：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>fast-ulysses
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>python<span class="w"> </span>tools/install/install_fast_agkv.py<span class="w"> </span>refs/fast-ulysses
-</code></pre></div>
-<p>运行四卡 Fast AGKV：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>--model<span class="w"> </span>zimage<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span>--agkv-transport<span class="w"> </span>fast_agkv<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-fast-agkv.png
-</code></pre></div>
-<p>运行四卡 Fast Ulysses：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--model<span class="w"> </span>zimage<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>--attention-mode<span class="w"> </span>ulysses<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>--ulysses-transport<span class="w"> </span>fast_ulysses<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-fast-ulysses.png
-</code></pre></div>
-<p>不安装 Fast 扩展时，默认 <code>torch</code> transport 使用 NCCL：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--model<span class="w"> </span>zimage<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-nccl.png
-</code></pre></div>
+<p>模型族适配器还需要保证各卡通信次数和顺序一致。例如 Hunyuan 在并行解码中绕过
+依赖局部输入大小的时间卷积分块，直接对本地行带执行卷积。
+MiniMax 的串行与并行视频解码均关闭空间 tiling，保留原始时间窗口与裁剪；音频由 leader 解码。</p>
+<h2 id="_4">使用与验证范围</h2>
+<p>各模型的启用方式与默认值见<a href="../../usage/running/">运行说明</a>。标准 Diffusers tiling
+需要关闭；过小的输入或不支持的结构会回退到 leader 完整解码，不支持的结构会发出警告。
+当前公共卷积适配要求居中的奇数卷积核、高度 stride 为 1，其他几何需要单独适配。</p>
+<p>八个模型入口均已接入上述范式。六类 VAE 已完成小规模结构的串行/并行输出对比，
+其中 Hunyuan、MiniMax 使用发布源码构造小规模实例；完整预训练权重的实测目前覆盖
+Z-Image 和 Wan。其余模型仍需补充完整权重与端到端验证，因此本功能列为实验功能。</p>
+<p>实现位于 <code>chitu_diffusion/parallel/vae/exact.py</code>（公共算子）和 <code>families.py</code>（模型族适配）。
+数值误差、性能数据和复现方法见<a href="../../validation/vae-parallel/">验证记录</a>。</p>
 
 
 
