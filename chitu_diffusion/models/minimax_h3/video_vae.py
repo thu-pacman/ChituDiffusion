@@ -14,7 +14,7 @@ from torch import nn
 
 from chitu_diffusion.parallel.vae import (
     VaeParallelTopology,
-    parallel_spatial_vae_decode,
+    parallel_vae_decode,
 )
 
 VIDEO_LATENT_CHANNELS = 24
@@ -223,19 +223,17 @@ class MiniMaxH3VideoVAE(nn.Module):
     def _decode_raw(
         self,
         decode_latents: torch.Tensor,
-        *,
-        spatial_tiling: bool,
     ) -> torch.Tensor:
         device = self._device()
         backend = getattr(self.model, "model", self.model)
         previous_tiling = getattr(backend, "decoder_tiling", None)
         short_clip = decode_latents.shape[2] < 7
-        if self.require_tiled_decoder:
-            backend.decoder_tiling = spatial_tiling and not short_clip
+        if previous_tiling is not None:
+            backend.decoder_tiling = False
         use_autocast = device.type == "cuda"
-        if use_autocast:
-            self._prepare_cuda_autocast()
         try:
+            if use_autocast:
+                self._prepare_cuda_autocast()
             with torch.autocast(
                 device_type=device.type,
                 dtype=torch.float16,
@@ -277,11 +275,9 @@ class MiniMaxH3VideoVAE(nn.Module):
     @torch.no_grad()
     def decode(self, latents: torch.Tensor) -> torch.Tensor:
         decode_latents = self._prepare_decode_latents(latents)
-        return self._finish_decode(
-            self._decode_raw(decode_latents, spatial_tiling=True)
-        )
+        return self._finish_decode(self._decode_raw(decode_latents))
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def decode_parallel(
         self,
         latents: torch.Tensor,
@@ -289,19 +285,16 @@ class MiniMaxH3VideoVAE(nn.Module):
         topology: VaeParallelTopology,
         enabled: bool = True,
     ) -> torch.Tensor | None:
-        """Decode H3 release tiles across a lane and return only on its leader."""
+        """Decode full-image semantics with spatially sharded ViT tokens."""
 
-        if not enabled or latents.shape[2] < 7:
-            return self.decode(latents) if topology.is_leader else None
         decode_latents = self._prepare_decode_latents(latents)
         backend = getattr(self.model, "model", self.model)
-        decoded = parallel_spatial_vae_decode(
+        decoded = parallel_vae_decode(
+            backend,
             decode_latents,
-            lambda tile: self._decode_raw(tile, spatial_tiling=False),
+            decode_fn=self._decode_raw,
             topology=topology,
-            scale=int(getattr(backend, "vae_ratio", 16)),
-            tile_size=int(getattr(backend, "decoder_tile_size", 256)),
-            overlap_min=int(getattr(backend, "decoder_tile_overlap_min", 64)),
+            enabled=enabled,
         )
         return None if decoded is None else self._finish_decode(decoded)
 

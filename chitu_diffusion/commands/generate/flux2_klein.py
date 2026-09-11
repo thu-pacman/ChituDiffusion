@@ -35,6 +35,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--attention-mode", choices=("agkv", "ulysses"), default="agkv")
     parser.add_argument("--ulysses-degree", type=int)
     add_parallel_transport_arguments(parser)
+    parser.add_argument(
+        "--parallel-vae", action=argparse.BooleanOptionalAction, default=True
+    )
     return parser.parse_args()
 
 
@@ -52,6 +55,7 @@ def main() -> None:
         local_files_only=True,
         attention_mode=args.attention_mode,
         ulysses_degree=args.ulysses_degree,
+        parallel_vae=args.parallel_vae,
         **static_parallel_pipeline_kwargs(args),
     ).to(device)
     pipeline.set_progress_bar_config(disable=True)

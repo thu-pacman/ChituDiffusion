@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from functools import wraps
+from inspect import signature
 from typing import Any
 
+import torch
 from diffusers import Flux2KleinPipeline
+from diffusers.pipelines.flux2.pipeline_output import Flux2PipelineOutput
 
 from ...parallel.cp import EpeParallelContext, resolve_context_parallel_config
+from ...parallel.vae import parallel_vae_decode
 from .transformer import Flux2KleinCpTransformer2DModel
 
 
@@ -13,6 +18,7 @@ class Flux2KleinCpPipeline(Flux2KleinPipeline):
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
+        parallel_vae = bool(kwargs.pop("parallel_vae", True))
         parallel = kwargs.pop("parallel_context", None)
         ulysses_transport = kwargs.pop("ulysses_transport", None)
         agkv_transport = kwargs.pop("agkv_transport", None)
@@ -56,7 +62,36 @@ class Flux2KleinCpPipeline(Flux2KleinPipeline):
                 "Flux2KleinCpPipeline currently requires a distilled model"
             )
         pipeline._cp_parallel_context = parallel
+        pipeline.parallel_vae = parallel_vae
+        pipeline.last_vae_stats = None
         return pipeline
+
+    @torch.inference_mode()
+    @wraps(Flux2KleinPipeline.__call__)
+    def __call__(self, *args, **kwargs):
+        bound = signature(Flux2KleinPipeline.__call__).bind(self, *args, **kwargs)
+        bound.apply_defaults()
+        output_type = bound.arguments["output_type"]
+        if output_type == "latent":
+            self.last_vae_stats = None
+            return super().__call__(*args, **kwargs)
+        return_dict = bound.arguments["return_dict"]
+        bound.arguments.update(output_type="latent", return_dict=False)
+        latents = super().__call__(*bound.args[1:], **bound.kwargs)[0]
+        decoded = parallel_vae_decode(
+            self.vae,
+            latents,
+            topology=self.parallel_context.active,
+            enabled=getattr(self, "parallel_vae", True),
+        )
+        self.last_vae_stats = self.vae._chitu_vae_decode_stats.copy()
+        images = (
+            self.image_processor.postprocess(decoded, output_type=output_type)
+            if decoded is not None
+            else []
+        )
+        self.maybe_free_model_hooks()
+        return Flux2PipelineOutput(images=images) if return_dict else (images,)
 
     @property
     def parallel_context(self) -> EpeParallelContext:

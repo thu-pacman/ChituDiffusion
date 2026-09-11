@@ -170,6 +170,8 @@ def test_static_parallel_vae_matches_dense_in_world_and_subgroup(
 
 def _cuda_norm_worker(rank, rendezvous):
     torch.cuda.set_device(rank)
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_tf32 = False
     dist.init_process_group(
         "nccl",
         init_method=rendezvous,
@@ -206,13 +208,30 @@ def _cuda_norm_worker(rank, rendezvous):
                         torch.testing.assert_close(
                             actual, expected, rtol=atol, atol=atol
                         )
+        topology = SimpleNamespace(
+            rank_in_lane=rank,
+            width=2,
+            is_leader=rank == 0,
+            process_group=dist.group.WORLD,
+        )
+        for family in ("kl", "flux2", "wan", "qwen"):
+            torch.manual_seed(17)
+            vae = _vae(family).cuda(rank)
+            shape = (2, 2, 9, 6) if family in {"kl", "flux2"} else (1, 2, 3, 9, 6)
+            latent = torch.randn(shape, device=rank)
+            dist.broadcast(latent, src=0)
+            with torch.inference_mode():
+                expected = vae.decode(latent, return_dict=False)[0]
+                actual = parallel_vae_decode(vae, latent, topology=topology)
+                if rank == 0:
+                    torch.testing.assert_close(actual, expected, rtol=4e-4, atol=3e-5)
     finally:
         dist.destroy_process_group()
 
 
 @pytest.mark.gpu
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires two CUDA devices")
-def test_cuda_global_group_norm_fused_affine(tmp_path):
+def test_cuda_global_group_norm_and_diffusers_families(tmp_path):
     mp.spawn(
         _cuda_norm_worker,
         args=(f"file://{tmp_path / 'cuda-rdzv'}",),

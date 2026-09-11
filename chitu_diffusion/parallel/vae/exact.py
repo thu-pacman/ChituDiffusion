@@ -18,6 +18,7 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from torch import nn
 
+from .families import decoder_spec
 from .topology import VaeParallelTopology
 
 
@@ -70,8 +71,8 @@ class _DecodeContext:
             work.wait()
         return torch.cat((above, x, below), dim=-2)
 
-    def gather_kv(self, key: torch.Tensor, value: torch.Tensor):
-        lengths = self.lengths(key.shape[-2])
+    def gather_kv(self, key: torch.Tensor, value: torch.Tensor, *, lengths=None):
+        lengths = self.lengths(key.shape[-2]) if lengths is None else lengths
         local = torch.stack((key, value), dim=0)
         padding = max(lengths) - key.shape[-2]
         if padding:
@@ -207,16 +208,8 @@ class _ParallelDecoder:
 
     def _validate(self, decoder: nn.Module) -> None:
         from diffusers.models.attention_processor import Attention, AttnProcessor2_0
-        from diffusers.models.autoencoders.autoencoder_kl_qwenimage import (
-            QwenImageDecoder3d,
-        )
-        from diffusers.models.autoencoders.autoencoder_kl_wan import WanDecoder3d
-        from diffusers.models.autoencoders.vae import Decoder
 
-        if type(decoder) not in (Decoder, WanDecoder3d, QwenImageDecoder3d):
-            raise NotImplementedError(
-                f"no exact spatial adapter for {type(decoder).__name__}"
-            )
+        self.spec = decoder_spec(decoder)
         if decoder.training:
             raise ValueError("parallel VAE decoding requires eval mode")
         for module in decoder.modules():
@@ -257,7 +250,11 @@ class _ParallelDecoder:
         )
         from diffusers.models.autoencoders.autoencoder_kl_wan import WanAttentionBlock
 
+        overrides = dict(self.spec.forwards)
         for module in decoder.modules():
+            operation = overrides.get(type(module))
+            if operation is not None:
+                self._adapt_forward(module, operation, structured_args=True)
             if isinstance(module, (nn.Conv2d, nn.Conv3d)):
                 self._adapt_conv(module)
             elif isinstance(module, nn.GroupNorm):
@@ -267,13 +264,17 @@ class _ParallelDecoder:
             elif isinstance(module, (WanAttentionBlock, QwenImageAttentionBlock)):
                 self._adapt_forward(module, _video_attention)
 
-    def _adapt_forward(self, module: nn.Module, operation: Callable) -> None:
+    def _adapt_forward(
+        self, module: nn.Module, operation: Callable, *, structured_args=False
+    ) -> None:
         original = module.forward
 
         def forward(x, *args, **kwargs):
             context = self.active.get()
             if context is None:
                 return original(x, *args, **kwargs)
+            if structured_args:
+                return operation(module, x, context, *args, **kwargs)
             if any(arg is not None for arg in args) or any(
                 value is not None for value in kwargs.values()
             ):
@@ -353,7 +354,10 @@ def parallel_vae_decode(
         return decode(latents) if topology.is_leader else None
     if topology.process_group is None:
         raise RuntimeError("parallel VAE decode requires an active process group")
-    if getattr(vae, "use_tiling", False):
+    if any(
+        getattr(vae, flag, False)
+        for flag in ("use_tiling", "use_spatial_tiling", "use_temporal_tiling")
+    ):
         raise ValueError("disable VAE tiling before exact parallel decode")
     try:
         adapter = _adapter(vae)
