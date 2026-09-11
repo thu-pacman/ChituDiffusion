@@ -97,7 +97,7 @@ service:
   port: 18200
 ```
 
-## 并行配置
+## 并行配置 {#并行配置}
 
 `parallelism` 分为四段。`cp`、`vae` 和 `scheduler` 对所有模型含义相同，`model` 只
 接受当前 factory 真正实现的轴：

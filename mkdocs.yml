@@ -16,10 +16,11 @@ nav:
   - 项目概述: index.md
   - 核心功能:
       - Fast CP: features/fast-cp.md
-      - VAEP: features/vae-parallel.md
       - EPE: features/epe.md
       - FlexCache: features/flexcache.md
       - Diffusers API: features/diffusers-api.md
+  - 实验功能:
+      - VAEP：VAE 并行解码: features/vae-parallel.md
   - 使用说明:
       - 安装: usage/installation.md
       - 运行: usage/running.md
