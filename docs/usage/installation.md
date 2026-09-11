@@ -30,15 +30,15 @@ chitu --help
 `fast-ulysses` 的 Git 源。若输出长时间停在创建 `.venv`，先检查 GitHub
 连接；仅省略 `--extra fast-ulysses` 不会跳过这个解析步骤。
 
-GitHub HTTPS 不通、但已配置 GitHub SSH key 的环境，可以将
+仓库默认使用 HTTPS，无需配置 GitHub SSH key。GitHub HTTPS 不通、但已配置 key 的环境，可以在本地将
 `[tool.uv.sources]` 中的对应条目改为下面的显式 SSH URL，保留固定 revision：
 
 ```toml
 fast-ulysses = { git = "ssh://git@github.com/triple-mu/fast-ulysses.git", rev = "6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87" }
 ```
 
-若当前条目已经是 SSH URL，无需再改。不要只依赖 Git CLI 的 `insteadOf`
-配置：本次受限环境中它没有改写 uv 实际访问的 HTTPS 地址。
+这项修改仅用于本地网络适配。不要只依赖 Git CLI 的 `insteadOf` 配置：
+某些环境中它不会改写 uv 实际访问的 HTTPS 地址。
 
 完全无法访问 GitHub、且只需要单卡或 Torch/NCCL CP 时，在本地
 `pyproject.toml` 中同时移除以下三项，再执行 `uv sync --group dev`：
