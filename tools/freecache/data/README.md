@@ -57,5 +57,5 @@ These are historical development data, not a new untouched holdout. The final
 profiles combined several rounds of experiments; an aggregate from-scratch
 one-H20-hour preprocessing cost was not established. CPU recompilation does
 not erase that collection/selection cost. See the public
-[preprocessing guide](../../../docs/usage/freecache-preprocess.md) for the
-separate workflow and validation gates for new candidates.
+[preprocessing guide](../../../docs/features/flexcache.md#freecache-preprocess) for
+usage and supported models/samplers.

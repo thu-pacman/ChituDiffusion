@@ -33,20 +33,59 @@ cache = CacheConfig(
 CLI 使用 `--cache-strategy freecache --freecache-profile zimage:25`。
 完整示例、三模型参数和 Slurm 命令见 [FreeCache 使用说明](../usage/freecache-v2.md)。
 
-### 离线 preprocess 与复现
+### Preprocess {#freecache-preprocess}
 
-源码仓库提供 `tools/freecache/`，以及 FLUX / Qwen / Z-Image 的紧凑标定输入。
-可在 CPU 上重建并核对全部 150 个发布配置，也可通过 Slurm `debug` 采集新轨迹和传播响应，
-显式设置 warmup，拟合候选并进行独立的速度/质量验收。
+想使用 **40 步等其他采样步数**，或为自己的模型权重重新标定，可以运行
+[`tools/freecache/run.py`](https://github.com/thu-pacman/ChituDiffusion/blob/main/tools/freecache/run.py)。
+它先记录完整推理的模型输出，再加入小扰动测量误差如何传到最后，
+据此选择哪些步完整计算、哪些步复用，以及复用时的外推系数。前 `warmup` 步始终完整计算。
+标定后的配置可用于新 prompt 和 seed，推理时不用重复 preprocess。
+
+在仓库根目录、已安装项目依赖的环境中运行；`prompts.json` 是
+`[{"id":"example","prompt":"A red cube on a white table."}]` 格式的列表，实际标定请放入多种代表性场景。
+例如，为 **40 个采样步骤**生成完整计算次数为 **16、20、28** 的三个配置：
 
 ```bash
-python -m tools.freecache.preprocess reproduce --check-runtime \
-  --output outputs/freecache-reproduction/profiles.json
+sbatch --partition=debug --gres=gpu:1 --time=01:00:00 \
+  --wrap='python -m tools.freecache.run \
+    --model zimage --model-path /path/to/Z-Image \
+    --prompts prompts.json --seeds 42 123 \
+    --steps 40 --width 1024 --height 1024 --guidance 5 \
+    --warmup 8 --budgets 16 20 28 --relative-epsilon 0.1 \
+    --output outputs/freecache-40'
 ```
 
-F10/F17/F25 保留历史选定预设，其他预算采用传播加权的经验目标；该目标不是终点质量保证。
-新候选不会自动覆盖内置配置。数据来源、实际目标、成本口径与完整命令见
-[FreeCache preprocess 标准流程](../usage/freecache-preprocess.md)。
+| 参数 | 含义 |
+| --- | --- |
+| `--model` / `--model-path` | 当前采集入口支持 `flux`、`qwen`、`zimage`；路径为本地权重目录 |
+| `--steps` | 实际采样步数，默认 50，preprocess 至少需要 4 步；采集、拟合和推理必须一致 |
+| `--warmup` | 开头连续完整计算的步数，至少 2，计入预算 |
+| `--budgets` | 要生成的完整计算次数，可取 `warmup` 到 `steps` 的任意整数 |
+| `--width` / `--height` / `--guidance` | 使用实际推理的分辨率和引导强度；Qwen 对应 `true_cfg_scale` |
+| `--relative-epsilon` | 测传播时的扰动大小，相对于当前 latent 范数；示例 0.1 不是跨模型最优值 |
+| `--inject-steps` | 可选，指定至少两个从 0 开始的探测位置，范围 `[2, steps-1]`；默认随总步数分布采样 |
+| `--coherence` | 误差跨步相关性的经验参数，范围 0–1，默认 0；越大越重视跨步累积 |
+| `--output` | 新建输出目录；最终配置写入 `candidates.json` |
+
+生成后，在 Python API 中加载所需预算的配置，传给请求的 `cache`，同时设置 `num_steps=40`：
+
+```python
+import json
+from chitu_diffusion import CacheConfig, FreeCacheConfig, FreeCacheProfile
+
+with open("outputs/freecache-40/candidates.json") as f:
+    profiles = json.load(f)["profiles"]
+profile = next(p for p in profiles if len(p["fresh_steps"]) == 20)
+cache = CacheConfig(
+    strategy="freecache",
+    params=FreeCacheConfig(profile=FreeCacheProfile(**profile)),
+)
+```
+
+目前支持单卡确定性 FlowMatch Euler。更换步数或采样设置需要重新标定，不能直接缩放内置的 50 步配置。
+请用未参与标定的 prompt / seed 检查速度和画质；拟合目标只是质量的近似。
+耗时随样本数和探测位置数增加，命令中的一小时是作业时限，不是完成保证。
+独立评测与内置配置的 CPU 复现命令见[工具说明](https://github.com/thu-pacman/ChituDiffusion/blob/main/tools/freecache/README.md)。
 
 ## 速度与质量 {#优化结果}
 
@@ -102,7 +141,7 @@ chitu generate --model flux1 --model-path /path/to/Flux-1 \
 
 Python API 同样通过 `CacheConfig(strategy=..., params=...)` 选择策略。
 每次 `generate()` 独立维护缓存，请求结束后恢复临时 hook，不跨请求复用状态。
-FreeCache Preview 仅支持单卡、50-step 的确定性 FlowMatch Euler `generate()`；
+FreeCache 仅支持单卡的确定性 FlowMatch Euler `generate()`；内置 Preview 为 50 步，自定义配置使用标定时的步数。
 其他策略可按模型支持范围使用静态 NCCL CP / Fast CP。均不支持 EPE `serve`。
 
 所有缓存策略都是有损加速。更换模型、采样参数或缓存档位后，应检查生成结果；

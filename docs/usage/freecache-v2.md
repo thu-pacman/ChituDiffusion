@@ -74,7 +74,7 @@ sbatch --partition=debug --nodes=1 --ntasks=1 --gres=gpu:1 \
 
 ## 使用范围
 
-- 保留 `--steps 50`；通过 profile 的 Fresh 数量调整预算，不能据此外推 sampler 的步数或噪声网格。
+- 内置预设使用 `--steps 50`；其他步数请先运行 [preprocess](../features/flexcache.md#freecache-preprocess)，生成对应的自定义配置。
 - profile 必须与模型匹配；更换 checkpoint、分辨率、CFG 或 sampler 后需要检查画面。
 - 当前仅支持单卡 `generate()` 和确定性 `FlowMatchEulerDiscreteScheduler`；不支持多卡并行、其他 solver、随机采样或 EPE `serve`。
 - 关闭缓存使用 `--cache-strategy none`；Python API 使用没有默认缓存的 pipeline 与 `CacheConfig()`。
