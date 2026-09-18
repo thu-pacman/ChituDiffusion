@@ -16,8 +16,6 @@
         <link rel="prev" href="../running/">
       
       
-        <link rel="next" href="../freecache-preprocess/">
-      
       
         
       
@@ -733,34 +731,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../freecache-preprocess/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    FreeCache preprocess
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -882,7 +852,7 @@ profile；不传预算时为 25。这两个预算参数不能同时使用。</p>
 </code></pre></div>
 <h2 id="_3">使用范围</h2>
 <ul>
-<li>保留 <code>--steps 50</code>；通过 profile 的 Fresh 数量调整预算，不能据此外推 sampler 的步数或噪声网格。</li>
+<li>内置预设使用 <code>--steps 50</code>；其他步数请先运行 <a href="../../features/flexcache/#freecache-preprocess">preprocess</a>，生成对应的自定义配置。</li>
 <li>profile 必须与模型匹配；更换 checkpoint、分辨率、CFG 或 sampler 后需要检查画面。</li>
 <li>当前仅支持单卡 <code>generate()</code> 和确定性 <code>FlowMatchEulerDiscreteScheduler</code>；不支持多卡并行、其他 solver、随机采样或 EPE <code>serve</code>。</li>
 <li>关闭缓存使用 <code>--cache-strategy none</code>；Python API 使用没有默认缓存的 pipeline 与 <code>CacheConfig()</code>。</li>
