@@ -33,6 +33,21 @@ cache = CacheConfig(
 CLI 使用 `--cache-strategy freecache --freecache-profile zimage:25`。
 完整示例、三模型参数和 Slurm 命令见 [FreeCache 使用说明](../usage/freecache-v2.md)。
 
+### 离线 preprocess 与复现
+
+源码仓库提供 `tools/freecache/`，以及 FLUX / Qwen / Z-Image 的紧凑标定输入。
+可在 CPU 上重建并核对全部 150 个发布配置，也可通过 Slurm `debug` 采集新轨迹和传播响应，
+显式设置 warmup，拟合候选并进行独立的速度/质量验收。
+
+```bash
+python -m tools.freecache.preprocess reproduce --check-runtime \
+  --output outputs/freecache-reproduction/profiles.json
+```
+
+F10/F17/F25 保留历史选定预设，其他预算采用传播加权的经验目标；该目标不是终点质量保证。
+新候选不会自动覆盖内置配置。数据来源、实际目标、成本口径与完整命令见
+[FreeCache preprocess 标准流程](../usage/freecache-preprocess.md)。
+
 ## 速度与质量 {#优化结果}
 
 以下为 2026-09-09 Preview 的同轮参考评测，实际耗时随运行环境和版本变化。
