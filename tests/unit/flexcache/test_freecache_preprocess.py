@@ -203,8 +203,9 @@ def test_fit_rejects_partial_or_mismatched_collections(tmp_path, monkeypatch, co
     assert not output.exists()
 
 
+@pytest.mark.parametrize("steps", [40, 50, 60])
 def test_evaluator_accepts_public_dict_stats_and_checks_full_fresh(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, steps
 ):
     from tools.freecache import evaluate
 
@@ -212,6 +213,7 @@ def test_evaluator_accepts_public_dict_stats_and_checks_full_fresh(
     prompts.write_text(json.dumps([{"id": "test", "prompt": "new prompt"}]))
     candidates = tmp_path / "candidates.json"
     selected = asdict(preview_profile("zimage", 25))
+    selected.update(reference_steps=steps, fresh_steps=list(range(25)))
     candidates.write_text(
         json.dumps(
             {
@@ -231,11 +233,13 @@ def test_evaluator_accepts_public_dict_stats_and_checks_full_fresh(
         budget = (
             len(request.cache.params.profile.fresh_steps)
             if request.cache.strategy == "freecache"
-            else 50
+            else steps
         )
         pipeline.last_cache_stats = {"step_misses": budget}
         return SimpleNamespace(
-            images=np.full((1, 17, 29, 3), 0 if budget == 50 else 0.1, dtype=np.float32)
+            images=np.full(
+                (1, 17, 29, 3), 0 if budget == steps else 0.1, dtype=np.float32
+            )
         ), 1.0
 
     from chitu_diffusion import ZImageRequest
@@ -251,6 +255,8 @@ def test_evaluator_accepts_public_dict_stats_and_checks_full_fresh(
         "sys.argv",
         [
             "evaluate",
+            "--steps",
+            str(steps),
             "--model",
             "zimage",
             "--model-path",
@@ -272,3 +278,71 @@ def test_evaluator_accepts_public_dict_stats_and_checks_full_fresh(
     rows = json.loads((output / "rows.json").read_text())
     assert len(rows) == 2
     assert all(r["stats"]["step_misses"] == 25 for r in rows)
+
+
+@pytest.mark.parametrize("steps", [4, 40, 60])
+def test_fit_custom_grid_can_load_and_validate_in_runtime(tmp_path, monkeypatch, steps):
+    from chitu_diffusion import CacheConfig, FreeCacheConfig, FreeCacheProfile
+    from tools.freecache.collect import INJECTION_STEPS, injection_steps
+
+    assert injection_steps(50) == list(INJECTION_STEPS)
+    probes = injection_steps(steps)
+    assert len(probes) >= 2 and min(probes) >= 2 and max(probes) < steps
+    protocol = {
+        "complete": True,
+        "setting": {"steps": steps},
+        "sigmas": np.linspace(1, 0, steps + 1).tolist(),
+    }
+    velocities = np.random.default_rng(17).normal(size=(steps, 3))
+    trace = tmp_path / "traces.json"
+    trace.write_text(
+        json.dumps(
+            {
+                "complete": True,
+                "steps": steps,
+                "model_family": "zimage",
+                "protocol": protocol,
+                "traces": [
+                    {
+                        "sigmas": protocol["sigmas"],
+                        "gram": (velocities @ velocities.T).tolist(),
+                    }
+                ],
+            }
+        )
+    )
+    (tmp_path / "protocol.json").write_text(json.dumps(protocol))
+    (tmp_path / "propagation.csv").write_text(
+        f"inject_step,final_deviation\n2,1\n{steps - 1},0.5\n"
+    )
+    output = tmp_path / "candidates.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "preprocess",
+            "fit",
+            "--traces",
+            str(trace),
+            "--propagation",
+            str(tmp_path),
+            "--coherence",
+            "0",
+            "--warmup",
+            "2",
+            "--budgets",
+            str(steps // 2),
+            str(steps),
+            "--output",
+            str(output),
+        ],
+    )
+    main()
+    records = json.loads(output.read_text())["profiles"]
+    for budget, record in zip((steps // 2, steps), records):
+        profile = FreeCacheProfile(**record)
+        assert profile.reference_steps == steps
+        assert len(profile.fresh_steps) == budget
+        assert profile.fresh_steps[:2] == (0, 1)
+        CacheConfig(
+            strategy="freecache", params=FreeCacheConfig(profile=profile)
+        ).validate_steps(steps)

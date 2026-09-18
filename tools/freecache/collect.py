@@ -25,6 +25,20 @@ FAMILIES = {"flux": "flux1", "qwen": "qwen_image", "zimage": "zimage"}
 INJECTION_STEPS = (4, 6, 8, 10, 13, 16, 20, 24, 28, 32, 36, 40, 43, 45, 47, 48)
 
 
+def injection_steps(steps):
+    """Spread probes over the requested grid, preserving the two-step anchor gap."""
+    if steps < 4:
+        raise ValueError("propagation collection needs at least 4 steps")
+    return sorted({max(2, round(i * (steps - 1) / 49)) for i in INJECTION_STEPS})
+
+
+def positive_steps(value):
+    steps = int(value)
+    if steps < 1:
+        raise argparse.ArgumentTypeError("steps must be positive")
+    return steps
+
+
 def save(path, value):
     """Only called inside a newly created run directory owned by this run."""
     path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
@@ -46,6 +60,7 @@ def add_arguments(parser):
     parser.add_argument("--seeds", type=int, nargs="+", required=True)
     parser.add_argument("--width", type=int, default=1024)
     parser.add_argument("--height", type=int, default=1024)
+    parser.add_argument("--steps", type=positive_steps, default=50)
     parser.add_argument(
         "--guidance",
         type=float,
@@ -89,7 +104,7 @@ def request_for(args, request_type, prompt, seed, *, output_type="latent", cache
         seed=seed,
         width=args.width,
         height=args.height,
-        num_steps=50,
+        num_steps=args.steps,
         output_type=output_type,
         cache=cache if cache is not None else CacheConfig(),
         **{
@@ -228,8 +243,13 @@ class Recorder:
         return result
 
     def gram_trace(self):
-        if self.calls != 50 or len(self.velocities) != 50 or len(self.sigmas) != 51:
-            raise ValueError("incomplete 50-step trace")
+        if (
+            not self.calls
+            or len(self.velocities) != self.calls
+            or self.sigmas is None
+            or len(self.sigmas) != self.calls + 1
+        ):
+            raise ValueError("incomplete trace for the scheduler's sigma grid")
         matrix = torch.stack([v.flatten() for v in self.velocities]).double()
         return {"sigmas": self.sigmas, "gram": (matrix @ matrix.T).tolist()}
 
@@ -257,8 +277,8 @@ def generate(pipeline, request, recorder=None):
     else:
         with observe(pipeline, recorder):
             output = pipeline.generate(request)
-        if recorder.calls != 50:
-            raise ValueError("generation did not execute exactly 50 scheduler steps")
+        if recorder.calls != request.num_steps:
+            raise ValueError("generation scheduler steps differ from requested steps")
     torch.cuda.synchronize()
     return output, time.perf_counter() - started
 
@@ -267,7 +287,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("trace", "propagation"))
     add_arguments(parser)
-    parser.add_argument("--inject-steps", type=int, nargs="+", default=INJECTION_STEPS)
+    parser.add_argument("--inject-steps", type=int, nargs="+")
     parser.add_argument(
         "--relative-epsilon",
         type=float,
@@ -279,8 +299,14 @@ def main():
         args.relative_epsilon is None or not 0 < args.relative_epsilon <= 1
     ):
         parser.error("propagation requires --relative-epsilon in (0,1]")
-    if any(i < 2 or i >= 50 for i in args.inject_steps):
-        parser.error("injection steps must lie in [2,49]")
+    if args.inject_steps is None:
+        args.inject_steps = (
+            injection_steps(args.steps) if args.mode == "propagation" else []
+        )
+    if any(i < 2 or i >= args.steps for i in args.inject_steps):
+        parser.error("injection steps must lie in [2,steps-1]")
+    if args.mode == "propagation" and len(set(args.inject_steps)) < 2:
+        parser.error("propagation requires at least two distinct injection steps")
     if len(args.seeds) != len(set(args.seeds)):
         parser.error("seeds must be unique")
     prompts = read_prompts(args.prompts)
@@ -326,7 +352,7 @@ def main():
                         args.output / "traces.json",
                         {
                             "complete": False,
-                            "steps": 50,
+                            "steps": args.steps,
                             "model_family": FAMILIES[args.model],
                             "protocol": protocol,
                             "traces": traces,
@@ -357,7 +383,7 @@ def main():
                                 model=args.model,
                                 prompt_id=prompt["id"],
                                 seed=seed,
-                                steps=50,
+                                steps=args.steps,
                                 inject_step=step,
                                 anchor_gap=2,
                                 direction="zoh",
@@ -387,7 +413,7 @@ def main():
                 args.output / "traces.json",
                 {
                     "complete": protocol["complete"],
-                    "steps": 50,
+                    "steps": args.steps,
                     "model_family": FAMILIES[args.model],
                     "protocol": protocol,
                     "traces": traces,

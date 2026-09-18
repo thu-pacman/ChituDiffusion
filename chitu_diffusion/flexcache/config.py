@@ -76,13 +76,17 @@ class FreeCacheProfile:
             raise ValueError(
                 "FreeCache profile requires an ID and a supported model family"
             )
-        if type(self.reference_steps) is not int or self.reference_steps != 50:
-            raise ValueError("FreeCache preview profiles require exactly 50 steps")
+        if type(self.reference_steps) is not int or self.reference_steps < 1:
+            raise ValueError("FreeCache reference_steps must be a positive integer")
         if not steps or any(type(step) is not int for step in steps):
             raise ValueError("FreeCache fresh_steps must contain integers")
-        if steps[0] != 0 or steps[-1] >= 50 or steps != tuple(sorted(set(steps))):
+        if (
+            steps[0] != 0
+            or steps[-1] >= self.reference_steps
+            or steps != tuple(sorted(set(steps)))
+        ):
             raise ValueError(
-                "FreeCache fresh_steps must be sorted, unique, start at 0 and be below 50"
+                "FreeCache fresh_steps must be sorted, unique, start at 0 and be below reference_steps"
             )
         if (
             not math.isfinite(self.proposal_coefficient)
@@ -105,13 +109,16 @@ class FreeCacheConfig:
         return cls(profile=preview_profile(model_family, fresh_budget))
 
     def __post_init__(self) -> None:
+        if self.profile is not None and not isinstance(self.profile, FreeCacheProfile):
+            raise ValueError("FreeCache profile must be a FreeCacheProfile")
+        limit = self.profile.reference_steps if self.profile is not None else 50
         if self.fresh_budget is not None and (
-            type(self.fresh_budget) is not int or not 1 <= self.fresh_budget <= 50
+            type(self.fresh_budget) is not int or not 1 <= self.fresh_budget <= limit
         ):
-            raise ValueError("FreeCache fresh_budget must be an integer in [1, 50]")
+            raise ValueError(
+                f"FreeCache fresh_budget must be an integer in [1, {limit}]"
+            )
         if self.profile is not None:
-            if not isinstance(self.profile, FreeCacheProfile):
-                raise ValueError("FreeCache profile must be a FreeCacheProfile")
             if self.fresh_budget is not None and self.fresh_budget != len(
                 self.profile.fresh_steps
             ):
@@ -329,8 +336,11 @@ class CacheConfig:
             raise ValueError("cache total_steps must be positive")
         if self.strategy == "meancache" and total_steps != 50:
             raise ValueError("official MeanCache schedules require exactly 50 steps")
-        if self.strategy == "freecache" and total_steps != 50:
-            raise ValueError("FreeCache preview requires exactly 50 steps")
+        if self.strategy == "freecache":
+            profile = self.params.profile
+            expected = profile.reference_steps if profile is not None else 50
+            if total_steps != expected:
+                raise ValueError(f"FreeCache profile requires exactly {expected} steps")
         if self.common.warmup_steps + self.common.cooldown_steps >= total_steps:
             raise ValueError(
                 "cache warmup_steps + cooldown_steps must be < total_steps"

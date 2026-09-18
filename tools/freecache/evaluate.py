@@ -99,6 +99,8 @@ def main():
         help="include supported official budgets for Qwen/Z-Image",
     )
     args = parser.parse_args()
+    if args.meancache and args.steps != 50:
+        parser.error("bundled MeanCache schedules require --steps 50")
     check_gpu_job()
     candidates = json.loads(args.candidates.read_text())
     prompts = read_prompts(args.prompts)
@@ -114,6 +116,8 @@ def main():
         profile = FreeCacheProfile(**record)
         if profile.model_family != FAMILIES[args.model]:
             parser.error("candidate model family mismatch")
+        if profile.reference_steps != args.steps:
+            parser.error("candidate reference_steps must match --steps")
         budget = len(profile.fresh_steps)
         for label, selected in (
             (f"candidate-f{budget}", profile),
@@ -122,7 +126,9 @@ def main():
                 replace(
                     profile,
                     profile_id=f"warmup-zoh-f{budget}",
-                    fresh_steps=tuple(warmup_periodic(budget, candidates["warmup"])),
+                    fresh_steps=tuple(
+                        warmup_periodic(budget, candidates["warmup"], args.steps)
+                    ),
                     proposal_coefficient=0.0,
                 ),
             ),
@@ -178,7 +184,10 @@ def main():
 
             metric = lpips.LPIPS(net="alex").cuda().eval()
         full = FreeCacheProfile(
-            "parity-f50", FAMILIES[args.model], 50, tuple(range(50))
+            f"parity-f{args.steps}",
+            FAMILIES[args.model],
+            args.steps,
+            tuple(range(args.steps)),
         )
         for case, (prompt, seed) in enumerate(
             (p, s) for p in prompts for s in args.seeds
@@ -199,7 +208,9 @@ def main():
                 ),
             )
             if not np.array_equal(reference, np.asarray(full_output.images)):
-                raise ValueError("F50 does not exactly match no-cache reference")
+                raise ValueError(
+                    "all-Fresh profile does not exactly match no-cache reference"
+                )
             np.save(args.output / f"case-{case}-origin.npy", reference)
             for index in np.random.default_rng(700 + case).permutation(len(settings)):
                 label, cache = settings[index]

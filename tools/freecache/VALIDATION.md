@@ -73,3 +73,36 @@ Total GPU allocation including failures: 5m26s. This is integration-test cost,
 not a bound on real model preprocessing. Ignored local run records are under
 `outputs/preprocess-smoke/` and `outputs/preprocess-smoke-r2/`; they are not
 dependencies of the public reproduction command.
+
+## Custom step counts and one-command entry point — 2026-09-18
+
+229 FlexCache tests pass, including custom 4/40/60-step schedules, all-Fresh
+parity, step mismatch rejection, fitting and evaluator coverage. Exact CPU
+reproduction still matches all 150 released profiles. Documentation builds
+with `mkdocs build --strict`; Ruff and `git diff --check` pass.
+
+The 40-step GPU smoke uses the same H20 environment, training/validation
+prompts and seeds as above. Within a single-GPU Slurm `debug` allocation:
+
+```bash
+python -m tools.freecache.run --model zimage --model-path "$MODEL_PATH" \
+  --prompts train.json --seeds 111 --steps 40 --width 512 --height 512 \
+  --guidance 5 --warmup 8 --budgets 16 20 28 --relative-epsilon .1 \
+  --inject-steps 3 32 --output outputs/preprocess-smoke-40
+python -m tools.freecache.evaluate --model zimage --model-path "$MODEL_PATH" \
+  --prompts holdout.json --seeds 222 --steps 40 --width 512 --height 512 \
+  --guidance 5 --candidates outputs/preprocess-smoke-40/candidates.json \
+  --lpips --output outputs/preprocess-smoke-40/validation
+```
+
+Collection and fitting completed in 194.31 seconds. The three emitted profiles
+have `reference_steps=40`, exactly 16/20/28 Fresh steps, and protect steps 0–7.
+This small two-probe smoke checks integration, not calibration quality or a
+recommended probe count. Default probes are spread over the requested step
+grid; CPU tests also verify their bounds for 4/40/60 steps.
+
+Job 245166 completed successfully (exit 0) in 4m50s, including collection,
+fitting and evaluation. Held-out evaluation completed all six paired cells
+(three candidates and their equal-budget warmup-ZOH controls), with expected
+Fresh counts and native 512² PSNR/LPIPS. All-Fresh F40 equals no-cache RGB
+exactly. Raw outputs remain ignored under `outputs/preprocess-smoke-40/`.

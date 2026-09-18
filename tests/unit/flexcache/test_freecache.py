@@ -50,9 +50,9 @@ def model_spec(family):
     )
 
 
-def state():
+def state(steps=50):
     scheduler = FlowMatchEulerDiscreteScheduler()
-    scheduler.set_timesteps(50)
+    scheduler.set_timesteps(steps)
     return SimpleNamespace(
         scheduler=scheduler,
         timesteps=scheduler.timesteps,
@@ -63,12 +63,48 @@ def state():
 
 def full_step(s):
     i = s.step_index
-    velocity = s.latents.square() + i / 50
+    velocity = s.latents.square() + i / len(s.timesteps)
     s.latents = s.scheduler.step(
         velocity, s.timesteps[i], s.latents, return_dict=False
     )[0]
     s.step_index += 1
     return s
+
+
+@pytest.mark.parametrize("steps", [4, 40, 60])
+@pytest.mark.parametrize("all_fresh", [False, True])
+def test_custom_step_count_executes_without_rescaling(steps, all_fresh):
+    nodes = tuple(range(steps)) if all_fresh else tuple(range(0, steps, 2))
+    profile = FreeCacheProfile("custom", "zimage", steps, nodes, 0.5)
+    config = CacheConfig(
+        strategy="freecache",
+        params=FreeCacheConfig(profile=profile, fresh_budget=len(nodes)),
+    )
+    assert CacheConfig.from_mapping(json.loads(json.dumps(config.to_dict()))) == config
+    config.validate_steps(steps)
+    with pytest.raises(ValueError):
+        config.validate_steps(steps + 1)
+    with pytest.raises(ValueError):
+        CacheConfig(strategy="freecache").validate_steps(steps)
+    with pytest.raises(ValueError):
+        FreeCacheProfile("bad", "zimage", steps, (0, steps))
+    strategy = create_cache_strategy(config)
+    strategy.begin(total_steps=steps, model_spec=model_spec("zimage"))
+    s, reference, fresh = state(steps), state(steps), []
+    pipeline = SimpleNamespace(parallel_context=ParallelContext())
+
+    def fresh_step():
+        fresh.append(s.step_index)
+        return full_step(s)
+
+    for _ in range(steps):
+        strategy.denoise_step(pipeline, s, lane_ranks=(0,), call_original=fresh_step)
+        full_step(reference)
+    assert tuple(fresh) == nodes
+    assert s.step_index == steps and torch.isfinite(s.latents).all()
+    if all_fresh:
+        assert torch.equal(s.latents, reference.latents)
+    assert strategy.end().step_hits == steps - len(nodes)
 
 
 @pytest.mark.parametrize("family", MODELS)

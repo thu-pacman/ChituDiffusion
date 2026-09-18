@@ -293,8 +293,8 @@ def main():
         ):
             raise ValueError("trace and propagation model/grid/settings differ")
         steps = payload["steps"]
-        if steps != 50:
-            parser.error("the released runtime supports exactly 50 reference steps")
+        if type(steps) is not int or steps < 1:
+            parser.error("trace steps must be a positive integer")
         if len(set(args.budgets)) != len(args.budgets):
             parser.error("budgets must be unique")
         if any(b < args.warmup or b > steps for b in args.budgets):
