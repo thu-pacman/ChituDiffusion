@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "release_commit": "bfc1be9",
+  "models": {
+    "zimage": {
+      "traces": "zimage/traces.json",
+      "propagation": "zimage/propagation.csv",
+      "coherence": 0.0,
+      "relative_epsilon": 0.1
+    },
+    "qwen_image": {
+      "traces": "qwen_image/traces.json",
+      "propagation": "qwen_image/propagation.csv",
+      "coherence": 1.0,
+      "relative_epsilon": 0.01
+    },
+    "flux1": {
+      "traces": "flux1/traces.json",
+      "propagation": "flux1/propagation.csv",
+      "coherence": 0.98,
+      "relative_epsilon": 0.01
+    }
+  },
+  "sha256": {
+    "zimage/traces.json": "9600a02484e52fd421bc607798ba1eafa9768947b7eff273e23f61a8c789c84f",
+    "zimage/searched_dense.json": "aa8944580e58c09e3a7462d791b25ef20f8493362e73632e0e813263c5fa4572",
+    "zimage/propagation.csv": "5b57e5de7d38f08dc1fb28d8f9ed7a257f5e9ab723d13c63bc6795fc1bee3f15",
+    "qwen_image/traces.json": "2e005b42f304de3aa7e6f497dca273c2919840fcf0ace7a40ed8d8536edec28d",
+    "qwen_image/searched_dense.json": "ac2c3053668eec445324f61950ede9d07e68ccea670f26b098f64d5bc4a019c1",
+    "qwen_image/propagation.csv": "9b78073b9993850e0220741b2884d734d45b642212af5cf613cab4615ffdcaae",
+    "flux1/traces.json": "baa78aec9e930dc6a04a72cf165a083a5f8659f0ec6d324daac9b1142455dccc",
+    "flux1/searched_dense.json": "bc8f7c7f2dbd068391f56da5bea7dddd4603b4469534ec33906ecef16fc4dfd4",
+    "flux1/propagation.csv": "4c4043a73e8ad092ec9cf3567de114c7260c706d5a31c2a225bc782b7a4a0faa",
+    "prompts.json": "578e92db37d07d28ab68340a0d28b41b340b99d1c3eec9946ef3117f379b2982",
+    "legacy-provenance.json": "8874fdbe798330baa04fb805baaede570d5251e73cd43b5a69ecb9c09069290c",
+    "legacy-selected-profiles.json": "599576ed1ff04a594e3704758989d4b14be05d5201c4b5d0d2a4c4ebb41dec59",
+    "selected_presets.json": "7cd501381e016493880ac7206ed5dba93a78f248c2c4883bff2682b03630a8c4"
+  },
+  "source_paths": {
+    "zimage/traces.json": "experiments/freecache/v2/results/profile_train/zimage/traces.json",
+    "zimage/searched_dense.json": "experiments/freecache/v2/results/profile_train/zimage/searched_dense.json",
+    "zimage/propagation.csv": "experiments/freecache/v2/results/propagation_curve/zimage_e0.1.csv",
+    "qwen_image/traces.json": "experiments/freecache/v2/results/profile_train/qwen/traces.json",
+    "qwen_image/searched_dense.json": "experiments/freecache/v2/results/profile_train/qwen/searched_dense.json",
+    "qwen_image/propagation.csv": "experiments/freecache/v2/results/propagation_curve/qwen_e0.01.csv",
+    "flux1/traces.json": "experiments/freecache/v2/results/profile_train/flux/traces.json",
+    "flux1/searched_dense.json": "experiments/freecache/v2/results/profile_train/flux/searched_dense.json",
+    "flux1/propagation.csv": "experiments/freecache/v2/results/propagation_curve/flux_e0.01.csv",
+    "prompts.json": "script/research/freecache/configs/perturbation_prompt_panel.json",
+    "legacy-provenance.json": "outputs/flexcache/budget-calibration-20260909-final/provenance.json",
+    "legacy-selected-profiles.json": "experiments/freecache/v2/assets/model_profiles.json",
+    "selected_presets.json": "chitu_diffusion/flexcache/presets.py (release bfc1be9; normalized fields)"
+  }
+}

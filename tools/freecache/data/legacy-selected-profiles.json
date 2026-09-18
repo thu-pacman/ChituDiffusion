@@ -1,0 +1,413 @@
+{
+  "schema_version": 1,
+  "method": "freecache_model_profile_dp",
+  "inference_scope": "model-specific, prompt/seed agnostic",
+  "heldout_protocol": {
+    "steps": 50,
+    "width": 1024,
+    "height": 1024,
+    "dtype": "bfloat16",
+    "seed": 43,
+    "prompt_file": "script/research/freecache/configs/scale_robustness_prompts.json",
+    "prompts": 3,
+    "slurm_partition": "debug",
+    "slurm_jobs": {
+      "qwen": 228170,
+      "zimage": 228172,
+      "flux": 228171
+    }
+  },
+  "models": {
+    "qwen": {
+      "model_name": "Qwen-Image",
+      "model_family": "qwen_image",
+      "preprocess": {
+        "method": "freecache_model_profile_dp",
+        "wall_time_s": 1933,
+        "hardware": "NVIDIA H20, single GPU",
+        "slurm": {
+          "job_id": 228162,
+          "partition": "debug",
+          "time_limit_s": 3600
+        },
+        "protocol": {
+          "steps": 50,
+          "width": 1024,
+          "height": 1024,
+          "dtype": "bfloat16",
+          "prompts": [
+            {
+              "id": "photo_cat",
+              "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background."
+            },
+            {
+              "id": "market_sign",
+              "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography."
+            }
+          ],
+          "seeds": [
+            42
+          ],
+          "trajectories": 2,
+          "gpu": "NVIDIA H20"
+        },
+        "candidate_objectives": [
+          "integrated_relative_velocity",
+          "coherent_state_defect"
+        ],
+        "proposal_coefficients": [
+          0.0,
+          0.5,
+          1.0
+        ],
+        "fresh_budgets": [
+          25,
+          17,
+          10
+        ],
+        "max_span_factors": [
+          1.25,
+          2.0
+        ]
+      },
+      "profiles": {
+        "25": {
+          "profile_id": "state_l050_s125_b25",
+          "model_family": "qwen_image",
+          "reference_steps": 50,
+          "fresh_steps": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            12,
+            15,
+            18,
+            21,
+            24,
+            27,
+            30,
+            33,
+            36,
+            39,
+            42,
+            45,
+            48,
+            49
+          ],
+          "proposal_coefficient": 0.5,
+          "objective": "coherent_state_defect",
+          "objective_power": 1.0,
+          "max_anchor_span": 3
+        },
+        "17": {
+          "profile_id": "vel_l050_s200_b17",
+          "model_family": "qwen_image",
+          "reference_steps": 50,
+          "fresh_steps": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            6,
+            8,
+            11,
+            14,
+            18,
+            23,
+            28,
+            34,
+            40,
+            45,
+            48,
+            49
+          ],
+          "proposal_coefficient": 0.5,
+          "objective": "integrated_relative_velocity",
+          "objective_power": 1.0,
+          "max_anchor_span": 6
+        }
+      }
+    },
+    "zimage": {
+      "model_name": "Z-Image",
+      "model_family": "zimage",
+      "preprocess": {
+        "method": "freecache_model_profile_dp",
+        "wall_time_s": 1850,
+        "hardware": "NVIDIA H20, single GPU",
+        "slurm": {
+          "job_id": 228167,
+          "partition": "debug",
+          "time_limit_s": 3600
+        },
+        "protocol": {
+          "steps": 50,
+          "width": 1024,
+          "height": 1024,
+          "dtype": "bfloat16",
+          "prompts": [
+            {
+              "id": "photo_cat",
+              "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background."
+            },
+            {
+              "id": "market_sign",
+              "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography."
+            },
+            {
+              "id": "paper_robot",
+              "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture."
+            },
+            {
+              "id": "flat_badge",
+              "prompt": "A minimal flat vector badge of a mountain and a crescent moon, three solid colors, thick even outlines, plain off-white background, no gradients."
+            },
+            {
+              "id": "studio_vase",
+              "prompt": "A single matte ceramic vase on a seamless light grey backdrop, soft even studio lighting, smooth gradients, product photography."
+            },
+            {
+              "id": "portrait_elder",
+              "prompt": "A close-up portrait of an elderly fisherman with weathered skin and a short white beard, natural window light, shallow depth of field."
+            },
+            {
+              "id": "dense_foliage",
+              "prompt": "A dense rainforest understory filled with overlapping fern fronds and moss, dappled sunlight, every leaf in sharp focus."
+            },
+            {
+              "id": "night_harbor",
+              "prompt": "A harbor at night with many small boat lights reflecting on rippling black water, distant city skyline, high contrast long exposure."
+            }
+          ],
+          "seeds": [
+            42
+          ],
+          "trajectories": 8,
+          "gpu": "NVIDIA H20"
+        },
+        "candidate_objectives": [
+          "integrated_relative_velocity",
+          "coherent_state_defect"
+        ],
+        "proposal_coefficients": [
+          0.0,
+          0.5,
+          1.0
+        ],
+        "fresh_budgets": [
+          25,
+          17,
+          10
+        ],
+        "max_span_factors": [
+          1.25,
+          2.0
+        ]
+      },
+      "profiles": {
+        "25": {
+          "profile_id": "state_l050_s200_b25",
+          "model_family": "zimage",
+          "reference_steps": 50,
+          "fresh_steps": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            19,
+            23,
+            27,
+            31,
+            35,
+            39,
+            43,
+            47,
+            48
+          ],
+          "proposal_coefficient": 0.5,
+          "objective": "coherent_state_defect",
+          "objective_power": 1.0,
+          "max_anchor_span": 4
+        },
+        "10": {
+          "profile_id": "vel_l000_s200_b10",
+          "model_family": "zimage",
+          "reference_steps": 50,
+          "fresh_steps": [
+            0,
+            1,
+            2,
+            4,
+            8,
+            13,
+            20,
+            28,
+            36,
+            44
+          ],
+          "proposal_coefficient": 0.0,
+          "objective": "integrated_relative_velocity",
+          "objective_power": 1.0,
+          "max_anchor_span": 8
+        }
+      }
+    },
+    "flux": {
+      "model_name": "Flux1-dev",
+      "model_family": "flux1",
+      "preprocess": {
+        "method": "freecache_model_profile_dp",
+        "wall_time_s": 1270,
+        "hardware": "NVIDIA H20, single GPU",
+        "slurm": {
+          "job_id": 228168,
+          "partition": "debug",
+          "time_limit_s": 3600
+        },
+        "protocol": {
+          "steps": 50,
+          "width": 1024,
+          "height": 1024,
+          "dtype": "bfloat16",
+          "prompts": [
+            {
+              "id": "photo_cat",
+              "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background."
+            },
+            {
+              "id": "market_sign",
+              "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography."
+            },
+            {
+              "id": "paper_robot",
+              "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture."
+            },
+            {
+              "id": "flat_badge",
+              "prompt": "A minimal flat vector badge of a mountain and a crescent moon, three solid colors, thick even outlines, plain off-white background, no gradients."
+            },
+            {
+              "id": "studio_vase",
+              "prompt": "A single matte ceramic vase on a seamless light grey backdrop, soft even studio lighting, smooth gradients, product photography."
+            },
+            {
+              "id": "portrait_elder",
+              "prompt": "A close-up portrait of an elderly fisherman with weathered skin and a short white beard, natural window light, shallow depth of field."
+            },
+            {
+              "id": "dense_foliage",
+              "prompt": "A dense rainforest understory filled with overlapping fern fronds and moss, dappled sunlight, every leaf in sharp focus."
+            },
+            {
+              "id": "night_harbor",
+              "prompt": "A harbor at night with many small boat lights reflecting on rippling black water, distant city skyline, high contrast long exposure."
+            }
+          ],
+          "seeds": [
+            42
+          ],
+          "trajectories": 8,
+          "gpu": "NVIDIA H20"
+        },
+        "candidate_objectives": [
+          "integrated_relative_velocity",
+          "coherent_state_defect"
+        ],
+        "proposal_coefficients": [
+          0.0,
+          0.5,
+          1.0
+        ],
+        "fresh_budgets": [
+          25,
+          17,
+          10
+        ],
+        "max_span_factors": [
+          1.25,
+          2.0
+        ]
+      },
+      "profiles": {
+        "25": {
+          "profile_id": "vel_l100_s125_b25",
+          "model_family": "flux1",
+          "reference_steps": 50,
+          "fresh_steps": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            9,
+            11,
+            13,
+            15,
+            18,
+            20,
+            23,
+            26,
+            28,
+            31,
+            34,
+            37,
+            40,
+            43,
+            45,
+            47,
+            48,
+            49
+          ],
+          "proposal_coefficient": 1.0,
+          "objective": "integrated_relative_velocity",
+          "objective_power": 1.0,
+          "max_anchor_span": 3
+        },
+        "10": {
+          "profile_id": "vel_l050_s200_b10",
+          "model_family": "flux1",
+          "reference_steps": 50,
+          "fresh_steps": [
+            0,
+            1,
+            2,
+            4,
+            7,
+            12,
+            18,
+            26,
+            34,
+            42
+          ],
+          "proposal_coefficient": 0.5,
+          "objective": "integrated_relative_velocity",
+          "objective_power": 1.0,
+          "max_anchor_span": 8
+        }
+      }
+    }
+  }
+}

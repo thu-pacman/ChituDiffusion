@@ -1,0 +1,34 @@
+[
+  {
+    "id": "photo_cat",
+    "prompt": "A photorealistic cute cat wearing a simple blue shirt, standing against a clear sky background."
+  },
+  {
+    "id": "market_sign",
+    "prompt": "A detailed street market stall with colorful fruit, a small handwritten sign that says CHITU, soft morning light, realistic photography."
+  },
+  {
+    "id": "paper_robot",
+    "prompt": "A whimsical paper craft robot explorer walking through a tiny glowing forest, layered cut-paper illustration, rich texture."
+  },
+  {
+    "id": "flat_badge",
+    "prompt": "A minimal flat vector badge of a mountain and a crescent moon, three solid colors, thick even outlines, plain off-white background, no gradients."
+  },
+  {
+    "id": "studio_vase",
+    "prompt": "A single matte ceramic vase on a seamless light grey backdrop, soft even studio lighting, smooth gradients, product photography."
+  },
+  {
+    "id": "portrait_elder",
+    "prompt": "A close-up portrait of an elderly fisherman with weathered skin and a short white beard, natural window light, shallow depth of field."
+  },
+  {
+    "id": "dense_foliage",
+    "prompt": "A dense rainforest understory filled with overlapping fern fronds and moss, dappled sunlight, every leaf in sharp focus."
+  },
+  {
+    "id": "night_harbor",
+    "prompt": "A harbor at night with many small boat lights reflecting on rippling black water, distant city skyline, high contrast long exposure."
+  }
+]
