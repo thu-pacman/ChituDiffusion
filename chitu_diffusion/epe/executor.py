@@ -257,6 +257,16 @@ class DiffusersBackend(ABC):
             state, lane_ranks=self.parallel_context.plane_lane(lane_ranks)
         )
 
+    def _run_denoising(self, state: Any, *, lane_ranks: tuple[int, ...]) -> None:
+        while True:
+            before = self.profile(state)
+            if before.remaining_steps == 0:
+                break
+            self.denoise_step(state, lane_ranks=lane_ranks)
+            after = self.profile(state)
+            if after.completed_steps <= before.completed_steps:
+                raise RuntimeError("denoise_step did not advance the request state")
+
     def generate(self, request: Any) -> Any:
         """Run one request synchronously on the full stage world.
 
@@ -293,14 +303,7 @@ class DiffusersBackend(ABC):
             )
             session.__enter__()
         try:
-            while True:
-                before = self.profile(state)
-                if before.remaining_steps == 0:
-                    break
-                self.denoise_step(state, lane_ranks=lane_ranks)
-                after = self.profile(state)
-                if after.completed_steps <= before.completed_steps:
-                    raise RuntimeError("denoise_step did not advance the request state")
+            self._run_denoising(state, lane_ranks=lane_ranks)
         finally:
             if session is not None:
                 session.__exit__(None, None, None)
@@ -320,7 +323,9 @@ class DiffusersBackend(ABC):
             )
             if is_leader:
                 if decoded is None:
-                    raise RuntimeError("full-world leader did not receive decoded output")
+                    raise RuntimeError(
+                        "full-world leader did not receive decoded output"
+                    )
                 artifact = normalize_terminal_artifact(decoded)
                 assert artifact is not None
                 host_artifact = TerminalArtifact(

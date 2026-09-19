@@ -78,6 +78,17 @@ class WanPipeline(DiffusersEPEPipeline):
     pipeline_class = EpeWanPipeline
     generation_error_prefix = "Wan EPE"
 
+    @property
+    def last_fpp_stats(self) -> dict[str, Any] | None:
+        return getattr(self._pipeline, "last_fpp_stats", None)
+
+    def serve(self, config: Any | None = None) -> None:
+        if getattr(self._pipeline, "fpp_enabled", False):
+            raise NotImplementedError(
+                "Wan FPP currently supports generate(); elastic serving is not supported"
+            )
+        super().serve(config)
+
     def _create_backend(self, config: Any | None = None) -> Any:
         from ...epe.scheduling.planner import EpeSchedulingModule
         from .executor import WanVideoDecoderExecutor

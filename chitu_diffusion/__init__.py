@@ -23,9 +23,11 @@ if TYPE_CHECKING:
     from .models.qwen_image import QwenImagePipeline, QwenImageRequest
     from .models.wan import WanPipeline, WanRequest
     from .models.zimage import ZImagePipeline, ZImageRequest
+    from .parallel.pp import FppConfig
     from .serve import EmbeddedDiffusionRuntime, EPEServeConfig, HotSwitchPoolConfig
 
 _EXPORT_MODULES = {
+    "FppConfig": ".parallel.pp",
     "EmbeddedRuntimeConfig": ".epe",
     "StageWorldSpec": ".epe",
     "EmbeddedDiffusionRuntime": ".serve",
@@ -74,6 +76,7 @@ __all__ = [
     "CacheConfig",
     "FreeCacheConfig",
     "FreeCacheProfile",
+    "FppConfig",
     "EmbeddedDiffusionRuntime",
     "EmbeddedRuntimeConfig",
     "EPEServeConfig",

@@ -7,7 +7,13 @@ from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.transformers.transformer_wan import WanTransformer3DModel
 
 from ...parallel.cp import EpeParallelContext
+from ...parallel.pp import PipelineTopology
 from .attention import WanCpAttnProcessor
+from .pipeline_parallel import (
+    configure_wan_pipeline,
+    load_wan_pipeline_transformer,
+    wan_pipeline_forward,
+)
 from .tensor_parallel import load_tensor_parallel_transformer
 
 
@@ -19,7 +25,14 @@ class EpeWanTransformer3DModel(WanTransformer3DModel):
         parallel = kwargs.pop("parallel_context", None)
         attention_mode = kwargs.pop("attention_mode", "agkv")
         degree = int(kwargs.pop("tensor_parallel_degree", 1) or 1)
-        if degree > 1:
+        pipeline_topology = kwargs.pop("pipeline_topology", None)
+        if pipeline_topology is not None:
+            if degree != 1:
+                raise ValueError("Wan FPP cannot be combined with tensor parallelism")
+            model = load_wan_pipeline_transformer(
+                cls, *args, topology=pipeline_topology, **kwargs
+            )
+        elif degree > 1:
             model, _ = load_tensor_parallel_transformer(
                 cls, *args, degree=degree, **kwargs
             )
@@ -36,10 +49,17 @@ class EpeWanTransformer3DModel(WanTransformer3DModel):
         attention_mode: str = "agkv",
     ) -> None:
         processor = WanCpAttnProcessor(parallel, mode=attention_mode)
-        for block in self.blocks:
-            block.attn1.set_processor(processor)
+        if getattr(self, "pipeline_topology", None) is None:
+            for block in self.blocks:
+                block.attn1.set_processor(processor)
         self.epe_parallel = parallel
         self._epe_attn_processor = processor
+
+    def configure_pipeline_parallel(self, topology: PipelineTopology) -> None:
+        configure_wan_pipeline(self, topology)
+
+    def forward_pipeline(self, *args: Any, **kwargs: Any) -> torch.Tensor:
+        return wan_pipeline_forward(self, *args, **kwargs)
 
     def forward(
         self,
@@ -50,6 +70,10 @@ class EpeWanTransformer3DModel(WanTransformer3DModel):
         return_dict: bool = True,
         attention_kwargs: dict[str, Any] | None = None,
     ):
+        if getattr(self, "pipeline_topology", None) is not None:
+            raise RuntimeError(
+                "a partitioned Wan transformer must use forward_pipeline with request-owned FPP state"
+            )
         parallel = getattr(self, "epe_parallel", None)
         if parallel is None or parallel.active.width == 1:
             return super().forward(

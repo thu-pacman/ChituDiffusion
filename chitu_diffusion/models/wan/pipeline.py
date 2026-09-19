@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import statistics
 import time
 from dataclasses import dataclass
@@ -8,11 +9,15 @@ from typing import Any
 
 import torch
 import torch.distributed as dist
-from diffusers import FlowMatchEulerDiscreteScheduler, WanPipeline
+from diffusers import WanPipeline
 from diffusers.pipelines.wan.pipeline_output import WanPipelineOutput
 
 from ...parallel.cp import EpeParallelContext, resolve_context_parallel_config
+from ...parallel.pp import FppConfig, FppState, partition_bounds
+from ...parallel.pp.mesh import FppMesh
 from ...parallel.vae import parallel_vae_decode
+from .fpp_scheduler import make_wan_scheduler
+from .fpp_stream import run_wan_fpp
 from .loader import load_wan_diffusers_components
 from .transformer import EpeWanTransformer3DModel
 
@@ -33,6 +38,7 @@ class WanDenoiseState:
     num_frames: int
     image_tokens: int
     step_index: int = 0
+    fpp_state: FppState | None = None
 
     @property
     def do_classifier_free_guidance(self) -> bool:
@@ -58,6 +64,22 @@ class EpeWanPipeline(WanPipeline):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
+        pipeline_degree = kwargs.pop("pipeline_parallel_degree", 1)
+        if type(pipeline_degree) is not int or pipeline_degree < 1:
+            raise ValueError("pipeline_parallel_degree must be a positive integer")
+        fpp_config = kwargs.pop("fpp_config", None)
+        if fpp_config is not None and not isinstance(fpp_config, FppConfig):
+            if not isinstance(fpp_config, dict):
+                raise TypeError("fpp_config must be FppConfig or a mapping")
+            fpp_config = FppConfig(**fpp_config)
+        context_degree = kwargs.pop("context_parallel_degree", 1)
+        if type(context_degree) is not int or context_degree < 1:
+            raise ValueError("context_parallel_degree must be a positive integer")
+        fpp_enabled = pipeline_degree > 1 or fpp_config is not None
+        if context_degree != 1 and not fpp_enabled:
+            raise ValueError(
+                "explicit context_parallel_degree requires FPP; use EPE lanes for ordinary CP"
+            )
         allowed_widths = kwargs.pop("allowed_lane_widths", None)
         ulysses_transport = kwargs.pop("ulysses_transport", None)
         agkv_transport = kwargs.pop("agkv_transport", None)
@@ -66,12 +88,54 @@ class EpeWanPipeline(WanPipeline):
             kwargs.pop("ulysses_degree", None),
         )
         tensor_parallel_degree = int(kwargs.pop("tensor_parallel_degree", 1) or 1)
-        cfg_parallel = bool(kwargs.pop("cfg_parallel", True))
+        cfg_parallel = bool(kwargs.pop("cfg_parallel", not fpp_enabled))
         parallel_vae = bool(kwargs.pop("parallel_vae", True))
         vae_parallel_halo = int(kwargs.pop("vae_parallel_halo", 8))
         if vae_parallel_halo < 0:
             raise ValueError("vae_parallel_halo must be non-negative")
         flow_shift = float(kwargs.pop("flow_shift", 8.0))
+        sample_solver = kwargs.pop(
+            "sample_solver",
+            "unipc"
+            if fpp_enabled and (fpp_config is None or fpp_config.schedule == "stream")
+            else "euler",
+        )
+        scheduler = make_wan_scheduler(sample_solver, flow_shift)
+        if fpp_enabled:
+            fpp_config = fpp_config or FppConfig()
+            world_size = (
+                parallel.world_size
+                if parallel is not None
+                else int(os.environ.get("WORLD_SIZE", "1"))
+            )
+            if (
+                pipeline_degree * context_degree * (2 if cfg_parallel else 1)
+                != world_size
+            ):
+                raise ValueError("Wan FPP requires world size == CFG × PP × CP")
+            if (
+                tensor_parallel_degree != 1
+                or attention_mode != "agkv"
+                or ulysses_degree not in (None, 1)
+            ):
+                raise ValueError("Wan FPP requires TP=1 and AGKV context attention")
+            if ulysses_transport not in (None, "torch") or agkv_transport not in (
+                None,
+                "torch",
+            ):
+                raise ValueError("Wan FPP does not use Fast CP transports")
+            if fpp_config.schedule == "step" and (context_degree != 1 or cfg_parallel):
+                raise ValueError(
+                    "step FPP requires local CFG and CP=1; use stream for mixed parallelism"
+                )
+            if (
+                fpp_config.reference_stages is not None
+                or fpp_config.reference_context_degree != 1
+            ) and world_size != 1:
+                raise ValueError(
+                    "virtual FPP reference degrees require a single process"
+                )
+            ulysses_transport = agkv_transport = "torch"
         if parallel is None:
             parallel = EpeParallelContext.from_torchrun(
                 allowed_widths=(
@@ -84,6 +148,18 @@ class EpeWanPipeline(WanPipeline):
                 ulysses_transport=ulysses_transport,
                 agkv_transport=agkv_transport,
             )
+
+        pipeline_topology = None
+        fpp_mesh = None
+        if fpp_enabled:
+            if parallel.tensor_parallel.degree != 1:
+                raise ValueError(
+                    "Wan FPP requires a context with tensor parallel degree one"
+                )
+            fpp_mesh = FppMesh.create(
+                pipeline_degree, context_degree, 2 if cfg_parallel else 1
+            )
+            pipeline_topology = fpp_mesh.pipeline
 
         model_path = Path(pretrained_model_name_or_path)
         torch_dtype = kwargs.pop("torch_dtype", torch.bfloat16)
@@ -101,6 +177,11 @@ class EpeWanPipeline(WanPipeline):
                     parallel_context=parallel,
                     attention_mode=attention_mode,
                     tensor_parallel_degree=tensor_parallel_degree,
+                    **(
+                        {"pipeline_topology": pipeline_topology}
+                        if pipeline_topology is not None
+                        else {}
+                    ),
                     torch_dtype=torch_dtype,
                     local_files_only=local_files_only,
                 )
@@ -110,13 +191,6 @@ class EpeWanPipeline(WanPipeline):
                 torch_dtype=torch_dtype,
                 local_files_only=local_files_only,
                 **kwargs,
-            )
-            pipeline.register_modules(
-                scheduler=FlowMatchEulerDiscreteScheduler(
-                    num_train_timesteps=1000,
-                    shift=flow_shift,
-                    use_dynamic_shifting=False,
-                )
             )
         else:
             if kwargs:
@@ -132,7 +206,7 @@ class EpeWanPipeline(WanPipeline):
                     "tensor parallelism needs a diffusers-layout Wan checkpoint, "
                     f"got the original layout at {model_path}"
                 )
-            tokenizer, text_encoder, vae, scheduler, transformer = (
+            tokenizer, text_encoder, vae, _, transformer = (
                 load_wan_diffusers_components(
                     model_path,
                     parallel_context=parallel,
@@ -149,13 +223,32 @@ class EpeWanPipeline(WanPipeline):
                 scheduler=scheduler,
                 transformer=transformer,
             )
+        if pipeline_topology is not None:
+            if getattr(pipeline, "transformer_2", None) is not None:
+                raise NotImplementedError(
+                    "Wan FPP currently supports the single-transformer Wan 2.1 T2V pipeline"
+                )
+            pipeline.transformer.configure_pipeline_parallel(pipeline_topology)
+        pipeline.register_modules(scheduler=scheduler)
+        pipeline._epe_fpp_mesh = fpp_mesh
         pipeline._epe_parallel_context = parallel
         pipeline._epe_attention_mode = attention_mode
         pipeline._epe_ulysses_degree = ulysses_degree
         pipeline._epe_cfg_parallel = cfg_parallel
         pipeline._epe_parallel_vae = parallel_vae
         pipeline._epe_vae_parallel_halo = vae_parallel_halo
+        pipeline._epe_fpp_config = fpp_config
+        pipeline.last_fpp_stats = None
         return pipeline
+
+    @property
+    def fpp_enabled(self) -> bool:
+        return getattr(self, "_epe_fpp_config", None) is not None
+
+    @property
+    def pipeline_parallel_degree(self) -> int:
+        topology = getattr(self.transformer, "pipeline_topology", None)
+        return topology.degree if topology is not None else 1
 
     @property
     def parallel_context(self) -> EpeParallelContext:
@@ -247,6 +340,11 @@ class EpeWanPipeline(WanPipeline):
         )
         latent_frames = latents.shape[2]
         image_tokens = latent_frames * (height // 16) * (width // 16)
+        fpp_state = None
+        if self.fpp_enabled:
+            if self._epe_fpp_config.schedule == "step":
+                partition_bounds(image_tokens, self._epe_fpp_config.patches)
+            fpp_state = FppState(self._epe_fpp_config)
         return WanDenoiseState(
             latents=latents,
             prompt_embeds=prompt_embeds,
@@ -259,6 +357,7 @@ class EpeWanPipeline(WanPipeline):
             height=int(height),
             num_frames=int(num_frames),
             image_tokens=int(image_tokens),
+            fpp_state=fpp_state,
         )
 
     def _predict_branch(
@@ -267,10 +366,25 @@ class EpeWanPipeline(WanPipeline):
         timestep: torch.Tensor,
         *,
         negative: bool,
+        fpp_full_step: bool | None = None,
     ) -> torch.Tensor:
         embeds = state.negative_prompt_embeds if negative else state.prompt_embeds
         if embeds is None:
             raise RuntimeError("Wan CFG branch has no prompt embeddings")
+        if getattr(self.transformer, "pipeline_topology", None) is not None:
+            if state.fpp_state is None or fpp_full_step is None:
+                raise RuntimeError(
+                    "pipeline prediction requires request-owned FPP state"
+                )
+            return self.transformer.forward_pipeline(
+                state.latents.to(self.transformer.dtype),
+                timestep,
+                embeds,
+                state=state.fpp_state,
+                branch="uncond" if negative else "cond",
+                step_index=state.step_index,
+                full_step=fpp_full_step,
+            )
         with self.transformer.cache_context("uncond" if negative else "cond"):
             return self.transformer(
                 hidden_states=state.latents.to(self.transformer.dtype),
@@ -288,6 +402,12 @@ class EpeWanPipeline(WanPipeline):
     ) -> WanDenoiseState:
         if state.complete:
             raise RuntimeError("denoise state is already complete")
+        if self.fpp_enabled and self._epe_fpp_config.schedule == "stream":
+            raise ValueError(
+                "cross-step FPP must run through generate(), not an EPE denoise_step"
+            )
+        if getattr(self.transformer, "pipeline_topology", None) is not None:
+            return self._denoise_fpp_step(state, lane_ranks=lane_ranks)
         timestep_value = state.timesteps[state.step_index]
         timestep = timestep_value.expand(state.actual_batch_size)
         with self.parallel_context.activate(lane_ranks):
@@ -331,6 +451,62 @@ class EpeWanPipeline(WanPipeline):
             state.step_index += 1
         return state
 
+    def _denoise_fpp_step(
+        self, state: WanDenoiseState, *, lane_ranks: tuple[int, ...]
+    ) -> WanDenoiseState:
+        if lane_ranks != self.transformer.pipeline_topology.ranks:
+            raise ValueError("FPP cannot resize or migrate its fixed pipeline lane")
+        if self.cfg_parallel:
+            raise ValueError(
+                "FPP requires local CFG; CFG process groups would split the pipeline"
+            )
+        if state.fpp_state is None:
+            state.fpp_state = FppState(self._epe_fpp_config)
+        fpp = state.fpp_state
+        full_step = fpp.needs_full_step(state.step_index, len(state.timesteps))
+        timestep_value = state.timesteps[state.step_index]
+        timestep = timestep_value.expand(state.actual_batch_size)
+        with self.parallel_context.activate(lane_ranks):
+            try:
+                positive = self._predict_branch(
+                    state, timestep, negative=False, fpp_full_step=full_step
+                )
+                negative = (
+                    self._predict_branch(
+                        state, timestep, negative=True, fpp_full_step=full_step
+                    )
+                    if state.do_classifier_free_guidance
+                    else None
+                )
+                prediction = (
+                    combine_wan_cfg_predictions(
+                        positive, negative, guidance_scale=state.guidance_scale
+                    )
+                    if negative is not None
+                    else positive
+                )
+                # Every rank receives the complete prediction. Keep the same
+                # scheduler contract as CP: exactly one call per logical step.
+                state.latents = state.scheduler.step(
+                    prediction, timestep_value, state.latents, return_dict=False
+                )[0].to(state.latents.dtype)
+            except Exception:
+                fpp.cache.clear()
+                raise
+        fpp.last_step = state.step_index
+        fpp.full_steps += int(full_step)
+        fpp.patch_steps += int(not full_step)
+        state.step_index += 1
+        self.last_fpp_stats = {
+            "pipeline_degree": self.pipeline_parallel_degree,
+            "patches": fpp.config.patches,
+            "full_steps": fpp.full_steps,
+            "patch_steps": fpp.patch_steps,
+        }
+        if state.complete:
+            fpp.cache.clear()
+        return state
+
     def synchronize_state(self, state: WanDenoiseState, *, step_index: int) -> None:
         state.step_index = int(step_index)
         state.scheduler._step_index = int(step_index)
@@ -344,6 +520,10 @@ class EpeWanPipeline(WanPipeline):
         num_frames: int = 17,
         text_tokens: int = 512,
     ) -> dict[str, Any]:
+        if self.fpp_enabled:
+            raise NotImplementedError(
+                "FPP currently supports static generation, not EPE service warmup"
+            )
         if steps < 3:
             raise ValueError("EPE warmup steps must be >= 3")
         parameter = next(self.transformer.parameters())
@@ -540,5 +720,11 @@ class EpeWanPipeline(WanPipeline):
             return (video,)
         return WanPipelineOutput(frames=video)
 
+    def run_fpp(self, state):
+        return run_wan_fpp(self, state)
+
     def close(self) -> None:
+        mesh = getattr(self, "_epe_fpp_mesh", None)
+        if mesh is not None:
+            mesh.close()
         self.parallel_context.close()
