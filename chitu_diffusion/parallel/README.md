@@ -1,6 +1,6 @@
 # Parallel
 
-该包按执行域分为 `cp`、`tp` 和 `vae`。模型必须从对应子包导入，不再从
+该包按执行域分为 `cp`、`tp`、`pp` 和 `vae`。模型必须从对应子包导入，不再从
 `chitu_diffusion.parallel` 根包导入符号。根包只放跨域共用的主机事实：
 `interconnect.py` 从驱动读出本机 GPU 之间的互连形态（有无 NVLink、每张卡的 NUMA
 节点），供需要在"铺开传输"和"串行传输"之间取舍的调度使用——PCIe 主机一张卡的所有
@@ -35,3 +35,12 @@ lane，指定 degree 时创建一个独立于 DiT TP/CP 的固定 decode group�
 
 依赖方向固定为 `cp -> tp`；`vae` 持有独立 decode group；`tp` 不反向依赖
 其他并行域。EPE 决定 lane，parallel 层不管理请求、SLO 或 worker。
+
+## PP
+
+`pp/` 保存静态流水线 topology、P2P transport、CP 条带和 token 分块、
+FPP 配置和按请求持有的滚动 KV。模型前后处理与本级 block 执行位于
+`models/wan/pipeline_parallel.py` 与 `fpp_stream.py`。stream 模式将 token
+补齐到 CP×M 的倍数，step 模式使用无 padding 的均衡分块。Wan 的 PP loader 复用 `tp/loader.py` 的
+safetensors 加载与校验能力；这不意味着当前支持 PP × TP。初始实现面向
+Wan 2.1 固定全 world 的 `generate()`，见 [FPP 指南](../../docs/features/fpp.md)。

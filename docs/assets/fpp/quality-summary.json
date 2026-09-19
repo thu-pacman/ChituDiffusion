@@ -1,0 +1,152 @@
+{
+  "evaluation_date": "2026-09-10",
+  "evaluation_commit": "4e6ce813ebc267135f71da31e03d96463fce70dd",
+  "source_commit": "b64ddaa268516901a19372e421af56eaaf6f43c9",
+  "note": "Historical real-checkpoint evidence, not a rerun of the rebased PR. Similarity to full-sequence BF16, not perceptual quality.",
+  "settings": {
+    "height": 480,
+    "width": 832,
+    "frames": 81,
+    "steps": 50,
+    "solver": "WanFlowUniPCScheduler",
+    "shift": 3,
+    "cfg": 7.5,
+    "precision": "BF16 Transformer with native FP32 conditioning; BF16 text encoder; FP32 VAE with tiling; no parallel VAE",
+    "pp": 4,
+    "cp": 1,
+    "warmup": 2,
+    "cooldown": 2,
+    "refresh_interval": 50,
+    "rotate_patches": true,
+    "tokens": 32760,
+    "tokens_per_patch": {
+      "4": 8190,
+      "7": 4680,
+      "14": 2340
+    }
+  },
+  "rows": [
+    {
+      "model": "1.3B",
+      "prompt": "fox",
+      "seed": 42,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m4",
+      "psnr_db": 19.120128670400142,
+      "ssim": 0.7664755445570947
+    },
+    {
+      "model": "1.3B",
+      "prompt": "fox",
+      "seed": 42,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m7",
+      "psnr_db": 18.432516652617153,
+      "ssim": 0.7687791677056224
+    },
+    {
+      "model": "1.3B",
+      "prompt": "fox",
+      "seed": 42,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m14",
+      "psnr_db": 17.451148758209246,
+      "ssim": 0.731133829852106
+    },
+    {
+      "model": "1.3B",
+      "prompt": "sailboat",
+      "seed": 73,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m4",
+      "psnr_db": 15.469186596264521,
+      "ssim": 0.5348520994728201
+    },
+    {
+      "model": "1.3B",
+      "prompt": "sailboat",
+      "seed": 73,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m7",
+      "psnr_db": 14.645115526678588,
+      "ssim": 0.4867737201076892
+    },
+    {
+      "model": "1.3B",
+      "prompt": "sailboat",
+      "seed": 73,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m14",
+      "psnr_db": 13.80838102165514,
+      "ssim": 0.4047001192774881
+    },
+    {
+      "model": "14B",
+      "prompt": "fox",
+      "seed": 42,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m4",
+      "psnr_db": 14.166675894761735,
+      "ssim": 0.5539804699627016
+    },
+    {
+      "model": "14B",
+      "prompt": "fox",
+      "seed": 42,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m7",
+      "psnr_db": 12.992656449687507,
+      "ssim": 0.43721873577839887
+    },
+    {
+      "model": "14B",
+      "prompt": "fox",
+      "seed": 42,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m14",
+      "psnr_db": 11.840730154023383,
+      "ssim": 0.42665752427900233
+    },
+    {
+      "model": "14B",
+      "prompt": "sailboat",
+      "seed": 73,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m4",
+      "psnr_db": 17.66267567420541,
+      "ssim": 0.5662318485550303
+    },
+    {
+      "model": "14B",
+      "prompt": "sailboat",
+      "seed": 73,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m7",
+      "psnr_db": 16.949447117584945,
+      "ssim": 0.5443855400763685
+    },
+    {
+      "model": "14B",
+      "prompt": "sailboat",
+      "seed": 73,
+      "reference": "dense-bf16",
+      "candidate": "fpp-m14",
+      "psnr_db": 16.547724612340414,
+      "ssim": 0.5643789773435076
+    }
+  ],
+  "controls_1_3B_sailboat_m14": {
+    "full-sync-control": {
+      "mse": 0.0,
+      "psnr_db": null,
+      "ssim": 1.0,
+      "identical": true
+    },
+    "warmcool-control": {
+      "mse": 0.002026279086978899,
+      "psnr_db": 26.933007378565623,
+      "ssim": 0.8800737999319705,
+      "identical": false
+    }
+  }
+}

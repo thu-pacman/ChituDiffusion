@@ -120,7 +120,7 @@ DiT 执行与 tensor 布局。
 <tr>
 <td><a href="chitu_diffusion/models/wan/README.md">Wan 2.1 T2V</a></td>
 <td>文生视频</td>
-<td>✅ TP × CFG × CP（NCCL / Fast CP）</td>
+<td>✅ TP × CFG × CP（NCCL / Fast CP）<br>实验性 FPP × CFG × CP（独立 generate 模式）</td>
 <td>✅</td>
 <td>✅</td>
 </tr>
@@ -358,7 +358,7 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <tr>
 <td><a href="chitu_diffusion/models/wan/README.md">Wan 2.1 T2V</a></td>
 <td>Text to video</td>
-<td>✅ TP × CFG × CP (NCCL / Fast CP)</td>
+<td>✅ TP × CFG × CP (NCCL / Fast CP)<br>Experimental FPP × CFG × CP (standalone generate)</td>
 <td>✅</td>
 <td>✅</td>
 </tr>

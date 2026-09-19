@@ -14,3 +14,8 @@ chitu generate \
 ```
 
 缓存 profile 与模型和步数绑定。使用前查看 `docs/features/flexcache.md`。
+
+Wan 2.1 T2V 还提供独立的 FPP 细粒度流水线生成预览：
+`--pipeline-parallel-degree` 指定 stage 数，`--fpp-patches` 指定 token 分块数。
+运行命令、滚动 KV 语义、同步基线与当前限制见
+[FPP 指南](../../../docs/features/fpp.md)。
