@@ -74,6 +74,10 @@ class WanVideoDecoderExecutor(DiffusersBackend):
                 raise ValueError("warmup profile frames must equal 4n+1")
 
     def warmup(self, *, resolutions, steps) -> dict[str, Any]:
+        if getattr(self.pipeline, "fpp_enabled", False):
+            raise ValueError(
+                "FPP uses static generate(); EPE lane warmup is unsupported"
+            )
         normalized_resolutions = tuple(
             sorted({(int(height), int(width)) for height, width in resolutions})
         )
@@ -322,6 +326,11 @@ class WanVideoDecoderExecutor(DiffusersBackend):
 
     def prepare_request(self, request: Any) -> WanDenoiseState:
         normalized = self.normalize_request(request)
+        if (
+            getattr(self.pipeline, "fpp_enabled", False)
+            and normalized.cache.strategy != "none"
+        ):
+            raise ValueError("Wan FPP cannot be combined with FlexCache strategies")
         device = (
             torch.device("cuda", self.parallel_context.local_rank)
             if torch.cuda.is_available()
@@ -354,6 +363,13 @@ class WanVideoDecoderExecutor(DiffusersBackend):
             generator=torch.Generator(device=device).manual_seed(normalized.seed),
             **kwargs,
         )
+
+    def _run_denoising(self, state, *, lane_ranks):
+        config = getattr(self.pipeline, "_epe_fpp_config", None)
+        if config is not None and config.schedule == "stream":
+            self.pipeline.run_fpp(state)
+        else:
+            super()._run_denoising(state, lane_ranks=lane_ranks)
 
     def _state_conditions(self, state: WanDenoiseState) -> int:
         return 2 if state.do_classifier_free_guidance else 1
