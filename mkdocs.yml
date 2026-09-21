@@ -21,6 +21,7 @@ nav:
       - Diffusers API: features/diffusers-api.md
   - 使用说明:
       - 安装: usage/installation.md
+      - Fast CP 安装与启用: usage/fast-cp-installation.md
       - 运行: usage/running.md
 markdown_extensions:
   - admonition

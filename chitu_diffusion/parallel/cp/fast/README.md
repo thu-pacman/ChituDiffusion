@@ -1,213 +1,190 @@
 # Fast CP
 
-Fast CP 包含两种单机 Context Parallel 实现：Fast AGKV 和 Fast Ulysses。两者都用
-NVSHMEM 在 GPU 之间传输数据，并用 Copy Engine 执行可以与计算重叠的拷贝。目录中
-还保留了 Fast Ring，供低显存 Ring Attention 实验使用。
+Fast CP 提供单节点 AGKV 和 Ulysses，以及覆盖 QKV projection 至 output projection
+的显式推理接口。NVSHMEM transport、Attention Planner 和模型 adapter 各自独立；
+runtime 统一管理通信槽位、准备流程与资源生命周期。
 
-## 使用条件与要解决的问题
+新环境请从[安装与启用指南](../../../../docs/usage/fast-cp-installation.md)开始：
+包含依赖、固定源码版本、编译、CuTe 后端、多卡验证与两种启用方式。
 
-标准 AGKV 会先 all-gather 完整 K/V，再启动 attention。标准 Ulysses 会在
-attention 前后各执行一次 NCCL all-to-all。这些 collective 会引入 stream 同步和
-启动开销。短序列的计算时间少，固定开销所占比例更高。长序列还会产生较大的 K/V
-中间张量。
+## 目录与阅读入口
 
-Fast CP 用 symmetric buffer 保存通信结果。发送方直接写入目标 GPU 的 buffer，
-接收方通过 arrival flag 判断数据是否可读。Copy Engine 传输 K/V 时，SM 可以计算
-已经到达的数据。这个设计减少了 collective 完成后的等待时间，也省去了一次中间
-数据搬运。
-
-当前实现需要以下环境：
-
-- 单机 2、4 或 8 张 Hopper 或更新架构 GPU，当前性能数据来自 NVIDIA H20
-  与 RTX PRO 5000 Blackwell；
-- GPU 之间支持 CUDA P2P，推荐使用 NVLink 或 NVSwitch；
-- CUDA、PyTorch、NCCL 和 NVSHMEM 3.7 或更高版本；
-- FP16 或 BF16 的 4D `[B, S, H, D]` 张量；
-- dense non-causal attention。
-
-扩展包含针对 GPU 架构编译的 CUDA 代码。CUDA、NVSHMEM 或 GPU 架构变化后需要
-重新编译。`auto` 模式会在设备、拓扑或张量形状不满足要求时改用 Torch/NCCL。
-
-## Fast AGKV
-
-Fast AGKV 让每个 rank 保留自己的 Q 分片，并接收所有 rank 的 K/V。发送方把 K/V
-直接写入每个目标 rank 的 symmetric buffer。Attention kernel 根据 arrival flag
-读取已经到达的 K/V，无需等待完整 all-gather。
-
-这种方法有三个性质：
-
-- Q 按序列切分，不要求 head 数能被 CP 整除；
-- 长序列可以用 attention 计算覆盖 K/V 传输；
-- 每张卡需要保存全局 K/V，K/V 显存随全局序列长度线性增长。
-
-K/V 能放入显存且序列较长时，Fast AGKV 通常是三种实现中延迟最低的方案。
-
-Fast AGKV 已统一为 `FastAgkvTransport`，负责 K/V 传输并通过
-`--agkv-transport fast_agkv` 接入现有 attention 后端。原独立 Full-Mesh fused
-attention 实验路径已合并后删除，不再维护第二套 AGKV API。
-
-## Fast Ulysses
-
-Fast Ulysses 先把 `[局部序列, 全部 heads]` 重排成
-`[全部序列, 局部 heads]`。每个 rank 计算一部分 heads，随后通过反向重排恢复原始
-布局。
-
-两次重排由 NVSHMEM Copy Engine 完成。同一节点上的 Ulysses subgroup 共享一个
-symmetric pool，避免为每个 subgroup 创建独立的 NVSHMEM runtime。
-
-每个 rank 只保存一部分 heads，因此 Fast Ulysses 的显存低于 Fast AGKV。它要求
-Ulysses degree 同时整除 CP degree 和 head 数。运行时选择不超过节点 GPU 数的最大
-合法 degree。例如，CP8/H40 使用 U8，CP8/H12 使用 U4。
-
-Fast Ulysses 已接入 transport factory，可以通过
-`--ulysses-transport fast_ulysses` 使用。CUDA Graph capture 和不支持的张量形状
-会改用 NCCL all-to-all。
-
-## Fast Ring 实验
-
-Fast Ring 让 K/V 分片沿 Ring 依次传到相邻 rank。每个 rank 对当前 K/V 分片计算
-partial attention，再用 FP32 online softmax 合并结果。每张卡只保存本地分片和
-两个接收 buffer，K/V 显存为 `O(S / CP)`。
-
-当前实现包含双 landing buffer、Copy Engine forwarding、CuTe partial attention
-和 GPU arrival ticket。它不要求 head 数能被 CP 整除。
-
-H20 的统一评测中，Fast Ring 没有在任何已测序列长度和 CP degree 下取得最低延迟。
-它目前用于测试 Ring 通信与 attention 重叠，以及评估低显存方案。模型 pipeline
-不会自动选择 Fast Ring。
-
-## RTX PRO 5000 CP4/CP8 通信带宽
-
-![RTX PRO 5000 CP4 and CP8 Fast CP transport bandwidth](../../../../docs/assets/fast_cp/fast-cp-pro5000-bandwidth.svg)
-
-Fast CE 在 CP4 接近 `51 GiB/s`，跨 NUMA 的 CP8 中 Fast AGKV CE 仍稳定在约
-`42 GiB/s`，两种 Fast transport 均明显优于对应 NCCL 路径。
-
-## 与其它并行方式组合
-
-Fast transport 持有一个 NVSHMEM runtime，一个进程只能有一个，所以每个 rank 只有
-一条 lane 可以用 Fast。context 用 `fast_lane_width` 指定这条 lane 的宽度：同一宽度
-的 lane 正好把 TP plane 划分完，因此指定宽度就等于每个 rank 指定一条 lane。默认值
-是整个 TP plane，attention 在更窄 lane 上交换的模型自己传入实际宽度。
-
-按此规则的组合边界：
-
-- TP：Fast lane 落在单个 TP plane 内，TP 的 all-reduce 仍走 NCCL，两者不冲突。
-- CFG：CFG2 把 plane 切成两条半宽 CP lane。Hunyuan Image 3 传入
-  `fast_lane_width=context_parallel_degree`，两条 CP2 lane 各自建立一个 NVSHMEM
-  runtime，CFG 分支之间的合并仍走 NCCL。
-- EP：expert dispatch 走自己的 all-to-all，与 CP lane 无关，不受影响。
-- VAEP：terminal decode 用独立的 VAE group，恒定走 NCCL。
-- 弹性 lane：Fast 只绑定一个宽度，scheduler 激活其它宽度的 lane 时自动回落 NCCL，
-  不会报错。因此 `policy: static_cp` 之外的配置得不到 Fast 收益。
-
-## 模型接入
-
-8×RTX PRO 5000 实测（20 步 1024×1024 或 71,424 token 视频 latent，中位数）：
-
-| 模型 | 拓扑 | Fast Ulysses | Fast AGKV |
-| --- | --- | --- | --- |
-| MiniMax-H3 | TP4×CP2 | -3.18% | -1.14% |
-| Hunyuan Image 3 | TP2×CFG2×CP2×EP2 | -0.83% | -0.26% |
-| Hunyuan Image 3 | TP2×CFG1×CP4×EP4 | -0.51% | -1.16% |
-
-所有 Fast 输出与对应 NCCL 输出 bitwise 相同。CP2 的交换量本来就小，收益低于
-CP4；但 CFG2×CP2×EP2 本身比 CFG1×CP4×EP4 快 18.6%，因此仍是 Hunyuan Image 3 的
-推荐拓扑。原始数据见
-[`pro5000-model-integration.json`](../../../../docs/assets/fast_cp/pro5000-model-integration.json)，
-复现命令为 `script/benchmark_model_fast_cp.py`。
-
-## H20 单机结果
-
-下图使用同一组 1 GPU cuDNN latency 计算 speedup。CP2、CP4 和 CP8 的每个点取
-Fast AGKV、Fast Ulysses、Fast Ring 中 latency 最低的实现。
-
-![H20 单机 Fast CP scaling](../../../../docs/assets/fast_cp/fast-cp-h20-single-node-scaling.png)
-
-4K 序列由 Fast Ulysses 获胜。8K 序列在 CP2 和 CP4 使用 Fast AGKV，在 CP8
-使用 Fast Ulysses。16K 及以上的已测配置均由 Fast AGKV 获胜。
-
-![H20 单机 Fast CP winner 和 latency 方阵](../../../../docs/assets/fast_cp/fast-cp-h20-single-node-winner-matrix.png)
-
-测试使用 BF16、`B=1`、`H=40`、`D=128` 和 dense non-causal attention。方阵中的
-latency 是所有 rank 中最慢 rank 的 median。
-
-运行 `python tools/plotting/fast_cp_scaling_matrix.py` 可以重新生成两张 H20 图。
-
-## 运行时接口
-
-模型 pipeline 默认使用 Torch/NCCL。以下参数显式启用 Fast transport：
-
-```bash
---ulysses-transport fast_ulysses
---agkv-transport fast_agkv
+```text
+fast/
+├── __init__.py              # 公共符号，adapter 按需加载
+├── api.py                   # init_fast_cp、FastCPRuntime、FastCPAttention
+├── runtime/
+│   ├── backend.py           # 扩展加载、对称堆、SM/TMA/CE 选择
+│   ├── agkv.py              # K/V gather transport
+│   └── ulysses.py           # all-to-all transport 与 logical subgroup
+├── attention/
+│   ├── planner.py           # 候选估算、准备与执行
+│   ├── cute.py              # CuTe 后端加载
+│   └── merge.py             # FP32 partial output/LSE 合并
+├── projection/
+│   ├── kv.py                # 对称槽位 KV producer 与 CE 发送
+│   └── qk_epilogue.py       # RMSNorm/RoPE、packed QKV 融合
+├── adapters/
+│   ├── base.py              # 协议、能力检查、执行对象
+│   ├── _execution.py        # 共用的分段 Graph/AGKV 调度
+│   ├── wan.py               # Wan 契约与执行模板
+│   ├── qwen_image.py        # Qwen 布局、packed/overlap 选择
+│   └── zimage.py            # ZImage 分片或复制文本布局
+├── profiles/
+│   └── h20_nvlink.py        # 已校准的能力与 kernel 成本参数
+├── csrc/                    # CUDA/C++ 扩展源码
+├── experimental/
+│   └── ring.py              # 独立 Fast Ring 实验
+└── test/                    # 单元测试、GPU 测试与分布式验收
 ```
 
-环境变量提供相同设置：
+| 任务 | 入口 |
+| --- | --- |
+| 在模型中使用 Fast CP | 包根目录的 `init_fast_cp` 与三个 adapter，示例见下文 |
+| 理解准备和资源生命周期 | [api.py](api.py) |
+| 修改通信或搬运策略 | [runtime/backend.py](runtime/backend.py) |
+| 修改 attention 候选与 wave 估算 | [attention/planner.py](attention/planner.py) |
+| 接入新模型 | [adapters/base.py](adapters/base.py) 与对应模型文件 |
+| 校准另一种设备 | [profiles/h20_nvlink.py](profiles/h20_nvlink.py) |
+| 编译 CUDA 扩展 | [csrc/README.md](csrc/README.md) 与下文构建命令 |
+| 运行正确性和性能回归 | [test/README.md](test/README.md) |
 
-```bash
-CHITU_ULYSSES_TRANSPORT=fast_ulysses
-CHITU_AGKV_TRANSPORT=fast_agkv
+执行关系是 `api → adapter → projection / attention / runtime → CUDA 扩展`。
+`runtime/` 不导入模型，`attention/` 不选择通信算法，`profiles/` 不持有 tensor 或
+CUDA stream。模型文件声明数学和分片语义，共用 `_execution.py` 的调度，不通过
+继承另一个模型复用代码。
+
+包根目录是应用调用入口；内部目录供维护者修改实现。原未发布的平铺模块和
+`experimental/` 兼容转发已删除，仓库调用方已迁移；原有顶层 transport 符号保留。
+`experimental/ring.py` 不属于 wrapper 的正式执行路径。
+
+## 使用 wrapper
+
+当前验证范围：单节点 H20 NVLink、CP2/4/8、TP1、B1、BF16、D128、等长序列分片、
+无 mask 的非 causal MHA。模型接入方显式调用以下接口；尚未自动安装到完整 pipeline。
+
+```python
+import torch
+from chitu_diffusion.parallel.cp.fast import QwenImageAdapter, init_fast_cp
+
+with torch.inference_mode(), init_fast_cp(cp_group, device=device) as cp:
+    block = cp.wrap_attention(
+        attention_module.eval(),
+        adapter=QwenImageAdapter(),
+        origin=original_region,
+        algorithm="agkv",
+        schedule="auto",
+    )
+    inputs = dict(
+        hidden_states=image_shard,
+        encoder_hidden_states=text_shard,
+        image_rotary_emb=(image_rope_shard, text_rope_shard),
+    )
+    block.prepare(example_inputs=inputs)
+    image_output, text_output = block(**inputs)
 ```
 
-`fast_agkv` selector 选择 `FastAgkvTransport`。Fast Ring 仍是独立实验路径，
-需要由 benchmark 或测试代码直接创建。
+`original_region` 接收相同 keyword arguments，返回相同本地分片。准备阶段若任意
+rank 能力不足，所有 rank 一致选择 origin；未提供 origin 时报错。forward 不调优，
+也不会在通信已失败后切换 NCCL。
 
-## 安装说明
+普通调用允许输入地址变化：数据复制到稳定 Graph 槽位，返回独立输出。固定地址
+场景使用绑定入口，省去这两项复制：
 
-安装 Fast Ulysses 依赖，并把 `csrc/` 下的扩展源码装入 checkout：
-
-```bash
-uv sync --extra fast-ulysses
-python tools/install/install_fast_agkv.py refs/fast-ulysses
+```python
+bound = block.bind(inputs=inputs)  # 所有 rank 集体准备
+# 上游在 runtime 的构造 stream 上原地更新 inputs。
+image_output, text_output = bound.run()
+print(bound.metadata)
+bound.close()
 ```
 
-CUDA 13 wheel 环境还需要 CCCL headers：
+绑定输出是借用的 scratch，需要跨后续调用保存时由调用方 clone。绑定入口的性能
+不包含普通入口的 staging 和输出复制成本。
 
-```bash
-uv pip install --python .venv/bin/python nvidia-cuda-cccl
+| Adapter | 输入分布 | AGKV 路径 |
+| --- | --- | --- |
+| `WanAdapter()` | 序列分片，完整投影宽度 Q/K RMSNorm，可选局部 cos/sin | KV 直写，CE gather 与 Q projection 重叠 |
+| `QwenImageAdapter()` | image/text 都分片，复数 RoPE，text-first | 准备时比较 packed/overlap；packed epilogue 直写对称 KV |
+| `ZImageAdapter(image_tokens=..., text_distribution=...)` | image-first；文本 `sharded` 或 `replicated` | 对应文本分布的 CE overlap |
+
+`algorithm="ulysses"` 使用串行模板，保留 head padding、Attention Planner 和输入/
+输出方向独立的 SM/TMA/CE 选择。AGKV wrapper 使用 CE。每个模型文件同时包含契约、
+AGKV 执行模板和 Ulysses 构建逻辑。
+
+## 资源与失效
+
+- 所有 rank 按相同顺序 prepare/bind 和执行。shape、stride、dtype 或输入结构改变
+  时先集体重新准备。权重、LoRA、norm/RoPE 配置改变前调用 `block.invalidate()`。
+- 同一 backend 的 wrapper 共用锁和 workspace，只允许在构造 stream 顺序执行。
+  同形状的不同层复用通信槽位，权重、Graph 和输出各自持有。
+- 默认 `pool_bytes=2 << 30`、`max_workspaces=8`。堆不自动扩容或逐槽回收；长序列
+  或多个 workload 应显式预留容量。关闭 binding 不释放共享槽位。
+- 已有 NVSHMEM backend 时传入 `backend=existing_backend`。借用者关闭不销毁堆；
+  拥有者必须在借用 wrapper 关闭后释放资源。
+- 当前使用计算分段 Graph，不支持外层 CUDA Graph capture 或并发 stream 执行。
+
+## 独立 transport 与 attention
+
+现有 pipeline 的 transport factory 仍支持 `--ulysses-transport fast_ulysses`
+与 `--agkv-transport fast_agkv`。公共协议和 factory 位于 `cp/`，NCCL 实现位于
+`cp/nccl/`。transport 的设备、dtype 和拓扑范围比 wrapper 宽；SM120 基础通信可
+构建不代表模型 wrapper 已在 PRO 5000 验证。
+
+共享 attention 的入口独立于通信。planner 从 shape、dtype、SM 数和 CP degree
+生成候选；成本参数位于 `profiles/h20_nvlink.py`，不保存逐 shape 的静态选择表。
+
+```python
+from chitu_diffusion.parallel.cp.fast.attention import prepare_attention
+
+attention = prepare_attention(query, key, value, cp_degree=cp_degree)
+output = attention(query, key, value)
 ```
 
-安装器只改动指定的源码 checkout。装入后，根据目标机器设置 CUDA toolkit、
-`NVSHMEM_HOME` 和运行时库路径，然后重新编译并安装 `fast-ulysses`。
+独立 transport 的常用配置如下；wrapper 的对称堆容量由 `init_fast_cp(pool_bytes=...)`
+指定，AGKV 执行模板由 adapter 决定。
 
-以下环境变量控制实验参数：
+| 环境变量 | 作用 |
+| --- | --- |
+| `CHITU_ULYSSES_TRANSPORT` / `CHITU_AGKV_TRANSPORT` | 选择 `torch`、`auto` 或对应 Fast transport |
+| `CHITU_FAST_ULYSSES_TRANSFER=auto/sm/tma/ce` | Ulysses 搬运方式；auto 按实际 shape 和方向测量 |
+| `CHITU_FAST_ULYSSES_POOL_BYTES` / `CHITU_FAST_AGKV_POOL_BYTES` | 独立 transport 的对称堆容量 |
+| `CHITU_FAST_AGKV_USE_CE=auto/on/off` | 独立 AGKV 的 CE 选择，auto 考虑本地互连 |
+| `CHITU_FAST_AGKV_ASYNC=auto/on/off` | 独立 AGKV 通信与 attention 的重叠策略 |
+| `FAST_ULYSSES_CE_TUNE_VERBOSE=1` | 输出扩展中的 CE 扇出调优结果 |
 
-- `CHITU_FAST_ULYSSES_POOL_BYTES` 设置 symmetric pool 大小，默认值为 2 GiB。
-- `CHITU_FAST_ULYSSES_USE_TMA=auto/0/1` 选择 TMA transport。
-- `CHITU_FAST_AGKV_POOL_BYTES` 设置 AGKV symmetric pool 大小。
-- `CHITU_FAST_AGKV_USE_CE=auto/on/off` 控制 AGKV Copy Engine transport。`auto`
-  由主机互连决定（`chitu_diffusion/parallel/interconnect.py`）：PCIe 主机上一张
-  GPU 的所有 peer 共用一个 egress 端口，CE 更快且不占 SM；NVLink 主机每个 peer
-  有独立链路，仍走 SM direct-write。探测失败时按 NVLink 处理。
-- `CHITU_FAST_AGKV_ASYNC=auto/on/off` 控制 AGKV 通信与计算重叠策略。`auto` 在走
-  CE 时始终重叠（CE 不从 attention 手里抢 SM），走 SM 时仅在 CP≤4 重叠。
-- `CHITU_FAST_ULYSSES_ASYNC_CE=0` 关闭 Ulysses 的异步 CE all-to-all（Wan
-  processor 用它把 Q/K 传输叠到后续 projection 之下）。同步路径始终走 SM kernel：
-  CE 单独跑更慢，只有叠在计算之下才有收益。
-- `FAST_ULYSSES_CE_TUNE_VERBOSE=1` 打印 CE 扇出调优结果（每个候选的 us/call 与
-  最终选择），用于在新主机上确认调度。扇出由扩展逐 shape 实测，不需要配置。
+`auto` 在准备时能力不足可回落到 Torch/NCCL，显式 Fast 选择则报告错误。wrapper
+遵循前述集体 origin 回退契约；这两套入口的调度范围不同。
 
-H3 的 CE/projection overlap 实验因性能不及同步路径已回退；当前 H3 只使用同步
-Fast Ulysses。
+## 构建
 
-## 目录说明
+`csrc/` 保留单一源码；同一扩展可包含 SM90/SM120 机器码，由 CUDA loader 选择。
+`tools/install/build_fast_cp.py` 应用源码 overlay、编译 wheel 并检查 native image；
+`install_fast_agkv.py` 只负责 overlay，不编译。需要针对 Python/Torch/CUDA ABI
+构建，完整命令统一维护在[安装指南](../../../../docs/usage/fast-cp-installation.md)。
 
-- `agkv_transport.py` 实现独立的 K/V gather transport。
-- `ulysses.py` 实现 Fast Ulysses transport、node runtime 和 logical subgroup。
-- `_runtime.py` 适配 Fast Ulysses 和 NVSHMEM 扩展。
-- `csrc/` 存放本仓库自有的 CUDA/C++ 扩展源码，由 `install_fast_agkv.py` 装入
-  `fast-ulysses` checkout 后编译；详见 `csrc/README.md`。
-- `experimental/ring.py` 实现单节点 Fast Ring。
-- `experimental/_cute.py` 和 `experimental/_ring_merge.py` 支持实验 attention。
+## 验证与结果
 
-公共 transport 协议和 factory 位于 `chitu_diffusion/parallel/cp/`。NCCL 实现
-位于 `chitu_diffusion/parallel/cp/nccl/`。当前 Fast Ulysses 审查基线为 commit
-`6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87`。
+在独占 8 GPU H20 节点运行：
+
+```bash
+bash chitu_diffusion/parallel/cp/fast/test/run_wrapper.sh
+```
+
+新安装先按安装指南设置 `FAST_CP_BUILD_ROOT`、`FLASH_ATTENTION_ROOT` 和动态库路径，
+覆盖测试脚本的本地默认值。
+
+脚本执行 pytest 和 24 组分布式检查，覆盖 Wan 1.3B S32760/H12、Wan 14B S75600/H40、
+Qwen/ZImage image4096+text512 的 CP2/4/8，导出 JSON/CSV。所有 workload 使用
+BF16/B1/D128、随机权重；计时覆盖完整 attention block，未测完整生成任务。
+
+详细复现见 [test/README.md](test/README.md)，跨框架报告见
+[Fast CP 功能文档](../../../../docs/features/fast-cp.md)，稳定 CSV 与雷达图见
+[docs/assets/fast_cp](../../../../docs/assets/fast_cp/README.md)。目录重构的回归结果
+与此前正式 benchmark 分开记录。
 
 ## 致谢
 
-Fast CP 的 Fast Ulysses 后端基于
-[`triple-mu/fast-ulysses`](https://github.com/triple-mu/fast-ulysses)
-开发。感谢原作者开源 NVSHMEM Ulysses 实现。本项目在该实现上增加了
-logical subgroup，以及 Fast AGKV 和 Fast Ring 所需的通信接口。
+Fast Ulysses 后端基于 [triple-mu/fast-ulysses](https://github.com/triple-mu/fast-ulysses)，
+上游许可证为 Apache-2.0。本项目增加 logical subgroup、AGKV、CE projection
+overlap 和模型执行接口；CuTe FlashAttention 与 cuDNN 提供 attention 后端。

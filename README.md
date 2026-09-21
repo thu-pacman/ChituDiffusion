@@ -155,7 +155,8 @@ torchrun --standalone --nproc-per-node=8 -m chitu_diffusion.cli \
 ```
 
 Fast CP 需要兼容的单机 GPU、GPU P2P、NVSHMEM 和针对目标环境编译的扩展。参数和安装
-步骤见 [Fast CP README](chitu_diffusion/parallel/cp/fast/README.md)。
+步骤见 [Fast CP 安装与启用](docs/usage/fast-cp-installation.md)，接口与目录说明见
+[Fast CP README](chitu_diffusion/parallel/cp/fast/README.md)。
 
 ## FlexCache
 
@@ -364,7 +365,8 @@ torchrun --standalone --nproc-per-node=8 -m chitu_diffusion.cli \
 
 Fast CP requires compatible single-node GPUs, GPU P2P, NVSHMEM, and extensions
 built for the target environment. See the
-[Fast CP README](chitu_diffusion/parallel/cp/fast/README.md).
+[installation guide](docs/usage/fast-cp-installation.md) and
+[Fast CP API and layout](chitu_diffusion/parallel/cp/fast/README.md).
 
 ## FlexCache
 

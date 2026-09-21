@@ -4,7 +4,8 @@
 
 本目录是 ChituDiffusion 在 `fast-ulysses` 之上自有的 CUDA/C++ 源码。
 `tools/install/install_fast_agkv.py` 把这些文件拷入指定的 `fast-ulysses`
-checkout 并重新编译扩展；它们不是针对上游的补丁，而是由本仓库维护的实现：
+checkout；随后由 `build_fast_cp.py` 编译扩展。它们不是针对上游的补丁，而是由本仓库维护的实现。
+新环境的完整步骤见[安装与启用指南](../../../../../docs/usage/fast-cp-installation.md)：
 
 | 文件 | 内容 |
 |---|---|
@@ -44,7 +45,7 @@ Fast AGKV 将本地 `[B, S_local, H, D]` K/V 直接写入每个 rank 的最终
 ```bash
 python tools/install/install_fast_agkv.py /path/to/fast-ulysses
 # 然后按照 fast-ulysses 的 NVSHMEM/CUDA 构建说明重新安装扩展。
-# --check 只报告是否需要重新安装（需要时退出码为 1）。
+# --check 只检查 overlay 源码是否一致（不一致时退出码为 1），不检查二进制。
 ```
 
 运行时选择：
