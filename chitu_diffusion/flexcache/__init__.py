@@ -1,6 +1,8 @@
 from .config import (
     CacheCommonConfig,
     CacheConfig,
+    FreeCacheConfig,
+    FreeCacheProfile,
     MagCacheConfig,
     MeanCacheConfig,
     PABConfig,
@@ -20,6 +22,8 @@ __all__ = [
     "CacheStrategy",
     "CacheCommonConfig",
     "CacheConfig",
+    "FreeCacheConfig",
+    "FreeCacheProfile",
     "FlexCacheModelSpec",
     "LeafSite",
     "MagCacheConfig",

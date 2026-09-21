@@ -73,6 +73,7 @@ class DiffusersEPEPipeline:
         self.model_path = str(model_path)
         self._closed = False
         self.last_cache_stats: dict[str, Any] | None = None
+        self.last_vae_stats: dict[str, Any] | None = None
 
     @classmethod
     def from_pretrained(
@@ -137,6 +138,21 @@ class DiffusersEPEPipeline:
             backend = self._create_backend()
             output = backend.generate(request)
             self.last_cache_stats = backend.last_cache_stats
+            placement = getattr(backend, "vae_placement", None)
+            self.last_vae_stats = (
+                None
+                if placement is None
+                else {
+                    "parallel_vae": placement.sharded,
+                    "vae_parallel_degree": placement.degree,
+                    "vae_parallel_halo": placement.halo,
+                }
+            )
+            decode_stats = getattr(
+                getattr(self._pipeline, "vae", None), "_chitu_vae_decode_stats", None
+            )
+            if self.last_vae_stats is not None and decode_stats is not None:
+                self.last_vae_stats.update(decode_stats)
             return output
         except Exception as exc:
             raise RuntimeError(

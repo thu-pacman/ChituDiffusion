@@ -33,6 +33,13 @@ dependencies = [
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+
+[tool.setuptools.package-data]
+"chitu_diffusion.models.llada_image" = [
+    "LICENSE-APACHE-2.0",
+    "NOTICE.md",
+    "README.md",
+]
 [project.scripts]
 chitu = "chitu_diffusion.cli:main"
 

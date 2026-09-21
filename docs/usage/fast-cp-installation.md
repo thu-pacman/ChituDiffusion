@@ -13,7 +13,7 @@ CuTe 后端，并验证多卡执行。所有命令在仓库根目录运行；不
 
 SM120 通信扩展可构建，不代表 PRO 5000 已支持完整 wrapper。仅使用 NCCL 时无需
 安装以下扩展。硬件 profile、输入契约和资源管理见
-[Fast CP README](../../chitu_diffusion/parallel/cp/fast/README.md)。
+[Fast CP README](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/chitu_diffusion/parallel/cp/fast/README.md)。
 
 ## 1. 基础环境
 
@@ -143,7 +143,7 @@ bash chitu_diffusion/parallel/cp/fast/test/run_wrapper.sh outputs/fast-cp/instal
 
 `FAST_CP_BUILD_ROOT` 覆盖测试脚本原有的本地 checkout 默认值。若 checkout 下没有
 `.deps/`，脚本会保留上面设置的 `LD_LIBRARY_PATH`。Slurm 提交和验收边界见
-[测试说明](../../chitu_diffusion/parallel/cp/fast/test/README.md)。
+[测试说明](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/chitu_diffusion/parallel/cp/fast/test/README.md)。
 
 ## 5. 启用方式
 
@@ -166,7 +166,7 @@ Ulysses 使用 `--attention-mode ulysses --ulysses-transport fast_ulysses`。
 CP 分组，再调用 `init_fast_cp(cp_group, device=...)`，用模型 adapter 包装 attention，
 集体 `prepare()` 后执行。可用 adapter 为 `WanAdapter`、`QwenImageAdapter` 和
 `ZImageAdapter`；完整示例与输入分片契约见
-[wrapper 用法](../../chitu_diffusion/parallel/cp/fast/README.md#使用-wrapper)。
+[wrapper 用法](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/chitu_diffusion/parallel/cp/fast/README.md#使用-wrapper)。
 它覆盖 Planner、NVSHMEM 和模型级 packed/CE overlap 调度。CLI transport 开关
 不会自动安装这个 wrapper，也不能单独复现它的全部性能收益。
 

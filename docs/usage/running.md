@@ -1,7 +1,7 @@
 # 运行
 
 `chitu generate` 执行单次生成，`chitu serve` 启动 EPE 服务。CLI 支持 `zimage`、
-`flux1`、`flux2-klein`、`qwen-image`、`wan` 和 `hunyuan-image3`。
+`flux1`、`flux2-klein`、`qwen-image`、`wan`、`llada-image` 和 `hunyuan-image3`。
 
 ## 单卡生成
 
@@ -18,6 +18,12 @@ chitu generate \
 ```bash
 chitu generate --model zimage --help
 ```
+
+所有 `generate` 入口都会打印 `elapsed_s=...`，并在产物旁写入同名 `.json`。
+`elapsed_s` 与兼容字段 `generate_seconds` 都以秒记录本次生成耗时，包括文本编码、
+去噪、VAE 解码和结果后处理，不含模型加载、图片保存或视频编码。CUDA 计时边界会
+等待设备工作完成；这是单次请求耗时，首轮可能包含编译或初始化成本。
+JSON 同时记录 prompt、seed、步数和并行参数；FlexCache 模型还记录缓存统计。
 
 ## 静态多卡生成
 
@@ -75,6 +81,32 @@ torchrun --standalone --nproc-per-node=8 -m chitu_diffusion.cli \
   generate --model hunyuan-image3 --cfg-parallel-degree 1 ...
 ```
 
+## VAE 解码
+
+Z-Image、FLUX.1、FLUX.2-klein、LLaDA-Image、Wan、Qwen-Image、Hunyuan
+Image 3 和 MiniMax-H3 的图像/视频静态并行解码统一使用逐层
+行分片：卷积交换相邻 rank 的边界行，GroupNorm 通信全局统计量，attention
+使用本地 Q 和 all-gather 后的全局 K/V（AGKV）。视频保留原有时序缓存。
+该路径保留整图解码语义，浮点归约与卷积算法差异仍可能造成数值误差。
+
+提供 VAE 开关的离线入口使用 `--parallel-vae` 开启，`--no-parallel-vae`
+让 leader 整图解码；固定服务组使用 `parallelism.vae` 配置。
+Z-Image 和 LLaDA-Image 默认关闭，其余上述模型默认开启。单 rank、分片过短
+或不支持的 decoder 使用 leader 路径；不支持的结构会提示原因。
+开启逐层并行前需关闭 Diffusers 自带 tiling，否则会报错。
+
+`--vae-parallel-halo N` 保留兼容（非负），但上述逐层路径按各层卷积核自动
+推导 halo，不使用该值。FLUX.2-klein 只提供启停开关，不需要手工 halo 参数。
+sidecar 的 `requested_parallel_vae`、`requested_vae_parallel_halo` 保留请求值，
+`vae_decode_mode`（`layerwise` / `leader`）、`parallel_vae` 和
+`vae_parallel_degree` 记录实际执行方式，逐层路径的 `vae_parallel_halo` 为 null。
+
+本次实现和验证范围为静态并行，不包含动态 EPE。
+Hunyuan 的全局 GroupNorm/attention 和 MiniMax 的全局 RoPE、特殊 token
+都已纳入通信语义；MiniMax 串行参考也改为关闭空间 tiling，音频仍由 leader 解码。
+统一算子范式见 [VAEP 架构](../features/vae-parallel.md)。
+支持范围、误差和性能测量见 [VAE 验证记录](../validation/vae-parallel.md)。
+
 ## FlexCache
 
 缓存参数直接附加到 `generate`：
@@ -127,6 +159,17 @@ bash tools/cluster/srun_direct.sh 1 4 -m chitu_diffusion.cli \
   --model-path /path/to/Z-Image \
   --output outputs/zimage.png
 ```
+
+混合 GPU 节点可通过 `SRUN_GPU_TYPE` 指定 Slurm 注册的型号，例如：
+
+```bash
+SRUN_PARTITION=Star SRUN_GPU_TYPE=PRO6000 \
+  bash tools/cluster/srun_direct.sh 1 2 -m chitu_diffusion.cli \
+  generate --model zimage --model-path /path/to/Z-Image \
+  --output outputs/zimage-pro6000.png
+```
+
+未设置 `SRUN_GPU_TYPE` 时保留 `gpu:N` 的调度方式；型号名称以集群的 GRES 配置为准。
 
 仓库根目录 `examples/` 还包含各模型 Python API、静态 CP、EPE embedded 和服务配置
 示例。

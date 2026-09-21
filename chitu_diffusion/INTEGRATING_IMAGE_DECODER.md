@@ -74,9 +74,10 @@ followers: worker loop
   executor 不应自行执行额外 K 步。
 - `export_state` 必须足以让 cp1/cp2/cp4 之间切换。若模型包含除 latent 外的可变状态，
   需要一并放入 `TransferBundle.tensors` 或可序列化 metadata。
-- encoder 和 VAE module 保持原生 Diffusers 实现。宽 lane 可复用
-  `parallel_tiled_vae_decode`，但所有 lane rank 必须以相同顺序进入 collective；runtime
-  只在 leader 执行 D2H，CPU postprocess/PNG 继续异步。
+- encoder 和 VAE 保留原模型的模块与权重。固定并行组可接入
+  `parallel_vae_decode`，逐层处理卷积边界、全局归一化和 attention；所有 rank
+  必须以相同顺序进入 collective。动态 EPE 应使用 leader 解码；runtime 只在 leader
+  执行 D2H，CPU postprocess/PNG 继续异步。参见 [VAEP 设计](../docs/features/vae-parallel.md)。
 
 ## LLaDA2 团队需要确定的内容
 

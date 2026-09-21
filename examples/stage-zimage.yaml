@@ -6,9 +6,8 @@ parallelism:
   cp:
     world_size: 4
   vae:
-    # Elastic lanes decode concurrently, so terminal decode stays on the lane
-    # that produced the latent. Leave degree unset unless policy is static_cp.
-    enabled: true
+    # Keep leader decoding for this elastic example; layer-wise VAEP is static-only.
+    enabled: false
   scheduler:
     policy: elastic
     allowed_lane_widths: [1, 2, 4]

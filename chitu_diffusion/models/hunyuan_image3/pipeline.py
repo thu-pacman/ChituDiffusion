@@ -16,13 +16,11 @@ from typing import Any
 import torch
 
 from ...epe.contracts import TerminalArtifact
-from ...parallel.vae import parallel_spatial_vae_decode
+from ...parallel.vae import parallel_vae_decode
 from .cache import HunyuanImage3Cache
 from .loader import LoadedHunyuanImage3
 from .parallel import HunyuanImage3ParallelRuntime
 
-VAE_TILE_PIXELS = 384
-VAE_TILE_OVERLAP = 48
 # The released prompt is always tokenized as one conditional and one
 # unconditional half, whether or not the two are split across ranks.
 CFG_CONDITIONS = 2
@@ -131,7 +129,7 @@ class HunyuanImage3Pipeline:
             if flow_shift is not None
             else self.model.generation_config.flow_shift
         )
-        # Our tile plan owns the spatial split, so the VAE must not tile again.
+        # Layer-wise spatial parallelism requires the full-image decoder semantics.
         self.model.vae.disable_tiling()
         self.model.vae.disable_slicing()
         downsample = tuple(int(value) for value in loaded.config.vae_downsample_factor)
@@ -377,13 +375,13 @@ class HunyuanImage3Pipeline:
             if state.input_ids.shape[1] != position_ids.shape[1]:
                 state.input_ids = torch.gather(state.input_ids, 1, index=position_ids)
 
-    def _decode_tile(self, latent_tile: torch.Tensor) -> torch.Tensor:
+    def _decode_latents(self, latents: torch.Tensor) -> torch.Tensor:
         with torch.autocast(
             device_type="cuda",
             dtype=torch.float16,
             enabled=self.device.type == "cuda",
         ):
-            return self.model.vae.decode(latent_tile, return_dict=False)[0]
+            return self.model.vae.decode(latents, return_dict=False)[0]
 
     @torch.inference_mode()
     def decode_request(
@@ -410,13 +408,11 @@ class HunyuanImage3Pipeline:
         # decoded frame for a one-frame latent.
         latents = latents.unsqueeze(2)
 
-        image = parallel_spatial_vae_decode(
+        image = parallel_vae_decode(
+            self.model.vae,
             latents,
-            self._decode_tile,
+            decode_fn=self._decode_latents,
             topology=topology,
-            scale=self.vae_spatial_scale,
-            tile_size=VAE_TILE_PIXELS,
-            overlap_min=VAE_TILE_OVERLAP,
             enabled=self.vae_placement.sharded,
         )
         if timings is not None:
@@ -455,8 +451,6 @@ class HunyuanImage3Pipeline:
 
 __all__ = [
     "CFG_CONDITIONS",
-    "VAE_TILE_OVERLAP",
-    "VAE_TILE_PIXELS",
     "HunyuanImage3DenoiseState",
     "HunyuanImage3Pipeline",
     "flow_match_sigmas",

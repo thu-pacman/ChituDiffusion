@@ -129,6 +129,10 @@ slurm-*.out
 !docs/assets/fast_cp/fast-cp-h20-wrapper-samples.csv
 !docs/assets/fast_cp/fast-cp-h20-layout-regression.csv
 !docs/assets/fast_cp/fast-cp-h20-layout-regression-samples.csv
+# Portable public benchmark summary; raw runs remain under outputs/.
+!/docs/assets/flexcache-preview-budget/summary.csv
+# Canonical FreeCache propagation inputs needed for CPU reproduction.
+!/tools/freecache/data/*/propagation.csv
 *.mp4
 output/*
 srun_wan_demo.sh

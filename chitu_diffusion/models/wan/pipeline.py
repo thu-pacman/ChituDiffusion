@@ -12,7 +12,7 @@ from diffusers import FlowMatchEulerDiscreteScheduler, WanPipeline
 from diffusers.pipelines.wan.pipeline_output import WanPipelineOutput
 
 from ...parallel.cp import EpeParallelContext, resolve_context_parallel_config
-from ...parallel.vae import parallel_tiled_vae_decode
+from ...parallel.vae import parallel_vae_decode
 from .loader import load_wan_diffusers_components
 from .transformer import EpeWanTransformer3DModel
 
@@ -504,19 +504,10 @@ class EpeWanPipeline(WanPipeline):
         profile["vae_start_unix_ns"] = time.time_ns()
         started = time.perf_counter()
         enabled = self.parallel_vae if parallel_vae is None else bool(parallel_vae)
-        halo = (
-            self.vae_parallel_halo
-            if vae_parallel_halo is None
-            else int(vae_parallel_halo)
-        )
-        video = parallel_tiled_vae_decode(
+        video = parallel_vae_decode(
+            self.vae,
             self._denormalize_latents(state.latents),
-            lambda value: self.vae.decode(value, return_dict=False)[0],
             topology=topology,
-            latent_split_dim=4,
-            pixel_split_dim=4,
-            scale=int(self.vae_scale_factor_spatial),
-            halo=halo,
             enabled=enabled,
         )
         if device.type == "cuda":

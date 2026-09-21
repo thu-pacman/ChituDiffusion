@@ -1,5 +1,6 @@
 """VAE-parallel topology and spatial decode primitives."""
 
+from .exact import parallel_vae_decode
 from .spatial import (
     SpatialTile,
     SpatialTilePlan,
@@ -28,4 +29,5 @@ __all__ = [
     "create_vae_parallel_placement",
     "parallel_spatial_vae_decode",
     "parallel_tiled_vae_decode",
+    "parallel_vae_decode",
 ]

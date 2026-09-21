@@ -6,6 +6,7 @@ import sys
 from collections.abc import Sequence
 
 _GENERATE_MODULES = {
+    "llada-image": "chitu_diffusion.commands.generate.llada_image",
     "zimage": "chitu_diffusion.commands.generate.zimage",
     "flux1": "chitu_diffusion.commands.generate.flux1",
     "flux2-klein": "chitu_diffusion.commands.generate.flux2_klein",

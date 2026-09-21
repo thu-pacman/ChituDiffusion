@@ -15,7 +15,7 @@ parallelism:
     tensor_parallel_degree: 2
     cfg_parallel_degree: 1
   vae:
-    enabled: true
+    enabled: false
   scheduler:
     # Lanes are planned across the stage world and projected onto each plane,
     # so keep the geometry fixed while tensor parallelism is on.

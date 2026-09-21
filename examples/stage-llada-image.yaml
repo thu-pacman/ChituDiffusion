@@ -1,0 +1,26 @@
+name: image
+process: image
+factory: llada-image
+gpu: [0, 1]
+parallelism:
+  cp:
+    world_size: 2
+    attention_mode: agkv
+  model:
+    cfg_parallel_degree: 2
+  vae:
+    # Full-image decoding preserves the checkpoint's global VAE operations.
+    enabled: false
+  scheduler:
+    policy: elastic
+    allowed_lane_widths: [1, 2]
+    warmup_resolutions: [512]
+    warmup_steps: 3
+factory_args:
+  model_path: /path/to/LLaDA-Image
+  default_width: 512
+  default_height: 512
+  num_steps: 50
+service:
+  host: 0.0.0.0
+  port: 18200

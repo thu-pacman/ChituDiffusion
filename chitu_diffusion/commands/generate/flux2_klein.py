@@ -9,6 +9,10 @@ from pathlib import Path
 import torch
 
 from chitu_diffusion import Flux2KleinCpPipeline
+from chitu_diffusion.commands.generate.common import (
+    generation_timestamp,
+    write_generation_metadata,
+)
 from chitu_diffusion.commands.parallel_args import (
     add_parallel_transport_arguments,
     static_parallel_pipeline_kwargs,
@@ -31,6 +35,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--attention-mode", choices=("agkv", "ulysses"), default="agkv")
     parser.add_argument("--ulysses-degree", type=int)
     add_parallel_transport_arguments(parser)
+    parser.add_argument(
+        "--parallel-vae", action=argparse.BooleanOptionalAction, default=True
+    )
     return parser.parse_args()
 
 
@@ -48,11 +55,13 @@ def main() -> None:
         local_files_only=True,
         attention_mode=args.attention_mode,
         ulysses_degree=args.ulysses_degree,
+        parallel_vae=args.parallel_vae,
         **static_parallel_pipeline_kwargs(args),
     ).to(device)
     pipeline.set_progress_bar_config(disable=True)
     loaded_at = time.perf_counter()
     try:
+        generate_started = generation_timestamp()
         result = pipeline(
             prompt=args.prompt,
             height=args.height,
@@ -61,7 +70,7 @@ def main() -> None:
             guidance_scale=1.0,
             generator=torch.Generator(device=device).manual_seed(args.seed),
         )
-        generated_at = time.perf_counter()
+        elapsed_s = generation_timestamp() - generate_started
         if pipeline.parallel_context.rank == 0:
             output_path = Path(args.output)
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,10 +90,15 @@ def main() -> None:
                 "agkv_transport": args.agkv_transport,
                 "world_size": pipeline.parallel_context.world_size,
                 "load_seconds": loaded_at - started,
-                "generate_seconds": generated_at - loaded_at,
+                "generate_seconds": elapsed_s,
+                "implementation": "cp",
             }
-            output_path.with_suffix(".json").write_text(
-                json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+            metadata = write_generation_metadata(
+                output_path,
+                args=args,
+                pipeline=pipeline,
+                elapsed_s=elapsed_s,
+                metadata=metadata,
             )
             print(json.dumps(metadata, indent=2))
     finally:

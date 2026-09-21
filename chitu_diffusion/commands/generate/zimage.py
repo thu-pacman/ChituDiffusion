@@ -12,9 +12,15 @@ from chitu_diffusion.commands.cache_args import (
     add_cache_arguments,
     cache_config_from_args,
 )
+from chitu_diffusion.commands.generate.common import (
+    generation_timestamp,
+    write_generation_metadata,
+)
 from chitu_diffusion.commands.parallel_args import (
     add_parallel_transport_arguments,
+    add_vae_parallel_arguments,
     static_parallel_pipeline_kwargs,
+    validate_vae_parallel_arguments,
 )
 
 
@@ -63,6 +69,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--local-files-only", action="store_true")
     add_cache_arguments(parser)
+    add_vae_parallel_arguments(parser, default=False)
     parser.add_argument(
         "--output",
         type=Path,
@@ -73,6 +80,7 @@ def parse_args() -> argparse.Namespace:
         parser.error("--model-path or ZIMAGE_MODEL_PATH is required")
     if args.steps <= 0:
         parser.error("--steps must be positive")
+    validate_vae_parallel_arguments(parser, args)
     return args
 
 
@@ -88,9 +96,12 @@ def main() -> None:
         ulysses_degree=args.ulysses_degree,
         tensor_parallel_degree=args.tensor_parallel_degree,
         cfg_parallel=args.cfg_parallel,
+        parallel_vae=args.parallel_vae,
+        vae_parallel_halo=args.vae_parallel_halo,
         **static_parallel_pipeline_kwargs(args),
     )
     try:
+        started = generation_timestamp()
         output = pipeline.generate(
             ZImageRequest(
                 prompt=args.prompt,
@@ -103,9 +114,13 @@ def main() -> None:
                 cache=cache,
             )
         )
+        elapsed_s = generation_timestamp() - started
         if pipeline.parallel_context.rank == 0:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             output.images[0].save(args.output)
+            write_generation_metadata(
+                args.output, args=args, pipeline=pipeline, elapsed_s=elapsed_s
+            )
             print(f"Saved EPE static image to {args.output.resolve()}")
             if pipeline.last_cache_stats is not None:
                 print(f"FlexCache stats: {pipeline.last_cache_stats}")

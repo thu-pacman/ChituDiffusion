@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-import time
 from pathlib import Path
 
 import torch
@@ -12,6 +10,10 @@ from chitu_diffusion import WanPipeline, WanRequest
 from chitu_diffusion.commands.cache_args import (
     add_cache_arguments,
     cache_config_from_args,
+)
+from chitu_diffusion.commands.generate.common import (
+    generation_timestamp,
+    write_generation_metadata,
 )
 from chitu_diffusion.commands.parallel_args import (
     add_parallel_transport_arguments,
@@ -72,8 +74,8 @@ def main() -> None:
         flow_shift=args.flow_shift,
         **static_parallel_pipeline_kwargs(args),
     )
-    started = time.perf_counter()
     try:
+        started = generation_timestamp()
         result = pipeline.generate(
             WanRequest(
                 prompt=args.prompt,
@@ -88,36 +90,14 @@ def main() -> None:
                 cache=cache,
             )
         )
-        elapsed_s = time.perf_counter() - started
+        elapsed_s = generation_timestamp() - started
         if pipeline.parallel_context.rank == 0:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             export_to_video(result.frames[0], str(args.output), fps=16)
-            args.output.with_suffix(".json").write_text(
-                json.dumps(
-                    {
-                        "implementation": "epe",
-                        "world_size": pipeline.parallel_context.world_size,
-                        "steps": args.steps,
-                        "frames": args.frames,
-                        "cfg_parallel": args.cfg_parallel,
-                        "attention_mode": args.attention_mode,
-                        "ulysses_degree": args.ulysses_degree,
-                        "tensor_parallel_degree": args.tensor_parallel_degree,
-                        "ulysses_transport": args.ulysses_transport,
-                        "agkv_transport": args.agkv_transport,
-                        "parallel_vae": args.parallel_vae,
-                        "vae_parallel_halo": args.vae_parallel_halo,
-                        "elapsed_s": elapsed_s,
-                        "seed": args.seed,
-                        "cache": pipeline.last_cache_stats,
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
+            write_generation_metadata(
+                args.output, args=args, pipeline=pipeline, elapsed_s=elapsed_s
             )
             print(f"Saved Wan EPE output to {args.output.resolve()}")
-            print(f"elapsed_s={elapsed_s:.3f}")
     finally:
         pipeline.close()
 

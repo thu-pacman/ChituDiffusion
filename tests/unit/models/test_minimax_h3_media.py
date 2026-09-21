@@ -83,7 +83,22 @@ def test_video_vae_fails_closed_without_release_interfaces() -> None:
         MiniMaxH3VideoVAE(nn.Identity(), [0.0] * 24, [1.0] * 24)
 
 
-def test_video_vae_enables_tiling_for_full_temporal_clip() -> None:
+def test_video_vae_restores_release_state_when_autocast_preparation_fails(monkeypatch):
+    model = _FakeVideoModel()
+    model.decoder_tiling = True
+    wrapper = MiniMaxH3VideoVAE(model, [0.0] * 24, [1.0] * 24)
+    monkeypatch.setattr(wrapper, "_device", lambda: torch.device("cuda", 0))
+
+    def fail_prepare():
+        raise RuntimeError("injected prepare failure")
+
+    monkeypatch.setattr(wrapper, "_prepare_cuda_autocast", fail_prepare)
+    with pytest.raises(RuntimeError, match="injected prepare failure"):
+        wrapper._decode_raw(torch.zeros(1, 24, 7, 2, 2))
+    assert model.decoder_tiling is True
+
+
+def test_video_vae_preserves_full_image_semantics_for_full_temporal_clip() -> None:
     model = _FakeVideoModel()
     wrapper = MiniMaxH3VideoVAE(
         model,
@@ -92,7 +107,7 @@ def test_video_vae_enables_tiling_for_full_temporal_clip() -> None:
         require_tiled_decoder=True,
     )
     wrapper.decode(torch.zeros(1, 24, 7, 2, 2))
-    assert model.seen_tiling is True
+    assert model.seen_tiling is False
     assert model.decoder_tiling is False
 
 
@@ -122,7 +137,7 @@ def test_video_vae_parallel_path_disables_nested_spatial_tiling() -> None:
     assert model.decoder_tiling is False
 
 
-def test_video_vae_parallel_disabled_uses_release_decode() -> None:
+def test_video_vae_parallel_disabled_uses_full_image_decode() -> None:
     model = _FakeVideoModel()
     wrapper = MiniMaxH3VideoVAE(
         model,
@@ -144,7 +159,7 @@ def test_video_vae_parallel_disabled_uses_release_decode() -> None:
     )
 
     assert output is not None
-    assert model.seen_tiling is True
+    assert model.seen_tiling is False
     assert model.decoder_tiling is False
 
 

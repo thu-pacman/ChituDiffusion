@@ -104,6 +104,24 @@ def test_parallel_context_selects_the_callers_plane_local_lane() -> None:
         context.close()
 
 
+def test_parallel_context_uses_default_ulysses_degree_when_unset(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("WORLD_SIZE", "1")
+    monkeypatch.setenv("RANK", "0")
+    monkeypatch.setenv("LOCAL_RANK", "0")
+
+    context = EpeParallelContext.from_torchrun(
+        allowed_widths=(1,),
+        ulysses_degree=None,
+    )
+    try:
+        assert context.world_size == 1
+        assert context.allowed_widths == (1,)
+    finally:
+        context.close()
+
+
 def test_stage_config_validates_cp_times_tp_against_gpu_count() -> None:
     config = StageServiceConfig.from_mapping(
         {

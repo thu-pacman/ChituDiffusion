@@ -10,6 +10,7 @@ class ImageGenerateRequest(BaseModel):
 
     request_id: str | None = None
     prompt: str = Field(min_length=1)
+    generation_mode: Literal["text"] = "text"
     negative_prompt: str | None = None
     width: int | None = None
     height: int | None = None

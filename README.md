@@ -8,7 +8,7 @@
   <b>中文</b> &nbsp;·&nbsp; <a href="#english-version">English</a>
 </p>
 
-<h3 align="center">支持 EPE、Fast CP、NCCL CP 与 FlexCache 的 Diffusers 推理运行时</h3>
+<h3 align="center">支持 混合并行、弹性序列并行 与 SOTA特征缓存策略的 DiT 推理运行时</h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12--3.13-blue?logo=python" alt="Python">
@@ -47,7 +47,8 @@ NVSHMEM 和目标架构扩展的兼容单机环境优化通信路径。
 ### <a href="docs/features/flexcache.md">FlexCache：Cache 加速 API 和评测</a>
 
 提供 MagCache、MeanCache、TeaCache、TaylorSeer 与 PAB 的统一 API，可叠加单卡或
-静态 CP。查看 <a href="docs/features/flexcache.md#优化结果">速度与质量评测</a>。
+静态 CP；另提供单卡 FreeCache Preview，支持任意整数 Fresh 预算。
+查看 <a href="docs/features/flexcache.md#优化结果">速度与质量评测</a>。
 
 </td>
 <td width="50%" valign="top">
@@ -68,44 +69,67 @@ DiT 执行与 tensor 布局。
 <tr>
 <th>模型</th>
 <th>生成能力</th>
-<th>并行与服务能力</th>
+<th>Hybrid Parallelism</th>
+<th>EPE Serve</th>
+<th>FlexCache</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><a href="chitu_diffusion/models/flux1/README.md">FLUX.1</a></td>
 <td>文生图</td>
-<td>NCCL/Fast CP、EPE executor、FlexCache model spec</td>
+<td>✅ CP（NCCL / Fast CP）</td>
+<td>✅</td>
+<td>✅</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/flux2_klein/README.md">FLUX.2-klein</a></td>
 <td>文生图</td>
-<td>固定 full-world 静态 CP</td>
+<td>✅ CP（固定 full-world 静态并行）</td>
+<td>❌</td>
+<td>❌</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/hunyuan_image3/README.md">Hunyuan Image 3</a></td>
 <td>固定尺寸文生图与图生图基础服务链路</td>
-<td>可配置 TP×CFG×CP×EP decoder（72 GiB 参考配置 TP2×CFG2×CP2×EP2）、NCCL/Fast AGKV/Fast Ulysses、EPE static CP、变长 expert dispatch、独立 VAEP</td>
+<td>✅ TP × CFG × CP × EP、独立 VAEP<br>CP：NCCL / Fast AGKV / Fast Ulysses</td>
+<td>✅ 仅 <code>static_cp</code></td>
+<td>❌</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/llada_image/README.md">LLaDA-Image</a></td>
+<td>文生图、VQ 条件生成、单图编辑</td>
+<td>✅ CFG × CP（AGKV / Ulysses）</td>
+<td>✅ 文生图</td>
+<td>❌</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/minimax_h3/README.md">MiniMax-H3</a></td>
 <td>T2VA、first/last-frame FL2VA 基础服务链路</td>
-<td>TP×CP DiT、EPE、Fast Ulysses/NCCL CP、独立 VAEP、音视频解码与 MP4 输出</td>
+<td>✅ TP × CP、独立 VAEP<br>CP：NCCL / Fast AGKV / Fast Ulysses</td>
+<td>✅</td>
+<td>❌</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/qwen_image/README.md">Qwen-Image</a></td>
 <td>文生图</td>
-<td>NCCL/Fast CP、EPE executor</td>
+<td>✅ CFG × CP（NCCL / Fast CP）</td>
+<td>✅</td>
+<td>✅</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/wan/README.md">Wan 2.1 T2V</a></td>
 <td>文生视频</td>
-<td>NCCL/Fast CP、EPE executor、FlexCache profiles</td>
+<td>✅ TP × CFG × CP（NCCL / Fast CP）</td>
+<td>✅</td>
+<td>✅</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/zimage/README.md">Z-Image</a></td>
 <td>文生图</td>
-<td>NCCL/Fast CP、统一 EPE 服务入口、FlexCache integration</td>
+<td>✅ TP × CFG × CP（NCCL / Fast CP）</td>
+<td>✅</td>
+<td>✅</td>
 </tr>
 </tbody>
 </table>
@@ -172,6 +196,13 @@ chitu generate \
 缓存支持与模型、步数和 profile 绑定。不支持的组合会在运行前报错。原理、支持范围和
 测试结果见 [FlexCache 文档](docs/features/flexcache.md)。
 
+FreeCache Preview 支持 Z-Image、Qwen-Image 和 FLUX.1-dev 的单卡 50-step 生成，
+Fresh 预算可选 1–50，建议从 25 开始。见 [使用说明](docs/usage/freecache-v2.md)。
+
+八个已支持模型的图像/视频解码共用静态逐层 VAEP：卷积 halo、全局归一化、
+AGKV，以及模型特定的位置编码和时序适配。见 [VAEP 架构](docs/features/vae-parallel.md)
+与 [验证范围](docs/validation/vae-parallel.md)。
+
 ## EPE 服务
 
 ```bash
@@ -212,7 +243,7 @@ mkdocs build --strict
   <a href="#chitudiffusion">中文</a> &nbsp;·&nbsp; <b>English</b>
 </p>
 
-<h3 align="center">Diffusers inference with EPE, Fast CP, NCCL CP, and FlexCache</h3>
+<h3 align="center">DiT inference with hybrid parallelism, elastic sequence parallelism, and SOTA feature caching strategies</h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12--3.13-blue?logo=python" alt="Python">
@@ -254,7 +285,8 @@ with one executor lifecycle for queues, state migration, and workers.
 ### <a href="docs/features/flexcache.md">FlexCache: Cache APIs and evaluation</a>
 
 One API for MagCache, MeanCache, TeaCache, TaylorSeer, and PAB, composable with
-single-GPU or static CP generation. See the
+single-GPU or static CP generation. FreeCache Preview adds single-GPU generation
+with any integer Fresh budget. See the
 <a href="docs/features/flexcache.md#优化结果">speed and quality evaluations</a>.
 
 </td>
@@ -276,44 +308,67 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <tr>
 <th>Model</th>
 <th>Generation</th>
-<th>Parallelism and serving</th>
+<th>Hybrid Parallelism</th>
+<th>EPE Serve</th>
+<th>FlexCache</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><a href="chitu_diffusion/models/flux1/README.md">FLUX.1</a></td>
 <td>Text to image</td>
-<td>NCCL/Fast CP, EPE executor, and FlexCache model spec</td>
+<td>✅ CP (NCCL / Fast CP)</td>
+<td>✅</td>
+<td>✅</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/flux2_klein/README.md">FLUX.2-klein</a></td>
 <td>Text to image</td>
-<td>Fixed full-world static CP</td>
+<td>✅ CP (fixed full-world static parallelism)</td>
+<td>❌</td>
+<td>❌</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/hunyuan_image3/README.md">Hunyuan Image 3</a></td>
 <td>Foundational fixed-size text-to-image and image-to-image service path</td>
-<td>Configurable TP×CFG×CP×EP decoder (72 GiB reference: TP2×CFG2×CP2×EP2), NCCL/Fast AGKV/Fast Ulysses, EPE static CP, variable-length expert dispatch, and independent VAEP</td>
+<td>✅ TP × CFG × CP × EP, independent VAEP<br>CP: NCCL / Fast AGKV / Fast Ulysses</td>
+<td>✅ <code>static_cp</code> only</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><a href="chitu_diffusion/models/llada_image/README.md">LLaDA-Image</a></td>
+<td>Text to image, VQ-conditioned generation, and single-image editing</td>
+<td>✅ CFG × CP (AGKV / Ulysses)</td>
+<td>✅ Text to image</td>
+<td>❌</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/minimax_h3/README.md">MiniMax-H3</a></td>
 <td>Foundational T2VA and first/last-frame FL2VA service path</td>
-<td>TP×CP DiT, EPE, Fast Ulysses/NCCL CP, independent VAEP, audio/video decode, and MP4 output</td>
+<td>✅ TP × CP, independent VAEP<br>CP: NCCL / Fast AGKV / Fast Ulysses</td>
+<td>✅</td>
+<td>❌</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/qwen_image/README.md">Qwen-Image</a></td>
 <td>Text to image</td>
-<td>NCCL/Fast CP and EPE executor</td>
+<td>✅ CFG × CP (NCCL / Fast CP)</td>
+<td>✅</td>
+<td>✅</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/wan/README.md">Wan 2.1 T2V</a></td>
 <td>Text to video</td>
-<td>NCCL/Fast CP, EPE executor, and FlexCache profiles</td>
+<td>✅ TP × CFG × CP (NCCL / Fast CP)</td>
+<td>✅</td>
+<td>✅</td>
 </tr>
 <tr>
 <td><a href="chitu_diffusion/models/zimage/README.md">Z-Image</a></td>
 <td>Text to image</td>
-<td>NCCL/Fast CP, unified EPE serving, and FlexCache integration</td>
+<td>✅ TP × CFG × CP (NCCL / Fast CP)</td>
+<td>✅</td>
+<td>✅</td>
 </tr>
 </tbody>
 </table>
@@ -383,6 +438,15 @@ Cache support is tied to the model, step count, and profile. Unsupported
 combinations fail before execution. See the
 [FlexCache documentation](docs/features/flexcache.md) for principles, support,
 and measured results.
+
+FreeCache Preview supports single-GPU, 50-step generation for Z-Image, Qwen-Image,
+and FLUX.1-dev with Fresh budgets from 1 to 50. Start with 25; see the
+[usage guide](docs/usage/freecache-v2.md).
+
+All eight supported models share static layer-wise image/video VAEP with
+convolution halos, global normalization, AGKV, and model-specific position/time
+adapters. See the [architecture](docs/features/vae-parallel.md) and
+[validation coverage](docs/validation/vae-parallel.md).
 
 ## EPE serving
 

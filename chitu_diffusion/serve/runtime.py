@@ -112,6 +112,7 @@ class DiffusionServiceRuntime:
         from ..epe.contracts import ExecutorBuildContext, StageWorldSpec
         from ..models.flux1.executor import Flux1ExecutorFactory
         from ..models.hunyuan_image3.executor import HunyuanImage3ExecutorFactory
+        from ..models.llada_image.executor import LLaDAImageExecutorFactory
         from ..models.minimax_h3.executor import MiniMaxH3ExecutorFactory
         from ..models.qwen_image.executor import QwenImageExecutorFactory
         from ..models.wan.executor import WanExecutorFactory
@@ -137,6 +138,8 @@ class DiffusionServiceRuntime:
                 **common,
                 default_num_frames=config.factory_args.num_frames,
             )
+        elif config.factory == "llada-image":
+            factory = LLaDAImageExecutorFactory(**common)
         elif config.factory == "minimax-h3":
             factory = MiniMaxH3ExecutorFactory(
                 model_path=config.factory_args.model_path,

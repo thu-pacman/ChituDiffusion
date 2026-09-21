@@ -21,15 +21,23 @@ fi
 echo "Task $RANK: RANK=$RANK, LOCAL_RANK=$LOCAL_RANK, WORLD_SIZE=$WORLD_SIZE, MASTER_ADDR=$MASTER_ADDR"
 
 cd "$CHITU_PROJECT_ROOT"
-case ":${PYTHONPATH:-}:" in
-    *":$CHITU_PROJECT_ROOT:"*)
-        ;;
-    *)
-        export PYTHONPATH="$CHITU_PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
-        ;;
-esac
 
-# 执行实际的 Python 脚本
-RUNTIME_PYTHON="${CHITU_PYTHON_BIN:-python}"
+# Prefer the repository environment and isolate it from notebook/login Python
+# paths. Extra source trees remain available through an explicit opt-in.
+if [ -n "${CHITU_PYTHON_BIN:-}" ]; then
+    RUNTIME_PYTHON="$CHITU_PYTHON_BIN"
+elif [ -x "$CHITU_PROJECT_ROOT/.venv/bin/python" ]; then
+    RUNTIME_PYTHON="$CHITU_PROJECT_ROOT/.venv/bin/python"
+else
+    RUNTIME_PYTHON="python"
+fi
+if [[ "$RUNTIME_PYTHON" == "$CHITU_PROJECT_ROOT/.venv/bin/python" ]]; then
+    export PYTHONPATH="$CHITU_PROJECT_ROOT${CHITU_EXTRA_PYTHONPATH:+:$CHITU_EXTRA_PYTHONPATH}"
+else
+    case ":${PYTHONPATH:-}:" in
+        *":$CHITU_PROJECT_ROOT:"*) ;;
+        *) export PYTHONPATH="$CHITU_PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}" ;;
+    esac
+fi
 echo "Task $RANK: using python=$RUNTIME_PYTHON"
 exec "$RUNTIME_PYTHON" "$@"

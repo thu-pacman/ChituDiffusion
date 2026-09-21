@@ -41,6 +41,7 @@ export TORCH_NCCL_LOG_CPP_STACK_ON_UNCLEAN_SHUTDOWN=${TORCH_NCCL_LOG_CPP_STACK_O
 
 echo "Running with $NODES nodes, $NUM_GPUS GPUs per node"
 echo "Partition: $PARTITION"
+echo "GPU type: ${SRUN_GPU_TYPE:-<any>}"
 echo "Job name: $JOB_NAME"
 echo "MASTER_PORT: $MASTER_PORT"
 echo "Extra srun args: ${SRUN_EXTRA_ARGS:-<none>}"
@@ -56,6 +57,6 @@ srun -p "$PARTITION" \
      --ntasks-per-node $NUM_GPUS \
      --cpus-per-task $CPUS_PER_GPU \
      --mem $NUM_MEMS \
-     --gres=gpu:$NUM_GPUS \
+     --gres="gpu:${SRUN_GPU_TYPE:+$SRUN_GPU_TYPE:}$NUM_GPUS" \
      --export=ALL \
      bash $SCRIPT_DIR/srun_wrapper.sh $SCRIPT "${SCRIPT_ARGS[@]}"

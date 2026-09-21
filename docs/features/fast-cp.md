@@ -100,7 +100,7 @@ Qwen-Image 的图文分片 processor 还将配对 QK norm、RoPE 和 joint QKV �
 `2.520/1.434/0.963 ms`，比同轮最快 SGLang 路径低 `3.8%/4.2%/7.5%`。Fast Ulysses
 为 `2.756/1.612/1.032 ms`，CP2/4 仍有差距。prepared AGKV 由 block benchmark
 显式安装，目前不由完整生成 pipeline 自动启用；首次调优时间不计入稳态延迟，
-额外候选 buffer 随 runtime 关闭而释放。完整测量口径见[基准结果](../../tools/benchmarks/fast_cp_frameworks/RESULTS.md)。
+额外候选 buffer 随 runtime 关闭而释放。完整测量口径见[基准结果](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/tools/benchmarks/fast_cp_frameworks/RESULTS.md)。
 
 2026-09-21的独立直写消融进一步去除了prepared Qwen packed AGKV的两次本地K/V
 staging copy。H20、image 4096/8192/16384加text 512的测试中，CP2 block延迟降低
@@ -127,7 +127,7 @@ staging 槽位和独立输出；固定地址入口为 `bound=block.bind(inputs=.
 `1×75600×40×128` 以及 Qwen/ZImage 的实际 attention shape；24 组 CP2/4/8
 AGKV/Ulysses 检查全部通过。绑定入口相对同一 prepared 实例直接调用的延迟变化为
 −0.13%～+0.94%。
-详细 API、资源约束与测试命令见[Fast CP README](../../chitu_diffusion/parallel/cp/fast/README.md)。
+详细 API、资源约束与测试命令见[Fast CP README](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/chitu_diffusion/parallel/cp/fast/README.md)。
 
 代码按职责分为 `runtime/`、`attention/`、`projection/`、`adapters/`、`profiles/`，
 公共入口为 `fast/__init__.py` 和 `api.py`。每个模型的契约及执行模板集中在同一个
