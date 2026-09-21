@@ -2,6 +2,56 @@
 
 按时间倒序记录。即使候选被拒绝，也要留下原因，避免重复调查。
 
+## 2026-09-18：Fast CP 原生 baseline 补全
+
+- 完成 H20、BF16、H40/D128、S=4096/8192/16384/32768、CP1/2/4/8 的
+  96-cell QKV-to-O sweep。每个序列长度的 CP1/2/4/8 固定在同一节点，全部通过
+  dense reference；正式表位于 `outputs/fast-cp/e2e-native-sweep/results.md`。
+- CP8 Fast Ulysses 在四个序列上的 scaling 为
+  3.75x/5.56x/6.78x/7.51x；SGLang Ulysses 为
+  3.54x/5.22x/6.54x/7.36x，xDiT Ulysses 为
+  2.82x/4.89x/6.35x/7.22x。各框架均使用自己的 CP1 和原生自动 attention
+  backend，跨框架绝对延迟不用于 speedup。
+- 完成 Wan 1.3B、Wan 14B、Qwen-Image、Z-Image 的 xDiT 与 SGLang 原生模型
+  attention sweep。xDiT 为 15 complete + 1 unsupported，SGLang 为
+  25 complete + 3 unsupported；所有 complete cell 均通过 correctness。
+  unsupported 来自原生 Ulysses head divisibility 约束。
+- 产物：`outputs/fast-cp/model-native-summary.md` 为 96-cell 模型表；
+  `outputs/fast-cp/figures/workload-radar/native-latency-workload-radar-all.png`
+  为 4 个序列长度加 4 个模型、七种方法的 CP2/4/8 latency 图。半径为同一
+  CP/workload 下的最低延迟除以该方法延迟；CSV 同时保存原始毫秒数。原生
+  unsupported 配置在图中留空，并在 CSV 中记录状态。
+
+## 2026-09-17：Fast CP benchmark 重置与上游框架基线
+
+- 基线回到 Fast CP 初始实现所在提交 `d4d3a95469017973ca76f242748588adb819ca78`。
+  此后未提交的 planner、overlap、breakdown 和 baseline 实验已保存为
+  `stash@{0}`（`codex: archive post-fast-cp experiments before baseline rebuild
+  2026-09-17`），旧结果移到 `outputs/fast-cp-archive-20260917/`，没有删除。
+- 新基准第一阶段统一为：预投影、按 sequence 切分的本地 Q/K/V，经 CP 通信和
+  cuDNN dense non-causal BF16 attention，输出本地 O。关闭 CUDA Graph；每个样本
+  使用 CUDA event，并取所有 rank 最大值。QKV projection、norm、RoPE、fused
+  epilogue 和 graph 留到第二阶段，不能与本表混合。
+- 固定 xDiT main `5ede5851a2f950403cdd95b970cd9fc48eb50d87` 与 SGLang main
+  `44bd35908230c4f363c83dbe34fe25749d985950`。源码放在
+  `refs/fast-cp-frameworks/`，独立环境放在 `.venv-fast-cp-frameworks/`；两者均为
+  Python 3.12、Torch 2.13.0+cu130、cuDNN 9.20。SGLang 构建关闭本基准不使用的
+  Rust 服务扩展，其 diffusion、JIT、IPC/NCCL 和 attention 依赖保持上游声明。
+- 新增统一 JSON schema、固定版本环境脚本、Slurm launcher 和 Markdown 汇总器。
+  汇总器拒绝混合 boundary、shape 或 GPU；speedup 只使用相同框架、软件版本、
+  序列长度的 CP1。Chitu 当前环境为 Torch 2.9.1+cu130、cuDNN 9.13，跨框架绝对
+  延迟必须同时披露该差异；原生实现表保留各 repo 的依赖栈，统一 backend
+  仅作为单独的受控对照。
+- H20 smoke correctness：B1、S512、H12、D128，CP1/CP2；xDiT Ulysses、SGLang
+  Ulysses、SGLang K/V gather、Chitu NCCL AGKV、Fast AGKV 和 Fast Ulysses 全部
+  相对全量 K/V cuDNN 参考 `max_abs=0`。实际通信分别记录为 xDiT NCCL
+  all-to-all、SGLang CUDA IPC input + NCCL output、SGLang NCCL gather，以及
+  Chitu NVSHMEM/NCCL。每项只有 1 warmup、2 samples，仅验证环境、API、路径和
+  结果格式，不作为性能数据。
+- 决策：正式 H20 H40/D128、S=4096/8192/16384、CP1/2/4/8 测量忠实保留
+  三个 repo 的原生通信、attention backend 和软件环境；所有结果记录完整版本，
+  不把依赖差异误归因于 CP 算法。
+
 ## 2026-07-21：按模型 Kernel Recipe 与默认策略
 
 - 新增 `kernels/recipes.md`，集中记录 Flux1、Flux2、Qwen-Image、Z-Image 和
@@ -556,6 +606,177 @@ SpargeAttention 和 PyTorch SDPA，但 FlashAttention 3 的导入分支被注释
   subgroup build。
 - 决策：**作为 Ulysses 内部 capability-gated auto transport 采用**，但
   NVSHMEM 保持可选依赖。后续评估 async grouped handshake；当前不采用 CE 路径。
+
+### 2026-09-17：Fast CP 原生框架基线与 Wan14B scaling
+
+- 上游：Chitu `d4d3a954`、xDiT `5ede5851`、SGLang Diffusion `44bd3590`。
+- 目标：H20，BF16，H40/D128，S=4096/8192/16384；同一节点分别保留三个
+  repo 的原生通信、attention backend、布局与同步语义。
+- correctness：所有 QKV-to-O 和 Wan attention 端到端 cell 均通过同输入的
+  dense reference；Wan 使用全局位置 RoPE，参数和输入为确定性随机张量。
+- QKV-to-O：CP8 Fast Ulysses 在 S=4096/8192/16384 为
+  0.640/1.751/5.747 ms，相对 Chitu NCCL Ulysses 快 10.4%/13.0%/2.8%；
+  Fast AGKV 与 NCCL AGKV 差异不超过 0.4%。S=4096 trace 显示三次输入 TMA、
+  attention 和一次输出 TMA 在同一 stream 串行执行，没有计算通信 overlap。
+- QKV-to-O CP sweep：H40/S4096 的 CP2/CP4 在 node040，Fast Ulysses 为
+  1.547/0.952 ms，相对同模式 NCCL 快 12.8%/9.7%；结合 node021 的 CP8
+  0.640 ms，同 CP 内快 9.5%。xDiT Ulysses CP2/4/8 为
+  1.995/1.229/0.978 ms，SGLang Ulysses 为 1.836/1.110/0.781 ms；节点不同，
+  不用这三列计算精确跨 CP scaling。
+- Wan14B：CP1 为 9.623 ms。Fast Ulysses CP2/4/8 为
+  5.244/2.787/1.589 ms，即 1.835x/3.453x/6.055x；相对同 CP 的 NCCL
+  Ulysses 快 4.9%/5.1%/3.5%。保持 CE kernel、只串行化依赖后的 overlap
+  收益为 0.046/0.090/0.028 ms。Fast AGKV CP8 自动关闭 async，1.774 ms，
+  比 NCCL AGKV 的 1.741 ms 慢 1.9%。
+- scaling gap：Fast Ulysses CP2/4/8 相对理想线性时间仍多
+  0.433/0.381/0.386 ms，并行效率为 91.8%/86.3%/75.7%。通信 overlap 为正，
+  但不足以填平约 0.4 ms 的固定残差；下一步拆 projection、RoPE/layout、
+  attention tail、输入交换和输出交换。
+- Wan1.3B：CP1 为 1.578 ms。H12 的短计算路径上，Fast Ulysses CP2/4
+  比 NCCL 慢 14.5%/19.9%，CE async schedule 也没有 overlap 收益；CP8
+  使用原生 head padding 后与 NCCL Ulysses 基本持平。Fast AGKV CP8 为
+  0.621 ms，相比 NCCL AGKV 的 0.950 ms 快 34.6%。
+- joint attention：4096 image + 512 replicated text，Qwen-Image CP1 为
+  5.815 ms，Fast Ulysses CP2/4/8 为 3.398/2.116/1.541 ms；Z-Image CP1
+  为 7.500 ms，Fast Ulysses 为 4.547/3.009/1.957 ms。后者 H30 在 CP4/8
+  使用原生 head padding，CP8 仍比 NCCL Ulysses 快 13.5%。两组均包含
+  projection、QK norm、RoPE、CP attention 和 output projection，并通过
+  dense reference correctness。
+- 产物：`tools/benchmarks/fast_cp_frameworks/README.md` 定义公平性协议，
+  `RESULTS.md` 保存本轮表格和解释，JSON 与 Nsight trace 位于
+  `outputs/fast-cp/`（不纳入版本控制）。
+- 待验证：已补 xDiT 原生 Wan attention fixture 和 launcher，静态检查通过；
+  debug 分区在完成上述矩阵后最早 21:47 才有资源，尚未发布其 GPU 数字。
+
+## 2026-09-18：Fast CP 原生模型前端与框架基线
+
+- **Wan shape 更正：**此前模型图将通用 CP attention 的 S=4096 误用为 Wan
+  模型长度，因此其中 Wan 模型点及相关结论作废。正式负载为 Wan 1.3B
+  `B1/S32760/H12/D128`、Wan 14B `B1/S75600/H40/D128`。已用三个仓库的原生
+  路径重跑 48 个终态 cell；有效 Wan 1.3B 结果均在 node035，Wan 14B 均在
+  node021。每个 cell 使用 3 次 warmup、3 组各 10 次 rank-max CUDA-event 样本，
+  所有 complete cell 均通过 dense reference。
+- 更正后的 Chitu CP1 为 53.472/951.568 ms。Fast AGKV CP2/4/8：Wan 1.3B
+  为 26.444/13.332/7.276 ms（2.02x/4.01x/7.35x），Wan 14B 为
+  474.149/237.980/119.371 ms（2.01x/4.00x/7.97x）。CP8 时，Wan 1.3B
+  的 SGLang KV gather 为 7.217 ms，比 Fast AGKV 快 0.8%；Wan 14B 的
+  Fast AGKV 为六条已实现路径中最快。H12 不能整除 CP8，Fast Ulysses 需要
+  pad 到 H16，故 Wan 1.3B CP8 为 9.242 ms。
+- 真实长度暴露出 Fast Ulysses symmetric heap 的旧估算只覆盖四份 tensor，
+  Wan 14B CP2 会 OOM。串行路径实际同时保留重排后的 Q/K/V 和输出交换缓冲区；
+  默认估算已按十份 tensor 加 64 MiB 余量并对齐到 64 MiB，相关大 shape 单测通过。
+- 更正后的原始报告位于 `outputs/fast-cp/wan-real-shape-20260918/`，雷达图位于
+  `outputs/fast-cp/figures/native-latency-real-shapes-20260918/`。通用 attention
+  的 S=4096/8192/16384/32768 矩阵仍有效，但只表示共享 CP attention 算子，
+  不再作为 Wan 模型负载。
+- 目标：在 H20 上用三个仓库各自的原生实现比较通信、attention 和完整模型
+  attention block；负载为 Wan 1.3B S32760、Wan 14B S75600、Qwen-Image 和
+  Z-Image，统一使用 BF16、Qwen/Z 的 4096 image + 512 text tokens，以及
+  CP2/4/8。
+- Chitu 实现：Fast Ulysses 保持串行，按实际 shape 测量 SM/TMA/CE，接近时优先
+  不占 SM 的 TMA；Fast AGKV 使用 NVSHMEM direct-slot K/V，并将 CE all-gather 与
+  Q 或 text projection 重叠；两者使用通用 KV-split attention planner。Qwen/Z
+  前端合并 QKV GEMM，并融合每头 RMSNorm 与 RoPE。
+- 公平性修正：Qwen 的 image 和 text sequence 都按 CP 分片，与 SGLang fixture
+  一致。Z-Image 保留原生 replicated-text 语义。所有单元从 attention 输入计时到
+  output projection，不加载 checkpoint 权重，并逐项通过 dense reference。
+- Qwen/Z 的早期 CP8 结果后来都由同模型的正式生产布局重跑覆盖；Wan 的早期
+  S4096 数字已按本节开头的 shape 更正作废。下文只保留仍有效的 Qwen/Z
+  传输对照和正式结果。
+- Qwen CP2 强制路径：TMA 2.774 ms、CE 2.781 ms、SM 2.781 ms。最终 auto 在
+  node040 选择两次 TMA，端到端 2.776 ms；输入搬运 TMA/CE/SM 为
+  0.061/0.068/0.072 ms，输出为 0.065/0.074/0.069 ms。
+- 三框架 CP8 原生结果中，真实 Wan 14B Fast AGKV 为 119.371 ms，SGLang
+  Ulysses 为 120.537 ms，xDiT Ulysses 为 123.069 ms，三者都来自 node021。
+  Qwen Fast Ulysses 1.149 ms、SGLang KV gather 1.047 ms；Z-Image xDiT
+  Ulysses 1.554 ms。Qwen/Z 的 SGLang/xDiT 数字来自其它 H20 节点，只用于实现
+  前沿比较，不报告精确跨节点 speedup。
+- Z-Image 的上述 xDiT 点并非相同分片语义：xDiT 将 4096 image + 512 text
+  统一按 CP 切分，CP8 每卡处理 576 query tokens；Chitu/SGLang 每卡处理 512
+  image + 512 replicated text，共 1024 tokens。xDiT 的优势包含减少重复 text
+  projection、query attention 和 output projection，不能归因于 NCCL all-to-all。
+- Z-Image 后续将 context refiner 输出的 512 caption tokens 一次性按 CP 分片，
+  主 transformer 内保持 `[local image, local caption]`，并让 AGKV/Ulysses
+  同时覆盖两类 token。node021 同一作业的 CP2/4/8 Fast AGKV 为
+  3.378/1.933/1.227 ms，Fast Ulysses 为 3.719/2.199/1.242 ms；CP8 相对各自
+  NCCL 快 6.3%/25.7%，相对 CP1 7.016 ms 达到 5.72x/5.65x。13 个 cell 均通过
+  dense reference，最大绝对误差为 2.44e-4。该修正后 Fast CP 已快于此前
+  xDiT Z-Image CP8 的 1.554 ms；SGLang fixture 仍重复 caption，跨框架图中单独标注。
+- 生产路径同步采用上述布局：Qwen-Image 在 `txt_in` 后、Z-Image 在 context
+  refiner 后将 text/caption 一次性按 active lane 分片，后续 transformer blocks
+  保持本地 image/text shard，不能整除 lane width 时自动回退 replicated text。
+  Wan、Qwen-Image、Z-Image 在 active transport 为 `fast_agkv` 或
+  `fast_ulysses` 时自动启用 KV-split planner，NCCL 仍使用标准 SDPA。
+- 三个模型改为每个 transformer block 持有独立 CP processor，避免多层共用一个
+  prepared-attention 槽而使后续层失去 CUDA Graph replay。Qwen/Z 的 packed QKV
+  权重也按 attention module 缓存，并在参数 storage、版本、device 或 dtype 改变时
+  失效，避免每层、每步重复拼接权重。
+- 复现：`tools/benchmarks/fast_cp_frameworks/run_chitu_native_model_sweep.sh` 采集
+  Chitu 原生矩阵；`tools/plotting/fast_cp_workload_radar.py` 使用 raw millisecond
+  对数半径生成 CP2/4/8 雷达图。完整命令和结果表见同目录 `RESULTS.md`。
+- 架构：当前扩展的所有 CUDA image 均包含 `sm_90` 和 `sm_120` cubin；H20
+  实机探针通过。PRO 5000 本轮没有可用节点，SM120 只完成构建产物检查，运行时
+  correctness 和性能尚未复测。
+- 共享 CP attention 正式矩阵：固定 B1/H40/D128/BF16、dense noncausal，覆盖
+  S=4096/8192/16384/32768、CP2/4/8，以及 Fast AGKV、Fast Ulysses、xDiT
+  Ulysses、xDiT USP、SGLang AGKV 和 SGLang Ulysses，共 84 个 cell。全部在
+  node035 采集，采用 5 次 warmup、75 次 rank-max CUDA event，均通过 dense
+  reference（最大绝对误差 9.77e-4）。Fast 路径在 12 个 S/CP 组合中均快于外部
+  最优路径；优势从 S32768/CP2 的 1.009x 到 S4096/CP8 的 1.454x。xDiT USP
+  采用 U=2、R=CP/2；CP2 退化为 Ulysses，CP4/8 的 ring 阶段在本机 dense
+  attention 中没有收益。完整表和复现说明见
+  `outputs/fast-cp/cp-attention-native-20260918/RESULTS.md`。
+- Qwen-Image 生产布局在 node021 重跑：CP1 为 5.308 ms；Fast AGKV
+  CP2/4/8 为 2.675/1.544/1.021 ms，相对同作业 NCCL AGKV 快
+  10.8%/14.0%/23.4%；Fast Ulysses 为 2.963/1.729/1.149 ms，相对 NCCL
+  Ulysses 快 5.6%/3.7%/12.4%。Fast AGKV 使用 CE all-gather 与 Q/text
+  projection overlap；Fast Ulysses 自动选择 TMA。全部 13 个 cell 的最大绝对
+  误差为 2.44e-4，结果见
+  `outputs/fast-cp/optimized-qwen-production-20260918/summary.md`。
+- 上述正式重跑发现 packed QKV 缓存在 `torch.inference_mode()` 创建的参数上读取
+  `_version` 会抛错。缓存签名现兼容无 version counter 的 inference tensor，同时
+  保留普通参数原地更新的失效检测；新增回归测试覆盖 Qwen/Z 两条路径。
+- Qwen-Image 跨框架同节点更正：Chitu 与 SGLang 全部在 node020、B1、4096 image
+  + 512 text、H24/D128 上重跑。CP2/4/8 Fast AGKV 为
+  2.685/1.553/1.021 ms，SGLang KV gather 为 2.625/1.499/1.045 ms；Fast AGKV
+  在 CP2/4 慢 2.3%/3.6%，CP8 快 2.3%。Fast Ulysses 为
+  2.980/1.735/1.257 ms，SGLang Ulysses 为 2.630/1.495/1.107 ms。此前雷达中
+  SGLang Ulysses CP4 并未缺测，其 1.495 ms 与 KV gather 1.499 ms 几乎重合。
+- 同形状 QKV-to-O 核心在 node021 单独测量后排名反转：CP2/4/8 Fast AGKV
+  1.143/0.698/0.490 ms，SGLang KV gather 1.232/0.751/0.624 ms；Fast Ulysses
+  1.186/0.692/0.430 ms，SGLang Ulysses 1.406/0.820/0.694 ms。CP4 attention
+  Chitu 为 0.533/0.545 ms，SGLang 为 0.557/0.560 ms；AGKV 通信为
+  0.171/0.210 ms。因此模型差距来自 Qwen 前后处理与 layout：SGLang 使用成对
+  fused QK RMSNorm+RoPE，并在 Ulysses 输入侧直接把 text/image segments 变换为
+  Ulysses layout；Chitu 当前分别执行四个 Q/K epilogue，并在通用 Ulysses 前物化
+  三份 joint Q/K/V。下一步应优先复用 fused QK epilogue 和 segmented all-to-all。
+
+
+### 2026-09-18：Qwen QKV epilogue/layout 融合与 AGKV 调度复测
+
+- 问题：共享 CP attention 的优势被 Qwen 前后处理与固定 overlap 调度抵消。对照冻结
+  本轮修改前源码，在同一独占 H20 node020 上进行初测与独立复测（245196/245203）。
+  shape 为 B1、4096 image+512 text、H24/D128、BF16；边界是 attention block。
+- 实现：每种模态用一个 Triton kernel 同时完成 Q/K RMSNorm、RoPE、V 拷贝和 joint
+  Q/K/V 布局写入。通用 Qwen processor 直接传入 joint QKV，跳过重复连续化/拼接；
+  prepared packed AGKV 复用该 kernel。AGKV auto 替换静态 CP2/4 overlap、CP8 packed
+  规则，在准备阶段实测完整 block 并统一所有 rank 的选择，按 runtime 和配置缓存。
+- 独立复测 CP2/4/8：Fast AGKV 从 2.687/1.546/1.024 降至 2.520/1.434/0.963 ms；
+  Fast Ulysses 从 2.984/1.736/1.154 降至 2.756/1.612/1.032 ms。SGLang KV gather 为
+  2.621/1.501/1.041 ms，Ulysses 为 2.630/1.496/1.110 ms。新 AGKV 比最快 SGLang
+  路径低 3.8%/4.2%/7.5%，三种 CP 均选 packed；Fast Ulysses 的输入和输出都选 TMA。
+- 机制与限制：packed 将六次 Q/K/V GEMM 合为两次，再进行一次 joint gather；本 shape
+  下它比强制 overlap 更快。未把 GEMM、epilogue、同步的贡献分别量化。Ulysses CP2/4
+  仍落后，下一候选是 packed/segmented QKV 输入交换，不能称已到优化上限。
+- correctness：27 项 GPU 回归、13 项 dense CP 测试通过，另验证24组数值/Graph replay
+  与跨 rank 调度缓存命中/丢失恢复。block 最大绝对误差2.44e-4。scratch oracle 的
+  空文本 reshape 错误已修复并保留失败日志，未纳入性能结论。
+- 决策：保留融合 kernel 和 prepared schedule auto；不保留 CP degree 静态调度规则。
+  fused epilogue 已进入通用 processor；prepared AGKV 仍需显式安装，并非完整生成
+  pipeline 自动启用。首次候选准备总耗时2.260–3.801 s，额外 symmetric buffer 随
+  runtime 释放；这些初始化时间不计入稳态表。
+- 证据：`outputs/fast-cp/qwen-epilogue-20260918/EXPERIMENT.md`、`confirm/`、
+  `source-digests.json`；当前结果表和雷达图已替换为复测数据，旧数据留在研究记录中。
 
 ## 记录模板
 
