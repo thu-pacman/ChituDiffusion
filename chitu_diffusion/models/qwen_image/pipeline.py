@@ -75,6 +75,7 @@ class EpeQwenImagePipeline(QwenImagePipeline):
             kwargs.pop("ulysses_degree", None),
         )
         cfg_parallel = bool(kwargs.pop("cfg_parallel", True))
+        shard_text = bool(kwargs.pop("shard_text", True))
         if parallel is None:
             parallel = EpeParallelContext.from_torchrun(
                 allowed_widths=(
@@ -92,6 +93,7 @@ class EpeQwenImagePipeline(QwenImagePipeline):
                 "subfolder": "transformer",
                 "parallel_context": parallel,
                 "attention_mode": attention_mode,
+                "shard_text": shard_text,
             }
             for key in ("torch_dtype", "local_files_only", "variant", "revision"):
                 if key in kwargs:
@@ -103,7 +105,11 @@ class EpeQwenImagePipeline(QwenImagePipeline):
         elif not isinstance(transformer, EpeQwenImageTransformer2DModel):
             raise TypeError("transformer must be an EpeQwenImageTransformer2DModel")
         else:
-            transformer.configure_epe(parallel, attention_mode=attention_mode)
+            transformer.configure_epe(
+                parallel,
+                attention_mode=attention_mode,
+                shard_text=shard_text,
+            )
         pipeline = super().from_pretrained(
             pretrained_model_name_or_path,
             transformer=transformer,

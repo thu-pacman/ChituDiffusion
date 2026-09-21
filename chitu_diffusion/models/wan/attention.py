@@ -28,9 +28,15 @@ def _apply_rotary(
 class WanCpAttnProcessor:
     """Wan self-attention with local queries and lane-gathered K/V."""
 
-    def __init__(self, parallel: EpeParallelContext, *, mode: str = "agkv") -> None:
+    def __init__(
+        self,
+        parallel: EpeParallelContext,
+        *,
+        mode: str = "agkv",
+        planned_attention: bool = False,
+    ) -> None:
         self.parallel = parallel
-        self.attention = ImageSelfAttention(mode=mode)
+        self.attention = ImageSelfAttention(mode=mode, planned=planned_attention)
         self.native = WanAttnProcessor()
 
     def _can_use_fast_async(self, attn) -> bool:

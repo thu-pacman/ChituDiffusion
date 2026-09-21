@@ -4,8 +4,8 @@ import os
 
 import torch
 
-from ..ulysses_transport import AsyncUlyssesHandle, UlyssesTransport
-from ._runtime import FastUlyssesAllToAll
+from ...ulysses_transport import AsyncUlyssesHandle, UlyssesTransport
+from .backend import FastUlyssesAllToAll
 
 
 class FastUlyssesNodeRuntime:
@@ -20,6 +20,14 @@ class FastUlyssesNodeRuntime:
     @property
     def pool_bytes(self) -> int:
         return self._backend.pool_bytes if self._backend is not None else 0
+
+    @property
+    def selected_transfers(self) -> dict[str, str]:
+        return self._backend.selected_transfers if self._backend is not None else {}
+
+    @property
+    def transfer_tuning_ms(self) -> dict[str, dict[str, float]]:
+        return self._backend.transfer_tuning_ms if self._backend is not None else {}
 
     def backend(self, tensor: torch.Tensor) -> FastUlyssesAllToAll:
         if self._closed:
@@ -136,6 +144,14 @@ class FastUlyssesTransport:
     def pool_bytes(self) -> int:
         return self._backend.pool_bytes if self._backend is not None else 0
 
+    @property
+    def selected_transfers(self) -> dict[str, str]:
+        return self._backend.selected_transfers if self._backend is not None else {}
+
+    @property
+    def transfer_tuning_ms(self) -> dict[str, dict[str, float]]:
+        return self._backend.transfer_tuning_ms if self._backend is not None else {}
+
     @staticmethod
     def _pool_bytes_for(tensor: torch.Tensor) -> int:
         configured = os.environ.get("CHITU_FAST_ULYSSES_POOL_BYTES")
@@ -144,7 +160,11 @@ class FastUlyssesTransport:
             if pool_bytes <= 0:
                 raise ValueError("CHITU_FAST_ULYSSES_POOL_BYTES must be positive")
             return pool_bytes
-        required = 4 * tensor.numel() * tensor.element_size() + (16 << 20)
+        # Serial Ulysses keeps the redistributed Q/K/V buffers live until
+        # attention finishes, then needs another symmetric input/output pair
+        # for the result exchange. Reserve headroom for all live allocations;
+        # sizing from only two ping-pong pairs fails on large Wan sequences.
+        required = 10 * tensor.numel() * tensor.element_size() + (64 << 20)
         alignment = 64 << 20
         aligned_required = ((required + alignment - 1) // alignment) * alignment
         return max(2 << 30, aligned_required)

@@ -8,7 +8,7 @@ import torch.distributed as dist
 
 from chitu_diffusion.parallel.cp import resolve_agkv_transport
 from chitu_diffusion.parallel.cp.fast import FastAgkvTransport
-from chitu_diffusion.parallel.cp.fast._runtime import FastUlyssesAllToAll
+from chitu_diffusion.parallel.cp.fast.runtime.backend import FastUlyssesAllToAll
 from chitu_diffusion.parallel.interconnect import InterconnectProfile
 
 
@@ -33,7 +33,7 @@ def test_fast_agkv_alignment_gate_uses_complete_bshd_row(
 
 def _fabric(monkeypatch: pytest.MonkeyPatch, nvlink: bool | None) -> None:
     monkeypatch.setattr(
-        "chitu_diffusion.parallel.cp.fast.agkv_transport.local_interconnect",
+        "chitu_diffusion.parallel.cp.fast.runtime.agkv.local_interconnect",
         lambda: InterconnectProfile(nvlink=nvlink, numa_nodes=(0, 0, 1, 1)),
     )
 

@@ -5,9 +5,9 @@ import os
 import torch
 import torch.distributed as dist
 
-from ...interconnect import local_interconnect
-from ..agkv_transport import AgkvTransport, AsyncAgkvHandle
-from ._runtime import FastUlyssesAllToAll
+from ....interconnect import local_interconnect
+from ...agkv_transport import AgkvTransport, AsyncAgkvHandle
+from .backend import FastUlyssesAllToAll
 
 
 class FastAgkvTransport:

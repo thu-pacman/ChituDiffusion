@@ -6,7 +6,7 @@ import torch
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.transformers.transformer_z_image import ZImageTransformer2DModel
 
-from ...parallel.cp import EpeParallelContext
+from ...parallel.cp import EpeParallelContext, uses_fast_cp_transport
 from .attention import ZImageCpAttnProcessor
 from .epe import ZImageEpeModule
 from .tensor_parallel import load_tensor_parallel_transformer
@@ -37,14 +37,33 @@ class EpeZImageTransformer2DModel(ZImageTransformer2DModel):
     ) -> None:
         if isinstance(epe, EpeParallelContext):
             epe = ZImageEpeModule(epe, **kwargs)
-        processor = ZImageCpAttnProcessor(
-            epe.parallel,
-            mode=epe.attention_mode,
+        planned_attention = (
+            epe.planned_attention
+            if epe.planned_attention is not None
+            else uses_fast_cp_transport(epe.parallel, epe.attention_mode)
         )
-        for block in [*self.noise_refiner, *self.context_refiner, *self.layers]:
+
+        def new_processor() -> ZImageCpAttnProcessor:
+            return ZImageCpAttnProcessor(
+                epe.parallel,
+                mode=epe.attention_mode,
+                planned_attention=planned_attention,
+                sharded_text=epe.shard_caption,
+            )
+
+        noise_processors = tuple(new_processor() for _ in self.noise_refiner)
+        context_processors = tuple(new_processor() for _ in self.context_refiner)
+        layer_processors = tuple(new_processor() for _ in self.layers)
+        for block, processor in zip(
+            [*self.noise_refiner, *self.context_refiner, *self.layers],
+            [*noise_processors, *context_processors, *layer_processors],
+        ):
             block.attention.set_processor(processor)
         self.epe = epe
-        self._epe_attn_processor = processor
+        self._epe_attn_processors = (*noise_processors, *layer_processors)
+        self._epe_attn_processor = (
+            self._epe_attn_processors[0] if self._epe_attn_processors else None
+        )
 
     def _native_forward(self, *args: Any, **kwargs: Any):
         return super().forward(*args, **kwargs)
@@ -126,8 +145,8 @@ class EpeZImageTransformer2DModel(ZImageTransformer2DModel):
         f_patch_size: int,
     ):
         epe = getattr(self, "epe", None)
-        processor = getattr(self, "_epe_attn_processor", None)
-        assert epe is not None and processor is not None
+        processors = getattr(self, "_epe_attn_processors", None)
+        assert epe is not None and processors is not None
         parallel = epe.parallel
         topology = parallel.active
         device = x[0].device
@@ -192,7 +211,17 @@ class EpeZImageTransformer2DModel(ZImageTransformer2DModel):
         image_freqs = image_freqs[:, start:stop].contiguous()
         image_lengths = [local_length]
 
-        processor.enable(local_length)
+        shard_caption = epe.shard_caption and caption_sequence.shape[1] % topology.width == 0
+        if shard_caption:
+            caption_local_length = caption_sequence.shape[1] // topology.width
+            caption_start = topology.rank_in_lane * caption_local_length
+            caption_stop = caption_start + caption_local_length
+            caption_sequence = caption_sequence[:, caption_start:caption_stop].contiguous()
+            caption_freqs = caption_freqs[:, caption_start:caption_stop].contiguous()
+            caption_lengths = [caption_local_length]
+
+        for processor in processors:
+            processor.enable(local_length, sharded_text=shard_caption)
         try:
             for layer in self.noise_refiner:
                 image_sequence = layer(
@@ -234,7 +263,8 @@ class EpeZImageTransformer2DModel(ZImageTransformer2DModel):
                     None,
                 )
         finally:
-            processor.disable()
+            for processor in processors:
+                processor.disable()
 
         projected = self.all_final_layer[f"{patch_size}-{f_patch_size}"](
             unified,

@@ -96,7 +96,7 @@ def _collect_fast_capability(
     require_hopper: bool,
     process_group: object | None,
 ) -> tuple[bool, str]:
-    from .fast._runtime import probe_fast_ulysses
+    from .fast.runtime.backend import probe_fast_ulysses
 
     local = probe_fast_ulysses(
         device,
@@ -158,7 +158,7 @@ def create_ulysses_transport(
     if process_group is None:
         return fallback
 
-    from .fast.ulysses import FastUlyssesTransport
+    from .fast.runtime.ulysses import FastUlyssesTransport
 
     return FastUlyssesTransport(
         process_group,

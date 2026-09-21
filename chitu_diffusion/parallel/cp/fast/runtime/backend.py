@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import socket
+import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -129,6 +130,19 @@ def probe_fast_ulysses(
         return False, "installed fast_ulysses package lacks CFP subgroup support"
     if require_fast_agkv and not hasattr(torch.ops.fast_ulysses, "all_gather_kv_4d"):
         return False, "installed fast_ulysses package lacks the Fast AGKV operator"
+    if not hasattr(torch.ops.fast_ulysses, "fast_cp_device_info"):
+        return False, "installed fast_ulysses package lacks the architecture probe"
+    try:
+        device_info = torch.ops.fast_ulysses.fast_cp_device_info(device_index)
+    except RuntimeError as exc:
+        return False, str(exc)
+    binary_version = int(device_info[1])
+    if binary_version != major * 10 + minor:
+        return (
+            False,
+            f"Fast CP loaded an SM{binary_version} image on SM{major}{minor}; "
+            "rebuild the extension for this GPU",
+        )
     return True, f"SM{major}{minor}, CUDA P2P and fast_ulysses extension available"
 
 
@@ -143,6 +157,17 @@ def _use_tma_from_env() -> bool | None:
     raise ValueError(
         f"CHITU_FAST_ULYSSES_USE_TMA must be auto, 0/non_tma, or 1/tma; got {value!r}"
     )
+
+
+def _ulysses_transfer_from_env() -> str:
+    value = os.environ.get("CHITU_FAST_ULYSSES_TRANSFER", "auto").strip().lower()
+    aliases = {"kernel": "auto", "non_tma": "sm", "non-tma": "sm"}
+    value = aliases.get(value, value)
+    if value not in {"auto", "sm", "tma", "ce"}:
+        raise ValueError(
+            f"CHITU_FAST_ULYSSES_TRANSFER must be auto, sm, tma, or ce; got {value!r}"
+        )
+    return value
 
 
 class FastUlyssesAllToAll:
@@ -190,9 +215,15 @@ class FastUlyssesAllToAll:
             initial_pool_bytes=pool_bytes,
         )
         self._use_tma = _use_tma_from_env()
+        self._transfer = _ulysses_transfer_from_env()
+        if self._use_tma is not None and self._transfer == "auto":
+            self._transfer = "tma" if self._use_tma else "sm"
         self._world_size = dist.get_world_size(process_group)
+        self._process_group = process_group
         self._sequence_idx = 0
         self._logical_config_cache: set[tuple[object, ...]] = set()
+        self._transfer_cache: dict[tuple[object, ...], str] = {}
+        self._transfer_timings: dict[tuple[object, ...], dict[str, float]] = {}
 
     def reset_sequence(self) -> None:
         self._sequence_idx = 0
@@ -241,12 +272,101 @@ class FastUlyssesAllToAll:
         mode = self.mode(scatter_dim, gather_dim)
         tag = f"chitu_cp_{self._sequence_idx}"
         self._sequence_idx += 1
+        transfer = self._resolve_transfer(tensor, mode, tag)
+        if transfer == "ce":
+            return self._group.all_to_all_single_4d_ce(
+                tensor,
+                mode=mode,
+                tag=tag,
+            )
         return self._group.all_to_all_single_4d(
             tensor,
             mode=mode,
             tag=tag,
-            use_tma=self._use_tma,
+            use_tma=transfer == "tma",
         )
+
+    def _resolve_transfer(self, tensor: torch.Tensor, mode: int, tag: str) -> str:
+        if self._transfer != "auto":
+            return self._transfer
+        key = (mode, tuple(tensor.shape), tensor.dtype)
+        selected = self._transfer_cache.get(key)
+        if selected is not None:
+            return selected
+
+        candidates = ["sm", "ce"]
+        major, _ = torch.cuda.get_device_capability(tensor.device)
+        if major >= 9 and tensor.shape[-1] <= 256:
+            candidates.insert(1, "tma")
+
+        def launch(candidate: str, tune_tag: str) -> torch.Tensor:
+            if candidate == "ce":
+                return self._group.all_to_all_single_4d_ce(
+                    tensor,
+                    mode=mode,
+                    tag=tune_tag,
+                )
+            return self._group.all_to_all_single_4d(
+                tensor,
+                mode=mode,
+                tag=tune_tag,
+                use_tma=candidate == "tma",
+            )
+
+        timings: dict[str, float] = {}
+        for candidate in candidates:
+            tune_tag = f"{tag}_transfer_tune_{candidate}"
+            for _ in range(2):
+                launch(candidate, tune_tag)
+            samples = []
+            for _ in range(5):
+                start = torch.cuda.Event(enable_timing=True)
+                end = torch.cuda.Event(enable_timing=True)
+                start.record()
+                launch(candidate, tune_tag)
+                end.record()
+                end.synchronize()
+                elapsed = torch.tensor(
+                    start.elapsed_time(end),
+                    dtype=torch.float64,
+                    device=tensor.device,
+                )
+                dist.all_reduce(
+                    elapsed, op=dist.ReduceOp.MAX, group=self._process_group
+                )
+                samples.append(float(elapsed))
+            timings[candidate] = statistics.median(samples)
+        selected = min(timings, key=timings.get)
+        # TMA leaves the SMs free and was best end to end on H20 when the
+        # isolated transfer timings were close. Preserve a clearly faster
+        # SM/CE choice while preferring TMA inside that measurement margin.
+        if "tma" in timings and timings["tma"] <= timings[selected] * 1.10:
+            selected = "tma"
+        self._transfer_cache[key] = selected
+        self._transfer_timings[key] = timings
+        if dist.get_rank(self._process_group) == 0:
+            logger.info(
+                "Fast Ulysses transfer selected %s for mode=%d shape=%s: %s",
+                selected,
+                mode,
+                tuple(tensor.shape),
+                ", ".join(f"{name}={value:.3f} ms" for name, value in timings.items()),
+            )
+        return selected
+
+    @property
+    def selected_transfers(self) -> dict[str, str]:
+        return {
+            f"mode{mode}:{shape}:{dtype}": transfer
+            for (mode, shape, dtype), transfer in self._transfer_cache.items()
+        }
+
+    @property
+    def transfer_tuning_ms(self) -> dict[str, dict[str, float]]:
+        return {
+            f"mode{mode}:{shape}:{dtype}": timings
+            for (mode, shape, dtype), timings in self._transfer_timings.items()
+        }
 
     def all_to_all_tagged(
         self,
@@ -256,11 +376,20 @@ class FastUlyssesAllToAll:
         *,
         tag: str,
     ) -> torch.Tensor:
+        transfer = self._resolve_transfer(
+            tensor, self.mode(scatter_dim, gather_dim), tag
+        )
+        if transfer == "ce":
+            return self._group.all_to_all_single_4d_ce(
+                tensor,
+                mode=self.mode(scatter_dim, gather_dim),
+                tag=tag,
+            )
         return self._group.all_to_all_single_4d(
             tensor,
             mode=self.mode(scatter_dim, gather_dim),
             tag=tag,
-            use_tma=self._use_tma,
+            use_tma=transfer == "tma",
         )
 
     @staticmethod

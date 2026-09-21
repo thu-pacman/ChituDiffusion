@@ -49,6 +49,8 @@ class ZImageEpeModule(EpeSchedulingModule):
         deadline_guard_ms: float = 0.0,
         max_active_requests: int | None = None,
         attention_mode: str = "agkv",
+        planned_attention: bool | None = None,
+        shard_caption: bool = True,
         cfg_parallel: bool = True,
         cost_model: object | None = None,
         online_calibration: bool = True,
@@ -72,6 +74,8 @@ class ZImageEpeModule(EpeSchedulingModule):
             online_calibration=online_calibration,
         )
         self.attention_mode = attention_mode
+        self.planned_attention = planned_attention
+        self.shard_caption = bool(shard_caption)
         self.cfg_parallel = bool(cfg_parallel)
 
     @torch.inference_mode()

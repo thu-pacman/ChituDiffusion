@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import socket
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -15,6 +16,7 @@ from chitu_diffusion.parallel.cp import (
     ImageSelfAttention,
     cfg_parallel_rank_groups,
     resolve_context_parallel_config,
+    uses_fast_cp_transport,
 )
 from chitu_diffusion.parallel.vae import (
     create_vae_parallel_group,
@@ -64,6 +66,29 @@ def test_context_parallel_config_defaults_to_agkv() -> None:
         resolve_context_parallel_config("ulysses", 0)
     with pytest.raises(ValueError, match="only valid"):
         resolve_context_parallel_config("agkv", 2)
+
+
+@pytest.mark.parametrize(
+    ("mode", "transport_name", "expected"),
+    [
+        ("agkv", "fast_agkv", True),
+        ("agkv", "torch", False),
+        ("ulysses", "fast_ulysses", True),
+        ("ulysses", "torch", False),
+    ],
+)
+def test_planned_attention_tracks_fast_transport(
+    mode: str,
+    transport_name: str,
+    expected: bool,
+) -> None:
+    transport = SimpleNamespace(name=transport_name)
+    parallel = SimpleNamespace(
+        active_agkv_transport=transport,
+        active_ulysses=SimpleNamespace(transport=transport),
+    )
+
+    assert uses_fast_cp_transport(parallel, mode) is expected
 
 
 def _assert_lane_equivalence(
@@ -162,6 +187,58 @@ def _assert_self_attention_equivalence(
     )
 
 
+def _assert_joint_sharded_equivalence(
+    parallel: EpeParallelContext,
+    *,
+    lane: tuple[int, ...],
+    seed: int,
+) -> None:
+    generator = torch.Generator().manual_seed(seed)
+    batch, image_tokens, text_tokens, heads, head_dim = 1, 8, 4, 4, 4
+    image_qkv = [
+        torch.randn(batch, image_tokens, heads, head_dim, generator=generator)
+        for _ in range(3)
+    ]
+    text_qkv = [
+        torch.randn(batch, text_tokens, heads, head_dim, generator=generator)
+        for _ in range(3)
+    ]
+    rank_in_lane = lane.index(parallel.rank)
+    image_local = image_tokens // len(lane)
+    text_local = text_tokens // len(lane)
+    image_slice = slice(rank_in_lane * image_local, (rank_in_lane + 1) * image_local)
+    text_slice = slice(rank_in_lane * text_local, (rank_in_lane + 1) * text_local)
+    reference = _reference_attention(
+        torch.cat([image_qkv[0], text_qkv[0]], dim=1),
+        torch.cat([image_qkv[1], text_qkv[1]], dim=1),
+        torch.cat([image_qkv[2], text_qkv[2]], dim=1),
+    )
+
+    with parallel.activate(lane):
+        for mode in ("agkv", "ulysses"):
+            joint, image = ImageContextParallelAttention(mode)(
+                *(tensor[:, image_slice] for tensor in image_qkv),
+                *(tensor[:, text_slice] for tensor in text_qkv),
+                lane_process_group=parallel.active.process_group,
+                ulysses_topology=(
+                    parallel.active_ulysses if mode == "ulysses" else None
+                ),
+                joint_sharded=True,
+            )
+            torch.testing.assert_close(
+                image,
+                reference[:, image_slice],
+                rtol=1e-5,
+                atol=1e-6,
+            )
+            torch.testing.assert_close(
+                joint,
+                reference[:, image_tokens + text_slice.start : image_tokens + text_slice.stop],
+                rtol=1e-5,
+                atol=1e-6,
+            )
+
+
 def _ulysses_worker(rank: int, world_size: int, port: int) -> None:
     os.environ.update(
         MASTER_ADDR="127.0.0.1",
@@ -185,6 +262,11 @@ def _ulysses_worker(rank: int, world_size: int, port: int) -> None:
         lane=(0, 1, 2, 3),
         seed=43,
         heads=6,
+    )
+    _assert_joint_sharded_equivalence(
+        parallel,
+        lane=(0, 1, 2, 3),
+        seed=45,
     )
 
     lane = (0, 1) if rank < 2 else (2, 3)

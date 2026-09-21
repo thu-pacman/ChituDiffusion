@@ -17,3 +17,7 @@ chitu serve --stage-config examples/stage-zimage.yaml
 ```
 
 不存在模型专用服务入口。EPE、parallel 和 FlexCache 的边界见 `docs/features/`。
+
+context refiner 完成后，主 transformer 默认同时分片 image 和 caption sequence。
+caption 长度不能被当前 lane width 整除时回退为 replicated caption；
+`epe_options={"shard_caption": False}` 可显式关闭分片。

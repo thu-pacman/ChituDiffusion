@@ -1,3 +1,5 @@
+"""Explicit torchrun/pytest regression for the experimental CE Ring transport."""
+
 from __future__ import annotations
 
 import os
@@ -6,11 +8,11 @@ import pytest
 import torch
 import torch.distributed as dist
 
-from chitu_diffusion.parallel.cp.fast._runtime import FastUlyssesAllToAll
 from chitu_diffusion.parallel.cp.fast.experimental.ring import (
     FastRingAttention,
     FastRingKVTransport,
 )
+from chitu_diffusion.parallel.cp.fast.runtime.backend import FastUlyssesAllToAll
 
 
 def _all_gather_sequence(tensor: torch.Tensor) -> torch.Tensor:

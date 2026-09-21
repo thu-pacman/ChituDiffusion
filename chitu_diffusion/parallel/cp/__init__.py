@@ -31,6 +31,7 @@ from .image_attention import (
     ImageContextParallelAttention,
     ImageSelfAttention,
     resolve_context_parallel_config,
+    uses_fast_cp_transport,
 )
 from .nccl import TorchAgkvTransport, TorchUlyssesTransport
 from .packed_usp import (
@@ -93,5 +94,6 @@ __all__ = [
     "resolve_ulysses_transport",
     "sequence_to_heads",
     "shard_query_mask",
+    "uses_fast_cp_transport",
     "validate_tp_ulysses_heads",
 ]

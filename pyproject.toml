@@ -40,7 +40,7 @@ chitu = "chitu_diffusion.cli:main"
 include = ["chitu_diffusion*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "chitu_diffusion/parallel/cp/fast/test"]
 markers = [
     "benchmark: performance measurements excluded from routine correctness runs",
     "distributed: requires torchrun with multiple ranks",

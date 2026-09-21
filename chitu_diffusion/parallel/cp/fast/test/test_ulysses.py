@@ -7,11 +7,11 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from chitu_diffusion.parallel.cp.fast._runtime import (
+from chitu_diffusion.parallel.cp.fast.runtime.backend import (
     FastUlyssesAllToAll,
     probe_fast_ulysses,
 )
-from chitu_diffusion.parallel.cp.fast.ulysses import (
+from chitu_diffusion.parallel.cp.fast.runtime.ulysses import (
     FastUlyssesSubgroupTransport,
     FastUlyssesTransport,
 )
@@ -62,6 +62,12 @@ def test_fast_backend_auto_probe_requires_hopper_and_subgroup_feature(monkeypatc
     monkeypatch.setattr("torch.cuda.device_count", lambda: 8)
     monkeypatch.setattr("torch.cuda.can_device_access_peer", lambda src, dst: True)
     monkeypatch.setattr("torch.distributed.is_initialized", lambda: False)
+    monkeypatch.setattr(
+        torch.ops.fast_ulysses,
+        "fast_cp_device_info",
+        lambda device: [90, 90, 0, 0],
+        raising=False,
+    )
     monkeypatch.setitem(
         sys.modules,
         "fast_ulysses",
@@ -262,9 +268,11 @@ def test_fast_transport_keeps_documented_default_pool_after_small_warmup(
     monkeypatch.delenv("CHITU_FAST_ULYSSES_POOL_BYTES", raising=False)
     flux = torch.empty(1, 1152, 24, 128, dtype=torch.bfloat16)
     wan = torch.empty(1, 8320, 40, 128, dtype=torch.bfloat16)
+    wan_large = torch.empty(1, 37800, 40, 128, dtype=torch.bfloat16)
 
     assert FastUlyssesTransport._pool_bytes_for(flux) == 2 << 30
     assert FastUlyssesTransport._pool_bytes_for(wan) == 2 << 30
+    assert FastUlyssesTransport._pool_bytes_for(wan_large) == 3776 << 20
 
     monkeypatch.setenv("CHITU_FAST_ULYSSES_POOL_BYTES", str(768 << 20))
     assert FastUlyssesTransport._pool_bytes_for(flux) == 768 << 20

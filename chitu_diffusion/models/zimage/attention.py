@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional
+from weakref import WeakKeyDictionary
 
 import torch
 import torch.nn.functional as F
@@ -9,26 +10,91 @@ from diffusers.models.attention_processor import Attention
 from ...parallel.cp import EpeParallelContext, ImageContextParallelAttention
 
 
+def _tensor_signature(tensor: torch.Tensor) -> tuple:
+    try:
+        version = tensor._version
+    except RuntimeError:
+        version = None
+    return (
+        tensor.data_ptr(),
+        version,
+        tensor.shape,
+        tensor.stride(),
+        tensor.device,
+        tensor.dtype,
+    )
+
+
 class ZImageCpAttnProcessor:
     """Diffusers projection/RoPE glue around shared CP attention primitives."""
 
-    def __init__(self, parallel: EpeParallelContext, *, mode: str = "agkv") -> None:
+    def __init__(
+        self,
+        parallel: EpeParallelContext,
+        *,
+        mode: str = "agkv",
+        planned_attention: bool = False,
+        sharded_text: bool = False,
+    ) -> None:
         self.parallel = parallel
-        self.context_parallel = ImageContextParallelAttention(mode=mode)
+        self.context_parallel = ImageContextParallelAttention(
+            mode=mode,
+            planned=planned_attention,
+        )
         self._image_tokens = 0
         self._enabled = False
+        self.sharded_text = bool(sharded_text)
+        self._active_sharded_text = False
+        self._packed_qkv = WeakKeyDictionary()
+
+    def _packed_qkv_for(self, attn: Attention):
+        projections = (attn.to_q, attn.to_k, attn.to_v)
+        signature = tuple(
+            (
+                _tensor_signature(projection.weight),
+                None
+                if projection.bias is None
+                else _tensor_signature(projection.bias),
+            )
+            for projection in projections
+        )
+        cached = self._packed_qkv.get(attn)
+        if cached is not None and cached[0] == signature:
+            return cached[1:]
+        weight = torch.cat(
+            [projection.weight for projection in projections]
+        ).contiguous()
+        biases = [projection.bias for projection in projections]
+        if any(bias is None for bias in biases) != all(
+            bias is None for bias in biases
+        ):
+            raise ValueError("Z-Image Q/K/V projections must agree on bias presence")
+        bias = (
+            None if biases[0] is None else torch.cat(biases).contiguous()
+        )
+        self._packed_qkv[attn] = (signature, weight, bias)
+        return weight, bias
 
     @property
     def mode(self) -> str:
         return self.context_parallel.mode
 
-    def enable(self, image_tokens: int) -> None:
+    def enable(
+        self,
+        image_tokens: int,
+        *,
+        sharded_text: bool | None = None,
+    ) -> None:
         self._image_tokens = int(image_tokens)
-        self._enabled = self.parallel.active.width > 1
+        self._enabled = self._image_tokens > 0
+        self._active_sharded_text = (
+            self.sharded_text if sharded_text is None else bool(sharded_text)
+        )
 
     def disable(self) -> None:
         self._enabled = False
         self._image_tokens = 0
+        self._active_sharded_text = False
 
     @staticmethod
     def _apply_rotary(x_in: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
@@ -66,17 +132,34 @@ class ZImageCpAttnProcessor:
         freqs_cis: torch.Tensor | None = None,
     ) -> torch.Tensor:
         del encoder_hidden_states
-        query = attn.to_q(hidden_states).unflatten(-1, (attn.heads, -1))
-        key = attn.to_k(hidden_states).unflatten(-1, (attn.heads, -1))
-        value = attn.to_v(hidden_states).unflatten(-1, (attn.heads, -1))
+        if self._enabled:
+            from ...parallel.cp.fast.projection.qk_epilogue import (
+                qk_norm_rope_inplace,
+            )
 
-        if attn.norm_q is not None:
-            query = attn.norm_q(query)
-        if attn.norm_k is not None:
-            key = attn.norm_k(key)
-        if freqs_cis is not None:
-            query = self._apply_rotary(query, freqs_cis)
-            key = self._apply_rotary(key, freqs_cis)
+            packed_weight, packed_bias = self._packed_qkv_for(attn)
+            query, key, value = F.linear(
+                hidden_states, packed_weight, packed_bias
+            ).chunk(3, dim=-1)
+            query = qk_norm_rope_inplace(
+                query, attn.norm_q, freqs_cis, heads=attn.heads
+            )
+            key = qk_norm_rope_inplace(
+                key, attn.norm_k, freqs_cis, heads=attn.heads
+            )
+            value = value.unflatten(-1, (attn.heads, -1))
+        else:
+            query = attn.to_q(hidden_states).unflatten(-1, (attn.heads, -1))
+            key = attn.to_k(hidden_states).unflatten(-1, (attn.heads, -1))
+            value = attn.to_v(hidden_states).unflatten(-1, (attn.heads, -1))
+
+            if attn.norm_q is not None:
+                query = attn.norm_q(query)
+            if attn.norm_k is not None:
+                key = attn.norm_k(key)
+            if freqs_cis is not None:
+                query = self._apply_rotary(query, freqs_cis)
+                key = self._apply_rotary(key, freqs_cis)
 
         output_dtype = query.dtype
         query = query.to(value.dtype).contiguous()
@@ -104,6 +187,7 @@ class ZImageCpAttnProcessor:
                 agkv_transport=(
                     self.parallel.active_agkv_transport if self.mode == "agkv" else None
                 ),
+                joint_sharded=self._active_sharded_text,
             )
             output = torch.cat([image_output, joint_output], dim=1)
         else:
