@@ -3,14 +3,17 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-PARTITION=${SRUN_PARTITION:-debug}
+PARTITION_ARGS=()
+if [[ -n "${SRUN_PARTITION:-}" ]]; then
+    PARTITION_ARGS=(--partition "$SRUN_PARTITION")
+fi
 NODE_ARGS=()
 if [[ -n "${FAST_CP_BENCH_NODE:-}" ]]; then
     NODE_ARGS=(--nodelist "$FAST_CP_BENCH_NODE")
 fi
 
 exec srun \
-    -p "$PARTITION" \
+    "${PARTITION_ARGS[@]}" \
     --exclusive \
     --job-name "${USER:-user}-fast-cp-breakdown" \
     --nodes 1 \

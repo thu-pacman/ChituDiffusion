@@ -9,7 +9,10 @@ fi
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
-PARTITION=${SRUN_PARTITION:-debug}
+PARTITION_ARGS=()
+if [[ -n "${SRUN_PARTITION:-}" ]]; then
+    PARTITION_ARGS=(--partition "$SRUN_PARTITION")
+fi
 FRAMEWORK=$1
 METHOD=$2
 CP=$3
@@ -26,7 +29,7 @@ fi
 mkdir -p "$OUTPUT_ROOT"
 
 exec srun \
-    -p "$PARTITION" \
+    "${PARTITION_ARGS[@]}" \
     --exclusive \
     --job-name "${USER:-user}-fast-cp-trace" \
     --nodes 1 \

@@ -4,7 +4,10 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
-PARTITION=${SBATCH_PARTITION:-debug}
+PARTITION_ARGS=()
+if [[ -n "${SBATCH_PARTITION:-}" ]]; then
+    PARTITION_ARGS=(--partition "$SBATCH_PARTITION")
+fi
 OUTPUT_ROOT=${1:-$PROJECT_ROOT/outputs/fast-cp/xdit-model-native-sweep}
 DEPENDENCY_ARGS=()
 NODE_ARGS=()
@@ -20,7 +23,7 @@ mkdir -p "$OUTPUT_ROOT"
 
 exec sbatch \
     --parsable \
-    --partition "$PARTITION" \
+    "${PARTITION_ARGS[@]}" \
     --exclusive \
     --job-name "${USER:-user}-xdit-models" \
     --nodes 1 \

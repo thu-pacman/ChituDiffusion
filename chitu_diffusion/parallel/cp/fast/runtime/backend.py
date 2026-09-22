@@ -122,16 +122,27 @@ def probe_fast_ulysses(
         import fast_ulysses
     except (ImportError, OSError) as exc:
         return False, f"fast_ulysses extension cannot be loaded: {exc}"
+
+    def incompatible_package(reason: str) -> tuple[bool, str]:
+        location = getattr(fast_ulysses, "__file__", "<unknown location>")
+        return False, (
+            f"{reason} (loaded from {location}). Install the Chitu-patched "
+            "extension using tools/install/build_fast_cp.py and install its wheel; "
+            "see docs/usage/fast-cp-installation.md. For an existing compiled "
+            "source checkout under srun_direct.sh, add its root to "
+            "CHITU_EXTRA_PYTHONPATH."
+        )
+
     if not hasattr(fast_ulysses, "UlyssesGroup"):
-        return False, "fast_ulysses.UlyssesGroup is unavailable"
+        return incompatible_package("fast_ulysses.UlyssesGroup is unavailable")
     if require_subgroups and not getattr(
         fast_ulysses, "SUPPORTS_WORLD_PARTITION_SUBGROUPS", False
     ):
-        return False, "installed fast_ulysses package lacks CFP subgroup support"
+        return incompatible_package("installed fast_ulysses package lacks CFP subgroup support")
     if require_fast_agkv and not hasattr(torch.ops.fast_ulysses, "all_gather_kv_4d"):
-        return False, "installed fast_ulysses package lacks the Fast AGKV operator"
+        return incompatible_package("installed fast_ulysses package lacks the Fast AGKV operator")
     if not hasattr(torch.ops.fast_ulysses, "fast_cp_device_info"):
-        return False, "installed fast_ulysses package lacks the architecture probe"
+        return incompatible_package("installed fast_ulysses package lacks the architecture probe")
     try:
         device_info = torch.ops.fast_ulysses.fast_cp_device_info(device_index)
     except RuntimeError as exc:

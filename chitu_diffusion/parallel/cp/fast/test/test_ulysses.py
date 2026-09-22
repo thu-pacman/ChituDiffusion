@@ -101,6 +101,28 @@ def test_fast_backend_auto_probe_rejects_pre_hopper(monkeypatch):
     assert "older than Hopper" in reason
 
 
+def test_missing_architecture_probe_reports_loaded_package_and_remedy(monkeypatch):
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr("torch.cuda.get_device_capability", lambda device: (9, 0))
+    monkeypatch.setattr("torch.cuda.device_count", lambda: 1)
+    monkeypatch.setattr(torch.ops, "fast_ulysses", SimpleNamespace())
+    monkeypatch.setitem(
+        sys.modules,
+        "fast_ulysses",
+        SimpleNamespace(UlyssesGroup=object, __file__="/old/fast_ulysses/__init__.py"),
+    )
+
+    ready, reason = probe_fast_ulysses(
+        torch.device("cuda", 0), require_hopper=True, require_subgroups=False
+    )
+
+    assert not ready
+    assert "lacks the architecture probe" in reason
+    assert "/old/fast_ulysses/__init__.py" in reason
+    assert "build_fast_cp.py" in reason
+    assert "CHITU_EXTRA_PYTHONPATH" in reason
+
+
 def test_fast_backend_auto_probe_rejects_upstream_package_for_subgroup(monkeypatch):
     monkeypatch.setattr("torch.cuda.is_available", lambda: True)
     monkeypatch.setattr("torch.cuda.get_device_capability", lambda device: (9, 0))

@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+PARTITION_ARGS=()
+if [[ -n "${SBATCH_PARTITION:-}" ]]; then
+    PARTITION_ARGS=(--partition "$SBATCH_PARTITION")
+fi
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 OUTPUT_ROOT=${1:-$PROJECT_ROOT/outputs/fast-cp/cp-attention-native-20260918}
@@ -12,7 +17,7 @@ fi
 mkdir -p "$OUTPUT_ROOT"
 
 exec sbatch --parsable \
-    --partition "${SBATCH_PARTITION:-debug}" \
+    "${PARTITION_ARGS[@]}" \
     --exclusive \
     --job-name "${FAST_CP_BENCH_JOB_NAME:-${USER:-user}-cp-attention}" \
     --nodes 1 --ntasks 1 --cpus-per-task 192 --mem 1937152 --gres gpu:8 \

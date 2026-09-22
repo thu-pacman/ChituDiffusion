@@ -50,11 +50,10 @@ fi
 OUTPUT=$OUTPUT_ROOT/${FRAMEWORK}-${METHOD}${SUFFIX}-h${HEADS}-s${SEQUENCE}-cp${CP}.json
 export CHITU_PYTHON_BIN=$PYTHON_BIN
 export PATH="$(dirname "$PYTHON_BIN"):$PATH"
-export SRUN_PARTITION=${SRUN_PARTITION:-debug}
 export SRUN_EXTRA_ARGS=${SRUN_EXTRA_ARGS:---exclusive}
 export SRUN_JOB_NAME=${SRUN_JOB_NAME:-fast-cp-${FRAMEWORK}-${METHOD}}
 
-"$PROJECT_ROOT/script/srun_direct.sh" 1 "$CP" "$RUNNER" \
+"$PROJECT_ROOT/tools/cluster/srun_direct.sh" 1 "$CP" "$RUNNER" \
     --method "$METHOD" \
     --sequence "$SEQUENCE" \
     --heads "$HEADS" \
