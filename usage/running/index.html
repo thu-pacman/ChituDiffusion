@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://thu-pacman.github.io/ChituDiffusion/usage/running/">
       
       
-        <link rel="prev" href="../installation/">
+        <link rel="prev" href="../fast-cp-installation/">
       
       
         <link rel="next" href="../freecache-v2/">
@@ -590,6 +590,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../fast-cp-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fast CP 安装与启用
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -801,6 +829,11 @@
 等待设备工作完成；这是单次请求耗时，首轮可能包含编译或初始化成本。
 JSON 同时记录 prompt、seed、步数和并行参数；FlexCache 模型还记录缓存统计。</p>
 <h2 id="_3">静态多卡生成</h2>
+<p><code>--cp-method agkv|ulysses</code> 选择 CP 算法，<code>--cp-backend fast|nccl</code> 选择通信后端。
+例如 <code>agkv + fast</code> 使用 Fast AGKV，<code>ulysses + fast</code> 使用 Fast Ulysses。
+方法默认为 <code>agkv</code>；显式指定后端会覆盖对应的 transport 环境变量。
+旧的 <code>--attention-mode</code>、<code>--agkv-transport</code> 和 <code>--ulysses-transport</code> 仍可使用，
+但新旧参数冲突或 transport 与方法不匹配时会报错。</p>
 <p>所有 rank 执行同一条命令，只有 leader 写出结果。默认 transport 是 Torch/NCCL：</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
@@ -813,32 +846,51 @@ JSON 同时记录 prompt、seed、步数和并行参数；FlexCache 模型还记
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--model<span class="w"> </span>zimage<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span>--agkv-transport<span class="w"> </span>fast_agkv<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-fast-agkv.png
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span>--cp-method<span class="w"> </span>agkv<span class="w"> </span>--cp-backend<span class="w"> </span>fast<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span>--no-cfg-parallel<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-fast-agkv.png
 </code></pre></div>
 <p>Fast Ulysses：</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--model<span class="w"> </span>zimage<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span>--attention-mode<span class="w"> </span>ulysses<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span>--ulysses-transport<span class="w"> </span>fast_ulysses<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-fast-ulysses.png
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span>--cp-method<span class="w"> </span>ulysses<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span>--cp-backend<span class="w"> </span>fast<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span>--no-cfg-parallel<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-fast-ulysses.png
+</code></pre></div>
+<p>以上两例关闭 CFG 分组，使用 CP4。它们选择 Fast 通信后端；Wan、Qwen-Image 和
+Z-Image 同时启用 Attention Planner，完整 wrapper 的投影融合和通信重叠仍需显式
+接入，见 <a href="../fast-cp-installation/#enable-fast-cp">Fast CP 启用方式</a>。</p>
+<p>Slurm 上生成 Qwen-Image，可使用仓库脚本申请单节点四卡：</p>
+<p>脚本默认使用集群默认分区；需要指定分区时，在个人环境中设置 <code>SRUN_PARTITION</code>。</p>
+<p>先完成 <a href="../fast-cp-installation/">Fast CP 安装与验证</a>，并将 <code>QWEN_IMAGE_MODEL_PATH</code>
+设为已有的本地权重目录。统一环境脚本会从 <code>.deps/fast-cp/</code> 配置扩展、CuTe 和
+NVSHMEM 的加载路径：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">source</span><span class="w"> </span>tools/install/fast_cp_env.sh
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>:<span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">QWEN_IMAGE_MODEL_PATH</span><span class="p">:?请设置为本地 Qwen-Image 权重目录</span><span class="si">}</span><span class="s2">"</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>bash<span class="w"> </span>tools/cluster/srun_direct.sh<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span>generate<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span>--model<span class="w"> </span>qwen-image<span class="w"> </span>--model-path<span class="w"> </span><span class="s2">"</span><span class="nv">$QWEN_IMAGE_MODEL_PATH</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span>--cp-method<span class="w"> </span>agkv<span class="w"> </span>--cp-backend<span class="w"> </span>fast<span class="w"> </span>--no-cfg-parallel<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>--height<span class="w"> </span><span class="m">1024</span><span class="w"> </span>--width<span class="w"> </span><span class="m">1024</span><span class="w"> </span>--steps<span class="w"> </span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span>--output<span class="w"> </span>outputs/qwen-fast-agkv.png
 </code></pre></div>
 <p>Hunyuan Image 3 的 TP/CFG/CP/EP 拓扑在启动时确定。以下使用 72 GiB 卡上验证的
 TP2×CFG2×CP2×EP2，并以 VAEP8 解码：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">8</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--model<span class="w"> </span>hunyuan-image3<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/HunyuanImage-3<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span>--expert-parallel-degree<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span>--steps<span class="w"> </span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>--output<span class="w"> </span>outputs/hunyuan_image3.png
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">8</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--model<span class="w"> </span>hunyuan-image3<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/HunyuanImage-3<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span>--expert-parallel-degree<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span>--steps<span class="w"> </span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span>--output<span class="w"> </span>outputs/hunyuan_image3.png
 </code></pre></div>
 <p>只需满足 <code>world = TP × CFG × CP</code>、<code>CFG ∈ {1, 2}</code>、<code>EP</code> 整除 <code>CFG × CP</code>，即可改成
 其他单机拓扑。未给出的 degree 由 world size 推导，例如下面等价于 TP2×CFG1×CP4×EP4：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">8</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>generate<span class="w"> </span>--model<span class="w"> </span>hunyuan-image3<span class="w"> </span>--cfg-parallel-degree<span class="w"> </span><span class="m">1</span><span class="w"> </span>...
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">8</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>generate<span class="w"> </span>--model<span class="w"> </span>hunyuan-image3<span class="w"> </span>--cfg-parallel-degree<span class="w"> </span><span class="m">1</span><span class="w"> </span>...
 </code></pre></div>
 <h2 id="vae">VAE 解码</h2>
 <p>Z-Image、FLUX.1、FLUX.2-klein、LLaDA-Image、Wan、Qwen-Image、Hunyuan
@@ -863,24 +915,30 @@ Hunyuan 的全局 GroupNorm/attention 和 MiniMax 的全局 RoPE、特殊 token
 支持范围、误差和性能测量见 <a href="../../validation/vae-parallel/">VAE 验证记录</a>。</p>
 <h2 id="flexcache">FlexCache</h2>
 <p>缓存参数直接附加到 <code>generate</code>：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>chitu<span class="w"> </span>generate<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--model<span class="w"> </span>wan<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Wan2.1-T2V-1.3B<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>--steps<span class="w"> </span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span>--cache-strategy<span class="w"> </span>magcache<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span>--output<span class="w"> </span>outputs/wan-magcache.mp4
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>chitu<span class="w"> </span>generate<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>--model<span class="w"> </span>wan<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Wan2.1-T2V-1.3B<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span>--steps<span class="w"> </span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span>--cache-strategy<span class="w"> </span>magcache<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">  </span>--output<span class="w"> </span>outputs/wan-magcache.mp4
 </code></pre></div>
 <p>策略专属参数使用对应前缀。例如 MeanCache：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>--cache-strategy<span class="w"> </span>meancache<span class="w"> </span>--meancache-fresh-steps<span class="w"> </span><span class="m">25</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>--cache-strategy<span class="w"> </span>meancache<span class="w"> </span>--meancache-fresh-steps<span class="w"> </span><span class="m">25</span>
 </code></pre></div>
 <h2 id="epe">EPE 服务</h2>
 <p>配置中的 GPU 数必须等于 torchrun 进程数。四卡示例：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>serve<span class="w"> </span>--stage-config<span class="w"> </span>examples/stage-zimage.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>serve<span class="w"> </span>--stage-config<span class="w"> </span>examples/stage-zimage.yaml
 </code></pre></div>
+<p>使用 Fast AGKV 的固定 CP4 服务，先修改配置中的模型路径：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span>serve<span class="w"> </span>--stage-config<span class="w"> </span>examples/stage-zimage-fast-cp.yaml
+</code></pre></div>
+<p>通信方式在 <code>parallelism.cp</code> 下设置；示例关闭 CFG 分组并使用 <code>static_cp</code> 调度。
+这与上面的 generate 命令启用范围一致，不会自动安装完整 wrapper。</p>
 <p>八卡 static-CP MoE 服务示例：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">8</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>serve<span class="w"> </span>--stage-config<span class="w"> </span>examples/stage-hunyuan-image3.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">8</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>serve<span class="w"> </span>--stage-config<span class="w"> </span>examples/stage-hunyuan-image3.yaml
 </code></pre></div>
 <p>leader 提供 HTTP 服务，其他 rank 执行 worker loop。宿主已经管理进程时，可参考
 <code>examples/epe_embedded.py</code> 使用 <code>EmbeddedDiffusionRuntime</code>。</p>
@@ -888,17 +946,17 @@ Hunyuan 的全局 GroupNorm/attention 和 MiniMax 的全局 RoPE、特殊 token
 字段含义见 <a href="../../features/epe/#并行配置">EPE 并行配置</a>。</p>
 <h2 id="slurm">Slurm</h2>
 <p>集群入口会为每张 GPU 启动一个 task，并设置 <code>RANK</code>、<code>LOCAL_RANK</code> 和 <code>WORLD_SIZE</code>：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>bash<span class="w"> </span>tools/cluster/srun_direct.sh<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span>--model<span class="w"> </span>zimage<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage.png
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>bash<span class="w"> </span>tools/cluster/srun_direct.sh<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">4</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>generate<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span>--model<span class="w"> </span>zimage<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage.png
 </code></pre></div>
 <p>混合 GPU 节点可通过 <code>SRUN_GPU_TYPE</code> 指定 Slurm 注册的型号，例如：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nv">SRUN_PARTITION</span><span class="o">=</span>Star<span class="w"> </span><span class="nv">SRUN_GPU_TYPE</span><span class="o">=</span>PRO6000<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>bash<span class="w"> </span>tools/cluster/srun_direct.sh<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span>generate<span class="w"> </span>--model<span class="w"> </span>zimage<span class="w"> </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-pro6000.png
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nv">SRUN_PARTITION</span><span class="o">=</span>Star<span class="w"> </span><span class="nv">SRUN_GPU_TYPE</span><span class="o">=</span>PRO6000<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span>bash<span class="w"> </span>tools/cluster/srun_direct.sh<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="w"> </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span>generate<span class="w"> </span>--model<span class="w"> </span>zimage<span class="w"> </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-pro6000.png
 </code></pre></div>
 <p>未设置 <code>SRUN_GPU_TYPE</code> 时保留 <code>gpu:N</code> 的调度方式；型号名称以集群的 GRES 配置为准。</p>
 <p>仓库根目录 <code>examples/</code> 还包含各模型 Python API、静态 CP、EPE embedded 和服务配置

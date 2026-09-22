@@ -16,7 +16,7 @@
         <link rel="prev" href="../../features/vae-parallel/">
       
       
-        <link rel="next" href="../running/">
+        <link rel="next" href="../fast-cp-installation/">
       
       
         
@@ -701,6 +701,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../fast-cp-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fast CP 安装与启用
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../running/" class="md-nav__link">
         
   
@@ -823,20 +851,17 @@
 </code></pre></div>
 <p>下载完成后通过 <code>--model-path</code> 指向本地目录。</p>
 <h2 id="_4">可选依赖</h2>
-<p>Fast CP 需要 Fast Ulysses 与 NVSHMEM：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>fast-ulysses
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>python<span class="w"> </span>tools/install/install_fast_agkv.py<span class="w"> </span>refs/fast-ulysses
-</code></pre></div>
-<p>第二步把 <code>chitu_diffusion/parallel/cp/fast/csrc/</code> 下的扩展源码装入 checkout。
-Fast transport 必须针对目标 CUDA、NVSHMEM 和 GPU 架构编译。只使用单卡或 NCCL CP
-时不需要这些扩展。</p>
+<p>Fast CP 需要 NVSHMEM、带 Chitu 源码 overlay 的 Fast Ulysses 扩展，以及供
+Attention Planner 使用的 CuTe 后端。按<a href="../fast-cp-installation/">Fast CP 安装与启用</a>
+完成构建、安装和多卡验证。单独安装 <code>--extra fast-ulysses</code> 不包含完整 Chitu 扩展；
+只使用单卡或 NCCL CP 时不需要它。</p>
 <p>其他 attention backend 按需安装：</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>flash
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>flash
 </code></pre></div>
 <h2 id="_5">检查安装</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import torch; print(torch.__version__, torch.cuda.is_available())"</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>chitu<span class="w"> </span>--help
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span><span class="s2">"not gpu and not distributed and not benchmark"</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import torch; print(torch.__version__, torch.cuda.is_available())"</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>chitu<span class="w"> </span>--help
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span><span class="s2">"not gpu and not distributed and not benchmark"</span>
 </code></pre></div>
 <h3 id="transformers">Transformers 导入提示</h3>
 <p>当前固定的 <code>transformers==5.12.1</code> 在导入 Qwen2.5-VL 模块时，可能直接打印

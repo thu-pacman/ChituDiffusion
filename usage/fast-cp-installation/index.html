@@ -1,0 +1,1104 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Diffusers-native diffusion inference with EPE, context parallelism, and FlexCache">
+      
+      
+      
+        <link rel="canonical" href="https://thu-pacman.github.io/ChituDiffusion/usage/fast-cp-installation/">
+      
+      
+        <link rel="prev" href="../installation/">
+      
+      
+        <link rel="next" href="../running/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Fast CP 安装与启用 - ChituDiffusion</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#fast-cp" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href="../.." title="ChituDiffusion" class="md-header__button md-logo" aria-label="ChituDiffusion" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ChituDiffusion
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Fast CP 安装与启用
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/thu-pacman/ChituDiffusion" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    thu-pacman/ChituDiffusion
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ChituDiffusion" class="md-nav__button md-logo" aria-label="ChituDiffusion" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    ChituDiffusion
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/thu-pacman/ChituDiffusion" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    thu-pacman/ChituDiffusion
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    项目概述
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    核心功能
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    核心功能
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/fast-cp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fast CP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/epe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EPE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/flexcache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FlexCache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/diffusers-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diffusers API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验功能
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    实验功能
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/vae-parallel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VAEP：VAE 并行解码
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    使用说明
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    使用说明
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    安装
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fast CP 安装与启用
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fast CP 安装与启用
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        支持范围
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 基础环境
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-nvshmem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. NVSHMEM 与通信扩展
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-attention-planner-cute" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Attention Planner 的 CuTe 后端
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 验证安装
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. 启用方式
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        常见问题与验收状态
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    运行
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../freecache-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FreeCache Preview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="fast-cp">安装与启用 Fast CP</h1>
+<p>本指南从干净的 ChituDiffusion checkout 开始，安装通信扩展、Attention Planner 的
+CuTe 后端，并验证多卡执行。所有命令在仓库根目录运行；不需要模型权重即可完成验证。</p>
+<p>本地依赖统一放在 <code>.deps/fast-cp/</code>，由 Git 忽略；Python 运行环境仍使用 <code>.venv/</code>：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>.deps/fast-cp/
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── src/fast-ulysses/       # 通信扩展源码及本地构建
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>├── src/flash-attention/    # CuTe FlashAttention 源码
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>├── python/                # NVSHMEM 等隔离安装的原生依赖
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>└── wheels/                # 可安装的扩展 wheel
+</code></pre></div>
+<p><code>source tools/install/fast_cp_env.sh</code> 统一设置加载路径，适用于 Python、torchrun 和
+Slurm。需要其他磁盘位置时，在 source 前设置 <code>FAST_CP_DEPS_ROOT</code>。</p>
+<h2 id="_1">支持范围</h2>
+<table>
+<thead>
+<tr>
+<th>入口</th>
+<th>当前范围</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Fast AGKV / Ulysses transport</td>
+<td>单节点、GPU P2P 全互通；扩展可构建 SM90 / SM120；连续 FP16/BF16 BSHD，行宽须为 16 字节的整数倍</td>
+</tr>
+<tr>
+<td>完整 attention wrapper</td>
+<td>已验证 H20 NVLink、CP2/4/8、TP1、B1、BF16、D128、等长序列分片、无 mask 的非 causal MHA</td>
+</tr>
+<tr>
+<td>模型 adapter</td>
+<td>Wan、Qwen-Image、Z-Image；显式接入 QKV projection 至 output projection</td>
+</tr>
+</tbody>
+</table>
+<p>SM120 通信扩展可构建，不代表 PRO 5000 已支持完整 wrapper。仅使用 NCCL 时无需
+安装以下扩展。硬件 profile、输入契约和资源管理见
+<a href="https://github.com/thu-pacman/ChituDiffusion/blob/main/chitu_diffusion/parallel/cp/fast/README.md">Fast CP README</a>。</p>
+<h2 id="1">1. 基础环境</h2>
+<p>需要 Linux、Python 3.12/3.13、C++17 编译器、CUDA toolkit（含 <code>nvcc</code> 和
+<code>cuobjdump</code>）、兼容的 NVIDIA driver。SM120 编译要求 CUDA 12.8+。下面以 CUDA 13
+为例，PyTorch wheel 与 toolkit 应采用匹配的 CUDA 版本。</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">source</span><span class="w"> </span>.venv/bin/activate
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nb">source</span><span class="w"> </span>tools/install/fast_cp_env.sh
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$FAST_CP_DEPS_ROOT</span><span class="s2">/src"</span><span class="w"> </span><span class="s2">"</span><span class="nv">$FAST_CP_DEPS_ROOT</span><span class="s2">/wheels"</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--python<span class="w"> </span>.venv/bin/python<span class="w"> </span>cmake<span class="w"> </span>ninja<span class="w"> </span>setuptools<span class="w"> </span>wheel
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_HOME</span><span class="o">=</span>/usr/local/cuda-13.0<span class="w">  </span><span class="c1"># 改为本机 toolkit 路径</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PATH</span><span class="o">=</span><span class="s2">"</span><span class="nv">$CUDA_HOME</span><span class="s2">/bin:</span><span class="nv">$PATH</span><span class="s2">"</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>nvcc<span class="w"> </span>--version
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s1">'import torch; print(torch.__version__, torch.version.cuda)'</span>
+</code></pre></div>
+<p>仓库目前锁定 Torch 2.10.0，默认使用 cu130 index；此前 H20 回归使用
+Torch 2.9.1+cu130。二者不是同一环境，升级后需要重新编译扩展和验收，不能直接复用
+旧 wheel 或假定得到相同延迟。基础环境选择见<a href="../installation/">安装</a>。</p>
+<h2 id="2-nvshmem">2. NVSHMEM 与通信扩展</h2>
+<p>准备包含 <code>include/nvshmem.h</code> 和 <code>lib/libnvshmem_host.so*</code> 的 NVSHMEM 安装。
+已有系统安装可直接设置 <code>NVSHMEM_HOME</code>；以下安装方式对应此前构建使用的
+NVSHMEM 3.7.2 host library，单独放置以免与 Torch 环境中的 NVSHMEM 包混淆：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--python<span class="w"> </span>.venv/bin/python<span class="w"> </span>--target<span class="w"> </span><span class="s2">"</span><span class="nv">$FAST_CP_DEPS_ROOT</span><span class="s2">/python"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="s1">'nvidia-nvshmem-cu12==3.7.2'</span>
+</code></pre></div>
+<p>在独立 checkout 中构建，避免使用带有历史实验改动的源码目录：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/triple-mu/fast-ulysses.git<span class="w"> </span><span class="s2">"</span><span class="nv">$FAST_CP_BUILD_ROOT</span><span class="s2">"</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>git<span class="w"> </span>-C<span class="w"> </span><span class="s2">"</span><span class="nv">$FAST_CP_BUILD_ROOT</span><span class="s2">"</span><span class="w"> </span>checkout<span class="w"> </span>6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>python<span class="w"> </span>tools/install/build_fast_cp.py<span class="w"> </span><span class="s2">"</span><span class="nv">$FAST_CP_BUILD_ROOT</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--architectures<span class="w"> </span><span class="m">90</span><span class="w"> </span>--cuda-home<span class="w"> </span><span class="s2">"</span><span class="nv">$CUDA_HOME</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span>--nvshmem-home<span class="w"> </span><span class="s2">"</span><span class="nv">$NVSHMEM_HOME</span><span class="s2">"</span><span class="w"> </span>--wheel-dir<span class="w"> </span><span class="s2">"</span><span class="nv">$FAST_CP_DEPS_ROOT</span><span class="s2">/wheels"</span><span class="w"> </span>--jobs<span class="w"> </span><span class="m">4</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>python<span class="w"> </span>tools/install/install_fast_agkv.py<span class="w"> </span><span class="s2">"</span><span class="nv">$FAST_CP_BUILD_ROOT</span><span class="s2">"</span><span class="w"> </span>--check
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--python<span class="w"> </span>.venv/bin/python<span class="w"> </span>--no-deps<span class="w"> </span>--force-reinstall<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="s2">"</span><span class="nv">$FAST_CP_DEPS_ROOT</span><span class="s2">"</span>/wheels/fast_ulysses-*.whl
+</code></pre></div>
+<p>只部署 H20 使用 <code>90</code>；包含 SM120 的扩展使用 <code>--architectures 90 120</code>。构建脚本
+应用仓库 <code>csrc/</code> 源码、编译并检查目标架构的 native CUDA image。<code>--check</code> 返回 0
+表示 overlay 源码一致，<strong>不检查二进制是否重新编译</strong>。安装时 wheel 目录应只包含
+本环境需要的一个版本。</p>
+<p><code>uv sync --extra fast-ulysses</code> 只安装上游依赖，不能代替上述 Chitu 扩展构建。
+<code>install_fast_agkv.py</code> 单独运行也只修改源码，不编译、不安装 wheel。</p>
+<h2 id="3-attention-planner-cute">3. Attention Planner 的 CuTe 后端</h2>
+<p>cuDNN 和 Triton 随 PyTorch 环境提供。完整候选集还需要 CuTe FlashAttention。
+以下固定源码版本与此前回归的依赖版本；通过源码路径加载，不构建无关的 FA2 扩展：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/Dao-AILab/flash-attention.git<span class="w"> </span><span class="s2">"</span><span class="nv">$FLASH_ATTENTION_ROOT</span><span class="s2">"</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>git<span class="w"> </span>-C<span class="w"> </span><span class="s2">"</span><span class="nv">$FLASH_ATTENTION_ROOT</span><span class="s2">"</span><span class="w"> </span>checkout<span class="w"> </span>d7e4dba3e568106b0f1b6323b07c1272f53679b3
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--python<span class="w"> </span>.venv/bin/python<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="s1">'nvidia-cutlass-dsl==4.6.1'</span><span class="w"> </span><span class="s1">'quack-kernels==0.6.2'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="s1">'apache-tvm-ffi==0.1.13.post2'</span><span class="w"> </span><span class="s1">'torch-c-dlpack-ext==0.1.5'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="s1">'cuda-python==13.3.1'</span>
+</code></pre></div>
+<p>Planner 使用该版本的内部 forward 接口，因此不应任意替换为另一个 <code>flash-attn</code>
+release。CuTe 无法导入时，相关计划会退回普通 SDPA；运行成功不一定表示优化已启用。
+不要把旧实验目录中的 streaming/segmented-KV 修改复制过来，它们不属于此安装路径。</p>
+<p>每次打开新终端或提交作业前，执行 <code>source tools/install/fast_cp_env.sh</code>。
+脚本会设置动态库路径和 Python 源码路径，并通过 <code>CHITU_EXTRA_PYTHONPATH</code> 将它们
+传递给 Slurm 工作进程。已有系统 NVSHMEM 可在 source 前设置 <code>NVSHMEM_HOME</code>；
+独立源码安装可通过 <code>FAST_CP_BUILD_ROOT</code> 和 <code>FLASH_ATTENTION_ROOT</code> 覆盖默认目录。</p>
+<p>额外依赖通过 <code>uv pip</code> 安装；再次执行 <code>uv sync</code> 可能移除它们或替换扩展，需重新执行
+相应安装步骤。运行命令直接使用 <code>.venv/bin/python</code>，或使用 <code>uv run --no-sync</code>。</p>
+<h2 id="4">4. 验证安装</h2>
+<p>在已分配 GPU 的节点上，先检查实际加载位置与必需算子：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>python<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;'PY'</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="s">import torch</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="s">import fast_ulysses</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="s">from chitu_diffusion.parallel.cp.fast.attention.cute import load_cute_flash_attn_fwd</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="s">print("Torch:", torch.__version__, "CUDA:", torch.version.cuda)</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="s">print("Fast CP:", fast_ulysses.__file__)</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="s">for name in ("fast_cp_device_info", "all_gather_kv_4d",</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="s">             "kv_projection_prepare", "kv_projection_send_ce_group",</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="s">             "projection_sync_prepare", "projection_sync"):</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="s">    assert hasattr(torch.ops.fast_ulysses, name), f"missing operator: {name}"</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="s">print("CuTe:", load_cute_flash_attn_fwd().__module__)</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="s">PY</span>
+</code></pre></div>
+<p>在有两张 H20 的节点上运行小规模正确性与性能检查：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">OMP_NUM_THREADS</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="nv">NCCL_GRAPH_MIXING_SUPPORT</span><span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="nv">NCCL_GRAPH_REGISTER</span><span class="o">=</span><span class="m">0</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TORCH_NCCL_ENABLE_MONITORING</span><span class="o">=</span><span class="m">0</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>python<span class="w"> </span>-m<span class="w"> </span>torch.distributed.run<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>-m<span class="w"> </span>tools.benchmarks.fast_cp_frameworks.chitu<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span>--method<span class="w"> </span>fast_agkv<span class="w"> </span>--sequence<span class="w"> </span><span class="m">4096</span><span class="w"> </span>--heads<span class="w"> </span><span class="m">40</span><span class="w"> </span>--head-dim<span class="w"> </span><span class="m">128</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span>--batch<span class="w"> </span><span class="m">1</span><span class="w"> </span>--component<span class="w"> </span>e2e<span class="w"> </span>--warmup<span class="w"> </span><span class="m">3</span><span class="w"> </span>--iterations<span class="w"> </span><span class="m">10</span><span class="w"> </span>--repeats<span class="w"> </span><span class="m">3</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span>--output<span class="w"> </span>outputs/fast-cp/install-smoke.json
+</code></pre></div>
+<p>Slurm 集群可在最后一条命令前加
+<code>srun --exclusive --nodes=1 --ntasks=1 --gres=gpu:2 --cpus-per-task=16</code>。
+JSON 应有 <code>status: complete</code>、<code>accuracy.checked: true</code>；查看
+<code>implementation.attention_plan</code> 确认实际计划。这里测试 Q/K/V 到 O，不包含 projection。
+全局序列长必须能被 CP 整除；修改参数即可测试其他形状。</p>
+<p>完整 wrapper 验收需要独占 8 张 H20，使用真实 Wan 1.3B/14B shape 和 Qwen/ZImage
+shape，无需 checkpoint：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>bash<span class="w"> </span>chitu_diffusion/parallel/cp/fast/test/run_wrapper.sh<span class="w"> </span>outputs/fast-cp/install-wrapper
+</code></pre></div>
+<p>测试脚本自动加载同一个环境文件；自定义依赖路径仍可通过环境变量覆盖。
+Slurm 提交和验收边界见
+<a href="https://github.com/thu-pacman/ChituDiffusion/blob/main/chitu_diffusion/parallel/cp/fast/test/README.md">测试说明</a>。</p>
+<p><a id="enable-fast-cp"></a></p>
+<h2 id="5">5. 启用方式</h2>
+<p><strong>已有 pipeline：选择 CP 算法和通信后端。</strong> 例如四卡 AGKV：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>python<span class="w"> </span>-m<span class="w"> </span>torch.distributed.run<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span>generate<span class="w"> </span>--model<span class="w"> </span>zimage<span class="w"> </span>--model-path<span class="w"> </span>/path/to/Z-Image<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>--cp-method<span class="w"> </span>agkv<span class="w"> </span>--cp-backend<span class="w"> </span>fast<span class="w"> </span>--no-cfg-parallel<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span>--output<span class="w"> </span>outputs/zimage-fast-agkv.png
+</code></pre></div>
+<p>Ulysses 使用 <code>--cp-method ulysses --cp-backend fast</code>。
+<code>--no-cfg-parallel</code> 避免四个 rank 被分给 CFG，使该示例使用 CP4。
+显式指定 <code>--cp-backend</code> 会覆盖对应的 transport 环境变量；省略时使用
+<code>CHITU_AGKV_TRANSPORT</code> / <code>CHITU_ULYSSES_TRANSPORT</code>，未设置时使用 Torch/NCCL。
+Ulysses 默认 <code>CHITU_FAST_ULYSSES_TRANSFER=auto</code>，
+按实际 shape 比较 SM/TMA/CE。</p>
+<p><strong>服务模式：在 stage 配置中选择通信后端。</strong> 四卡 Z-Image 示例为
+<a href="https://github.com/thu-pacman/ChituDiffusion/blob/main/examples/stage-zimage-fast-cp.yaml">Fast CP 服务配置</a>。
+修改其中的模型路径后运行：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>python<span class="w"> </span>-m<span class="w"> </span>torch.distributed.run<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>-m<span class="w"> </span>chitu_diffusion.cli<span class="w"> </span>serve<span class="w"> </span>--stage-config<span class="w"> </span>examples/stage-zimage-fast-cp.yaml
+</code></pre></div>
+<p>服务配置与 CLI 使用相同的两个维度：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">parallelism</span><span class="p">:</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">cp</span><span class="p">:</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="nt">world_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">agkv</span><span class="w">     </span><span class="c1"># agkv 或 ulysses</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fast</span><span class="w">    </span><span class="c1"># fast 或 nccl</span>
+</code></pre></div>
+<p>示例使用固定 CP4、TP1、CFG1；
+弹性调度改变 CP lane 宽度时，其他宽度使用 NCCL。</p>
+<p>旧 CLI 参数和 YAML 中的 <code>attention_mode</code>、<code>agkv_transport</code>、<code>ulysses_transport</code>
+继续兼容；与新参数冲突或与所选算法不匹配时会报错。</p>
+<p>Wan、Qwen-Image、Z-Image 的模型 processor 在选择 Fast transport 时也会启用
+Attention Planner。但这些入口尚未接入完整 wrapper 的对称槽位投影及 packed/CE
+调度，没有一个 CLI 或 YAML 开关能直接开启全部已验收的 block 优化。</p>
+<p><strong>完整优化区域：显式接入 wrapper。</strong> 先由应用完成 <code>dist.init_process_group</code> 和
+CP 分组，再调用 <code>init_fast_cp(cp_group, device=...)</code>，用模型 adapter 包装 attention，
+集体 <code>prepare()</code> 后执行。可用 adapter 为 <code>WanAdapter</code>、<code>QwenImageAdapter</code> 和
+<code>ZImageAdapter</code>；完整示例与输入分片契约见
+<a href="https://github.com/thu-pacman/ChituDiffusion/blob/main/chitu_diffusion/parallel/cp/fast/README.md#使用-wrapper">wrapper 用法</a>。
+它覆盖 Planner、NVSHMEM 和模型级 packed/CE overlap 调度。CLI 后端开关
+不会自动安装这个 wrapper，也不能单独复现它的全部性能收益。</p>
+<h2 id="_2">常见问题与验收状态</h2>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>检查方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>缺少 <code>fast_cp_device_info</code> / <code>kv_projection_*</code></td>
+<td>加载了上游或旧扩展；检查 <code>fast_ulysses.__file__</code>，应用 overlay 后重编译</td>
+</tr>
+<tr>
+<td><code>libnvshmem_host.so</code> 无法加载</td>
+<td>检查 <code>NVSHMEM_HOME</code> 和动态库搜索路径，构建与运行使用同一安装</td>
+</tr>
+<tr>
+<td><code>undefined symbol</code> / <code>no kernel image</code></td>
+<td>核对 Python/Torch/CUDA ABI 与目标 SM，重新构建</td>
+</tr>
+<tr>
+<td>CuTe 导入错误或计划退回 SDPA</td>
+<td>检查源码版本、CUTLASS DSL 依赖和 <code>PYTHONPATH</code></td>
+</tr>
+<tr>
+<td>P2P 不支持、wrapper 选择 origin</td>
+<td>核对可见 GPU 拓扑、硬件 profile 和输入契约；普通 NCCL 可作为兼容路径</td>
+</tr>
+<tr>
+<td>对称堆不足</td>
+<td>增加 <code>init_fast_cp(pool_bytes=...)</code> 或 transport 的 pool 配置；无需按每层单独建堆</td>
+</tr>
+</tbody>
+</table>
+<p>当前已有 H20 多卡运行回归；<strong>尚未完成本指南在全新环境中的完整构建与 wrapper
+验收</strong>。此前 GPU 测试复用了带实验改动的扩展和 CuTe checkout，且 Torch 版本与当前
+项目锁定版本不同。因此该指南给出可检查的安装流程，不将旧测试结果视为干净安装的
+证明；新部署应至少完成本页的 smoke test，发布前完成完整矩阵。</p>
+<p>本次文档核对已验证：固定上游版本的干净源码可应用 overlay，安装器 3 项测试通过；
+干净 CuTe 源码可导入，具有 Planner 所需的 forward/merge 接口。这些检查不涉及
+新环境的 CUDA 编译或 kernel 执行。</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "toc.integrate", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
