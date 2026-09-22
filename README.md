@@ -64,12 +64,18 @@ DiT 执行与 tensor 布局。
 
 **支持模型**
 
+Fast CP 列表示覆盖 QKV projection 至 output projection 的 wrapper adapter，
+当前需显式接入。已验证 H20 NVLink、CP2/4/8、TP1、B1、BF16、D128；
+🚧 WIP 表示完整模型适配仍在推进，不影响已有的 Fast transport 支持。
+详见 [Fast CP 模型支持](docs/features/fast-cp.md#model-adapters)。
+
 <table>
 <thead>
 <tr>
 <th>模型</th>
 <th>生成能力</th>
 <th>Hybrid Parallelism</th>
+<th>Fast CP（adapter）</th>
 <th>EPE Serve</th>
 <th>FlexCache</th>
 </tr>
@@ -79,6 +85,7 @@ DiT 执行与 tensor 布局。
 <td><a href="chitu_diffusion/models/flux1/README.md">FLUX.1</a></td>
 <td>文生图</td>
 <td>✅ CP（NCCL / Fast CP）</td>
+<td>🚧 WIP</td>
 <td>✅</td>
 <td>✅</td>
 </tr>
@@ -86,6 +93,7 @@ DiT 执行与 tensor 布局。
 <td><a href="chitu_diffusion/models/flux2_klein/README.md">FLUX.2-klein</a></td>
 <td>文生图</td>
 <td>✅ CP（固定 full-world 静态并行）</td>
+<td>🚧 WIP</td>
 <td>❌</td>
 <td>❌</td>
 </tr>
@@ -93,6 +101,7 @@ DiT 执行与 tensor 布局。
 <td><a href="chitu_diffusion/models/hunyuan_image3/README.md">Hunyuan Image 3</a></td>
 <td>固定尺寸文生图与图生图基础服务链路</td>
 <td>✅ TP × CFG × CP × EP、独立 VAEP<br>CP：NCCL / Fast AGKV / Fast Ulysses</td>
+<td>🚧 WIP</td>
 <td>✅ 仅 <code>static_cp</code></td>
 <td>❌</td>
 </tr>
@@ -100,6 +109,7 @@ DiT 执行与 tensor 布局。
 <td><a href="chitu_diffusion/models/llada_image/README.md">LLaDA-Image</a></td>
 <td>文生图、VQ 条件生成、单图编辑</td>
 <td>✅ CFG × CP（AGKV / Ulysses）</td>
+<td>🚧 WIP</td>
 <td>✅ 文生图</td>
 <td>❌</td>
 </tr>
@@ -107,6 +117,7 @@ DiT 执行与 tensor 布局。
 <td><a href="chitu_diffusion/models/minimax_h3/README.md">MiniMax-H3</a></td>
 <td>T2VA、first/last-frame FL2VA 基础服务链路</td>
 <td>✅ TP × CP、独立 VAEP<br>CP：NCCL / Fast AGKV / Fast Ulysses</td>
+<td>🚧 WIP</td>
 <td>✅</td>
 <td>❌</td>
 </tr>
@@ -114,6 +125,7 @@ DiT 执行与 tensor 布局。
 <td><a href="chitu_diffusion/models/qwen_image/README.md">Qwen-Image</a></td>
 <td>文生图</td>
 <td>✅ CFG × CP（NCCL / Fast CP）</td>
+<td>✅ <code>QwenImageAdapter</code></td>
 <td>✅</td>
 <td>✅</td>
 </tr>
@@ -121,6 +133,7 @@ DiT 执行与 tensor 布局。
 <td><a href="chitu_diffusion/models/wan/README.md">Wan 2.1 T2V</a></td>
 <td>文生视频</td>
 <td>✅ TP × CFG × CP（NCCL / Fast CP）</td>
+<td>✅ <code>WanAdapter</code><br>1.3B / 14B</td>
 <td>✅</td>
 <td>✅</td>
 </tr>
@@ -128,6 +141,7 @@ DiT 执行与 tensor 布局。
 <td><a href="chitu_diffusion/models/zimage/README.md">Z-Image</a></td>
 <td>文生图</td>
 <td>✅ TP × CFG × CP（NCCL / Fast CP）</td>
+<td>✅ <code>ZImageAdapter</code></td>
 <td>✅</td>
 <td>✅</td>
 </tr>
@@ -179,7 +193,8 @@ torchrun --standalone --nproc-per-node=8 -m chitu_diffusion.cli \
 ```
 
 Fast CP 需要兼容的单机 GPU、GPU P2P、NVSHMEM 和针对目标环境编译的扩展。参数和安装
-步骤见 [Fast CP README](chitu_diffusion/parallel/cp/fast/README.md)。
+步骤见 [Fast CP 安装与启用](docs/usage/fast-cp-installation.md)，接口与目录说明见
+[Fast CP README](chitu_diffusion/parallel/cp/fast/README.md)。
 
 ## FlexCache
 
@@ -302,12 +317,18 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 
 **Supported models**
 
+The Fast CP column lists wrapper adapters covering QKV projection through output
+projection; explicit integration is required. Validated on H20 NVLink with
+CP2/4/8, TP1, B1, BF16, and D128. 🚧 WIP marks ongoing model integration;
+existing Fast transport support is independent. See [model support](docs/features/fast-cp.md#model-adapters).
+
 <table>
 <thead>
 <tr>
 <th>Model</th>
 <th>Generation</th>
 <th>Hybrid Parallelism</th>
+<th>Fast CP (adapter)</th>
 <th>EPE Serve</th>
 <th>FlexCache</th>
 </tr>
@@ -317,6 +338,7 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <td><a href="chitu_diffusion/models/flux1/README.md">FLUX.1</a></td>
 <td>Text to image</td>
 <td>✅ CP (NCCL / Fast CP)</td>
+<td>🚧 WIP</td>
 <td>✅</td>
 <td>✅</td>
 </tr>
@@ -324,6 +346,7 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <td><a href="chitu_diffusion/models/flux2_klein/README.md">FLUX.2-klein</a></td>
 <td>Text to image</td>
 <td>✅ CP (fixed full-world static parallelism)</td>
+<td>🚧 WIP</td>
 <td>❌</td>
 <td>❌</td>
 </tr>
@@ -331,6 +354,7 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <td><a href="chitu_diffusion/models/hunyuan_image3/README.md">Hunyuan Image 3</a></td>
 <td>Foundational fixed-size text-to-image and image-to-image service path</td>
 <td>✅ TP × CFG × CP × EP, independent VAEP<br>CP: NCCL / Fast AGKV / Fast Ulysses</td>
+<td>🚧 WIP</td>
 <td>✅ <code>static_cp</code> only</td>
 <td>❌</td>
 </tr>
@@ -338,6 +362,7 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <td><a href="chitu_diffusion/models/llada_image/README.md">LLaDA-Image</a></td>
 <td>Text to image, VQ-conditioned generation, and single-image editing</td>
 <td>✅ CFG × CP (AGKV / Ulysses)</td>
+<td>🚧 WIP</td>
 <td>✅ Text to image</td>
 <td>❌</td>
 </tr>
@@ -345,6 +370,7 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <td><a href="chitu_diffusion/models/minimax_h3/README.md">MiniMax-H3</a></td>
 <td>Foundational T2VA and first/last-frame FL2VA service path</td>
 <td>✅ TP × CP, independent VAEP<br>CP: NCCL / Fast AGKV / Fast Ulysses</td>
+<td>🚧 WIP</td>
 <td>✅</td>
 <td>❌</td>
 </tr>
@@ -352,6 +378,7 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <td><a href="chitu_diffusion/models/qwen_image/README.md">Qwen-Image</a></td>
 <td>Text to image</td>
 <td>✅ CFG × CP (NCCL / Fast CP)</td>
+<td>✅ <code>QwenImageAdapter</code></td>
 <td>✅</td>
 <td>✅</td>
 </tr>
@@ -359,6 +386,7 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <td><a href="chitu_diffusion/models/wan/README.md">Wan 2.1 T2V</a></td>
 <td>Text to video</td>
 <td>✅ TP × CFG × CP (NCCL / Fast CP)</td>
+<td>✅ <code>WanAdapter</code><br>1.3B / 14B</td>
 <td>✅</td>
 <td>✅</td>
 </tr>
@@ -366,6 +394,7 @@ Adapters only supply model-specific DiT execution and tensor layouts.
 <td><a href="chitu_diffusion/models/zimage/README.md">Z-Image</a></td>
 <td>Text to image</td>
 <td>✅ TP × CFG × CP (NCCL / Fast CP)</td>
+<td>✅ <code>ZImageAdapter</code></td>
 <td>✅</td>
 <td>✅</td>
 </tr>
@@ -419,7 +448,8 @@ torchrun --standalone --nproc-per-node=8 -m chitu_diffusion.cli \
 
 Fast CP requires compatible single-node GPUs, GPU P2P, NVSHMEM, and extensions
 built for the target environment. See the
-[Fast CP README](chitu_diffusion/parallel/cp/fast/README.md).
+[installation guide](docs/usage/fast-cp-installation.md) and
+[Fast CP API and layout](chitu_diffusion/parallel/cp/fast/README.md).
 
 ## FlexCache
 

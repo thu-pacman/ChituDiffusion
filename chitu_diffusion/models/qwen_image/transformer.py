@@ -9,7 +9,7 @@ from diffusers.models.transformers.transformer_qwenimage import (
     compute_text_seq_len_from_mask,
 )
 
-from ...parallel.cp import EpeParallelContext
+from ...parallel.cp import EpeParallelContext, uses_fast_cp_transport
 from .attention import QwenImageCpAttnProcessor
 
 
@@ -20,9 +20,14 @@ class EpeQwenImageTransformer2DModel(QwenImageTransformer2DModel):
     def from_pretrained(cls, *args: Any, **kwargs: Any):
         parallel = kwargs.pop("parallel_context", None)
         attention_mode = kwargs.pop("attention_mode", "agkv")
+        shard_text = bool(kwargs.pop("shard_text", True))
         model = super().from_pretrained(*args, **kwargs)
         if parallel is not None:
-            model.configure_epe(parallel, attention_mode=attention_mode)
+            model.configure_epe(
+                parallel,
+                attention_mode=attention_mode,
+                shard_text=shard_text,
+            )
         return model
 
     def configure_epe(
@@ -30,12 +35,25 @@ class EpeQwenImageTransformer2DModel(QwenImageTransformer2DModel):
         parallel: EpeParallelContext,
         *,
         attention_mode: str = "agkv",
+        planned_attention: bool | None = None,
+        shard_text: bool = True,
     ) -> None:
-        processor = QwenImageCpAttnProcessor(parallel, mode=attention_mode)
+        if planned_attention is None:
+            planned_attention = uses_fast_cp_transport(parallel, attention_mode)
+        processors = []
         for block in self.transformer_blocks:
+            processor = QwenImageCpAttnProcessor(
+                parallel,
+                mode=attention_mode,
+                planned_attention=planned_attention,
+                sharded_text=shard_text,
+            )
             block.attn.set_processor(processor)
+            processors.append(processor)
         self.epe_parallel = parallel
-        self._epe_attn_processor = processor
+        self._epe_attn_processors = tuple(processors)
+        self._epe_attn_processor = processors[0] if processors else None
+        self._epe_shard_text = bool(shard_text)
 
     def forward(
         self,
@@ -137,10 +155,24 @@ class EpeQwenImageTransformer2DModel(QwenImageTransformer2DModel):
             max_txt_seq_len=text_seq_len,
             device=hidden_states.device,
         )
-        image_rotary_emb = (image_freqs[start:stop].contiguous(), text_freqs)
+        image_freqs = image_freqs[start:stop].contiguous()
+        shard_text = (
+            self._epe_shard_text
+            and encoder_hidden_states.shape[1] % topology.width == 0
+        )
+        if shard_text:
+            local_text_tokens = encoder_hidden_states.shape[1] // topology.width
+            text_start = topology.rank_in_lane * local_text_tokens
+            text_stop = text_start + local_text_tokens
+            encoder_hidden_states = encoder_hidden_states[
+                :, text_start:text_stop
+            ].contiguous()
+            text_freqs = text_freqs[text_start:text_stop].contiguous()
+        image_rotary_emb = (image_freqs, text_freqs)
 
-        processor = self._epe_attn_processor
-        processor.enable()
+        processors = self._epe_attn_processors
+        for processor in processors:
+            processor.enable(sharded_text=shard_text)
         try:
             for block in self.transformer_blocks:
                 encoder_hidden_states, hidden_states = block(
@@ -153,7 +185,8 @@ class EpeQwenImageTransformer2DModel(QwenImageTransformer2DModel):
                     modulate_index=None,
                 )
         finally:
-            processor.disable()
+            for processor in processors:
+                processor.disable()
 
         hidden_states = self.norm_out(hidden_states, temb)
         output = parallel.all_gather_sequence(self.proj_out(hidden_states))

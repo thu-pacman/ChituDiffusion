@@ -10,7 +10,7 @@ parallelism:
   # rest: CP is what remains of a plane after the CFG split.
   cp:
     world_size: 4
-    attention_mode: agkv
+    method: agkv
   model:
     tensor_parallel_degree: 2
     cfg_parallel_degree: 2

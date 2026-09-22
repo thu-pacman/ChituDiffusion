@@ -16,14 +16,15 @@ from chitu_diffusion.commands.generate.common import (
     write_generation_metadata,
 )
 from chitu_diffusion.commands.parallel_args import (
-    add_parallel_transport_arguments,
+    add_cp_arguments,
     add_vae_parallel_arguments,
+    resolve_cp_arguments,
     static_parallel_pipeline_kwargs,
     validate_vae_parallel_arguments,
 )
 
 
-def main() -> None:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate one Wan2.1 T2V result with EPE full-world parallelism."
     )
@@ -38,7 +39,6 @@ def main() -> None:
     parser.add_argument("--guidance-scale", type=float, default=6.0)
     parser.add_argument("--flow-shift", type=float, default=8.0)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--attention-mode", choices=("agkv", "ulysses"), default="agkv")
     parser.add_argument("--ulysses-degree", type=int)
     parser.add_argument(
         "--tensor-parallel-degree",
@@ -50,14 +50,19 @@ def main() -> None:
             "odd degrees the head count would otherwise allow."
         ),
     )
-    add_parallel_transport_arguments(parser)
+    add_cp_arguments(parser)
     parser.add_argument(
         "--cfg-parallel", action=argparse.BooleanOptionalAction, default=True
     )
     add_vae_parallel_arguments(parser)
     add_cache_arguments(parser)
-    args = parser.parse_args()
+    args = resolve_cp_arguments(parser, parser.parse_args())
     validate_vae_parallel_arguments(parser, args)
+    return args
+
+
+def main() -> None:
+    args = parse_args()
     cache = cache_config_from_args(args)
     cache.validate_steps(args.steps)
 

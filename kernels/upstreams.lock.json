@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "sources": {
+    "hpc-ops": {
+      "url": "https://github.com/Tencent/hpc-ops.git",
+      "branch": "main",
+      "commit": "82d80e8d2ed98c9dff338ff10564b8f0adbd8583",
+      "reviewed_at": "2026-07-21T05:54:34.322459+00:00"
+    },
+    "sglang": {
+      "url": "https://github.com/sgl-project/sglang.git",
+      "branch": "main",
+      "commit": "d6ef68881e263812d4901f632786015005c4d050",
+      "reviewed_at": "2026-07-21T05:54:34.322459+00:00"
+    },
+    "vllm": {
+      "url": "https://github.com/vllm-project/vllm.git",
+      "branch": "main",
+      "commit": "616c9bd0f4efff9761fd762e4247e18b6bd7eb23",
+      "reviewed_at": "2026-07-21T05:56:53.522923+00:00"
+    }
+  }
+}

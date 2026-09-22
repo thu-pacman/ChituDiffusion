@@ -8,6 +8,7 @@ import yaml
 
 from ..epe.contracts import ContextParallelPlan, ModelParallelPlan, VaeParallelPlan
 from ..flexcache.config import CacheConfig
+from ..parallel.cp.options import resolve_cp_options
 
 _LEGACY_CONFIG_FIELDS = {
     "infer",
@@ -24,7 +25,7 @@ _MIGRATED_CONFIG_FIELDS = {
     "parallelism.sp": "parallelism.cp.world_size",
     "parallelism.tp": "parallelism.model.tensor_parallel_degree",
     "parallelism.chitu_pool": "parallelism.scheduler",
-    "factory_args.attention_mode": "parallelism.cp.attention_mode",
+    "factory_args.attention_mode": "parallelism.cp.method",
     "factory_args.ulysses_degree": "parallelism.cp.ulysses_degree",
     "factory_args.cfg_parallel": "parallelism.model.cfg_parallel_degree",
     "factory_args.expert_parallel_degree": (
@@ -387,6 +388,8 @@ class ParallelismConfig:
             frozenset(
                 {
                     "world_size",
+                    "method",
+                    "backend",
                     "attention_mode",
                     "ulysses_degree",
                     "ulysses_transport",
@@ -395,14 +398,24 @@ class ParallelismConfig:
             ),
         )
         ulysses_degree = cp_raw.get("ulysses_degree")
+        try:
+            method, backend = resolve_cp_options(
+                method=cp_raw.get("method"),
+                backend=cp_raw.get("backend"),
+                attention_mode=cp_raw.get("attention_mode"),
+                ulysses_transport=_transport(cp_raw, "ulysses_transport"),
+                agkv_transport=_transport(cp_raw, "agkv_transport"),
+            )
+        except ValueError as exc:
+            raise ValueError(f"parallelism.cp: {exc}") from exc
         cp = ContextParallelPlan(
             world_size=int(cp_raw.get("world_size", gpu_count // tp)),
-            attention_mode=str(cp_raw.get("attention_mode", "agkv")),
+            attention_mode=method,
             ulysses_degree=(
                 None if ulysses_degree is None else int(ulysses_degree)
             ),
-            ulysses_transport=_transport(cp_raw, "ulysses_transport"),
-            agkv_transport=_transport(cp_raw, "agkv_transport"),
+            ulysses_transport=backend if method == "ulysses" else None,
+            agkv_transport=backend if method == "agkv" else None,
         )
         if cp.world_size * tp != gpu_count:
             raise ValueError(

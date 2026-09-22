@@ -14,7 +14,8 @@ from chitu_diffusion.commands.generate.common import (
     write_generation_metadata,
 )
 from chitu_diffusion.commands.parallel_args import (
-    add_parallel_transport_arguments,
+    add_cp_arguments,
+    resolve_cp_arguments,
     static_parallel_pipeline_kwargs,
 )
 
@@ -32,13 +33,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--steps", type=int, default=4)
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--attention-mode", choices=("agkv", "ulysses"), default="agkv")
     parser.add_argument("--ulysses-degree", type=int)
-    add_parallel_transport_arguments(parser)
+    add_cp_arguments(parser)
     parser.add_argument(
         "--parallel-vae", action=argparse.BooleanOptionalAction, default=True
     )
-    return parser.parse_args()
+    return resolve_cp_arguments(parser, parser.parse_args())
 
 
 def main() -> None:

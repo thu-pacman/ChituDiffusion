@@ -1,8 +1,33 @@
-"""Fast context-parallel algorithms and transports."""
+"""Fast CP inference regions and transports.
 
-from ._runtime import AsyncFastAgkvHandle, FastUlyssesAllToAll, probe_fast_ulysses
-from .agkv_transport import FastAgkvTransport
-from .ulysses import FastUlyssesSubgroupTransport, FastUlyssesTransport
+Model adapters load on demand. Importing transports does not load model kernels.
+The package root is the supported consumer API.
+"""
+
+from .api import FastCPAttention, FastCPRuntime, init_fast_cp
+from .runtime import (
+    AsyncFastAgkvHandle,
+    FastAgkvTransport,
+    FastUlyssesAllToAll,
+    FastUlyssesSubgroupTransport,
+    FastUlyssesTransport,
+    probe_fast_ulysses,
+)
+
+
+def __getattr__(name):
+    if name in {"WanAdapter", "QwenImageAdapter", "ZImageAdapter"}:
+        from . import adapters
+
+        value = getattr(adapters, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))
+
 
 __all__ = [
     "AsyncFastAgkvHandle",
@@ -11,4 +36,10 @@ __all__ = [
     "FastUlyssesSubgroupTransport",
     "FastUlyssesTransport",
     "probe_fast_ulysses",
+    "FastCPAttention",
+    "FastCPRuntime",
+    "init_fast_cp",
+    "WanAdapter",
+    "QwenImageAdapter",
+    "ZImageAdapter",
 ]

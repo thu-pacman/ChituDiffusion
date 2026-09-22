@@ -4,27 +4,62 @@ import argparse
 import os
 
 from chitu_diffusion.parallel.cp import AGKV_TRANSPORTS, ULYSSES_TRANSPORTS
+from chitu_diffusion.parallel.cp.options import (
+    CP_BACKENDS,
+    CP_METHODS,
+    resolve_cp_options,
+)
 
 
-def add_parallel_transport_arguments(parser: argparse.ArgumentParser) -> None:
+def add_cp_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--cp-method",
+        choices=CP_METHODS,
+        help="Context-parallel algorithm (default: agkv).",
+    )
+    parser.add_argument(
+        "--cp-backend",
+        choices=CP_BACKENDS,
+        help=(
+            "Communication backend for the selected CP method. Defaults to "
+            "CHITU_AGKV_TRANSPORT/CHITU_ULYSSES_TRANSPORT or NCCL. "
+            "fast requires a supported single-node P2P lane."
+        ),
+    )
+    parser.add_argument("--attention-mode", choices=CP_METHODS, help=argparse.SUPPRESS)
     parser.add_argument(
         "--ulysses-transport",
         choices=ULYSSES_TRANSPORTS,
         default=None,
-        help=(
-            "Ulysses all-to-all transport. Defaults to CHITU_ULYSSES_TRANSPORT or "
-            "torch; fast_ulysses requires a single-node static CP lane."
-        ),
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--agkv-transport",
         choices=AGKV_TRANSPORTS,
         default=None,
-        help=(
-            "AGKV K/V gather transport. Defaults to CHITU_AGKV_TRANSPORT or "
-            "torch; fast_agkv requires a single-node static CP lane."
-        ),
+        help=argparse.SUPPRESS,
     )
+
+
+def resolve_cp_arguments(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> argparse.Namespace:
+    try:
+        method, backend = resolve_cp_options(
+            method=args.cp_method,
+            backend=args.cp_backend,
+            attention_mode=args.attention_mode,
+            agkv_transport=args.agkv_transport,
+            ulysses_transport=args.ulysses_transport,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    args.cp_method = args.attention_mode = method
+    args.cp_backend = backend
+    transport = {"fast": f"fast_{method}", "nccl": "torch"}.get(backend, backend)
+    args.agkv_transport = transport if method == "agkv" else None
+    args.ulysses_transport = transport if method == "ulysses" else None
+    return args
 
 
 def add_vae_parallel_arguments(

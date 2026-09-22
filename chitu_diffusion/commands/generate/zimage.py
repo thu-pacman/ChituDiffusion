@@ -17,8 +17,9 @@ from chitu_diffusion.commands.generate.common import (
     write_generation_metadata,
 )
 from chitu_diffusion.commands.parallel_args import (
-    add_parallel_transport_arguments,
+    add_cp_arguments,
     add_vae_parallel_arguments,
+    resolve_cp_arguments,
     static_parallel_pipeline_kwargs,
     validate_vae_parallel_arguments,
 )
@@ -39,11 +40,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=1024)
     parser.add_argument("--steps", type=int, default=50)
     parser.add_argument("--guidance-scale", type=float, default=5.0)
-    parser.add_argument(
-        "--attention-mode",
-        choices=("agkv", "ulysses"),
-        default="agkv",
-    )
     parser.add_argument("--ulysses-degree", type=int, default=None)
     parser.add_argument(
         "--tensor-parallel-degree",
@@ -54,7 +50,7 @@ def parse_args() -> argparse.Namespace:
             "head count (30) and the world size."
         ),
     )
-    add_parallel_transport_arguments(parser)
+    add_cp_arguments(parser)
     parser.add_argument(
         "--cfg-parallel",
         action=argparse.BooleanOptionalAction,
@@ -75,7 +71,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("outputs/chitu/zimage_epe.png"),
     )
-    args = parser.parse_args()
+    args = resolve_cp_arguments(parser, parser.parse_args())
     if not args.model_path:
         parser.error("--model-path or ZIMAGE_MODEL_PATH is required")
     if args.steps <= 0:

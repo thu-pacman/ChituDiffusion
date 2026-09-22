@@ -1,0 +1,30 @@
+[
+  {
+    "run_dir": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_silu_mul/chitubench-flux2-silu-mul-1gpu-20260721_154953-5ef4e4eb",
+    "run_name": "chitubench-flux2-silu-mul-1gpu-20260721_154953-5ef4e4eb",
+    "case": "torch_sdpa_math",
+    "task_id": "torch_sdpa_math_silu_mul_smoke_seed42",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "seed": 42,
+    "generated": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_silu_mul/chitubench-flux2-silu-mul-1gpu-20260721_154953-5ef4e4eb/results/torch_sdpa_math_silu_mul_smoke_seed42/A_translucent_glass__torch_sdpa_math_silu_mul_smoke_seed42.png",
+    "reference": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_silu_mul/chitubench-flux2-silu-mul-1gpu-20260721_154953-5ef4e4eb/results/torch_sdpa_math_silu_mul_smoke_seed42/A_translucent_glass__torch_sdpa_math_silu_mul_smoke_seed42.png",
+    "psnr": Infinity,
+    "ssim": 1.0,
+    "one_minus_lpips": 1.0,
+    "hpsv3_score": null
+  },
+  {
+    "run_dir": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_silu_mul/chitubench-flux2-silu-mul-1gpu-20260721_155017-edaf814b",
+    "run_name": "chitubench-flux2-silu-mul-1gpu-20260721_155017-edaf814b",
+    "case": "torch_sdpa_math",
+    "task_id": "torch_sdpa_math_silu_mul_smoke_seed42",
+    "prompt": "A translucent glass orchid sculpture on a wet black stone table, studio macro photography, sharp caustic light, rich reflections.",
+    "seed": 42,
+    "generated": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_silu_mul/chitubench-flux2-silu-mul-1gpu-20260721_155017-edaf814b/results/torch_sdpa_math_silu_mul_smoke_seed42/A_translucent_glass__torch_sdpa_math_silu_mul_smoke_seed42.png",
+    "reference": "/home/chenyy/WORK/cyy/ChituDiffusion/ChituBench/results/flux2_klein_silu_mul/chitubench-flux2-silu-mul-1gpu-20260721_154953-5ef4e4eb/results/torch_sdpa_math_silu_mul_smoke_seed42/A_translucent_glass__torch_sdpa_math_silu_mul_smoke_seed42.png",
+    "psnr": 44.23378298008899,
+    "ssim": 0.9984423518180847,
+    "one_minus_lpips": 0.9994380869320594,
+    "hpsv3_score": null
+  }
+]

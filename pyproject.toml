@@ -47,7 +47,7 @@ chitu = "chitu_diffusion.cli:main"
 include = ["chitu_diffusion*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "chitu_diffusion/parallel/cp/fast/test"]
 markers = [
     "benchmark: performance measurements excluded from routine correctness runs",
     "distributed: requires torchrun with multiple ranks",
@@ -65,7 +65,8 @@ dev = [
 
 [tool.ruff]
 target-version = "py312"
-extend-exclude = ["refs"]
+# Archived snapshots are retained for reference and are not maintained code.
+extend-exclude = ["refs", "backup/chitu_diffusion_legacy"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

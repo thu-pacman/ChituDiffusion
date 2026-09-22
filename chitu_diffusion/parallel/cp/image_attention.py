@@ -28,6 +28,16 @@ def resolve_context_parallel_config(
     return normalized_mode, degree
 
 
+def uses_fast_cp_transport(parallel: object, mode: str) -> bool:
+    """Return whether the active lane uses the Fast CP transport for ``mode``."""
+    normalized_mode, _ = resolve_context_parallel_config(mode)
+    if normalized_mode == "ulysses":
+        transport = parallel.active_ulysses.transport
+        return getattr(transport, "name", None) == "fast_ulysses"
+    transport = parallel.active_agkv_transport
+    return getattr(transport, "name", None) == "fast_agkv"
+
+
 def _sdpa(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -44,6 +54,12 @@ def _sdpa(
         .transpose(1, 2)
         .contiguous()
     )
+
+
+def _group_world_size(process_group: object | None) -> int:
+    if not dist.is_initialized():
+        return 1
+    return dist.get_world_size(process_group)
 
 
 def _pad_heads(tensor: torch.Tensor, degree: int) -> tuple[torch.Tensor, int]:
@@ -103,8 +119,36 @@ def _ulysses_qkv(
 class ImageContextParallelAttention:
     """Attention for sequence-sharded image and replicated joint tokens."""
 
-    def __init__(self, mode: str = "agkv") -> None:
+    def __init__(self, mode: str = "agkv", *, planned: bool = False) -> None:
         self.mode, _ = resolve_context_parallel_config(mode)
+        self.planned = bool(planned)
+        self._prepared_attention = None
+
+    def _attend(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        *,
+        cp_degree: int,
+    ) -> torch.Tensor:
+        if not self.planned:
+            return _sdpa(query, key, value)
+        if self._prepared_attention is None:
+            from .fast.attention import prepare_attention
+
+            self._prepared_attention = prepare_attention(
+                query,
+                key,
+                value,
+                cp_degree=cp_degree,
+            )
+        return self._prepared_attention(query, key, value)
+
+    @property
+    def attention_plan(self):
+        prepared = self._prepared_attention
+        return None if prepared is None else prepared.plan
 
     def __call__(
         self,
@@ -119,8 +163,74 @@ class ImageContextParallelAttention:
         ulysses_topology: UlyssesTopology | None = None,
         agkv_transport: AgkvTransport | None = None,
         joint_first: bool = False,
+        joint_sharded: bool = False,
+        joint_qkv: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return ``(joint_output, local_image_output)`` in sequence-major layout."""
+        """Return ``(joint_output, local_image_output)`` in sequence-major layout.
+
+        A producer may supply preassembled ``joint_qkv`` for sharded text to
+        avoid concatenation. Its token order must follow ``joint_first``.
+        """
+        if joint_qkv is not None and not joint_sharded:
+            raise ValueError("preassembled joint QKV requires sharded joint tokens")
+        if joint_sharded:
+            if joint_qkv is not None:
+                query, key, value = joint_qkv
+                expected = (
+                    image_query.shape[0],
+                    image_query.shape[1] + joint_query.shape[1],
+                    *image_query.shape[2:],
+                )
+                if any(t.shape != expected for t in joint_qkv):
+                    raise ValueError("preassembled joint QKV must match both sequence shards")
+            elif joint_first:
+                query = torch.cat([joint_query, image_query], dim=1)
+                key = torch.cat([joint_key, image_key], dim=1)
+                value = torch.cat([joint_value, image_value], dim=1)
+            else:
+                query = torch.cat([image_query, joint_query], dim=1)
+                key = torch.cat([image_key, joint_key], dim=1)
+                value = torch.cat([image_value, joint_value], dim=1)
+            joint_tokens = joint_query.shape[1]
+            image_tokens = image_query.shape[1]
+            if self.mode == "ulysses":
+                if ulysses_topology is None:
+                    raise ValueError("ulysses_topology is required for Ulysses attention")
+                query, key, value, original_heads = _ulysses_qkv(
+                    query, key, value, ulysses_topology
+                )
+                output = self._attend(
+                    query,
+                    key,
+                    value,
+                    cp_degree=ulysses_topology.degree,
+                )
+                output = ulysses_topology.transport.all_to_all(
+                    output, 1, 2
+                )[:, :, :original_heads]
+            else:
+                if agkv_transport is None:
+                    key, value = all_gather_sequence_pair(
+                        key, value, lane_process_group
+                    )
+                else:
+                    key, value = agkv_transport.all_gather_kv(key, value)
+                output = self._attend(
+                    query,
+                    key,
+                    value,
+                    cp_degree=_group_world_size(lane_process_group),
+                )
+            if joint_first:
+                return (
+                    output[:, :joint_tokens].contiguous(),
+                    output[:, joint_tokens : joint_tokens + image_tokens].contiguous(),
+                )
+            return (
+                output[:, image_tokens : image_tokens + joint_tokens].contiguous(),
+                output[:, :image_tokens].contiguous(),
+            )
+
         if self.mode == "ulysses":
             if ulysses_topology is None:
                 raise ValueError("ulysses_topology is required for Ulysses attention")
@@ -142,18 +252,20 @@ class ImageContextParallelAttention:
             image_tokens = image_query.shape[1]
             joint_tokens = joint_query.shape[1]
             if joint_first:
-                output = _sdpa(
+                output = self._attend(
                     torch.cat([joint_query, image_query], dim=1),
                     torch.cat([joint_key, image_key], dim=1),
                     torch.cat([joint_value, image_value], dim=1),
+                    cp_degree=topology.degree,
                 )
                 joint_output = output[:, :joint_tokens]
                 image_output = output[:, joint_tokens:]
             else:
-                output = _sdpa(
+                output = self._attend(
                     torch.cat([image_query, joint_query], dim=1),
                     torch.cat([image_key, joint_key], dim=1),
                     torch.cat([image_value, joint_value], dim=1),
+                    cp_degree=topology.degree,
                 )
                 image_output = output[:, :image_tokens]
                 joint_output = output[:, image_tokens:]
@@ -179,19 +291,21 @@ class ImageContextParallelAttention:
             )
         if joint_first:
             joint_tokens = joint_query.shape[1]
-            output = _sdpa(
+            output = self._attend(
                 torch.cat([joint_query, image_query], dim=1),
                 torch.cat([joint_key, full_image_key], dim=1),
                 torch.cat([joint_value, full_image_value], dim=1),
+                cp_degree=_group_world_size(lane_process_group),
             )
             return (
                 output[:, :joint_tokens].contiguous(),
                 output[:, joint_tokens:].contiguous(),
             )
-        output = _sdpa(
+        output = self._attend(
             torch.cat([image_query, joint_query], dim=1),
             torch.cat([full_image_key, joint_key], dim=1),
             torch.cat([full_image_value, joint_value], dim=1),
+            cp_degree=_group_world_size(lane_process_group),
         )
         return (
             output[:, local_image_tokens:].contiguous(),
@@ -202,8 +316,36 @@ class ImageContextParallelAttention:
 class ImageSelfAttention:
     """Attention for a sequence sharded across one active EPE lane."""
 
-    def __init__(self, mode: str = "agkv") -> None:
+    def __init__(self, mode: str = "agkv", *, planned: bool = False) -> None:
         self.mode, _ = resolve_context_parallel_config(mode)
+        self.planned = bool(planned)
+        self._prepared_attention = None
+
+    def _attend(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        *,
+        cp_degree: int,
+    ) -> torch.Tensor:
+        if not self.planned:
+            return _sdpa(query, key, value)
+        if self._prepared_attention is None:
+            from .fast.attention import prepare_attention
+
+            self._prepared_attention = prepare_attention(
+                query,
+                key,
+                value,
+                cp_degree=cp_degree,
+            )
+        return self._prepared_attention(query, key, value)
+
+    @property
+    def attention_plan(self):
+        prepared = self._prepared_attention
+        return None if prepared is None else prepared.plan
 
     def __call__(
         self,
@@ -221,7 +363,12 @@ class ImageSelfAttention:
             query, key, value, original_heads = _ulysses_qkv(
                 query, key, value, ulysses_topology
             )
-            output = _sdpa(query, key, value)
+            output = self._attend(
+                query,
+                key,
+                value,
+                cp_degree=ulysses_topology.degree,
+            )
             return ulysses_topology.transport.all_to_all(
                 output,
                 1,
@@ -235,7 +382,12 @@ class ImageSelfAttention:
             )
         else:
             full_key, full_value = agkv_transport.all_gather_kv(key, value)
-        return _sdpa(query, full_key, full_value)
+        return self._attend(
+            query,
+            full_key,
+            full_value,
+            cp_degree=_group_world_size(lane_process_group),
+        )
 
     def finish_agkv(
         self,
@@ -245,7 +397,14 @@ class ImageSelfAttention:
     ) -> torch.Tensor:
         if self.mode != "agkv":
             raise RuntimeError("finish_agkv is only valid for AGKV attention")
-        return _sdpa(query, full_key, full_value)
+        local_tokens = max(int(query.shape[1]), 1)
+        cp_degree = max(int(full_key.shape[1]) // local_tokens, 1)
+        return self._attend(
+            query,
+            full_key,
+            full_value,
+            cp_degree=cp_degree,
+        )
 
     def finish_ulysses(
         self,
@@ -258,7 +417,12 @@ class ImageSelfAttention:
     ) -> torch.Tensor:
         if self.mode != "ulysses":
             raise RuntimeError("finish_ulysses is only valid for Ulysses attention")
-        output = _sdpa(query, key, value)
+        output = self._attend(
+            query,
+            key,
+            value,
+            cp_degree=topology.degree,
+        )
         transport = topology.transport
         if output_tag is not None:
             from .ulysses_transport import AsyncTaggedUlyssesTransport

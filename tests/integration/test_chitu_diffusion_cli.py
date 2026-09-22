@@ -50,8 +50,10 @@ def test_cli_does_not_expose_benchmark() -> None:
         cli.main(["benchmark"])
 
 
+@pytest.mark.parametrize("method", ["agkv", "ulysses"])
+@pytest.mark.parametrize("backend", ["fast", "nccl"])
 def test_zimage_cli_writes_generation_time_and_effective_vae_options(
-    monkeypatch, tmp_path, capsys
+    monkeypatch, tmp_path, capsys, method, backend
 ) -> None:
     from chitu_diffusion.commands.generate import zimage
 
@@ -86,6 +88,10 @@ def test_zimage_cli_writes_generation_time_and_effective_vae_options(
             "zimage",
             "--model-path",
             "unused",
+            "--cp-method",
+            method,
+            "--cp-backend",
+            backend,
             "--parallel-vae",
             "--vae-parallel-halo",
             "32",
@@ -94,6 +100,11 @@ def test_zimage_cli_writes_generation_time_and_effective_vae_options(
         ],
     )
     zimage.main()
+    assert loaded["attention_mode"] == method
+    expected = f"fast_{method}" if backend == "fast" else "torch"
+    assert loaded[f"{method}_transport"] == expected
+    other = "ulysses" if method == "agkv" else "agkv"
+    assert loaded[f"{other}_transport"] is None
     assert loaded["parallel_vae"] is True
     assert loaded["vae_parallel_halo"] == 32
     metadata = json.loads(output_path.with_suffix(".json").read_text())
@@ -105,6 +116,174 @@ def test_zimage_cli_writes_generation_time_and_effective_vae_options(
     assert metadata["vae_decode_mode"] == "leader"
     assert "elapsed_s=2.500" in capsys.readouterr().out
     assert closed == [True]
+
+
+@pytest.mark.parametrize("model", tuple(cli._GENERATE_MODULES))
+@pytest.mark.parametrize("method", ["agkv", "ulysses"])
+@pytest.mark.parametrize("backend", ["fast", "nccl"])
+def test_every_generate_entrypoint_resolves_cp_options(
+    monkeypatch, tmp_path, model, method, backend
+):
+    import importlib
+
+    module = importlib.import_module(cli._GENERATE_MODULES[model])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            model,
+            "--model-path",
+            str(tmp_path),
+            "--output",
+            "unused.png",
+            "--cp-method",
+            method,
+            "--cp-backend",
+            backend,
+        ],
+    )
+    args = module.parse_args()
+    assert args.cp_method == args.attention_mode == method
+    assert args.cp_backend == backend
+    expected = f"fast_{method}" if backend == "fast" else "torch"
+    assert getattr(args, f"{method}_transport") == expected
+
+
+@pytest.mark.parametrize(
+    ("flags", "method", "backend", "transport"),
+    [
+        ([], "agkv", None, None),
+        (["--agkv-transport", "fast_agkv"], "agkv", "fast", "fast_agkv"),
+        (
+            ["--attention-mode", "ulysses", "--ulysses-transport", "torch"],
+            "ulysses",
+            "nccl",
+            "torch",
+        ),
+        (["--agkv-transport", "auto"], "agkv", "auto", "auto"),
+        (
+            [
+                "--cp-method",
+                "agkv",
+                "--cp-backend",
+                "fast",
+                "--agkv-transport",
+                "fast_agkv",
+            ],
+            "agkv",
+            "fast",
+            "fast_agkv",
+        ),
+    ],
+)
+def test_generate_cp_defaults_and_legacy_options(
+    monkeypatch, flags, method, backend, transport
+):
+    from chitu_diffusion.commands.generate import qwen_image
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "qwen-image",
+            "--model-path",
+            "unused",
+            "--output",
+            "unused.png",
+            *flags,
+        ],
+    )
+    args = qwen_image.parse_args()
+    assert args.cp_method == method
+    assert args.cp_backend == backend
+    assert getattr(args, f"{method}_transport") == transport
+
+
+@pytest.mark.parametrize(
+    ("flags", "message"),
+    [
+        (
+            ["--cp-method", "ulysses", "--agkv-transport", "fast_agkv"],
+            "requires cp-method=agkv",
+        ),
+        (["--ulysses-transport", "fast_ulysses"], "requires cp-method=ulysses"),
+        (
+            ["--cp-method", "ulysses", "--attention-mode", "agkv"],
+            "conflicts with legacy attention-mode",
+        ),
+        (
+            ["--cp-backend", "nccl", "--agkv-transport", "fast_agkv"],
+            "conflicts with legacy agkv-transport",
+        ),
+        (["--cp-backend", "fast_agkv"], "invalid choice"),
+    ],
+)
+def test_generate_rejects_incompatible_cp_options(monkeypatch, flags, message, capsys):
+    from chitu_diffusion.commands.generate import qwen_image
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "qwen-image",
+            "--model-path",
+            "unused",
+            "--output",
+            "unused.png",
+            *flags,
+        ],
+    )
+    with pytest.raises(SystemExit) as failure:
+        qwen_image.parse_args()
+    assert failure.value.code == 2
+    assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("method", ["agkv", "ulysses"])
+@pytest.mark.parametrize("backend", ["fast", "nccl"])
+def test_explicit_cp_backend_overrides_transport_environment(
+    monkeypatch, method, backend
+):
+    from chitu_diffusion.commands.generate import qwen_image
+    from chitu_diffusion.parallel.cp import (
+        resolve_agkv_transport,
+        resolve_ulysses_transport,
+    )
+    from chitu_diffusion.serve.config import StageServiceConfig
+
+    monkeypatch.setenv(
+        f"CHITU_{method.upper()}_TRANSPORT",
+        "torch" if backend == "fast" else f"fast_{method}",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "qwen-image",
+            "--model-path",
+            "unused",
+            "--output",
+            "unused.png",
+            "--cp-method",
+            method,
+            "--cp-backend",
+            backend,
+        ],
+    )
+    args = qwen_image.parse_args()
+    stage = StageServiceConfig.from_mapping(
+        {
+            "name": "qwen",
+            "factory": "qwen-image",
+            "gpu": [0, 1, 2, 3],
+            "parallelism": {"cp": {"method": method, "backend": backend}},
+            "factory_args": {"model_path": "unused"},
+        }
+    )
+    resolve = resolve_agkv_transport if method == "agkv" else resolve_ulysses_transport
+    expected = f"fast_{method}" if backend == "fast" else "torch"
+    assert resolve(getattr(args, f"{method}_transport")) == expected
+    assert resolve(getattr(stage.parallelism.cp, f"{method}_transport")) == expected
 
 
 def test_legacy_config_fields_fail_fast() -> None:

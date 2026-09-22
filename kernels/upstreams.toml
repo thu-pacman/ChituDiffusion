@@ -1,0 +1,66 @@
+schema_version = 1
+reference_root = "refs/kernels"
+
+[[source]]
+name = "sglang"
+url = "https://github.com/sgl-project/sglang.git"
+branch = "main"
+priority = "high"
+paths = ["sgl-kernel", "python/sglang/multimodal_gen", "python/sglang/srt/layers"]
+topics = ["diffusion", "qk-norm", "rope", "fused-mlp", "quantization", "attention"]
+
+[[source]]
+name = "vllm"
+url = "https://github.com/vllm-project/vllm.git"
+branch = "main"
+priority = "medium"
+paths = ["vllm/attention", "vllm/model_executor/layers", "csrc"]
+topics = ["attention", "quantization", "fused-moe", "communication"]
+
+[[source]]
+name = "hpc-ops"
+url = "https://github.com/Tencent/hpc-ops.git"
+branch = "main"
+priority = "high"
+paths = ["hpc", "csrc", "benchmarks", "tests"]
+topics = ["h20", "hopper", "attention", "fp8", "sparse-attention", "communication"]
+
+[[source]]
+name = "flash-attention"
+url = "https://github.com/Dao-AILab/flash-attention.git"
+branch = "main"
+priority = "high"
+paths = ["hopper", "flash_attn", "csrc"]
+topics = ["flash-attention-3", "flash-attention-4", "hopper", "blackwell"]
+
+[[source]]
+name = "flashinfer"
+url = "https://github.com/flashinfer-ai/flashinfer.git"
+branch = "main"
+priority = "high"
+paths = ["flashinfer", "csrc", "benchmarks"]
+topics = ["attention", "rope", "sampling", "quantization", "jit"]
+
+[[source]]
+name = "sageattention"
+url = "https://github.com/thu-ml/SageAttention.git"
+branch = "main"
+priority = "high"
+paths = ["sageattention", "sageattention3_blackwell", "benchmark"]
+topics = ["int8-attention", "fp4-attention", "hopper", "blackwell"]
+
+[[source]]
+name = "vllm-omni"
+url = "https://github.com/vllm-project/vllm-omni.git"
+branch = "main"
+priority = "high"
+paths = ["vllm_omni/diffusion", "tests", "benchmarks"]
+topics = ["diffusion", "attention-backend", "sageattention3", "cudnn-attention"]
+
+[[source]]
+name = "fast-ulysses"
+url = "git@github.com:triple-mu/fast-ulysses.git"
+branch = "master"
+priority = "high"
+paths = ["fast_ulysses", "tests", "benchmark"]
+topics = ["context-parallel", "ulysses", "all-to-all", "nvshmem", "nvlink"]

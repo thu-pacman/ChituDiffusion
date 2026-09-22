@@ -18,8 +18,8 @@ from typing import Protocol
 
 import torch
 
-from ._cute import load_cute_flash_attn_fwd
-from ._ring_merge import fused_merge_flash_partials
+from ..attention.cute import load_cute_flash_attn_fwd
+from ..attention.merge import fused_merge_flash_partials
 
 
 @dataclass(frozen=True)

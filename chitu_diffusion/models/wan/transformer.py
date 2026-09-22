@@ -6,7 +6,7 @@ import torch
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.transformers.transformer_wan import WanTransformer3DModel
 
-from ...parallel.cp import EpeParallelContext
+from ...parallel.cp import EpeParallelContext, uses_fast_cp_transport
 from .attention import WanCpAttnProcessor
 from .tensor_parallel import load_tensor_parallel_transformer
 
@@ -34,12 +34,22 @@ class EpeWanTransformer3DModel(WanTransformer3DModel):
         parallel: EpeParallelContext,
         *,
         attention_mode: str = "agkv",
+        planned_attention: bool | None = None,
     ) -> None:
-        processor = WanCpAttnProcessor(parallel, mode=attention_mode)
+        if planned_attention is None:
+            planned_attention = uses_fast_cp_transport(parallel, attention_mode)
+        processors = []
         for block in self.blocks:
+            processor = WanCpAttnProcessor(
+                parallel,
+                mode=attention_mode,
+                planned_attention=planned_attention,
+            )
             block.attn1.set_processor(processor)
+            processors.append(processor)
         self.epe_parallel = parallel
-        self._epe_attn_processor = processor
+        self._epe_attn_processors = tuple(processors)
+        self._epe_attn_processor = processors[0] if processors else None
 
     def forward(
         self,

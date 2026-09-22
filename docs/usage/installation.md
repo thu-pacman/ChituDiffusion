@@ -69,16 +69,10 @@ HF_ENDPOINT=https://hf-mirror.com HF_HUB_DISABLE_XET=1 \
 
 ## 可选依赖
 
-Fast CP 需要 Fast Ulysses 与 NVSHMEM：
-
-```bash
-uv sync --group dev --extra fast-ulysses
-python tools/install/install_fast_agkv.py refs/fast-ulysses
-```
-
-第二步把 `chitu_diffusion/parallel/cp/fast/csrc/` 下的扩展源码装入 checkout。
-Fast transport 必须针对目标 CUDA、NVSHMEM 和 GPU 架构编译。只使用单卡或 NCCL CP
-时不需要这些扩展。
+Fast CP 需要 NVSHMEM、带 Chitu 源码 overlay 的 Fast Ulysses 扩展，以及供
+Attention Planner 使用的 CuTe 后端。按[Fast CP 安装与启用](fast-cp-installation.md)
+完成构建、安装和多卡验证。单独安装 `--extra fast-ulysses` 不包含完整 Chitu 扩展；
+只使用单卡或 NCCL CP 时不需要它。
 
 其他 attention backend 按需安装：
 

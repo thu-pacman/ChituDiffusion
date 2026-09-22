@@ -1,0 +1,4 @@
+interface:
+  display_name: "ChituDiffusion Kernel Sync"
+  short_description: "Track, evaluate, and integrate upstream diffusion kernels."
+  default_prompt: "Review upstream kernel updates, benchmark diffusion-relevant candidates, and update the ChituDiffusion kernel worklog."

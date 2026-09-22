@@ -5,7 +5,7 @@ gpu: [0, 1]
 parallelism:
   cp:
     world_size: 2
-    attention_mode: agkv
+    method: agkv
   model:
     cfg_parallel_degree: 2
   vae:

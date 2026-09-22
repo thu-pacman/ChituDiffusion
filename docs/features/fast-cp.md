@@ -1,115 +1,60 @@
 # Fast CP
 
-Fast CP 将 DiT 的图像或视频 token 分到多张 GPU。每张 GPU 只保存并计算本地 token，
-attention 通过通信获得完整上下文。ChituDiffusion 提供 AGKV 和 Ulysses 两种分片方式，
-并为二者提供 NCCL 与 Fast transport。
+Fast CP 通过序列并行降低 DiT attention 的多卡推理延迟。优化集中在三个方面：减少 GPU 间通信的中间拷贝，提高分片后 attention 的计算利用率，以及让数据搬运与投影计算重叠。
 
-## 基本原理
+## 并行方式
 
-### AGKV
+**AGKV** 按序列划分 Q/K/V。每张 GPU 保留本地 Q，收集全局 K/V 后计算本地输出。它不切分 attention heads，因此不会因 head 数与并行度不匹配而增加计算。
 
-每个 rank 保留本地 Q，只收集其他 rank 的 K/V。NCCL 路径使用
-`all_gather_into_tensor`，Fast AGKV 通过 NVSHMEM 把本地 K/V 直接写入目标 rank 的
-最终 buffer。通信结束后，各 rank 使用本地 Q 和全局 K/V 计算 attention。
+**Ulysses** 通过两次 all-to-all，在 attention 前后交换序列与 head 的分片维度。计算时，每张 GPU 处理完整序列和部分 heads。当 head 数不能被并行度整除时，需要补齐 heads，增加通信与计算量。
 
-AGKV 适合 head 数较少或序列较长的模型，因为它不要求按 rank 切分 attention heads。
+两种方式保持相同的 attention 语义，性能取决于序列长度、head 数、并行度和 GPU 互连。
 
-### Ulysses
+## 三层优化
 
-Ulysses 在 attention 前把张量从“局部序列、全部 heads”变换为“完整序列、局部
-heads”，attention 后执行反向变换。NCCL 路径使用 all-to-all，Fast Ulysses 使用
-NVSHMEM transport。
+1. **GPU 间数据搬运。** 使用 NVSHMEM 对称内存，让发送端直接写入接收端需要的布局，减少中间缓冲、内存重排和额外拷贝。投影结果也可直接写入通信槽位，缩短数据从计算到发送的路径。
+2. **Attention 计算。** Attention Planner 根据张量形状、GPU 和并行度选择计算后端与分块方案。短序列切分后，任务数量可能不足以充分利用所有 SM；Planner 对尾部任务沿 K/V 维拆分，增加可并行工作，再用 FP32 输出和归一化统计量合并结果。拆分与合并也有成本，因此只在适合的形状上采用。
+3. **GPU 内数据搬运与重叠。** 根据负载选择 SM、TMA 或 Copy Engine（CE）搬运，并调整多流调度。CE 不占用计算 SM，可将 K/V 发送与 Q 投影、归一化和位置编码重叠。Ulysses 分别选择输入和输出方向的搬运方式；AGKV 根据模型结构选择融合投影或通信重叠。
 
-Ulysses 的并行度必须整除 attention head 数。序列较短、head 数足够时，它通常比
-AGKV 更快。
+融合与重叠各有代价：融合投影减少小 GEMM 和中间访存，分开投影则能更早发送 K/V。Fast CP 在准备阶段选择执行方案，避免在每次推理中重新调优。减少拷贝能降低数据搬运成本，但端到端收益仍取决于这部分是否位于执行的关键路径。
 
-## 优化方案
+<a id="model-adapters"></a>
 
-Fast CP 包含以下优化：
+## 模型支持
 
-1. **直接写入最终 K/V buffer。** Fast AGKV 省去 NCCL gather 后的中间组织和重排。
-2. **通信与 Q/K/V 计算重叠。** Wan attention 在传输 K/V 时继续执行 Q projection、
-   norm 和 RoPE。Fast Ulysses 也可把 Q/K all-to-all 放到 Copy Engine。
-3. **共享 symmetric memory。** 同节点 Ulysses subgroup 复用 NVSHMEM symmetric
-   pool，避免每次 attention 重新分配通信 buffer。
-4. **Copy Engine 扇出按互连实测。** AGKV 与 all-to-all 的 CE 路径共用一套调度：
-   本地拷贝独占一条 stream，远端目标按 XOR 错开访问顺序，同时在飞的远端目标数
-   逐 shape 实测选择。NVLink 主机每个 peer 有独立链路，会保留原本的每 peer 一条
-   stream；PCIe 主机所有 peer 共用一个 egress 端口，铺开只会掉带宽，实测收敛到
-   单条远端 stream。8x RTX PRO 5000、CP8、Wan 14B shape 下 all-to-all CE 从
-   3.438 ms 降到 2.995 ms，且在 GEMM 之下完全隐藏。
-5. **按运行条件选择后端。** `torch` 使用 NCCL；`auto` 在 Fast transport 不可用时
-   回落到 NCCL；显式选择 Fast transport 而环境不满足要求时直接报错。
+当前模型适配覆盖从 QKV 投影到输出投影的完整 attention block，均支持 AGKV 和 Ulysses。
 
-`fast_cp/experimental/` 还包含 Fast Ring，用于 benchmark；模型 pipeline
-不会自动选择。原独立 fused Fast AGKV 实验已经合并到 Fast AGKV transport，
-不再作为第二条路径维护。
+| 模型 | AGKV 执行方式 | 验证负载 |
+| --- | --- | --- |
+| Wan 2.1 T2V 1.3B / 14B | K/V 发送与 Q 投影重叠 | 1.3B：S32760/H12；14B：S75600/H40 |
+| Qwen-Image | 图文序列分片，准备时选择融合 QKV 投影或 CE 重叠 | 图像 4096 + 文本 512，H24 |
+| Z-Image | 支持文本分片或复制，使用 CE 重叠 | 图像 4096 + 文本 512，H30 |
 
-Fast transport 当前要求单机 Hopper、CUDA P2P、NVSHMEM，以及针对目标 CUDA 和 GPU
-架构编译的扩展。多机静态 CP 使用 NCCL。
+Ulysses 使用串行通信与 attention，保留 Planner 和搬运方式选择。完整模型适配需要显式接入；现有命令行的 Fast transport 开关只选择通信后端。其他模型尚未提供完整 wrapper adapter，其已有的 Fast transport 支持不受影响。
 
-一个进程只能持有一个 NVSHMEM runtime，所以每个 rank 只有一条 CP lane 走 Fast，
-由 `fast_lane_width` 指定其宽度，默认是整个 TP plane。TP、EP、VAEP 和 CFG 分支合并
-都在别的通信域上，与之互不干扰；CFG 把 plane 切成两条半宽 CP lane 时，模型传入实际
-宽度即可让两条 lane 各自使用 Fast。scheduler 激活其它宽度的 lane 时自动回落 NCCL。
+## 性能
 
-## 优化结果
+以下测试使用单节点 H20 NVLink，固定 B1/H40/D128、BF16、非 causal attention。计时从已投影的本地 Q/K/V 到本地输出，包含通信和 attention，不包含输入、输出投影。加速比相对于相同形状的单卡 Chitu attention。
 
-下表来自单机 NVIDIA H20、BF16、`B=1`、`H=40`、`D=128`、dense non-causal
-attention。每个 CP 配置选择 Fast AGKV、Fast Ulysses 和 Fast Ring 中延迟最低的实现，
-加速比相对同环境单卡 cuDNN attention。
+| 全局序列长度 | Fast AGKV CP2 | CP4 | CP8 | Fast Ulysses CP2 | CP4 | CP8 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4096 | 1.78x | 2.90x | 4.05x | 1.71x | 2.91x | 4.92x |
+| 8192 | 1.87x | 3.37x | 5.55x | 1.83x | 3.46x | 6.33x |
+| 16384 | 1.95x | 3.68x | 6.63x | 1.95x | 3.77x | 7.28x |
+| 32768 | 1.96x | 3.81x | 7.22x | 1.96x | 3.88x | 7.65x |
 
-| 全局序列长度 | CP2 | CP4 | CP8 |
-| ---: | ---: | ---: | ---: |
-| 4K | 1.71x | 2.85x | 4.41x |
-| 8K | 1.88x | 3.43x | 5.84x |
-| 16K | 1.98x | 3.83x | 7.05x |
-| 32K | 1.99x | 4.00x | 7.67x |
-| 75.6K | 2.01x | 4.00x | 7.98x |
+短序列下，通信、同步和 kernel 启动开销限制了扩展效率。随着序列增长，attention 的计算量以平方增长，通信占比下降，多卡加速更接近线性。
 
-![H20 Fast CP scaling](../assets/fast_cp/fast-cp-h20-single-node-scaling.png)
+下图同时比较共享 attention 和模型 attention block。每个顶点以该负载的最低延迟归一化，100% 表示最快。模型 block 包含投影、归一化和位置编码，使用前述模型支持表中的实际形状。
 
-这些数字是 attention microbenchmark，不代表任意模型的端到端加速。模型加载、文本
-编码、VAE 和输出处理不会随 CP 线性缩短。
+![H20 原生 CP 延迟归一化雷达图](../assets/fast_cp/fast-cp-h20-native-relative-radar.png)
 
-## 使用示例
+模型测试使用随机权重，不包含完整去噪流程、文本编码器和 VAE，不能直接解释为完整生成任务的加速。图表保留对应测量版本，不将后续局部优化的收益叠加到已有结果中。测量方法、框架差异和消融结果见[基准报告](https://github.com/thu-pacman/ChituDiffusion/blob/main/tools/benchmarks/fast_cp_frameworks/RESULTS.md)，原始数值见[结果数据](../assets/fast_cp/README.md)。
 
-安装 Fast Ulysses 并装入 Fast CP 扩展源码：
+## 接入与适用范围
 
-```bash
-uv sync --extra fast-ulysses
-python tools/install/install_fast_agkv.py refs/fast-ulysses
-```
+模型 adapter 描述归一化、位置编码和文本分片语义，公共运行时负责通信内存、执行计划和资源管理。准备过程由所有 rank 共同完成；同形状的模型层复用通信槽位，避免通信内存随层数增长。普通调用支持输入地址变化；固定地址调用可进一步省去输入暂存和输出复制，但输出需要在下一次调用前使用或另行保存。
 
-运行四卡 Fast AGKV：
+完整 wrapper 已验证 H20 NVLink、CP2/4/8、TP1、B1、BF16、D128、等长序列分片，以及无 mask 的非 causal MHA。目前不支持外层 CUDA Graph 捕获或并发 stream 执行。SM120 支持基础通信扩展构建，完整模型路径仍需单独验证和性能校准；多机通信使用 NCCL。
 
-```bash
-torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
-  generate \
-  --model zimage \
-  --model-path /path/to/Z-Image \
-  --agkv-transport fast_agkv \
-  --output outputs/zimage-fast-agkv.png
-```
-
-运行四卡 Fast Ulysses：
-
-```bash
-torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
-  generate \
-  --model zimage \
-  --model-path /path/to/Z-Image \
-  --attention-mode ulysses \
-  --ulysses-transport fast_ulysses \
-  --output outputs/zimage-fast-ulysses.png
-```
-
-不安装 Fast 扩展时，默认 `torch` transport 使用 NCCL：
-
-```bash
-torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
-  generate \
-  --model zimage \
-  --model-path /path/to/Z-Image \
-  --output outputs/zimage-nccl.png
-```
+新环境按[安装与启用指南](../usage/fast-cp-installation.md)完成依赖、扩展构建和多卡检查。具体接口、输入约定和资源生命周期见[接入说明](https://github.com/thu-pacman/ChituDiffusion/blob/main/chitu_diffusion/parallel/cp/fast/README.md)。干净环境的完整构建与 GPU 验收仍待完成。

@@ -15,7 +15,10 @@ NUM_GPUS=$2
 SCRIPT=$3
 SCRIPT_ARGS=("${@:4}")
 
-PARTITION=${SRUN_PARTITION:-debug}
+PARTITION_ARGS=()
+if [[ -n "${SRUN_PARTITION:-}" ]]; then
+    PARTITION_ARGS=(--partition "$SRUN_PARTITION")
+fi
 CPUS_PER_GPU=${SRUN_CPUS_PER_GPU:-24}
 MEM_PER_GPU=${SRUN_MEM_PER_GPU:-242144}
 SRUN_EXTRA_ARGS=${SRUN_EXTRA_ARGS:-}
@@ -40,7 +43,7 @@ export TORCH_NCCL_ENABLE_MONITORING=${TORCH_NCCL_ENABLE_MONITORING:-0}
 export TORCH_NCCL_LOG_CPP_STACK_ON_UNCLEAN_SHUTDOWN=${TORCH_NCCL_LOG_CPP_STACK_ON_UNCLEAN_SHUTDOWN:-0}
 
 echo "Running with $NODES nodes, $NUM_GPUS GPUs per node"
-echo "Partition: $PARTITION"
+echo "Partition: ${SRUN_PARTITION:-<cluster default>}"
 echo "GPU type: ${SRUN_GPU_TYPE:-<any>}"
 echo "Job name: $JOB_NAME"
 echo "MASTER_PORT: $MASTER_PORT"
@@ -50,7 +53,7 @@ echo "Extra srun args: ${SRUN_EXTRA_ARGS:-<none>}"
 unset SLURM_JOB_ID SLURM_STEP_ID SLURM_NTASKS SLURM_NTASKS_PER_NODE 2>/dev/null || true
 
 # 使用 wrapper 脚本
-srun -p "$PARTITION" \
+srun "${PARTITION_ARGS[@]}" \
      $SRUN_EXTRA_ARGS \
      --job-name $JOB_NAME \
      --nodes $NODES \

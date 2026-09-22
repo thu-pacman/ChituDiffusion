@@ -1,0 +1,28 @@
+# Static CP4 with Fast AGKV transport; this does not install the full wrapper.
+name: image
+process: image
+factory: zimage
+gpu: [0, 1, 2, 3]
+parallelism:
+  cp:
+    world_size: 4
+    method: agkv
+    backend: fast
+    # For Fast Ulysses, set method: ulysses.
+  model:
+    tensor_parallel_degree: 1
+    cfg_parallel_degree: 1
+  vae:
+    enabled: false
+  scheduler:
+    policy: static_cp
+    allowed_lane_widths: [1, 4]
+    warmup_resolutions: [512]
+    warmup_steps: 3
+factory_args:
+  model_path: /path/to/Z-Image
+  default_width: 512
+  default_height: 512
+service:
+  host: 0.0.0.0
+  port: 18200
