@@ -3,6 +3,19 @@
 本指南从干净的 ChituDiffusion checkout 开始，安装通信扩展、Attention Planner 的
 CuTe 后端，并验证多卡执行。所有命令在仓库根目录运行；不需要模型权重即可完成验证。
 
+本地依赖统一放在 `.deps/fast-cp/`，由 Git 忽略；Python 运行环境仍使用 `.venv/`：
+
+```text
+.deps/fast-cp/
+├── src/fast-ulysses/       # 通信扩展源码及本地构建
+├── src/flash-attention/    # CuTe FlashAttention 源码
+├── python/                # NVSHMEM 等隔离安装的原生依赖
+└── wheels/                # 可安装的扩展 wheel
+```
+
+`source tools/install/fast_cp_env.sh` 统一设置加载路径，适用于 Python、torchrun 和
+Slurm。需要其他磁盘位置时，在 source 前设置 `FAST_CP_DEPS_ROOT`。
+
 ## 支持范围
 
 | 入口 | 当前范围 |
@@ -13,7 +26,7 @@ CuTe 后端，并验证多卡执行。所有命令在仓库根目录运行；不
 
 SM120 通信扩展可构建，不代表 PRO 5000 已支持完整 wrapper。仅使用 NCCL 时无需
 安装以下扩展。硬件 profile、输入契约和资源管理见
-[Fast CP README](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/chitu_diffusion/parallel/cp/fast/README.md)。
+[Fast CP README](https://github.com/thu-pacman/ChituDiffusion/blob/main/chitu_diffusion/parallel/cp/fast/README.md)。
 
 ## 1. 基础环境
 
@@ -24,6 +37,8 @@ SM120 通信扩展可构建，不代表 PRO 5000 已支持完整 wrapper。仅�
 ```bash
 uv sync --group dev
 source .venv/bin/activate
+source tools/install/fast_cp_env.sh
+mkdir -p "$FAST_CP_DEPS_ROOT/src" "$FAST_CP_DEPS_ROOT/wheels"
 uv pip install --python .venv/bin/python cmake ninja setuptools wheel
 
 export CUDA_HOME=/usr/local/cuda-13.0  # 改为本机 toolkit 路径
@@ -43,23 +58,21 @@ Torch 2.9.1+cu130。二者不是同一环境，升级后需要重新编译扩展
 NVSHMEM 3.7.2 host library，单独放置以免与 Torch 环境中的 NVSHMEM 包混淆：
 
 ```bash
-uv pip install --python .venv/bin/python --target .deps/fast-cp \
+uv pip install --python .venv/bin/python --target "$FAST_CP_DEPS_ROOT/python" \
   'nvidia-nvshmem-cu12==3.7.2'
-export NVSHMEM_HOME="$PWD/.deps/fast-cp/nvidia/nvshmem"
-export LD_LIBRARY_PATH="$NVSHMEM_HOME/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
 在独立 checkout 中构建，避免使用带有历史实验改动的源码目录：
 
 ```bash
-git clone https://github.com/triple-mu/fast-ulysses.git refs/fast-cp-build
-git -C refs/fast-cp-build checkout 6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87
-python tools/install/build_fast_cp.py refs/fast-cp-build \
+git clone https://github.com/triple-mu/fast-ulysses.git "$FAST_CP_BUILD_ROOT"
+git -C "$FAST_CP_BUILD_ROOT" checkout 6e5dcb24dc44e781ac3091d1d9b3f9fef314fb87
+python tools/install/build_fast_cp.py "$FAST_CP_BUILD_ROOT" \
   --architectures 90 --cuda-home "$CUDA_HOME" \
-  --nvshmem-home "$NVSHMEM_HOME" --wheel-dir dist/fast-cp --jobs 4
-python tools/install/install_fast_agkv.py refs/fast-cp-build --check
+  --nvshmem-home "$NVSHMEM_HOME" --wheel-dir "$FAST_CP_DEPS_ROOT/wheels" --jobs 4
+python tools/install/install_fast_agkv.py "$FAST_CP_BUILD_ROOT" --check
 uv pip install --python .venv/bin/python --no-deps --force-reinstall \
-  dist/fast-cp/fast_ulysses-*.whl
+  "$FAST_CP_DEPS_ROOT"/wheels/fast_ulysses-*.whl
 ```
 
 只部署 H20 使用 `90`；包含 SM120 的扩展使用 `--architectures 90 120`。构建脚本
@@ -76,35 +89,29 @@ cuDNN 和 Triton 随 PyTorch 环境提供。完整候选集还需要 CuTe FlashA
 以下固定源码版本与此前回归的依赖版本；通过源码路径加载，不构建无关的 FA2 扩展：
 
 ```bash
-git clone https://github.com/Dao-AILab/flash-attention.git refs/kernels/flash-attention
-git -C refs/kernels/flash-attention checkout d7e4dba3e568106b0f1b6323b07c1272f53679b3
+git clone https://github.com/Dao-AILab/flash-attention.git "$FLASH_ATTENTION_ROOT"
+git -C "$FLASH_ATTENTION_ROOT" checkout d7e4dba3e568106b0f1b6323b07c1272f53679b3
 uv pip install --python .venv/bin/python \
   'nvidia-cutlass-dsl==4.6.1' 'quack-kernels==0.6.2' \
   'apache-tvm-ffi==0.1.13.post2' 'torch-c-dlpack-ext==0.1.5' \
   'cuda-python==13.3.1'
-export FLASH_ATTENTION_ROOT="$PWD/refs/kernels/flash-attention"
-export PYTHONPATH="$PWD:$FLASH_ATTENTION_ROOT${PYTHONPATH:+:$PYTHONPATH}"
-# srun_direct.sh 会重建 PYTHONPATH，通过此变量保留额外源码目录。
-export CHITU_EXTRA_PYTHONPATH="$FLASH_ATTENTION_ROOT"
 ```
 
 Planner 使用该版本的内部 forward 接口，因此不应任意替换为另一个 `flash-attn`
 release。CuTe 无法导入时，相关计划会退回普通 SDPA；运行成功不一定表示优化已启用。
 不要把旧实验目录中的 streaming/segmented-KV 修改复制过来，它们不属于此安装路径。
 
-将 `CUDA_HOME`、`NVSHMEM_HOME`、`LD_LIBRARY_PATH` 和 `PYTHONPATH` 设置保存在
-部署环境或作业脚本中。额外依赖通过 `uv pip` 安装；再次执行 `uv sync` 可能移除它们
-或替换扩展，需重新执行相应安装步骤。运行命令直接使用 `.venv/bin/python`，或使用
-`uv run --no-sync`。
+每次打开新终端或提交作业前，执行 `source tools/install/fast_cp_env.sh`。
+脚本会设置动态库路径和 Python 源码路径，并通过 `CHITU_EXTRA_PYTHONPATH` 将它们
+传递给 Slurm 工作进程。已有系统 NVSHMEM 可在 source 前设置 `NVSHMEM_HOME`；
+独立源码安装可通过 `FAST_CP_BUILD_ROOT` 和 `FLASH_ATTENTION_ROOT` 覆盖默认目录。
 
-如果通信扩展只在 checkout 中编译、尚未安装 wheel，还需要将该 checkout 放在
-`CHITU_EXTRA_PYTHONPATH` 中，例如
-`export CHITU_EXTRA_PYTHONPATH="$PWD/refs/fast-cp-build:$FLASH_ATTENTION_ROOT"`。
-否则 Slurm 工作进程可能加载环境中较旧的 `fast_ulysses`。
+额外依赖通过 `uv pip` 安装；再次执行 `uv sync` 可能移除它们或替换扩展，需重新执行
+相应安装步骤。运行命令直接使用 `.venv/bin/python`，或使用 `uv run --no-sync`。
 
 ## 4. 验证安装
 
-先检查实际加载位置与必需算子：
+在已分配 GPU 的节点上，先检查实际加载位置与必需算子：
 
 ```bash
 python - <<'PY'
@@ -144,13 +151,12 @@ JSON 应有 `status: complete`、`accuracy.checked: true`；查看
 shape，无需 checkpoint：
 
 ```bash
-export FAST_CP_BUILD_ROOT="$PWD/refs/fast-cp-build"
 bash chitu_diffusion/parallel/cp/fast/test/run_wrapper.sh outputs/fast-cp/install-wrapper
 ```
 
-`FAST_CP_BUILD_ROOT` 覆盖测试脚本原有的本地 checkout 默认值。若 checkout 下没有
-`.deps/`，脚本会保留上面设置的 `LD_LIBRARY_PATH`。Slurm 提交和验收边界见
-[测试说明](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/chitu_diffusion/parallel/cp/fast/test/README.md)。
+测试脚本自动加载同一个环境文件；自定义依赖路径仍可通过环境变量覆盖。
+Slurm 提交和验收边界见
+[测试说明](https://github.com/thu-pacman/ChituDiffusion/blob/main/chitu_diffusion/parallel/cp/fast/test/README.md)。
 
 <a id="enable-fast-cp"></a>
 
@@ -173,7 +179,7 @@ Ulysses 默认 `CHITU_FAST_ULYSSES_TRANSFER=auto`，
 按实际 shape 比较 SM/TMA/CE。
 
 **服务模式：在 stage 配置中选择通信后端。** 四卡 Z-Image 示例为
-[Fast CP 服务配置](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/examples/stage-zimage-fast-cp.yaml)。
+[Fast CP 服务配置](https://github.com/thu-pacman/ChituDiffusion/blob/main/examples/stage-zimage-fast-cp.yaml)。
 修改其中的模型路径后运行：
 
 ```bash
@@ -205,7 +211,7 @@ Attention Planner。但这些入口尚未接入完整 wrapper 的对称槽位投
 CP 分组，再调用 `init_fast_cp(cp_group, device=...)`，用模型 adapter 包装 attention，
 集体 `prepare()` 后执行。可用 adapter 为 `WanAdapter`、`QwenImageAdapter` 和
 `ZImageAdapter`；完整示例与输入分片契约见
-[wrapper 用法](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/chitu_diffusion/parallel/cp/fast/README.md#使用-wrapper)。
+[wrapper 用法](https://github.com/thu-pacman/ChituDiffusion/blob/main/chitu_diffusion/parallel/cp/fast/README.md#使用-wrapper)。
 它覆盖 Planner、NVSHMEM 和模型级 packed/CE overlap 调度。CLI 后端开关
 不会自动安装这个 wrapper，也不能单独复现它的全部性能收益。
 

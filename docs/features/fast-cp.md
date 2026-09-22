@@ -49,7 +49,7 @@ Ulysses 使用串行通信与 attention，保留 Planner 和搬运方式选择�
 
 ![H20 原生 CP 延迟归一化雷达图](../assets/fast_cp/fast-cp-h20-native-relative-radar.png)
 
-模型测试使用随机权重，不包含完整去噪流程、文本编码器和 VAE，不能直接解释为完整生成任务的加速。图表保留对应测量版本，不将后续局部优化的收益叠加到已有结果中。测量方法、框架差异和消融结果见[基准报告](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/tools/benchmarks/fast_cp_frameworks/RESULTS.md)，原始数值见[结果数据](../assets/fast_cp/README.md)。
+模型测试使用随机权重，不包含完整去噪流程、文本编码器和 VAE，不能直接解释为完整生成任务的加速。图表保留对应测量版本，不将后续局部优化的收益叠加到已有结果中。测量方法、框架差异和消融结果见[基准报告](https://github.com/thu-pacman/ChituDiffusion/blob/main/tools/benchmarks/fast_cp_frameworks/RESULTS.md)，原始数值见[结果数据](../assets/fast_cp/README.md)。
 
 ## 接入与适用范围
 
@@ -57,4 +57,4 @@ Ulysses 使用串行通信与 attention，保留 Planner 和搬运方式选择�
 
 完整 wrapper 已验证 H20 NVLink、CP2/4/8、TP1、B1、BF16、D128、等长序列分片，以及无 mask 的非 causal MHA。目前不支持外层 CUDA Graph 捕获或并发 stream 执行。SM120 支持基础通信扩展构建，完整模型路径仍需单独验证和性能校准；多机通信使用 NCCL。
 
-新环境按[安装与启用指南](../usage/fast-cp-installation.md)完成依赖、扩展构建和多卡检查。具体接口、输入约定和资源生命周期见[接入说明](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/chitu_diffusion/parallel/cp/fast/README.md)。干净环境的完整构建与 GPU 验收仍待完成。
+新环境按[安装与启用指南](../usage/fast-cp-installation.md)完成依赖、扩展构建和多卡检查。具体接口、输入约定和资源生命周期见[接入说明](https://github.com/thu-pacman/ChituDiffusion/blob/main/chitu_diffusion/parallel/cp/fast/README.md)。干净环境的完整构建与 GPU 验收仍待完成。

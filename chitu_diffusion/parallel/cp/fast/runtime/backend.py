@@ -128,9 +128,9 @@ def probe_fast_ulysses(
         return False, (
             f"{reason} (loaded from {location}). Install the Chitu-patched "
             "extension using tools/install/build_fast_cp.py and install its wheel; "
-            "see docs/usage/fast-cp-installation.md. For an existing compiled "
-            "source checkout under srun_direct.sh, add its root to "
-            "CHITU_EXTRA_PYTHONPATH."
+            "see docs/usage/fast-cp-installation.md. For a compiled source "
+            "checkout, source tools/install/fast_cp_env.sh; it sets "
+            "CHITU_EXTRA_PYTHONPATH for Slurm."
         )
 
     if not hasattr(fast_ulysses, "UlyssesGroup"):

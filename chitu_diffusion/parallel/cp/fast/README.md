@@ -171,8 +171,8 @@ output = attention(query, key, value)
 bash chitu_diffusion/parallel/cp/fast/test/run_wrapper.sh
 ```
 
-新安装先按安装指南设置 `FAST_CP_BUILD_ROOT`、`FLASH_ATTENTION_ROOT` 和动态库路径，
-覆盖测试脚本的本地默认值。
+依赖统一安装在 `.deps/fast-cp/`，测试脚本自动加载 `tools/install/fast_cp_env.sh`。
+可通过 `FAST_CP_DEPS_ROOT` 指定其他安装位置，详见安装指南。
 
 脚本执行 pytest 和 24 组分布式检查，覆盖 Wan 1.3B S32760/H12、Wan 14B S75600/H40、
 Qwen/ZImage image4096+text512 的 CP2/4/8，导出 JSON/CSV。所有 workload 使用

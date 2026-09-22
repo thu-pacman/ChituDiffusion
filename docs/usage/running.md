@@ -76,20 +76,12 @@ Slurm 上生成 Qwen-Image，可使用仓库脚本申请单节点四卡：
 
 脚本默认使用集群默认分区；需要指定分区时，在个人环境中设置 `SRUN_PARTITION`。
 
-先完成 [Fast CP 安装与验证](fast-cp-installation.md)。下面的 `QWEN_IMAGE_MODEL_PATH`
-必须指向已有的本地权重目录。若通信扩展和 CuTe 通过源码 checkout 加载，在启动前设置：
+先完成 [Fast CP 安装与验证](fast-cp-installation.md)，并将 `QWEN_IMAGE_MODEL_PATH`
+设为已有的本地权重目录。统一环境脚本会从 `.deps/fast-cp/` 配置扩展、CuTe 和
+NVSHMEM 的加载路径：
 
 ```bash
-export CHITU_EXTRA_PYTHONPATH="$FAST_CP_BUILD_ROOT:$FLASH_ATTENTION_ROOT"
-export LD_LIBRARY_PATH="$NVSHMEM_HOME/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-```
-
-其中 `FAST_CP_BUILD_ROOT` 指向已编译的通信扩展目录，`FLASH_ATTENTION_ROOT` 指向
-CuTe FlashAttention 源码。若通信扩展已安装为 wheel，只需将 CuTe 源码加入
-`CHITU_EXTRA_PYTHONPATH`。集群脚本会重建 `PYTHONPATH`，因此普通 shell 中的
-`PYTHONPATH` 设置不能代替这个变量。
-
-```bash
+source tools/install/fast_cp_env.sh
 : "${QWEN_IMAGE_MODEL_PATH:?请设置为本地 Qwen-Image 权重目录}"
 bash tools/cluster/srun_direct.sh 1 4 \
   -m chitu_diffusion.cli generate \

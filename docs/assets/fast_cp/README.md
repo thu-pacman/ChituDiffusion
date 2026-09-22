@@ -20,7 +20,7 @@
 attention block，后者包括 projection、norm、RoPE、通信、attention 和 output
 projection。两种边界不能直接相加或互相替代。硬件、软件版本、误差和计时方式见
 [`docs/features/fast-cp.md`](../../features/fast-cp.md) 及
-[`tools/benchmarks/fast_cp_frameworks/RESULTS.md`](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/tools/benchmarks/fast_cp_frameworks/RESULTS.md)。
+[`tools/benchmarks/fast_cp_frameworks/RESULTS.md`](https://github.com/thu-pacman/ChituDiffusion/blob/main/tools/benchmarks/fast_cp_frameworks/RESULTS.md)。
 
 发布新结果时，应先重新生成 `outputs/fast-cp/cp-attention-native-*/results.csv` 和
 `outputs/fast-cp/figures/latest/*-values.csv`，再同步替换本目录中的三个 CSV。不要从
@@ -39,7 +39,7 @@ S32760/H12，14B 使用 S75600/H40。Qwen/ZImage 数据来自独占 node020 作�
 `(bound_ms/direct_ms - 1) × 100`，负数仅表示测量中绑定调用略快，不能解释为封装
 带来加速。四轮交替 AB/BA，每侧每轮 15 个样本，汇总取全部 60 个 rank-max 样本的
 中位数。计时不含普通入口的输入 staging 和输出复制。复现与边界说明见
-[`fast/test/README.md`](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/chitu_diffusion/parallel/cp/fast/test/README.md)。
+[`fast/test/README.md`](https://github.com/thu-pacman/ChituDiffusion/blob/main/chitu_diffusion/parallel/cp/fast/test/README.md)。
 
 目录重构回归来自独占 H20 node035 作业 246660，使用相同的实际 workload 和四轮
 交替 AB/BA 方法。24 组全部通过，绑定入口相对同一 prepared 实例直接调用的延迟

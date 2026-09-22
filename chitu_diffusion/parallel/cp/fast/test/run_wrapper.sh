@@ -11,13 +11,10 @@ else
 fi
 test_dir=$project_root/chitu_diffusion/parallel/cp/fast/test
 python_bin=${CHITU_PYTHON_BIN:-$project_root/.venv/bin/python}
-build_root=${FAST_CP_BUILD_ROOT:-$project_root/refs/fast-cp-sm90-sm120}
-attention_root=${FLASH_ATTENTION_ROOT:-$project_root/refs/kernels/flash-attention}
+source "$project_root/tools/install/fast_cp_env.sh"
 output_dir=${1:-$project_root/outputs/fast-cp/wrapper}
 
 cd "$project_root"
-export PYTHONPATH="$project_root:$build_root:$attention_root${PYTHONPATH:+:$PYTHONPATH}"
-export LD_LIBRARY_PATH="$build_root/.deps/nvidia/nvshmem/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export OMP_NUM_THREADS=1 NCCL_GRAPH_MIXING_SUPPORT=0 NCCL_GRAPH_REGISTER=0
 export TORCH_NCCL_ENABLE_MONITORING=0
 

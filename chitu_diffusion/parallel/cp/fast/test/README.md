@@ -79,14 +79,14 @@ Qwen 模板选择仍为 packed，Wan/ZImage 为 overlap，Ulysses 为 serial。
 数据仅使用作业 246660。此记录与前面的首次 wrapper 验收分别保存。
 
 本轮复用已有扩展二进制，未验证干净环境下的重新编译。安装器 `--check` 返回 1：
-本地 `refs/fast-cp-sm90-sm120` 的 `fast_agkv.cu/.cuh` 还包含额外实验实现，与仓库
+既有本地构建源码中的 `fast_agkv.cu/.cuh` 还包含额外实验实现，与仓库
 `csrc/` 不完全一致。重构前备份确认，本次未改动任何 `csrc/` 文件；发布前仍需在
 独立 checkout 上应用仓库源码、重新编译并复跑验收。
 
 ## 复现
 
-在已编译 Fast CP 扩展的 H20 节点上执行。以下路径对应当前工作区安装位置；换环境
-时调整扩展和 NVSHMEM 路径。
+在已安装 Fast CP 扩展的 H20 节点上执行。依赖默认位于 `.deps/fast-cp/`，
+测试脚本自动加载统一环境配置。
 
 一键运行单元测试与完整 24 组矩阵：
 
@@ -102,13 +102,12 @@ sbatch --exclusive --nodes=1 --ntasks=1 --gres=gpu:8 \
   chitu_diffusion/parallel/cp/fast/test/run_wrapper.sh outputs/fast-cp/wrapper
 ```
 
-可通过 `CHITU_PROJECT_ROOT`、`CHITU_PYTHON_BIN`、`FAST_CP_BUILD_ROOT` 和
-`FLASH_ATTENTION_ROOT` 指定安装路径。脚本不会改写 `docs/assets/` 中的正式结果。
+可通过 `FAST_CP_DEPS_ROOT` 指定依赖根目录；`CHITU_PROJECT_ROOT`、`CHITU_PYTHON_BIN`、
+`FAST_CP_BUILD_ROOT` 和 `FLASH_ATTENTION_ROOT` 可分别覆盖仓库、解释器和源码位置。脚本不会改写 `docs/assets/` 中的正式结果。
 手动运行相同检查：
 
 ```bash
-export PYTHONPATH="$PWD:$PWD/refs/fast-cp-sm90-sm120:$PWD/refs/kernels/flash-attention"
-export LD_LIBRARY_PATH="$PWD/refs/fast-cp-sm90-sm120/.deps/nvidia/nvshmem/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+source tools/install/fast_cp_env.sh
 export OMP_NUM_THREADS=1 NCCL_GRAPH_MIXING_SUPPORT=0 NCCL_GRAPH_REGISTER=0
 export TORCH_NCCL_ENABLE_MONITORING=0
 .venv/bin/python -m pytest chitu_diffusion/parallel/cp/fast/test -q

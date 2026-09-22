@@ -27,8 +27,8 @@ share/python-wheels/
 *.egg-info/
 key_exps/
 refs/
-# Local Fast CP dependency installation (NVSHMEM headers and libraries).
-/.deps/fast-cp/
+# Local dependency sources, native libraries, and build artifacts.
+/.deps/
 .installed.cfg
 *.egg
 MANIFEST

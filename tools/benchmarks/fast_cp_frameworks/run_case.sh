@@ -22,6 +22,7 @@ OUTPUT_ROOT=${FAST_CP_BENCH_OUTPUT_ROOT:-$PROJECT_ROOT/outputs/fast-cp/qkvo}
 
 case "$FRAMEWORK" in
     chitu)
+        source "$PROJECT_ROOT/tools/install/fast_cp_env.sh"
         PYTHON_BIN=${CHITU_PYTHON_BIN:-$PROJECT_ROOT/.venv/bin/python}
         RUNNER=$SCRIPT_DIR/chitu.py
         FRAMEWORK_SOURCE=$PROJECT_ROOT

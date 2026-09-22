@@ -71,16 +71,26 @@ def build_environment(
 
 
 def main() -> int:
+    project_root = Path(__file__).resolve().parents[2]
+    deps_root = Path(
+        os.environ.get("FAST_CP_DEPS_ROOT", project_root / ".deps/fast-cp")
+    )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "checkout", type=Path, help="dedicated fast-ulysses source checkout"
+        "checkout",
+        type=Path,
+        nargs="?",
+        default=os.environ.get("FAST_CP_BUILD_ROOT", deps_root / "src/fast-ulysses"),
+        help="fast-ulysses source checkout (default: .deps/fast-cp/src/fast-ulysses)",
     )
     parser.add_argument(
         "--architectures", nargs="+", choices=("90", "120"), default=["90", "120"]
     )
     parser.add_argument("--cuda-home", type=Path, default=os.environ.get("CUDA_HOME"))
     parser.add_argument(
-        "--nvshmem-home", type=Path, default=os.environ.get("NVSHMEM_HOME")
+        "--nvshmem-home",
+        type=Path,
+        default=os.environ.get("NVSHMEM_HOME", deps_root / "python/nvidia/nvshmem"),
     )
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument(
