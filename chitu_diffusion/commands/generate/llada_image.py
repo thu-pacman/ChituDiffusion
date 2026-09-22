@@ -14,7 +14,8 @@ from chitu_diffusion.commands.generate.common import (
     write_generation_metadata,
 )
 from chitu_diffusion.commands.parallel_args import (
-    add_parallel_transport_arguments,
+    add_cp_arguments,
+    resolve_cp_arguments,
     static_parallel_pipeline_kwargs,
 )
 
@@ -44,9 +45,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--guidance-scale", type=float, default=4.5)
     parser.add_argument("--max-sequence-length", type=int, default=2048)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--attention-mode", choices=("agkv", "ulysses"), default="agkv")
     parser.add_argument("--ulysses-degree", type=int)
-    add_parallel_transport_arguments(parser)
+    add_cp_arguments(parser)
     parser.add_argument(
         "--cfg-parallel",
         action=argparse.BooleanOptionalAction,
@@ -73,7 +73,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("outputs/chitu/llada_image.png"),
     )
-    args = parser.parse_args()
+    args = resolve_cp_arguments(parser, parser.parse_args())
     if not args.model_path:
         parser.error("--model-path or LLADA_IMAGE_MODEL_PATH is required")
     model_path = Path(args.model_path).expanduser()

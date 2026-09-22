@@ -30,10 +30,9 @@ def _config(**parallelism: Any) -> StageServiceConfig:
 def test_the_shipped_examples_describe_their_documented_geometry() -> None:
     zimage = load_stage_service_config(EXAMPLES / "stage-zimage.yaml")
     zimage_tp = load_stage_service_config(EXAMPLES / "stage-zimage-tp.yaml")
+    zimage_fast = load_stage_service_config(EXAMPLES / "stage-zimage-fast-cp.yaml")
     h3 = load_stage_service_config(EXAMPLES / "stage-minimax-h3.yaml")
-    h3_fast = load_stage_service_config(
-        EXAMPLES / "stage-minimax-h3-fast-cp.yaml"
-    )
+    h3_fast = load_stage_service_config(EXAMPLES / "stage-minimax-h3-fast-cp.yaml")
     hyi3 = load_stage_service_config(EXAMPLES / "stage-hunyuan-image3.yaml")
     hyi3_fast = load_stage_service_config(
         EXAMPLES / "stage-hunyuan-image3-fast-cp.yaml"
@@ -45,6 +44,8 @@ def test_the_shipped_examples_describe_their_documented_geometry() -> None:
     assert zimage_tp.parallelism.cp.world_size == 2
     assert zimage_tp.parallelism.model.tensor_parallel_degree == 2
     assert zimage_tp.parallelism.scheduler.policy == "static_cp"
+    assert zimage_fast.parallelism.cp.agkv_transport == "fast"
+    assert zimage_fast.parallelism.model.cfg_parallel_degree == 1
 
     assert h3.parallelism.cp.world_size == 2
     assert h3.parallelism.cp.attention_mode == "ulysses"
@@ -115,21 +116,63 @@ def test_a_tensor_parallel_degree_that_cannot_tile_the_stage_is_rejected() -> No
 
 
 @pytest.mark.parametrize(
-    "transports",
+    ("method", "transport"),
     [
-        {"ulysses_transport": "auto", "agkv_transport": "auto"},
-        {"ulysses_transport": "nccl", "agkv_transport": "fast"},
-        {"ulysses_transport": "fast", "agkv_transport": "nccl"},
+        ("agkv", "auto"),
+        ("ulysses", "auto"),
+        ("agkv", "fast"),
+        ("ulysses", "nccl"),
     ],
 )
 def test_transport_selections_normalize_auto_to_the_runtime_default(
-    transports: dict[str, str],
+    method: str,
+    transport: str,
 ) -> None:
-    plan = _config(cp={"world_size": 4, **transports}).parallelism.cp
+    key = f"{method}_transport"
+    plan = _config(cp={"attention_mode": method, key: transport}).parallelism.cp
 
-    for key, value in transports.items():
-        expected = None if value == "auto" else value
-        assert getattr(plan, key) == expected
+    expected = None if transport == "auto" else transport
+    assert getattr(plan, key) == expected
+
+
+@pytest.mark.parametrize("method", ["agkv", "ulysses"])
+@pytest.mark.parametrize("backend", ["fast", "nccl"])
+def test_cp_method_selects_the_backend_for_only_its_transport(method, backend) -> None:
+    plan = _config(cp={"method": method, "backend": backend}).parallelism.cp
+
+    assert plan.attention_mode == method
+    assert getattr(plan, f"{method}_transport") == backend
+    other = "ulysses" if method == "agkv" else "agkv"
+    assert getattr(plan, f"{other}_transport") is None
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"method": "ring"}, "cp-method must be"),
+        ({"backend": "fast_agkv"}, "cp-backend must be"),
+        ({"method": "ulysses", "agkv_transport": "fast"}, "requires cp-method=agkv"),
+        ({"ulysses_transport": "fast"}, "requires cp-method=ulysses"),
+        ({"method": "ulysses", "attention_mode": "agkv"}, "conflicts"),
+        ({"backend": "nccl", "agkv_transport": "fast"}, "conflicts"),
+    ],
+)
+def test_invalid_cp_options_fail_before_a_stage_is_started(options, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        _config(cp=options)
+
+
+def test_matching_new_and_legacy_cp_options_remain_compatible() -> None:
+    plan = _config(
+        cp={
+            "method": "ulysses",
+            "backend": "fast",
+            "attention_mode": "ulysses",
+            "ulysses_transport": "fast",
+        }
+    ).parallelism.cp
+    assert plan.attention_mode == "ulysses"
+    assert plan.ulysses_transport == "fast"
 
 
 def test_an_unknown_transport_names_the_supported_values() -> None:
@@ -218,7 +261,7 @@ def test_an_unknown_key_inside_a_section_is_refused() -> None:
             "factory_args",
             "attention_mode",
             "ulysses",
-            "parallelism.cp.attention_mode",
+            "parallelism.cp.method",
         ),
         ("factory_args", "ulysses_degree", 2, "parallelism.cp.ulysses_degree"),
         (

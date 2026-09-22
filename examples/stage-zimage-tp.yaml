@@ -7,7 +7,7 @@ parallelism:
     # A context-parallel lane lives inside one tensor-parallel plane, so
     # cp.world_size * model.tensor_parallel_degree must equal the GPU count.
     world_size: 2
-    attention_mode: agkv
+    method: agkv
   model:
     # Z-Image shards its attention and feed-forward projections through the
     # shared tensor-parallel plan. The degree must divide the 30 attention

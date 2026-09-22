@@ -7,7 +7,7 @@ parallelism:
     # A context-parallel lane lives inside one tensor-parallel plane, so
     # cp.world_size * model.tensor_parallel_degree must equal the GPU count.
     world_size: 4
-    attention_mode: agkv
+    method: agkv
   model:
     # Wan shards its attention and feed-forward projections through the shared
     # tensor-parallel plan, which also reduces the across-heads qk-norm across

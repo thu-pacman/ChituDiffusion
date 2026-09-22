@@ -11,12 +11,9 @@ parallelism:
   cp:
     world_size: 4
     # Fast AGKV:
-    attention_mode: agkv
-    agkv_transport: fast
-    # Fast Ulysses alternative (replace the two AGKV keys above):
-    # attention_mode: ulysses
-    # ulysses_degree: 2
-    # ulysses_transport: fast
+    method: agkv
+    backend: fast
+    # For Fast Ulysses, set method: ulysses and ulysses_degree: 2.
   model:
     tensor_parallel_degree: 2
     cfg_parallel_degree: 2

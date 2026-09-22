@@ -8,7 +8,7 @@ parallelism:
   # Eight physical ranks form a 4-way TP mesh with two elastic CP slots.
   cp:
     world_size: 2
-    attention_mode: ulysses
+    method: ulysses
     ulysses_degree: 2
   model:
     tensor_parallel_degree: 4

@@ -13,13 +13,14 @@ from chitu_diffusion.commands.generate.common import (
     write_generation_metadata,
 )
 from chitu_diffusion.commands.parallel_args import (
+    add_cp_arguments,
     add_vae_parallel_arguments,
+    resolve_cp_arguments,
     vae_parallel_degree,
     validate_vae_parallel_arguments,
 )
 from chitu_diffusion.epe.scheduling.planner import EpeSchedulingModule
 from chitu_diffusion.models.hunyuan_image3 import (
-    ATTENTION_MODES,
     HunyuanImage3Executor,
     HunyuanImage3ParallelPlan,
     HunyuanImage3ParallelRuntime,
@@ -56,24 +57,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=50)
     parser.add_argument("--guidance-scale", type=float, default=5.0)
     parser.add_argument("--flow-shift", type=float, default=None)
-    parser.add_argument(
-        "--attention-mode",
-        choices=ATTENTION_MODES,
-        default="agkv",
-        help="Context-parallel attention transport; AGKV is the default.",
-    )
-    parser.add_argument(
-        "--ulysses-transport",
-        choices=("auto", "torch", "fast_ulysses"),
-        default=None,
-        help="Ulysses exchange backend; defaults to CHITU_ULYSSES_TRANSPORT/torch.",
-    )
-    parser.add_argument(
-        "--agkv-transport",
-        choices=("auto", "torch", "fast_agkv"),
-        default=None,
-        help="AGKV exchange backend; defaults to CHITU_AGKV_TRANSPORT/torch.",
-    )
+    add_cp_arguments(parser)
     parser.add_argument("--tensor-parallel-degree", type=int, default=2)
     parser.add_argument(
         "--cfg-parallel-degree",
@@ -102,7 +86,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("outputs/chitu/hunyuan_image3.png"),
     )
-    args = parser.parse_args()
+    args = resolve_cp_arguments(parser, parser.parse_args())
     if not args.model_path:
         parser.error("--model-path or HUNYUAN_IMAGE3_MODEL_PATH is required")
     if args.steps <= 0:
