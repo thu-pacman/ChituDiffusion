@@ -17,7 +17,6 @@ from typing import Any
 
 import torch
 
-
 _HF_REPOSITORY = "kernels-community/flash-attn3"
 
 

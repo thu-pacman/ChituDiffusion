@@ -17,16 +17,16 @@ from .attention_state_merge import (
     triton_merge_available,
     try_merge_attention_states,
 )
-from .zimage_native_norm import (
-    rmsnorm_scale,
-    rmsnorm_tanh_residual,
-    triton_available,
-)
 from .qwen_image_modulation import (
     layernorm_scale_shift_gate_select01,
     residual_layernorm_scale_shift_gate_select01,
 )
 from .silu_and_mul import can_use_silu_and_mul, silu_and_mul
+from .zimage_native_norm import (
+    rmsnorm_scale,
+    rmsnorm_tanh_residual,
+    triton_available,
+)
 
 __all__ = [
     "flash_attention3_available",

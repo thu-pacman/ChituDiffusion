@@ -9,7 +9,6 @@ import time
 
 import torch
 import torch.nn.functional as F
-
 from diffusers.models.embeddings import apply_rotary_emb
 
 from kernel_adapters.qknorm_rope import fused_inplace

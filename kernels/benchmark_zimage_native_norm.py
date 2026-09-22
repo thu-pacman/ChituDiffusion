@@ -16,7 +16,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from kernel_adapters.zimage_native_norm import rmsnorm_scale, rmsnorm_tanh_residual, triton_available
+from kernel_adapters.zimage_native_norm import (  # noqa: E402 - imports follow the repository path bootstrap
+    rmsnorm_scale,
+    rmsnorm_tanh_residual,
+    triton_available,
+)
 
 # Z-Image's 1024px denoise path is dominated by 4096 image tokens.  The
 # default dim is configurable because checkpoint variants may use a different
@@ -27,7 +31,9 @@ PRESETS = {"smoke": (1, 512, 3840), "z-image-1024": (1, 4096, 3840)}
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preset", choices=PRESETS, default="z-image-1024")
-    parser.add_argument("--dim", type=int, help="Override transformer hidden dimension.")
+    parser.add_argument(
+        "--dim", type=int, help="Override transformer hidden dimension."
+    )
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--iters", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
@@ -40,7 +46,10 @@ def latency_ms(function, warmup: int, iterations: int) -> float:
     for _ in range(warmup):
         function()
     torch.cuda.synchronize()
-    start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    start, end = (
+        torch.cuda.Event(enable_timing=True),
+        torch.cuda.Event(enable_timing=True),
+    )
     start.record()
     for _ in range(iterations):
         function()
@@ -49,14 +58,18 @@ def latency_ms(function, warmup: int, iterations: int) -> float:
     return start.elapsed_time(end) / iterations
 
 
-def diffusers_rmsnorm(x: torch.Tensor, weight: torch.Tensor, eps: float) -> torch.Tensor:
+def diffusers_rmsnorm(
+    x: torch.Tensor, weight: torch.Tensor, eps: float
+) -> torch.Tensor:
     variance = x.float().square().mean(dim=-1, keepdim=True)
     return (x * torch.rsqrt(variance + eps)).to(weight.dtype) * weight
 
 
 def native_rmsnorm(x: torch.Tensor, weight: torch.Tensor, eps: float) -> torch.Tensor:
     # Mirrors the retained SGLang BF16 reduction.
-    mean_square = x.square().to(torch.bfloat16).mean(dim=-1, keepdim=True).to(torch.bfloat16)
+    mean_square = (
+        x.square().to(torch.bfloat16).mean(dim=-1, keepdim=True).to(torch.bfloat16)
+    )
     rstd = torch.rsqrt((mean_square + eps).to(torch.float32)).to(torch.bfloat16)
     return (x * rstd).to(torch.bfloat16) * weight
 
@@ -100,7 +113,9 @@ def main() -> int:
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is required for the Z-Image native norm benchmark.")
     if not triton_available():
-        raise SystemExit("Triton is unavailable; install a Triton-enabled PyTorch environment.")
+        raise SystemExit(
+            "Triton is unavailable; install a Triton-enabled PyTorch environment."
+        )
     if args.warmup < 0 or args.iters < 1:
         raise SystemExit("--warmup must be non-negative and --iters must be positive.")
 
@@ -119,18 +134,32 @@ def main() -> int:
         ("diffusers_fp32", diffusers_rmsnorm),
         ("native_bf16", native_rmsnorm),
     ):
-        scale_reference_fn = lambda: (rmsnorm_reference(x, weight, eps) * scale).to(torch.bfloat16)
-        residual_reference_fn = lambda: (
-            residual + torch.tanh(gate).to(torch.bfloat16) * rmsnorm_reference(x, weight, eps)
-        ).to(torch.bfloat16)
-        scale_kernel_fn = lambda: rmsnorm_scale(x, weight, scale, eps, mode=mode)
-        residual_kernel_fn = lambda: rmsnorm_tanh_residual(
-            x, gate, residual, weight, eps, mode=mode
+
+        def scale_reference_fn():
+            return (rmsnorm_reference(x, weight, eps) * scale).to(torch.bfloat16)
+
+        def residual_reference_fn():
+            return (
+                residual
+                + torch.tanh(gate).to(torch.bfloat16)
+                * rmsnorm_reference(x, weight, eps)
+            ).to(torch.bfloat16)
+
+        def scale_kernel_fn():
+            return rmsnorm_scale(x, weight, scale, eps, mode=mode)
+
+        def residual_kernel_fn():
+            return rmsnorm_tanh_residual(x, gate, residual, weight, eps, mode=mode)
+
+        scale_reference, residual_reference = (
+            scale_reference_fn(),
+            residual_reference_fn(),
         )
-        scale_reference, residual_reference = scale_reference_fn(), residual_reference_fn()
         scale_output, residual_output = scale_kernel_fn(), residual_kernel_fn()
         scale_reference_ms = latency_ms(scale_reference_fn, args.warmup, args.iters)
-        residual_reference_ms = latency_ms(residual_reference_fn, args.warmup, args.iters)
+        residual_reference_ms = latency_ms(
+            residual_reference_fn, args.warmup, args.iters
+        )
         scale_kernel_ms = latency_ms(scale_kernel_fn, args.warmup, args.iters)
         residual_kernel_ms = latency_ms(residual_kernel_fn, args.warmup, args.iters)
         results.extend(
@@ -170,7 +199,12 @@ def main() -> int:
                     "torch": torch.__version__,
                     "cuda": torch.version.cuda,
                 },
-                "shape": {"preset": args.preset, "batch": batch, "sequence": sequence, "dim": dim},
+                "shape": {
+                    "preset": args.preset,
+                    "batch": batch,
+                    "sequence": sequence,
+                    "dim": dim,
+                },
                 "results": results,
             },
             indent=2,

@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from kernel_adapters.qwen_image_modulation import (
+from kernel_adapters.qwen_image_modulation import (  # noqa: E402 - imports follow the repository path bootstrap
     layernorm_scale_shift_gate_select01,
     layernorm_scale_shift_gate_select01_reference,
     residual_layernorm_scale_shift_gate_select01,
@@ -42,7 +42,10 @@ def latency_ms(function, warmup: int, iterations: int) -> float:
     for _ in range(warmup):
         function()
     torch.cuda.synchronize()
-    start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    start, end = (
+        torch.cuda.Event(enable_timing=True),
+        torch.cuda.Event(enable_timing=True),
+    )
     start.record()
     for _ in range(iterations):
         function()
@@ -62,10 +65,18 @@ def summarize(
 ) -> dict:
     if candidate is None:
         return {"operator": name, "status": "unavailable"}
-    errors = [(actual.float() - expected.float()).abs() for actual, expected in zip(candidate, reference)]
+    errors = [
+        (actual.float() - expected.float()).abs()
+        for actual, expected in zip(candidate, reference)
+    ]
     return {
         "operator": name,
-        "status": "ok" if all(torch.allclose(a, b, rtol=rtol, atol=atol) for a, b in zip(candidate, reference)) else "incorrect",
+        "status": "ok"
+        if all(
+            torch.allclose(a, b, rtol=rtol, atol=atol)
+            for a, b in zip(candidate, reference)
+        )
+        else "incorrect",
         "max_abs_error": max(float(error.max()) for error in errors),
         "mean_abs_error": sum(float(error.mean()) for error in errors) / len(errors),
         "reference_ms": reference_ms,
@@ -89,12 +100,23 @@ def main() -> int:
     )
     index = torch.randint(0, 2, (batch, sequence), device="cuda", dtype=torch.int32)
     common = (scale0, shift0, gate0, scale1, shift1, gate1, index, 1e-6)
-    modulation_reference = lambda: layernorm_scale_shift_gate_select01_reference(x, *common)
-    modulation_kernel = lambda: layernorm_scale_shift_gate_select01(x, *common)
-    residual_reference = lambda: residual_layernorm_scale_shift_gate_select01_reference(
-        x, residual, residual_gate, *common
-    )
-    residual_kernel = lambda: residual_layernorm_scale_shift_gate_select01(x, residual, residual_gate, *common)
+
+    def modulation_reference():
+        return layernorm_scale_shift_gate_select01_reference(x, *common)
+
+    def modulation_kernel():
+        return layernorm_scale_shift_gate_select01(x, *common)
+
+    def residual_reference():
+        return residual_layernorm_scale_shift_gate_select01_reference(
+            x, residual, residual_gate, *common
+        )
+
+    def residual_kernel():
+        return residual_layernorm_scale_shift_gate_select01(
+            x, residual, residual_gate, *common
+        )
+
     references = (modulation_reference(), residual_reference())
     candidates = (modulation_kernel(), residual_kernel())
     results = (

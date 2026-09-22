@@ -17,7 +17,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from kernel_adapters.silu_and_mul import silu_and_mul, triton_available
+from kernel_adapters.silu_and_mul import (  # noqa: E402 - imports follow the repository path bootstrap
+    silu_and_mul,
+    triton_available,
+)
 
 # Flux2-klein-4B: hidden=24*128=3072, MLP projection=2*(3*3072)=18432.
 # 1024px image tokens are 4096 and the Qwen3 context is at most 512 tokens.
@@ -43,7 +46,10 @@ def _latency_ms(fn, warmup: int, iters: int) -> float:
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
-    start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    start, end = (
+        torch.cuda.Event(enable_timing=True),
+        torch.cuda.Event(enable_timing=True),
+    )
     start.record()
     for _ in range(iters):
         fn()
@@ -57,7 +63,9 @@ def main() -> int:
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is required for the Flux2 SiLU×mul benchmark.")
     if not triton_available():
-        raise SystemExit("Triton is unavailable; install a Triton-enabled PyTorch environment.")
+        raise SystemExit(
+            "Triton is unavailable; install a Triton-enabled PyTorch environment."
+        )
     if args.warmup < 0 or args.iters < 1:
         raise SystemExit("--warmup must be non-negative and --iters must be positive.")
 
@@ -65,8 +73,13 @@ def main() -> int:
     torch.manual_seed(args.seed)
     batch, sequence, width = PRESETS[args.preset]
     x = torch.randn(batch, sequence, width, device="cuda", dtype=dtype)
-    reference_fn = lambda: F.silu(x[..., : width // 2]) * x[..., width // 2 :]
-    candidate_fn = lambda: silu_and_mul(x)
+
+    def reference_fn():
+        return F.silu(x[..., : width // 2]) * x[..., width // 2 :]
+
+    def candidate_fn():
+        return silu_and_mul(x)
+
     reference, candidate = reference_fn(), candidate_fn()
     if candidate is None:
         raise SystemExit("Fusion was unavailable for a supported CUDA benchmark input.")
@@ -85,14 +98,23 @@ def main() -> int:
             "torch": torch.__version__,
             "cuda": torch.version.cuda,
         },
-        "shape": {"preset": args.preset, "batch": batch, "sequence": sequence, "width": width},
+        "shape": {
+            "preset": args.preset,
+            "batch": batch,
+            "sequence": sequence,
+            "width": width,
+        },
         "dtype": args.dtype,
         "correctness": {
             "bitwise_equal": bitwise_equal,
             "max_abs_error": float(abs_error.max()),
             "mean_abs_error": float(abs_error.mean()),
         },
-        "latency_ms": {"pytorch": reference_ms, "triton": candidate_ms, "speedup": reference_ms / candidate_ms},
+        "latency_ms": {
+            "pytorch": reference_ms,
+            "triton": candidate_ms,
+            "speedup": reference_ms / candidate_ms,
+        },
     }
     print(json.dumps(result, indent=2))
     return 0 if bitwise_equal else 1

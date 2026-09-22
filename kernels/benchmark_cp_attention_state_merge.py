@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import statistics
 import sys
 import time
+from pathlib import Path
 
 import torch
 import torch.distributed as dist
@@ -22,7 +22,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from kernel_adapters.attention_state_merge import (
+from kernel_adapters.attention_state_merge import (  # noqa: E402 - imports follow the repository path bootstrap
     merge_attention_states_reference,
     triton_merge_available,
     try_merge_attention_states,

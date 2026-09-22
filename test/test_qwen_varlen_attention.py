@@ -3,10 +3,11 @@
 
 import pytest
 import torch
+from chitu_diffusion.modules.attention.diffusion_attn_backend import (
+    DiffusionAttnBackend,
+)
 
-from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend
 from kernel_adapters.varlen import build_varlen_metadata, pack_qkv, scatter_padded
-
 
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
 

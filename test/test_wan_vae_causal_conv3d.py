@@ -3,8 +3,8 @@ import os
 import pytest
 import torch
 import torch.nn.functional as F
-
 from chitu_diffusion.modules.vaes.wan_vae import CausalConv3d
+
 from kernel_adapters.wan_vae_causal_conv3d import (
     cat_pad_stats,
     reset_cat_pad_stats,

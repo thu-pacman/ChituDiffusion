@@ -17,7 +17,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from kernel_adapters.wan_vae_causal_conv3d import try_causal_conv3d_cat_pad
+from kernel_adapters.wan_vae_causal_conv3d import (  # noqa: E402 - imports follow the repository path bootstrap
+    try_causal_conv3d_cat_pad,
+)
 
 
 @dataclass(frozen=True)

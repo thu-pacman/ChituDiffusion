@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
-import sys
 
 import torch
 import torch.nn.functional as F
@@ -17,8 +17,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend
-from kernel_adapters.varlen import build_varlen_metadata, pack_qkv, scatter_padded
+from chitu_diffusion.modules.attention.diffusion_attn_backend import (  # noqa: E402 - imports follow the repository path bootstrap
+    DiffusionAttnBackend,
+)
+
+from kernel_adapters.varlen import (  # noqa: E402 - imports follow the repository path bootstrap
+    build_varlen_metadata,
+    pack_qkv,
+    scatter_padded,
+)
 
 
 def parse_args() -> argparse.Namespace:

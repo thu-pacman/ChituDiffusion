@@ -65,7 +65,8 @@ dev = [
 
 [tool.ruff]
 target-version = "py312"
-extend-exclude = ["refs"]
+# Archived snapshots are retained for reference and are not maintained code.
+extend-exclude = ["refs", "backup/chitu_diffusion_legacy"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

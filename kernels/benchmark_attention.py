@@ -17,8 +17,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from chitu_diffusion.modules.attention.diffusion_attn_backend import DiffusionAttnBackend
-
+from chitu_diffusion.modules.attention.diffusion_attn_backend import (  # noqa: E402 - imports follow the repository path bootstrap
+    DiffusionAttnBackend,
+)
 
 PRESETS = {
     "smoke": (1, 512, 8, 64),

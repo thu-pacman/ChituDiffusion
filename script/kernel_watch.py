@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = REPO_ROOT / "kernels" / "upstreams.toml"
 DEFAULT_LOCK = REPO_ROOT / "kernels" / "upstreams.lock.json"
