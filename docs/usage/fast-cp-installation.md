@@ -84,6 +84,8 @@ uv pip install --python .venv/bin/python \
   'cuda-python==13.3.1'
 export FLASH_ATTENTION_ROOT="$PWD/refs/kernels/flash-attention"
 export PYTHONPATH="$PWD:$FLASH_ATTENTION_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+# srun_direct.sh 会重建 PYTHONPATH，通过此变量保留额外源码目录。
+export CHITU_EXTRA_PYTHONPATH="$FLASH_ATTENTION_ROOT"
 ```
 
 Planner 使用该版本的内部 forward 接口，因此不应任意替换为另一个 `flash-attn`
@@ -94,6 +96,11 @@ release。CuTe 无法导入时，相关计划会退回普通 SDPA；运行成功
 部署环境或作业脚本中。额外依赖通过 `uv pip` 安装；再次执行 `uv sync` 可能移除它们
 或替换扩展，需重新执行相应安装步骤。运行命令直接使用 `.venv/bin/python`，或使用
 `uv run --no-sync`。
+
+如果通信扩展只在 checkout 中编译、尚未安装 wheel，还需要将该 checkout 放在
+`CHITU_EXTRA_PYTHONPATH` 中，例如
+`export CHITU_EXTRA_PYTHONPATH="$PWD/refs/fast-cp-build:$FLASH_ATTENTION_ROOT"`。
+否则 Slurm 工作进程可能加载环境中较旧的 `fast_ulysses`。
 
 ## 4. 验证安装
 
@@ -128,7 +135,7 @@ python -m torch.distributed.run --standalone --nproc-per-node=2 \
 ```
 
 Slurm 集群可在最后一条命令前加
-`srun -p debug --exclusive --nodes=1 --ntasks=1 --gres=gpu:2 --cpus-per-task=16`。
+`srun --exclusive --nodes=1 --ntasks=1 --gres=gpu:2 --cpus-per-task=16`。
 JSON 应有 `status: complete`、`accuracy.checked: true`；查看
 `implementation.attention_plan` 确认实际计划。这里测试 Q/K/V 到 O，不包含 projection。
 全局序列长必须能被 CP 整除；修改参数即可测试其他形状。
@@ -145,29 +152,61 @@ bash chitu_diffusion/parallel/cp/fast/test/run_wrapper.sh outputs/fast-cp/instal
 `.deps/`，脚本会保留上面设置的 `LD_LIBRARY_PATH`。Slurm 提交和验收边界见
 [测试说明](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/chitu_diffusion/parallel/cp/fast/test/README.md)。
 
+<a id="enable-fast-cp"></a>
+
 ## 5. 启用方式
 
-**已有 pipeline：选择通信 transport。** 例如四卡 AGKV：
+**已有 pipeline：选择 CP 算法和通信后端。** 例如四卡 AGKV：
 
 ```bash
 python -m torch.distributed.run --standalone --nproc-per-node=4 \
   -m chitu_diffusion.cli generate --model zimage --model-path /path/to/Z-Image \
-  --attention-mode agkv --agkv-transport fast_agkv --no-cfg-parallel \
+  --cp-method agkv --cp-backend fast --no-cfg-parallel \
   --output outputs/zimage-fast-agkv.png
 ```
 
-Ulysses 使用 `--attention-mode ulysses --ulysses-transport fast_ulysses`。
+Ulysses 使用 `--cp-method ulysses --cp-backend fast`。
 `--no-cfg-parallel` 避免四个 rank 被分给 CFG，使该示例使用 CP4。
-默认 transport 是 Torch/NCCL；也可通过 `CHITU_AGKV_TRANSPORT` 或
-`CHITU_ULYSSES_TRANSPORT` 设置。Ulysses 默认 `CHITU_FAST_ULYSSES_TRANSFER=auto`，
+显式指定 `--cp-backend` 会覆盖对应的 transport 环境变量；省略时使用
+`CHITU_AGKV_TRANSPORT` / `CHITU_ULYSSES_TRANSPORT`，未设置时使用 Torch/NCCL。
+Ulysses 默认 `CHITU_FAST_ULYSSES_TRANSFER=auto`，
 按实际 shape 比较 SM/TMA/CE。
+
+**服务模式：在 stage 配置中选择通信后端。** 四卡 Z-Image 示例为
+[Fast CP 服务配置](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/examples/stage-zimage-fast-cp.yaml)。
+修改其中的模型路径后运行：
+
+```bash
+python -m torch.distributed.run --standalone --nproc-per-node=4 \
+  -m chitu_diffusion.cli serve --stage-config examples/stage-zimage-fast-cp.yaml
+```
+
+服务配置与 CLI 使用相同的两个维度：
+
+```yaml
+parallelism:
+  cp:
+    world_size: 4
+    method: agkv     # agkv 或 ulysses
+    backend: fast    # fast 或 nccl
+```
+
+示例使用固定 CP4、TP1、CFG1；
+弹性调度改变 CP lane 宽度时，其他宽度使用 NCCL。
+
+旧 CLI 参数和 YAML 中的 `attention_mode`、`agkv_transport`、`ulysses_transport`
+继续兼容；与新参数冲突或与所选算法不匹配时会报错。
+
+Wan、Qwen-Image、Z-Image 的模型 processor 在选择 Fast transport 时也会启用
+Attention Planner。但这些入口尚未接入完整 wrapper 的对称槽位投影及 packed/CE
+调度，没有一个 CLI 或 YAML 开关能直接开启全部已验收的 block 优化。
 
 **完整优化区域：显式接入 wrapper。** 先由应用完成 `dist.init_process_group` 和
 CP 分组，再调用 `init_fast_cp(cp_group, device=...)`，用模型 adapter 包装 attention，
 集体 `prepare()` 后执行。可用 adapter 为 `WanAdapter`、`QwenImageAdapter` 和
 `ZImageAdapter`；完整示例与输入分片契约见
 [wrapper 用法](https://github.com/thu-pacman/ChituDiffusion/blob/kernels/chitu_diffusion/parallel/cp/fast/README.md#使用-wrapper)。
-它覆盖 Planner、NVSHMEM 和模型级 packed/CE overlap 调度。CLI transport 开关
+它覆盖 Planner、NVSHMEM 和模型级 packed/CE overlap 调度。CLI 后端开关
 不会自动安装这个 wrapper，也不能单独复现它的全部性能收益。
 
 ## 常见问题与验收状态

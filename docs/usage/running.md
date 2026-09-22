@@ -27,6 +27,12 @@ JSON 同时记录 prompt、seed、步数和并行参数；FlexCache 模型还记
 
 ## 静态多卡生成
 
+`--cp-method agkv|ulysses` 选择 CP 算法，`--cp-backend fast|nccl` 选择通信后端。
+例如 `agkv + fast` 使用 Fast AGKV，`ulysses + fast` 使用 Fast Ulysses。
+方法默认为 `agkv`；显式指定后端会覆盖对应的 transport 环境变量。
+旧的 `--attention-mode`、`--agkv-transport` 和 `--ulysses-transport` 仍可使用，
+但新旧参数冲突或 transport 与方法不匹配时会报错。
+
 所有 rank 执行同一条命令，只有 leader 写出结果。默认 transport 是 Torch/NCCL：
 
 ```bash
@@ -44,7 +50,8 @@ torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
   generate \
   --model zimage \
   --model-path /path/to/Z-Image \
-  --agkv-transport fast_agkv \
+  --cp-method agkv --cp-backend fast \
+  --no-cfg-parallel \
   --output outputs/zimage-fast-agkv.png
 ```
 
@@ -55,9 +62,41 @@ torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
   generate \
   --model zimage \
   --model-path /path/to/Z-Image \
-  --attention-mode ulysses \
-  --ulysses-transport fast_ulysses \
+  --cp-method ulysses \
+  --cp-backend fast \
+  --no-cfg-parallel \
   --output outputs/zimage-fast-ulysses.png
+```
+
+以上两例关闭 CFG 分组，使用 CP4。它们选择 Fast 通信后端；Wan、Qwen-Image 和
+Z-Image 同时启用 Attention Planner，完整 wrapper 的投影融合和通信重叠仍需显式
+接入，见 [Fast CP 启用方式](fast-cp-installation.md#enable-fast-cp)。
+
+Slurm 上生成 Qwen-Image，可使用仓库脚本申请单节点四卡：
+
+脚本默认使用集群默认分区；需要指定分区时，在个人环境中设置 `SRUN_PARTITION`。
+
+先完成 [Fast CP 安装与验证](fast-cp-installation.md)。下面的 `QWEN_IMAGE_MODEL_PATH`
+必须指向已有的本地权重目录。若通信扩展和 CuTe 通过源码 checkout 加载，在启动前设置：
+
+```bash
+export CHITU_EXTRA_PYTHONPATH="$FAST_CP_BUILD_ROOT:$FLASH_ATTENTION_ROOT"
+export LD_LIBRARY_PATH="$NVSHMEM_HOME/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+```
+
+其中 `FAST_CP_BUILD_ROOT` 指向已编译的通信扩展目录，`FLASH_ATTENTION_ROOT` 指向
+CuTe FlashAttention 源码。若通信扩展已安装为 wheel，只需将 CuTe 源码加入
+`CHITU_EXTRA_PYTHONPATH`。集群脚本会重建 `PYTHONPATH`，因此普通 shell 中的
+`PYTHONPATH` 设置不能代替这个变量。
+
+```bash
+: "${QWEN_IMAGE_MODEL_PATH:?请设置为本地 Qwen-Image 权重目录}"
+bash tools/cluster/srun_direct.sh 1 4 \
+  -m chitu_diffusion.cli generate \
+  --model qwen-image --model-path "$QWEN_IMAGE_MODEL_PATH" \
+  --cp-method agkv --cp-backend fast --no-cfg-parallel \
+  --height 1024 --width 1024 --steps 50 \
+  --output outputs/qwen-fast-agkv.png
 ```
 
 Hunyuan Image 3 的 TP/CFG/CP/EP 拓扑在启动时确定。以下使用 72 GiB 卡上验证的
@@ -134,6 +173,16 @@ chitu generate \
 torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
   serve --stage-config examples/stage-zimage.yaml
 ```
+
+使用 Fast AGKV 的固定 CP4 服务，先修改配置中的模型路径：
+
+```bash
+torchrun --standalone --nproc-per-node=4 -m chitu_diffusion.cli \
+  serve --stage-config examples/stage-zimage-fast-cp.yaml
+```
+
+通信方式在 `parallelism.cp` 下设置；示例关闭 CFG 分组并使用 `static_cp` 调度。
+这与上面的 generate 命令启用范围一致，不会自动安装完整 wrapper。
 
 八卡 static-CP MoE 服务示例：
 

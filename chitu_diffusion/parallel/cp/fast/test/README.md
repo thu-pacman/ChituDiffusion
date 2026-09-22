@@ -97,7 +97,7 @@ bash chitu_diffusion/parallel/cp/fast/test/run_wrapper.sh outputs/fast-cp/wrappe
 从仓库根目录提交到 Slurm（可按集群调整 CPU 和内存申请）：
 
 ```bash
-sbatch -p debug --exclusive --nodes=1 --ntasks=1 --gres=gpu:8 \
+sbatch --exclusive --nodes=1 --ntasks=1 --gres=gpu:8 \
   --cpus-per-task=192 --mem=1937152 --time=00:15:00 \
   chitu_diffusion/parallel/cp/fast/test/run_wrapper.sh outputs/fast-cp/wrapper
 ```

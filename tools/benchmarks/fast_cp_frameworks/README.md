@@ -141,7 +141,9 @@ and NVSHMEM runtime are installed there.
 
 ## H20 execution
 
-The launcher requests an exclusive node from the `debug` partition. Examples:
+The launcher requests an exclusive node using the cluster default partition.
+Set `SRUN_PARTITION` for srun launchers or `SBATCH_PARTITION` for sbatch launchers
+to select a partition. Examples:
 
 ```bash
 # Wan 14B attention shape: H40/D128, supports CP2/4/8 Ulysses.
@@ -253,7 +255,7 @@ FAST_CP_BENCH_NODE=bjdb-h20-node-021 \
 Run xDiT's native Wan attention fixture with its isolated environment:
 
 ```bash
-srun -p debug --exclusive --nodes 1 --ntasks 1 --gres gpu:8 \
+srun --exclusive --nodes 1 --ntasks 1 --gres gpu:8 \
     tools/benchmarks/fast_cp_frameworks/run_local_xdit_wan_case.sh \
     wan14b 8 4096 outputs/fast-cp/xdit-wan
 ```
